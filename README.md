@@ -4,158 +4,89 @@
 
 Compare reservoir sampling strategies and acquisition functions for training genomic sequence-to-function models on MPRA datasets.
 
-> For full architecture details, see [ARCHITECTURE.md](ARCHITECTURE.md).
+## 🚀 Quick Start (Production Environments)
 
-## Quick Start
+### 1. Citra (Dev/GPU Server)
+*Use for: Interactive development, smaller experiments, debugging.*
 
-### Prerequisites
-
-- Python ≥ 3.11
-- [uv](https://docs.astral.sh/uv/) package manager
-- SSH access to compute environments (see [Compute Environments](#compute-environments))
-
-### Installation
-
+**Connect:**
 ```bash
-cd ~/Downloads/ALBench-S2F
+ssh trevor@143.48.59.3  # (Use your key)
+cd ~/ALBench-S2F
+```
+
+**Run Experiment 0 (Yeast Scaling) - Managed Queue:**
+The managed script avoids OOM errors by intelligently scheduling fractions on free GPUs.
+```bash
+# Start the manager (runs in background)
+nohup python3 scripts/run_citra_managed.py > logs/citra_managed.log 2>&1 & disown
+
+# Monitor progress
+tail -f logs/citra_managed.log
+```
+
+**Run HashFrag (K562):**
+```bash
+nohup bash scripts/run_with_runtime.sh python scripts/create_hashfrag_splits.py \
+    --data-dir data/k562 --threshold 60 > logs/hashfrag_k562.log 2>&1 &
+```
+
+---
+
+### 2. CSHL HPC (Cluster)
+*Use for: Full-scale experiments, long-running jobs.*
+
+**Connect:**
+```bash
+ssh christen@bamdev4.cshl.edu
+cd /grid/wsbs/home_norepl/christen/ALBench-S2F
+source setup_env.sh
+```
+
+**Run Experiment 0 (Yeast Scaling) - Resumable Slurm Array:**
+The script auto-checkpoints `last_model.pt` every epoch. If it hits the 12h limit, just resubmit it to resume.
+
+**Option A: Manual Submission**
+```bash
+sbatch scripts/slurm/exp0_yeast_scaling.sh
+```
+
+**Option B: Automated Watchdog (Recommended)**
+Runs on login node, monitors completion, and auto-resubmits if jobs finish/timeout without completing all work.
+```bash
+nohup python3 scripts/slurm/watchdog_exp0.py > logs/watchdog_exp0.log 2>&1 &
+```
+
+**Run HashFrag (K562):**
+```bash
+sbatch scripts/slurm/create_hashfrag_splits.sh
+```
+*Note: Fits safely within 12h limit.*
+
+---
+
+## 🛠️ Local Development (Mac)
+
+**Installation:**
+```bash
 uv sync --extra dev
 uv run pre-commit install
 ```
 
-On GPU hosts, auto-configure the correct PyTorch wheel:
-
-```bash
-uv run python scripts/auto_configure_torch.py --apply
-# Or use the one-shot bootstrap:
-bash scripts/setup_runtime.sh
-```
-
-### Local Validation (CPU-only)
-
-```bash
-uv run python -c "from albench.data.k562 import K562Dataset; print('OK')"
-uv run python -c "from albench.data.yeast import YeastDataset; print('OK')"
-uv run pytest tests/ -v
-```
-
----
-
-## Weights & Biases Setup
-
-1. Create `.env` in repo root:
-   ```
-   WANDB_API_KEY=your_key_here
-   ```
-2. On remote hosts without `.env`, run `uv run wandb login`
-3. Project name: `albench-s2f`
-4. All training runs and AL loop rounds log to W&B automatically
-
----
-
-## Data Download
-
-> **Do NOT download data on the local Mac for full runs.** Use remote compute.
-
-```bash
-uv run python scripts/download_data.py --dataset k562
-uv run python scripts/download_data.py --dataset yeast
-```
-
----
-
-## Compute Environments
-
-### Local Mac (smoke tests only — no GPU, no data downloads)
-
+**Tests:**
 ```bash
 uv run pytest tests/ -v
-uv run python -c "from albench.loop import run_al_loop; print('OK')"
 ```
 
-### Citra (dev GPU runs)
+## 📊 Monitoring
 
-```bash
-ssh trevor@143.48.59.3
-cd ~/ALBench-S2F
-bash scripts/setup_runtime.sh
-bash scripts/run_with_runtime.sh python experiments/exp0_scaling.py \
-    +task=k562 +student=dream_rnn experiment.dry_run=true
-```
+- **Logs (Both):** Check `logs/` directory.
+- **W&B:** Runs log to `albench-s2f` project.
+- **HPC Status:** `squeue -u christen`
+- **Citra Status:** `nvidia-smi` or `pgrep -f exp0`
 
-### Koo Lab HPC (full experiments)
+## 📦 Project Layout
 
-```bash
-ssh trevorch@bamdev4.cshl.edu
-cd /grid/koo/data/trevorch/ALBench-S2F
-sbatch scripts/slurm/train_koo.sh
-```
-
-Configured for `kooq` partition, `koolab` QoS, `bamgpu101` node (4× H100 NVL).
-
-### CSHL HPC — gpuq partition (alternative)
-
-```bash
-ssh christen@bamdev4.cshl.edu
-cd /grid/wsbs/home_norepl/christen/ALBench-S2F
-sbatch scripts/slurm/train_cshl.sh
-```
-
----
-
-## Running Experiments
-
-All experiments use [Hydra](https://hydra.cc/) for configuration:
-
-```bash
-# Dry run (fast test, ~30 seconds on GPU)
-uv run python experiments/exp0_scaling.py \
-    +task=k562 +student=dream_rnn experiment.dry_run=true
-
-# Full Experiment 0 scaling curve
-uv run python experiments/exp0_scaling.py \
-    +task=k562 +student=dream_rnn experiment.dry_run=false
-
-# Experiment 1 multirun (all strategy combos)
-uv run python experiments/exp1_benchmark.py --multirun \
-    +task=k562 +student=dream_rnn \
-    reservoir=random,genomic acquisition=random,uncertainty
-```
-
-Override any config parameter:
-```bash
-uv run python experiments/exp0_scaling.py +task=k562 +student=dream_rnn \
-    experiment.n_rounds=10 experiment.batch_size=1000 seed=123
-```
-
----
-
-## Project Layout
-
-```
-albench/          Core library (model, loop, evaluation, data, models, oracle, student, reservoir, acquisition)
-experiments/      Hydra entry-point scripts (exp0–exp5)
-configs/          Hydra YAML configs (task, student, acquisition, reservoir)
-scripts/          Data download, SLURM templates, runtime setup
-tests/            pytest test suite
-```
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for comprehensive module-level documentation.
-
----
-
-## Development
-
-```bash
-# Run linter
-uv run ruff check .
-
-# Run formatter
-uv run ruff format .
-
-# Run tests
-uv run pytest tests/ -v
-
-# Git workflow (Conventional Commits)
-git add -A && git commit -m 'feat: description of change'
-git push
-```
+- `experiments/`: Main entry points (`exp0_yeast_scaling.py`, etc.)
+- `scripts/`: Helper scripts (setup, runners, Slurm templates)
+- `albench/`: Core library code
