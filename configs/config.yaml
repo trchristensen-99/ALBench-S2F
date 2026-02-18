@@ -1,6 +1,4 @@
 defaults:
-  - task: k562
-  - student: dream_rnn
   - acquisition: random
   - reservoir: random
   - _self_
