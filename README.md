@@ -7,6 +7,13 @@ Active learning benchmark for sequence-to-function prediction on K562 and yeast 
 ```bash
 uv sync --extra dev
 uv run pre-commit install
+uv run python scripts/auto_configure_torch.py --apply
+```
+
+Or run the one-shot bootstrap:
+
+```bash
+bash scripts/setup_runtime.sh
 ```
 
 ## Environment and W&B
@@ -30,10 +37,16 @@ uv run python scripts/download_data.py --dataset yeast
 ## Quickstart on citra (recommended for smoke runs)
 
 ```bash
-ssh trevorch@143.48.59.3
+ssh trevor@143.48.59.3
 cd ~/ALBench-S2F
-uv sync
+bash scripts/setup_runtime.sh
 uv run python experiments/exp0_scaling.py +task=k562 +student=dream_rnn experiment.dry_run=true
+```
+
+If W&B is not configured on citra yet:
+
+```bash
+uv run wandb login
 ```
 
 ## Koo Lab HPC submission
