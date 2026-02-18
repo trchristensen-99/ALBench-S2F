@@ -108,7 +108,7 @@ def _apply_target(target: TorchTarget) -> None:
     """Install selected torch target."""
     print(f"[torch-config] target={target.label}")
     print(f"[torch-config] reason={target.reason}")
-    subprocess.run(["uv", "pip", "uninstall", "-y", "torch"], check=False)
+    subprocess.run(["uv", "pip", "uninstall", "torch"], check=False)
     _run(target.install_args, check=True)
 
 
