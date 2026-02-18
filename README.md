@@ -4,89 +4,89 @@
 
 Compare reservoir sampling strategies and acquisition functions for training genomic sequence-to-function models on MPRA datasets.
 
-## 🚀 Quick Start (Production Environments)
-
-### 1. Citra (Dev/GPU Server)
-*Use for: Interactive development, smaller experiments, debugging.*
-
-**Connect:**
-```bash
-ssh trevor@143.48.59.3  # (Use your key)
-cd ~/ALBench-S2F
-```
-
-**Run Experiment 0 (Yeast Scaling) - Managed Queue:**
-The managed script avoids OOM errors by intelligently scheduling fractions on free GPUs.
-```bash
-# Start the manager (runs in background)
-nohup python3 scripts/run_citra_managed.py > logs/citra_managed.log 2>&1 & disown
-
-# Monitor progress
-tail -f logs/citra_managed.log
-```
-
-**Run HashFrag (K562):**
-```bash
-nohup bash scripts/run_with_runtime.sh python scripts/create_hashfrag_splits.py \
-    --data-dir data/k562 --threshold 60 > logs/hashfrag_k562.log 2>&1 &
-```
+> **Note for Lab Members**: For specific instructions on accessing and running experiments on **Citra** or **CSHL HPC**, please refer to `REMOTE_ACCESS.md` (not tracked in git).
 
 ---
 
-### 2. CSHL HPC (Cluster)
-*Use for: Full-scale experiments, long-running jobs.*
+## 🚀 Quick Start
 
-**Connect:**
-```bash
-ssh christen@bamdev4.cshl.edu
-cd /grid/wsbs/home_norepl/christen/ALBench-S2F
-source setup_env.sh
-```
+### Prerequisites
+- Python ≥ 3.11
+- [uv](https://docs.astral.sh/uv/) package manager
 
-**Run Experiment 0 (Yeast Scaling) - Resumable Slurm Array:**
-The script auto-checkpoints `last_model.pt` every epoch. If it hits the 12h limit, just resubmit it to resume.
+### Installation
 
-**Option A: Manual Submission**
-```bash
-sbatch scripts/slurm/exp0_yeast_scaling.sh
-```
-
-**Option B: Automated Watchdog (Recommended)**
-Runs on login node, monitors completion, and auto-resubmits if jobs finish/timeout without completing all work.
-```bash
-nohup python3 scripts/slurm/watchdog_exp0.py > logs/watchdog_exp0.log 2>&1 &
-```
-
-**Run HashFrag (K562):**
-```bash
-sbatch scripts/slurm/create_hashfrag_splits.sh
-```
-*Note: Fits safely within 12h limit.*
-
----
-
-## 🛠️ Local Development (Mac)
-
-**Installation:**
 ```bash
 uv sync --extra dev
 uv run pre-commit install
 ```
 
-**Tests:**
+### Local Validation (CPU-only)
+Useful for verifying code correctness before submitting jobs.
+
 ```bash
 uv run pytest tests/ -v
+# Smoke test the AL loop
+uv run python -c "from albench.loop import run_al_loop; print('OK')"
 ```
 
-## 📊 Monitoring
+---
 
-- **Logs (Both):** Check `logs/` directory.
-- **W&B:** Runs log to `albench-s2f` project.
-- **HPC Status:** `squeue -u christen`
-- **Citra Status:** `nvidia-smi` or `pgrep -f exp0`
+## 🧪 Running Experiments
 
-## 📦 Project Layout
+All experiments use [Hydra](https://hydra.cc/) for configuration.
 
-- `experiments/`: Main entry points (`exp0_yeast_scaling.py`, etc.)
-- `scripts/`: Helper scripts (setup, runners, Slurm templates)
-- `albench/`: Core library code
+### 1. Dry Run (Fast Test)
+Run a tiny experiment to verify the pipeline works end-to-end.
+```bash
+uv run python experiments/exp0_scaling.py \
+    +task=k562 +student=dream_rnn experiment.dry_run=true
+```
+
+### 2. Full Experiment (Scaling Curve)
+Run the full yeast scaling experiment (requires downloaded data).
+```bash
+uv run python experiments/exp0_yeast_scaling.py \
+    --fraction 0.1 --seed 42 --wandb-mode offline
+```
+
+### 3. Active Learning Benchmark
+Run a full active learning loop with specific strategies.
+```bash
+uv run python experiments/exp1_benchmark.py --multirun \
+    +task=k562 +student=dream_rnn \
+    reservoir=random,genomic acquisition=random,uncertainty
+```
+
+---
+
+## 📦 Data Download
+
+Use the provided scripts to download datasets from Zenodo.
+
+```bash
+uv run python scripts/download_data.py --dataset k562
+uv run python scripts/download_data.py --dataset yeast
+```
+
+*Note: Data is saved to `data/` and is ignored by git.*
+
+---
+
+## 📊 W&B Logging
+
+To enable Weights & Biases logging:
+1. Create a `.env` file in the root: `WANDB_API_KEY=your_key`
+2. Or run `wandb login` in your shell.
+
+---
+
+## 📂 Project Layout
+
+- `albench/`: Core library (model, loop, evaluation).
+- `experiments/`: Entry-point scripts (`exp0`, `exp1`, etc.).
+- `configs/`: Hydra YAML configurations.
+- `scripts/`: Helper scripts for setup, SLURM submission, and data download.
+- `tests/`: Unit tests.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
