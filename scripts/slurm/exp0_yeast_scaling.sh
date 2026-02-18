@@ -29,7 +29,7 @@ elif [[ -f .env ]]; then
     export $(grep WANDB_API_KEY .env | xargs)
 fi
 
-bash scripts/run_with_runtime.sh python experiments/exp0_yeast_scaling.py \
+uv run python experiments/exp0_yeast_scaling.py \
     --fraction "${FRACTION}" \
     --seed 42 \
-    --wandb-mode online
+    --wandb-mode offline
