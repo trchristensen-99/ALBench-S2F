@@ -33,7 +33,12 @@ def _random_sequences(n: int, length: int, seed: int) -> list[str]:
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Run Experiment 0 scaling benchmark."""
+    """Run Experiment 0 scaling benchmark.
+
+    This experiment trains the student on random subsets of increasing size
+    using the real labeled data, evaluating on test sets to characterize how
+    model performance scales with dataset size.
+    """
     load_dotenv()
     _set_seed(int(cfg.seed))
 
@@ -42,6 +47,8 @@ def main(cfg: DictConfig) -> None:
         organism=cfg.task.organism,
         sequence_length=int(cfg.task.sequence_length),
         data_root=cfg.task.data_root,
+        input_channels=int(cfg.task.input_channels),
+        task_mode=cfg.task.task_mode,
         test_set=OmegaConf.to_container(cfg.task.test_set, resolve=True),
     )
 
@@ -64,6 +71,7 @@ def main(cfg: DictConfig) -> None:
     acquisition = instantiate(cfg.acquisition)
 
     if cfg.experiment.dry_run:
+        # --- Dry-run: synthetic data, 1 round, 1 ensemble member ---
         if hasattr(student, "train_config"):
             student.train_config.epochs = 1
             student.train_config.batch_size = 64
@@ -78,12 +86,46 @@ def main(cfg: DictConfig) -> None:
                 "labels": labels[:64].tolist(),
             }
         }
+        pool_sequences = sequences[64:]
     else:
-        raise NotImplementedError(
-            "Non-dry-run dataset wiring will be added in full experiment integration"
-        )
+        # --- Real data: load K562 or Yeast dataset ---
+        if cfg.task.task_mode == "k562":
+            from albench.data.k562 import K562Dataset
 
-    oracle = PerfectOracle(dict(zip(sequences, labels, strict=False)))
+            ds_train = K562Dataset(data_path=cfg.task.data_root, split="train")
+            ds_pool = K562Dataset(data_path=cfg.task.data_root, split="pool")
+            ds_test = K562Dataset(data_path=cfg.task.data_root, split="test")
+        elif cfg.task.task_mode == "yeast":
+            from albench.data.yeast import YeastDataset
+
+            ds_train = YeastDataset(data_path=cfg.task.data_root, split="train")
+            ds_pool = YeastDataset(data_path=cfg.task.data_root, split="pool")
+            ds_test = YeastDataset(data_path=cfg.task.data_root, split="test")
+        else:
+            raise ValueError(f"Unknown task_mode: {cfg.task.task_mode}")
+
+        sequences = list(ds_train.sequences)
+        labels = ds_train.labels.astype(np.float32)
+        pool_sequences = list(ds_pool.sequences)
+
+        task.test_set = {
+            "test": {
+                "sequences": list(ds_test.sequences),
+                "labels": ds_test.labels.tolist(),
+            }
+        }
+
+    # Build oracle: lookup mapping from sequence → label
+    if cfg.experiment.dry_run:
+        label_map = dict(zip(sequences, labels.tolist(), strict=False))
+    else:
+        # For real data, build oracle from all labeled splits
+        all_seqs = sequences + pool_sequences
+        all_labels = np.concatenate([labels, ds_pool.labels.astype(np.float32)]).tolist()
+        label_map = dict(zip(all_seqs, all_labels, strict=False))
+
+    oracle = PerfectOracle(label_map)
+
     initial_labeled = sequences[: int(cfg.experiment.batch_size)]
 
     run_config = RunConfig(
@@ -101,6 +143,7 @@ def main(cfg: DictConfig) -> None:
         student=student,
         initial_labeled=initial_labeled,
         run_config=run_config,
+        pool_sequences=pool_sequences,
     )
     curve = compute_scaling_curve(results)
     out = Path(cfg.experiment.output_dir)

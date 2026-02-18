@@ -53,8 +53,23 @@ def run_al_loop(
     student: SequenceModel,
     initial_labeled: list[str],
     run_config: RunConfig,
+    pool_sequences: list[str] | None = None,
 ) -> list[RoundResult]:
-    """Run active learning rounds with schedule-based dispatch."""
+    """Run active learning rounds with schedule-based dispatch.
+
+    Args:
+        task: Task configuration with test-set info.
+        oracle: Oracle that labels sequences.
+        student: Student model to train iteratively.
+        initial_labeled: Seed sequences for the first round.
+        run_config: AL loop hyperparameters.
+        pool_sequences: Optional fixed pool of unlabeled sequences
+            for reservoir to select from. When ``None``, the reservoir's
+            ``sample()`` method is expected to generate sequences itself.
+
+    Returns:
+        List of per-round results.
+    """
     results: list[RoundResult] = []
     labeled = list(initial_labeled)
     labels = oracle.predict(labeled)
@@ -65,13 +80,25 @@ def run_al_loop(
         sampler = _scheduled(run_config.reservoir_schedule, round_idx)
         acquirer = _scheduled(run_config.acquisition_schedule, round_idx)
 
-        candidate_indices = sampler.sample(
-            candidates=labeled,
-            n_samples=min(run_config.n_reservoir_candidates, len(labeled)),
-            metadata=None,
-        )
-        candidate_sequences = [labeled[idx] for idx in candidate_indices]
+        # Reservoir step: generate or select candidate sequences
+        if pool_sequences is not None:
+            # Fixed pool mode: reservoir selects indices from pool
+            candidate_indices = sampler.sample(
+                candidates=pool_sequences,
+                n_samples=min(run_config.n_reservoir_candidates, len(pool_sequences)),
+                metadata=None,
+            )
+            candidate_sequences = [pool_sequences[idx] for idx in candidate_indices]
+        else:
+            # Generative mode: reservoir produces candidate strings directly
+            candidate_indices = sampler.sample(
+                candidates=labeled,
+                n_samples=min(run_config.n_reservoir_candidates, len(labeled)),
+                metadata=None,
+            )
+            candidate_sequences = [labeled[idx] for idx in candidate_indices]
 
+        # Acquisition step: select top-k from candidate pool
         selected_local_idx = acquirer.select(
             student=student,
             candidates=candidate_sequences,

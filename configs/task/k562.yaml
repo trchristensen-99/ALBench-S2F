@@ -4,4 +4,5 @@ sequence_length: 200
 data_root: data/k562
 input_channels: 5
 task_mode: k562
+random_region_length: 200
 test_set: {}

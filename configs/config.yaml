@@ -3,6 +3,9 @@ defaults:
   - reservoir: random
   - _self_
 
+# Task and student are added via +task= and +student= overrides
+# so they are not listed in defaults
+
 experiment:
   name: exp0_scaling
   dry_run: true

@@ -133,8 +133,9 @@ class K562Dataset(SequenceDataset):
         # Apply subset size if specified (for downsampling experiments)
         # Use truly random sampling without replacement
         if self.subset_size is not None and self.subset_size < len(self.sequences):
-            # No seed set - use current random state for maximum randomness
-            indices = np.random.choice(len(self.sequences), size=self.subset_size, replace=False)
+            # Use deterministic seed for reproducibility across environments
+            rng = np.random.default_rng(seed=42)
+            indices = rng.choice(len(self.sequences), size=self.subset_size, replace=False)
             self.sequences = self.sequences[indices]
             self.labels = self.labels[indices]
             logger.info(
@@ -269,14 +270,13 @@ class K562Dataset(SequenceDataset):
         # Get the 80% training data
         train_pool_seqs, train_pool_labels, train_pool_indices = raw_splits["train"]
 
-        # Split into train and pool
-        # For baseline experiments, we use the full train pool (no 100K cap)
-        # The train pool is the full 80% of data, pool is not used for baseline
-        # We'll use all of train_pool_indices as the train split
-        n_train = len(train_pool_indices)  # Use full train pool, no cap
+        # Split into train (first 100K) and pool (remainder ~194K)
+        # Per migration plan: 100K train + rest as unlabeled pool for AL selection
+        n_train = min(100_000, len(train_pool_indices))
 
-        # Randomly shuffle and split (no seed - use current random state for maximum randomness)
-        shuffle_idx = np.random.permutation(len(train_pool_indices))
+        # Deterministic shuffle so the same split is reproducible across Citra and HPC
+        rng = np.random.default_rng(seed=42)
+        shuffle_idx = rng.permutation(len(train_pool_indices))
 
         train_shuffle = shuffle_idx[:n_train]
         pool_shuffle = shuffle_idx[n_train:]

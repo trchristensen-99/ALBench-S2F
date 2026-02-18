@@ -4,4 +4,8 @@ sequence_length: 150
 data_root: data/yeast
 input_channels: 6
 task_mode: yeast
+random_region_length: 80
 test_set: {}
+flanking_sequence:
+  five_prime: "GCTAGCAGGAATGATGCAAAAGGTTCCCGATTCGAACTGCATTTTTTTCACATCTCG"
+  three_prime: "GGTTACGGCTGTT"

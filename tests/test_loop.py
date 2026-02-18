@@ -1,58 +1,146 @@
-"""Tests for AL loop schedule dispatch and round bookkeeping."""
+"""Tests for the AL loop driver."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import numpy as np
+import pytest
 
-from albench.loop import RunConfig, run_al_loop
-from albench.model import SequenceModel
+from albench.loop import RoundResult, RunConfig, run_al_loop
 from albench.task import TaskConfig
 
+# ---- Minimal test doubles -------------------------------------------------
 
-class _Oracle(SequenceModel):
+
+class _FakeOracle:
+    """Oracle that returns a hash-based label."""
+
     def predict(self, sequences: list[str]) -> np.ndarray:
-        return np.asarray([float(len(s)) for s in sequences], dtype=np.float32)
+        return np.array([float(hash(s) % 100) / 100.0 for s in sequences], dtype=np.float32)
 
 
-class _Student(SequenceModel):
+class _FakeStudent:
+    """Student that tracks fit calls."""
+
     def __init__(self) -> None:
-        self.fit_calls = 0
+        self.fit_count = 0
+        self._fitted_on: list[str] = []
 
     def predict(self, sequences: list[str]) -> np.ndarray:
         return np.zeros(len(sequences), dtype=np.float32)
 
+    def uncertainty(self, sequences: list[str]) -> np.ndarray:
+        return np.random.default_rng(0).uniform(size=len(sequences)).astype(np.float32)
+
+    def embed(self, sequences: list[str]) -> np.ndarray:
+        return np.random.default_rng(0).normal(size=(len(sequences), 16)).astype(np.float32)
+
     def fit(self, sequences: list[str], labels: np.ndarray) -> None:
-        self.fit_calls += 1
+        self.fit_count += 1
+        self._fitted_on = list(sequences)
 
 
-@dataclass
-class _Sampler:
-    def sample(self, candidates: list[str], n_samples: int, metadata=None):
+class _FakeSampler:
+    """Reservoir that returns sequential indices."""
+
+    def sample(self, candidates: list[str], n_samples: int, metadata: Any = None) -> list[int]:
         return list(range(min(n_samples, len(candidates))))
 
 
-@dataclass
-class _Acquirer:
-    def select(self, student: SequenceModel, candidates: list[str], n_select: int):
-        return np.arange(min(n_select, len(candidates)))
+class _FakeAcquirer:
+    """Acquisition that returns the first k candidates."""
+
+    def select(self, student: Any, candidates: list[str], n_select: int) -> list[int]:
+        return list(range(min(n_select, len(candidates))))
 
 
-def test_run_al_loop_runs_rounds_and_updates_labels(tmp_path) -> None:
-    task = TaskConfig(
-        name="k562", organism="human", sequence_length=200, data_root=".", test_set={}
+# ---- Tests -----------------------------------------------------------------
+
+
+@pytest.fixture()
+def test_task(tmp_path: Path) -> TaskConfig:
+    """Create a minimal TaskConfig for testing."""
+    return TaskConfig(
+        name="test",
+        organism="test_organism",
+        sequence_length=10,
+        data_root=str(tmp_path),
+        test_set={
+            "simple": {
+                "sequences": ["AAAAAAAAAA", "CCCCCCCCCC"],
+                "labels": [0.5, 0.8],
+            }
+        },
     )
-    oracle = _Oracle()
-    student = _Student()
-    run_cfg = RunConfig(
+
+
+@pytest.fixture()
+def run_config(tmp_path: Path) -> RunConfig:
+    """Create a minimal RunConfig."""
+    return RunConfig(
         n_rounds=2,
-        batch_size=2,
-        reservoir_schedule={"default": _Sampler()},
-        acquisition_schedule={"default": _Acquirer()},
-        output_dir=str(tmp_path),
-        n_reservoir_candidates=2,
+        batch_size=4,
+        reservoir_schedule={"default": _FakeSampler()},
+        acquisition_schedule={"default": _FakeAcquirer()},
+        output_dir=str(tmp_path / "run_outputs"),
+        n_reservoir_candidates=16,
     )
-    results = run_al_loop(task, oracle, student, ["AAAA", "CCCC", "GGGG"], run_cfg)
-    assert len(results) == 2
-    assert student.fit_calls == 3
+
+
+@patch("albench.loop.wandb")
+def test_run_al_loop_basic(mock_wandb, test_task: TaskConfig, run_config: RunConfig) -> None:
+    """Verify AL loop produces expected number of results and runs student.fit."""
+    mock_wandb.run = None  # Disable W&B logging
+
+    oracle = _FakeOracle()
+    student = _FakeStudent()
+    initial = ["ACGTACGTAC", "GCTAGCTAGC", "TATATATATAT", "GGGGGGGGGG"]
+
+    results = run_al_loop(
+        task=test_task,
+        oracle=oracle,
+        student=student,
+        initial_labeled=initial,
+        run_config=run_config,
+        pool_sequences=[
+            "AACCTGGTTC",
+            "CCGGAATTCC",
+            "TTAAGGCCTT",
+            "GGCCAATTGG",
+            "AATTCCGGAA",
+            "CCAATTGGCC",
+            "TTGGAACCTT",
+            "GGTTCCAAGG",
+        ],
+    )
+
+    # Should have results for each round
+    assert len(results) == run_config.n_rounds
+    # Student should be fitted once initially + once per round
+    assert student.fit_count == 1 + run_config.n_rounds
+
+
+@patch("albench.loop.wandb")
+def test_run_al_loop_round_metadata(
+    mock_wandb, test_task: TaskConfig, run_config: RunConfig
+) -> None:
+    """Verify each RoundResult has correct metadata."""
+    mock_wandb.run = None
+
+    results = run_al_loop(
+        task=test_task,
+        oracle=_FakeOracle(),
+        student=_FakeStudent(),
+        initial_labeled=["ACGTACGTAC", "GCTAGCTAGC"],
+        run_config=run_config,
+        pool_sequences=["AACCTG" * 2, "CCGGAA" * 2, "TTAAGG" * 2, "GGCCAA" * 2] * 2,
+    )
+
+    for r in results:
+        assert isinstance(r, RoundResult)
+        assert r.n_labeled > 0
+        assert isinstance(r.selected_sequences, list)
+        assert isinstance(r.test_metrics, dict)
