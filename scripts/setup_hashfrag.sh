@@ -54,12 +54,12 @@ if ! command -v blastn &> /dev/null; then
             cd external
             # Note: This URL might need updating for newer versions.
             # Check https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ for the latest.
-            wget https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ncbi-blast-2.16.0+-x64-linux.tar.gz
-            tar -zxvf ncbi-blast-2.16.0+-x64-linux.tar.gz
-            rm ncbi-blast-2.16.0+-x64-linux.tar.gz
+            wget https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ncbi-blast-2.17.0+-x64-linux.tar.gz
+            tar -zxvf ncbi-blast-2.17.0+-x64-linux.tar.gz
+            rm ncbi-blast-2.17.0+-x64-linux.tar.gz
             cd ..
-            export PATH=$PWD/external/ncbi-blast-2.16.0+/bin:$PATH
-            echo "Installed BLAST+ to external/ncbi-blast-2.16.0+"
+            export PATH=$PWD/external/ncbi-blast-2.17.0+/bin:$PATH
+            echo "Installed BLAST+ to external/ncbi-blast-2.17.0+"
         fi
 
         if ! command -v blastn &> /dev/null; then

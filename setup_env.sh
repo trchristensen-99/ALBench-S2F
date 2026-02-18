@@ -15,8 +15,8 @@ if [[ $(hostname) == *"bam"* || $(hostname) == *"gpu"* || $(hostname) == *"elzar
     fi
 
     # Add project bin to PATH (for HashFrag/BLAST if installed locally)
-    export PATH=$PWD/external/hashFrag:$PATH
-    export PATH=$PWD/external/ncbi-blast-2.16.0+/bin:$PATH
+    export PATH=$PWD/external/hashFrag/src:$PWD/external/hashFrag:$PATH
+    export PATH=$PWD/external/ncbi-blast-2.17.0+/bin:$PWD/external/ncbi-blast-2.16.0+/bin:$PATH
     
     # Check for BLAST
     if command -v blastn &> /dev/null; then
