@@ -70,7 +70,9 @@ class DownloadProgressBar(tqdm):
         self.update(b * bsize - self.n)
 
 
-def download_file(url: str, output_path: Path, desc: Optional[str] = None) -> None:
+def download_file(
+    url: str, output_path: Path, desc: Optional[str] = None, yes: bool = False
+) -> None:
     """
     Download a file from URL with progress bar.
 
@@ -78,10 +80,14 @@ def download_file(url: str, output_path: Path, desc: Optional[str] = None) -> No
         url: URL to download from
         output_path: Path to save file
         desc: Description for progress bar
+        yes: Skip interactive prompts
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if output_path.exists():
+        if yes:
+            print(f"File already exists, skipping: {output_path}")
+            return
         print(f"File already exists: {output_path}")
         response = input("Overwrite? (y/n): ")
         if response.lower() != "y":
@@ -127,13 +133,14 @@ def extract_archive(archive_path: Path, output_dir: Path) -> None:
     print(f"✓ Extracted to {output_dir}")
 
 
-def download_dataset(dataset_name: str, data_root: Path) -> None:
+def download_dataset(dataset_name: str, data_root: Path, yes: bool = False) -> None:
     """
     Download a specific dataset.
 
     Args:
         dataset_name: Name of dataset ('k562' or 'yeast')
         data_root: Root directory for data storage
+        yes: Skip interactive prompts
     """
     if dataset_name not in DATASETS:
         raise ValueError(f"Unknown dataset: {dataset_name}. Choose from: {list(DATASETS.keys())}")
@@ -159,7 +166,7 @@ def download_dataset(dataset_name: str, data_root: Path) -> None:
             desc += f" - {file_info['expected_sequences']} sequences"
 
         try:
-            download_file(file_info["url"], output_path, desc)
+            download_file(file_info["url"], output_path, desc, yes=yes)
             downloaded_files.append(output_path)
 
             # Extract if archive
@@ -201,6 +208,7 @@ def main():
         choices=["k562", "yeast", "all"],
         help="Which dataset to download",
     )
+    parser.add_argument("--yes", "-y", action="store_true", help="Skip interactive prompts")
     parser.add_argument(
         "--data-dir",
         type=str,
@@ -219,12 +227,12 @@ def main():
     if args.dataset == "all":
         for dataset_name in ["k562", "yeast"]:
             try:
-                download_dataset(dataset_name, data_root)
+                download_dataset(dataset_name, data_root, yes=args.yes)
             except Exception as e:
                 print(f"Error downloading {dataset_name}: {e}")
                 continue
     else:
-        download_dataset(args.dataset, data_root)
+        download_dataset(args.dataset, data_root, yes=args.yes)
 
     print("\n" + "=" * 60)
     print("Download complete!")

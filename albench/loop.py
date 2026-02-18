@@ -49,8 +49,8 @@ def _scheduled(schedule: dict[int | str, Any], round_idx: int) -> Any:
 
 def run_al_loop(
     task: TaskConfig,
-    oracle: SequenceModel,
-    student: SequenceModel,
+    oracle: Any,
+    student: Any,
     initial_labeled: list[str],
     run_config: RunConfig,
     pool_sequences: list[str] | None = None,
@@ -59,8 +59,9 @@ def run_al_loop(
 
     Args:
         task: Task configuration with test-set info.
-        oracle: Oracle that labels sequences.
-        student: Student model to train iteratively.
+        oracle: Oracle model implementing ``predict(list[str]) -> ndarray``.
+        student: Student model implementing ``predict``, ``fit``, and
+            optionally ``uncertainty``, ``embed``, and ``save``.
         initial_labeled: Seed sequences for the first round.
         run_config: AL loop hyperparameters.
         pool_sequences: Optional fixed pool of unlabeled sequences
@@ -71,24 +72,29 @@ def run_al_loop(
         List of per-round results.
     """
     results: list[RoundResult] = []
-    labeled = list(initial_labeled)
-    labels = oracle.predict(labeled)
+    labeled: list[str] = list(initial_labeled)
+    labels: np.ndarray = oracle.predict(labeled)
 
     student.fit(labeled, labels)
+
+    # Capture the pool into a concrete local so the type-checker
+    # knows it cannot be ``None`` inside the branch.
+    pool: list[str] = pool_sequences if pool_sequences is not None else []
+    use_fixed_pool: bool = pool_sequences is not None
 
     for round_idx in range(run_config.n_rounds):
         sampler = _scheduled(run_config.reservoir_schedule, round_idx)
         acquirer = _scheduled(run_config.acquisition_schedule, round_idx)
 
         # Reservoir step: generate or select candidate sequences
-        if pool_sequences is not None:
+        if use_fixed_pool:
             # Fixed pool mode: reservoir selects indices from pool
-            candidate_indices = sampler.sample(
-                candidates=pool_sequences,
-                n_samples=min(run_config.n_reservoir_candidates, len(pool_sequences)),
+            candidate_indices: list[int] = sampler.sample(
+                candidates=pool,
+                n_samples=min(run_config.n_reservoir_candidates, len(pool)),
                 metadata=None,
             )
-            candidate_sequences = [pool_sequences[idx] for idx in candidate_indices]
+            candidate_sequences: list[str] = [pool[i] for i in candidate_indices]
         else:
             # Generative mode: reservoir produces candidate strings directly
             candidate_indices = sampler.sample(
@@ -96,20 +102,20 @@ def run_al_loop(
                 n_samples=min(run_config.n_reservoir_candidates, len(labeled)),
                 metadata=None,
             )
-            candidate_sequences = [labeled[idx] for idx in candidate_indices]
+            candidate_sequences = [labeled[i] for i in candidate_indices]
 
         # Acquisition step: select top-k from candidate pool
-        selected_local_idx = acquirer.select(
+        selected_local_idx: list[int] = acquirer.select(
             student=student,
             candidates=candidate_sequences,
             n_select=min(run_config.batch_size, len(candidate_sequences)),
         )
-        selected = [candidate_sequences[int(idx)] for idx in selected_local_idx]
+        selected: list[str] = [candidate_sequences[i] for i in selected_local_idx]
 
         if not selected:
             break
 
-        new_labels = oracle.predict(selected)
+        new_labels: np.ndarray = oracle.predict(selected)
         labeled.extend(selected)
         labels = np.concatenate([labels, new_labels], axis=0)
 
@@ -117,7 +123,7 @@ def run_al_loop(
 
         out_dir = Path(run_config.output_dir) / f"round_{round_idx}"
         out_dir.mkdir(parents=True, exist_ok=True)
-        metrics = evaluate_on_test_sets(student, task)
+        metrics: dict[str, dict[str, float]] = evaluate_on_test_sets(student, task)
 
         checkpoint_path = str(out_dir / "student_checkpoint.pt")
         if hasattr(student, "save"):

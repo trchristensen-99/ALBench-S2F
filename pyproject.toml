@@ -50,5 +50,11 @@ convention = "google"
 quote-style = "double"
 indent-style = "space"
 
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+reportMissingImports = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
