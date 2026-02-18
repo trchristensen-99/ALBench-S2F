@@ -16,6 +16,14 @@ Or run the one-shot bootstrap:
 bash scripts/setup_runtime.sh
 ```
 
+After bootstrap, run scripts with:
+
+```bash
+bash scripts/run_with_runtime.sh python <script.py> ...
+```
+
+(`uv run` without `--no-sync` can resync dependencies and override host-specific torch selection.)
+
 ## Environment and W&B
 
 1. Create a `.env` in repo root:
@@ -40,7 +48,7 @@ uv run python scripts/download_data.py --dataset yeast
 ssh trevor@143.48.59.3
 cd ~/ALBench-S2F
 bash scripts/setup_runtime.sh
-uv run python experiments/exp0_scaling.py +task=k562 +student=dream_rnn experiment.dry_run=true
+bash scripts/run_with_runtime.sh python experiments/exp0_scaling.py +task=k562 +student=dream_rnn experiment.dry_run=true
 ```
 
 If W&B is not configured on citra yet:

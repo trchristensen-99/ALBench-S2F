@@ -6,8 +6,8 @@ import argparse
 import re
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Sequence
 
 
@@ -114,6 +114,8 @@ def _apply_target(target: TorchTarget) -> None:
 
 def _verify() -> None:
     """Print runtime torch/CUDA summary."""
+    python_bin = Path(".venv/bin/python")
+    python_cmd = [str(python_bin)] if python_bin.exists() else ["python"]
     code = (
         "import torch; "
         "print('torch', torch.__version__); "
@@ -121,7 +123,7 @@ def _verify() -> None:
         "print('cuda_available', torch.cuda.is_available()); "
         "print('cuda_devices', torch.cuda.device_count())"
     )
-    result = _run(["uv", "run", "python", "-c", code], check=True)
+    result = _run([*python_cmd, "-c", code], check=True)
     print(result.stdout.strip())
 
 
