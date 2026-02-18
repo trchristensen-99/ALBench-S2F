@@ -67,6 +67,9 @@ def main(cfg: DictConfig) -> None:
         if hasattr(student, "train_config"):
             student.train_config.epochs = 1
             student.train_config.batch_size = 64
+        if hasattr(student, "models"):
+            student.models = student.models[:1]
+            student.ensemble_size = 1
         sequences = _random_sequences(256, int(cfg.task.sequence_length), int(cfg.seed))
         labels = np.random.default_rng(int(cfg.seed)).normal(size=len(sequences)).astype(np.float32)
         task.test_set = {
@@ -84,7 +87,7 @@ def main(cfg: DictConfig) -> None:
     initial_labeled = sequences[: int(cfg.experiment.batch_size)]
 
     run_config = RunConfig(
-        n_rounds=int(cfg.experiment.n_rounds),
+        n_rounds=1 if cfg.experiment.dry_run else int(cfg.experiment.n_rounds),
         batch_size=int(cfg.experiment.batch_size),
         reservoir_schedule={"default": reservoir},
         acquisition_schedule={"default": acquisition},
