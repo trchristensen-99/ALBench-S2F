@@ -56,7 +56,7 @@ def _choose_target(cuda_version: tuple[int, int] | None) -> TorchTarget:
                 "install",
                 "--index-url",
                 "https://download.pytorch.org/whl/cpu",
-                "torch==2.5.1",
+                "torch==2.5.1+cpu",
             ],
             reason="No usable nvidia-smi/GPU detected.",
         )
@@ -71,7 +71,7 @@ def _choose_target(cuda_version: tuple[int, int] | None) -> TorchTarget:
                 "install",
                 "--index-url",
                 "https://download.pytorch.org/whl/cu121",
-                "torch==2.5.1",
+                "torch==2.5.1+cu121",
             ],
             reason=f"Detected CUDA capability {major}.{minor}.",
         )
@@ -85,7 +85,7 @@ def _choose_target(cuda_version: tuple[int, int] | None) -> TorchTarget:
                 "install",
                 "--index-url",
                 "https://download.pytorch.org/whl/cu118",
-                "torch==2.5.1",
+                "torch==2.5.1+cu118",
             ],
             reason=f"Detected CUDA capability {major}.{minor}.",
         )
@@ -98,7 +98,7 @@ def _choose_target(cuda_version: tuple[int, int] | None) -> TorchTarget:
             "install",
             "--index-url",
             "https://download.pytorch.org/whl/cpu",
-            "torch==2.5.1",
+            "torch==2.5.1+cpu",
         ],
         reason=f"Detected CUDA capability {major}.{minor}, which is too old for reliable Python 3.11 CUDA wheels.",
     )
