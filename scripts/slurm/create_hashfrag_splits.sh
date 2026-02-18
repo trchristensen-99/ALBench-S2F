@@ -38,9 +38,15 @@ echo "========================================"
 echo ""
 
 # Setup environment (BLAST+ and HashFrag)
-echo "Setting up environment..."
+source /etc/profile.d/modules.sh
+source /etc/profile.d/slurm_tmpdir.sh
 source setup_env.sh
-echo ""
+
+# Ensure BLAST+ is found
+if ! command -v blastn &> /dev/null; then
+    echo "Error: BLAST+ not found even after setup_env.sh"
+    exit 1
+fi
 
 # Change to project directory
 cd /home/trevor/al-genomics-benchmark || exit 1
