@@ -49,7 +49,7 @@ if ! command -v blastn &> /dev/null; then
 fi
 
 # Change to project directory
-cd /home/trevor/al-genomics-benchmark || exit 1
+cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 echo "Working directory: $(pwd)"
 echo ""
 
@@ -78,7 +78,7 @@ echo "========================================"
 echo ""
 
 # Run the split creation script
-python scripts/create_hashfrag_splits.py \
+uv run python scripts/create_hashfrag_splits.py \
     --data-dir ./data/k562 \
     --threshold 60
 
