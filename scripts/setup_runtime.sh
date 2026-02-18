@@ -7,5 +7,5 @@ set -euo pipefail
 # 3) display wandb auth status
 
 uv sync --extra dev
-uv run python scripts/auto_configure_torch.py --apply
-uv run wandb status
+uv run --no-sync python scripts/auto_configure_torch.py --apply
+uv run --no-sync wandb status
