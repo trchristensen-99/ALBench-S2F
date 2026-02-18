@@ -5,8 +5,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
-#SBATCH --partition=kooq
-#SBATCH --qos=koolab
+#SBATCH --partition=gpuq
 
 #################################################################
 # HashFrag Split Creation for K562 Dataset
