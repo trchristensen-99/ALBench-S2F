@@ -246,9 +246,10 @@ def main() -> None:
         device = torch.device("cpu")
     print(f"Device: {device}")
 
-    # Output
+    # Output - use deterministic path to allow resuming
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_root = Path(args.output_dir) / f"run_{timestamp}_seed{args.seed}"
+    # output_root = Path(args.output_dir) / f"run_{timestamp}_seed{args.seed}"
+    output_root = Path(args.output_dir) / f"seed_{args.seed}"
     output_root.mkdir(parents=True, exist_ok=True)
 
     # Save config
@@ -283,6 +284,17 @@ def main() -> None:
     # ── Run fractions ───────────────────────────────────────────────────
     all_results: list[dict] = []
     for frac in fractions:
+        # Check if already done
+        fraction_dir = output_root / f"fraction_{frac:.4f}"
+        result_json = fraction_dir / "result.json"
+
+        if result_json.exists():
+            print(f"\nSkipping fraction {frac} (already complete found at {result_json})")
+            with result_json.open() as f:
+                result = json.load(f)
+            all_results.append(result)
+            continue
+
         result = run_fraction(frac, train_dataset, val_loader, device, output_root)
         all_results.append(result)
 

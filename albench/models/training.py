@@ -201,7 +201,46 @@ def train_model_optimized(
     print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
     print("-" * 60)
 
-    for epoch in range(num_epochs):
+    # Resume from checkpoint if exists
+    start_epoch = 0
+    if checkpoint_dir is not None and (checkpoint_dir / "last_model.pt").exists():
+        last_ckpt_path = checkpoint_dir / "last_model.pt"
+        print(f"Resuming from checkpoint: {last_ckpt_path}")
+        try:
+            # Determine if we should load into original model or compiled model
+            # Base class load_checkpoint handles state_dict loading
+            load_model = original_model if use_compile else model
+
+            # Use load_checkpoint from SequenceModel base class (or manual load)
+            if hasattr(load_model, "load_checkpoint"):
+                ckpt = load_model.load_checkpoint(str(last_ckpt_path))
+            else:
+                ckpt = torch.load(str(last_ckpt_path), map_location=device)
+                load_model.load_state_dict(ckpt["model_state_dict"])
+
+            # Restore training state
+            if "optimizer_state_dict" in ckpt:
+                optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            if scheduler is not None and "scheduler_state_dict" in ckpt:
+                scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+
+            # Restore metrics and loop state
+            start_epoch = ckpt.get("epoch", -1) + 1
+            if "history" in ckpt:
+                history = ckpt["history"]
+            if "best_metric" in ckpt:
+                best_metric = ckpt["best_metric"]
+            if "best_epoch" in ckpt:
+                best_epoch = ckpt["best_epoch"]
+            if "patience_counter" in ckpt:
+                patience_counter = ckpt["patience_counter"]
+
+            print(f"✓ Resumed successfully from epoch {start_epoch}")
+        except Exception as e:
+            print(f"⚠ Failed to resume from checkpoint: {e}")
+            print("Starting from scratch...")
+
+    for epoch in range(start_epoch, num_epochs):
         epoch_start_time = time.time()
 
         # Get current learning rate
@@ -296,6 +335,32 @@ def train_model_optimized(
             print(f"\nEarly stopping triggered after {epoch + 1} epochs")
             print(f"Best {metric_for_best}: {best_metric:.4f} at epoch {best_epoch + 1}")
             break
+
+        # Save last model state for resuming
+        if checkpoint_dir is not None:
+            last_path = checkpoint_dir / "last_model.pt"
+            save_model = original_model if use_compile else model
+
+            # Prepare extra state to save
+            extra_state = {
+                "epoch": epoch,
+                "optimizer_state_dict": optimizer.state_dict(),
+                "history": history,
+                "best_metric": best_metric,
+                "best_epoch": best_epoch,
+                "patience_counter": patience_counter,
+            }
+            if scheduler is not None:
+                extra_state["scheduler_state_dict"] = scheduler.state_dict()
+
+            # Use model's save_checkpoint method
+            if hasattr(save_model, "save_checkpoint"):
+                save_model.save_checkpoint(str(last_path), **extra_state)
+            else:
+                # Fallback manual save
+                torch.save(
+                    {"model_state_dict": save_model.state_dict(), **extra_state}, str(last_path)
+                )
 
         print("-" * 60)
 
