@@ -38,6 +38,7 @@ if ! command -v blastn &> /dev/null; then
     else
         echo "ERROR: Cannot install BLAST+ automatically."
         echo ""
+        # 1. Try manual installation instructions
         echo "Install manually from:"
         echo "  https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/"
         echo ""
@@ -45,7 +46,27 @@ if ! command -v blastn &> /dev/null; then
         echo "  Ubuntu: sudo apt-get install ncbi-blast+"
         echo "  macOS:  brew install blast"
         echo "  HPC:    module load blast-plus"
-        exit 1
+
+        # 2. Try direct binary download (Linux/x64)
+        if ! command -v blastn &> /dev/null; then
+            echo "Attempting direct download of BLAST+ binary..."
+            mkdir -p external
+            cd external
+            # Note: This URL might need updating for newer versions.
+            # Check https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ for the latest.
+            wget https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/ncbi-blast-2.16.0+-x64-linux.tar.gz
+            tar -zxvf ncbi-blast-2.16.0+-x64-linux.tar.gz
+            rm ncbi-blast-2.16.0+-x64-linux.tar.gz
+            cd ..
+            export PATH=$PWD/external/ncbi-blast-2.16.0+/bin:$PATH
+            echo "Installed BLAST+ to external/ncbi-blast-2.16.0+"
+        fi
+
+        if ! command -v blastn &> /dev/null; then
+            echo "ERROR: Could not install BLAST+."
+            echo "  Please install manually from: https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/"
+            exit 1
+        fi
     fi
 fi
 
