@@ -64,6 +64,9 @@ def main(cfg: DictConfig) -> None:
     acquisition = instantiate(cfg.acquisition)
 
     if cfg.experiment.dry_run:
+        if hasattr(student, "train_config"):
+            student.train_config.epochs = 1
+            student.train_config.batch_size = 64
         sequences = _random_sequences(256, int(cfg.task.sequence_length), int(cfg.seed))
         labels = np.random.default_rng(int(cfg.seed)).normal(size=len(sequences)).astype(np.float32)
         task.test_set = {
