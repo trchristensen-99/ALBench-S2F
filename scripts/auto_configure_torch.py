@@ -44,8 +44,8 @@ def _choose_target(cuda_version: tuple[int, int] | None) -> TorchTarget:
     """Choose torch channel for this runtime.
 
     Notes:
-    - For very old drivers (CUDA <= 11.4), modern Python 3.11-compatible CUDA wheels
-      are not reliable, so we force CPU-only torch unless driver/toolkit is upgraded.
+    - The original Citra setup uses cu118 successfully with older 11.x-era drivers.
+      So for CUDA 11.x hosts we prefer cu118 instead of forcing CPU.
     """
     if cuda_version is None:
         return TorchTarget(
@@ -76,7 +76,7 @@ def _choose_target(cuda_version: tuple[int, int] | None) -> TorchTarget:
             reason=f"Detected CUDA capability {major}.{minor}.",
         )
 
-    if major == 11 and minor >= 8:
+    if major == 11 and minor >= 0:
         return TorchTarget(
             label="cu118",
             install_args=[
@@ -100,7 +100,7 @@ def _choose_target(cuda_version: tuple[int, int] | None) -> TorchTarget:
             "https://download.pytorch.org/whl/cpu",
             "torch==2.5.1+cpu",
         ],
-        reason=f"Detected CUDA capability {major}.{minor}, which is too old for reliable Python 3.11 CUDA wheels.",
+        reason=f"Detected CUDA capability {major}.{minor}; falling back to CPU target.",
     )
 
 
