@@ -75,7 +75,7 @@ uv run python -c "from albench.loop import run_al_loop; print('OK')"
 ### Citra (dev GPU runs)
 
 ```bash
-ssh trevorch@143.48.59.3
+ssh trevor@143.48.59.3
 cd ~/ALBench-S2F
 bash scripts/setup_runtime.sh
 bash scripts/run_with_runtime.sh python experiments/exp0_scaling.py \

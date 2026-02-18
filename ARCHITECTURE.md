@@ -18,7 +18,7 @@ ALBench-S2F (Active Learning Benchmark — Sequence-to-Function) is a benchmarki
 
 | Exp | Name | Purpose |
 |-----|------|---------|
-| 0 | Scaling Curves | How does performance scale with dataset size? Defines small/medium/large data regimes |
+| 0 | Scaling Curves | How does performance scale with dataset size? Defines small/medium/large data regimes and compares real labels to oracle labels |
 | 1 | Strategy Benchmark | Full grid of reservoir × acquisition combinations across regimes |
 | 2 | Round Structure | Multiple small AL rounds vs. single large batch |
 | 3 | Pool Size | How does acquisition function performance change with reservoir pool size? |
@@ -246,7 +246,7 @@ uv run python -c "from albench.data.k562 import K562Dataset; print('OK')"
 ### Citra (Dev GPU Runs)
 
 ```bash
-ssh trevorch@143.48.59.3
+ssh trevor@143.48.59.3
 cd ~/ALBench-S2F
 bash scripts/setup_runtime.sh
 bash scripts/run_with_runtime.sh python experiments/exp0_scaling.py \
