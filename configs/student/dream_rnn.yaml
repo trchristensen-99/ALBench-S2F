@@ -1,0 +1,6 @@
+_target_: albench.student.dream_rnn_student.DREAMRNNStudent
+ensemble_size: 3
+input_channels: ${task.input_channels}
+sequence_length: ${task.sequence_length}
+task_mode: ${task.task_mode}
+device: null

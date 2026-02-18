@@ -1,0 +1,7 @@
+name: yeast
+organism: yeast
+sequence_length: 150
+data_root: data/yeast
+input_channels: 6
+task_mode: yeast
+test_set: {}

@@ -1,0 +1,7 @@
+name: k562
+organism: human
+sequence_length: 200
+data_root: data/k562
+input_channels: 5
+task_mode: k562
+test_set: {}
