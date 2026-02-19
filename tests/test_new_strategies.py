@@ -5,7 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from albench.acquisition.prior_knowledge import PriorKnowledgeAcquisition
+from albench.reservoir.evoaug import EvoAugSampler
+from albench.reservoir.in_silico_evolution import InSilicoEvolutionSampler
 from albench.reservoir.partial_mutagenesis import PartialMutagenesisSampler
+from albench.reservoir.tf_motif_shuffle import TFMotifShuffleSampler
 
 
 class _DummyStudent:
@@ -42,6 +45,42 @@ def test_partial_mutagenesis_sampler_prefers_filtered_metadata() -> None:
         {"mutation_fraction": 0.10},
         {"mutation_fraction": 0.15},
         {"mutation_fraction": 0.30},
+    ]
+    idx = sampler.sample(candidates=candidates, n_samples=2, metadata=metadata)
+    assert set(idx).issubset({1, 2})
+
+
+def test_tf_motif_shuffle_sampler_prefers_motif_rich_sequences() -> None:
+    """TF motif sampler should prioritize motif-rich candidates."""
+    sampler = TFMotifShuffleSampler(seed=11, motifs=["TATA"])
+    candidates = ["TATATATA", "CCCCCCCC", "GGGGGGGG", "ATATATAT"]
+    idx = sampler.sample(candidates=candidates, n_samples=2, metadata=None)
+    assert set(idx).issubset({0, 3})
+
+
+def test_evoaug_sampler_prefers_high_scores() -> None:
+    """EvoAug sampler should select candidates with highest evoaug_score."""
+    sampler = EvoAugSampler(seed=5, score_key="evoaug_score", fallback_random=False)
+    candidates = ["A", "C", "G", "T"]
+    metadata = [
+        {"evoaug_score": 0.1},
+        {"evoaug_score": 0.9},
+        {"evoaug_score": 0.8},
+        {"evoaug_score": 0.2},
+    ]
+    idx = sampler.sample(candidates=candidates, n_samples=2, metadata=metadata)
+    assert set(idx).issubset({1, 2})
+
+
+def test_in_silico_evolution_sampler_prefers_high_scores() -> None:
+    """ISE sampler should prioritize highest evolutionary scores."""
+    sampler = InSilicoEvolutionSampler(seed=3, fallback_random=False)
+    candidates = ["A", "C", "G", "T"]
+    metadata = [
+        {"evolution_score": 0.4},
+        {"evolution_score": 1.2},
+        {"evolution_score": 0.9},
+        {"evolution_score": 0.3},
     ]
     idx = sampler.sample(candidates=candidates, n_samples=2, metadata=metadata)
     assert set(idx).issubset({1, 2})

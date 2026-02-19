@@ -1,0 +1,4 @@
+_target_: albench.reservoir.tf_motif_shuffle.TFMotifShuffleSampler
+seed: ${seed}
+motif_score_key: motif_score
+motifs: [TATA, CACGTG, GGGCGG]

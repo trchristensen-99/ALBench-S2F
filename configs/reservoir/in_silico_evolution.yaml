@@ -1,1 +1,5 @@
 _target_: albench.reservoir.in_silico_evolution.InSilicoEvolutionSampler
+seed: ${seed}
+primary_score_key: evolution_score
+secondary_score_key: fitness_delta
+fallback_random: true
