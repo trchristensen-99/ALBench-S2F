@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from albench.acquisition.combined import CombinedAcquisition
 from albench.acquisition.prior_knowledge import PriorKnowledgeAcquisition
 from albench.reservoir.evoaug import EvoAugSampler
 from albench.reservoir.in_silico_evolution import InSilicoEvolutionSampler
@@ -16,6 +17,15 @@ class _DummyStudent:
 
     def predict(self, sequences: list[str]) -> np.ndarray:
         return np.asarray([0.1, 0.2, 0.8, 0.9][: len(sequences)], dtype=np.float32)
+
+    def uncertainty(self, sequences: list[str]) -> np.ndarray:
+        return np.asarray([0.9, 0.8, 0.2, 0.1][: len(sequences)], dtype=np.float32)
+
+    def embed(self, sequences: list[str]) -> np.ndarray:
+        return np.asarray(
+            [[0.0, 0.0], [0.1, 0.1], [2.0, 2.0], [2.1, 2.1]][: len(sequences)],
+            dtype=np.float32,
+        )
 
 
 def test_prior_knowledge_select_count() -> None:
@@ -32,6 +42,20 @@ def test_prior_knowledge_select_count() -> None:
         _DummyStudent(), ["TATATATA", "CCCCCCCC", "GGGGGGGG", "AAAAAAAA"], n_select=2
     )
     assert selected.shape == (2,)
+
+
+def test_combined_acquisition_supports_activity_prior() -> None:
+    """Combined acquisition should support activity-prior-only ranking."""
+    acq = CombinedAcquisition(
+        alpha=None,
+        w_uncertainty=0.0,
+        w_diversity=0.0,
+        w_activity_prior=1.0,
+        target_activity=0.9,
+    )
+    selected = acq.select(_DummyStudent(), ["A", "C", "G", "T"], n_select=1)
+    assert selected.shape == (1,)
+    assert int(selected[0]) == 3
 
 
 def test_partial_mutagenesis_sampler_prefers_filtered_metadata() -> None:

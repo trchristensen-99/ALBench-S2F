@@ -1,2 +1,6 @@
 _target_: albench.acquisition.combined.CombinedAcquisition
 alpha: 0.5
+w_uncertainty: null
+w_diversity: null
+w_activity_prior: 0.0
+target_activity: null
