@@ -1,0 +1,11 @@
+name: exp2_rounds
+dry_run: false
+n_rounds: 3
+batch_size: 20
+n_reservoir_candidates: 200
+output_dir: outputs/exp2
+selection_metric: pearson_r
+exp2_multi_rounds: 3
+exp2_multi_batch_size: 20
+exp2_single_rounds: 1
+exp2_single_batch_size: 60

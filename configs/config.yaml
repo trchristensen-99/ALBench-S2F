@@ -1,4 +1,5 @@
 defaults:
+  - experiment: exp0
   - acquisition: random
   - reservoir: random
   - _self_
@@ -6,13 +7,6 @@ defaults:
 # Task and student are added via +task= and +student= overrides
 # so they are not listed in defaults
 
-experiment:
-  name: exp0_scaling
-  dry_run: true
-  n_rounds: 2
-  batch_size: 8
-  n_reservoir_candidates: 32
-  output_dir: outputs
 seed: 42
 wandb:
   project: albench-s2f

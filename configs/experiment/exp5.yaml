@@ -1,0 +1,8 @@
+name: exp5_best_student
+dry_run: false
+n_rounds: 3
+batch_size: 32
+n_reservoir_candidates: 512
+output_dir: outputs/exp5
+selection_metric: pearson_r
+exp5_export_limit: 10000

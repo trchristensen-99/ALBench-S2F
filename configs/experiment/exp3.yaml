@@ -1,0 +1,8 @@
+name: exp3_pool_size
+dry_run: false
+n_rounds: 3
+batch_size: 32
+n_reservoir_candidates: 512
+output_dir: outputs/exp3
+selection_metric: pearson_r
+exp3_pool_sizes: [512, 2048, 8192]

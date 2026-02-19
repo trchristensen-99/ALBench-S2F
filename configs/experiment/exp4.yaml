@@ -1,0 +1,14 @@
+name: exp4_cost
+dry_run: false
+n_rounds: 3
+batch_size: 32
+n_reservoir_candidates: 512
+output_dir: outputs/exp4
+selection_metric: pearson_r
+synthesis_cost_per_sequence:
+  randomsampler: 1.0
+  fixedpoolsampler: 1.0
+  genomicsampler: 0.4
+  partialmutagenesissampler: 0.6
+  tfmotifshufflesampler: 0.7
+  evoaugsampler: 0.8

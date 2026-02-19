@@ -1,0 +1,6 @@
+name: exp1_benchmark
+dry_run: false
+n_rounds: 5
+batch_size: 32
+n_reservoir_candidates: 320
+output_dir: outputs/exp1
