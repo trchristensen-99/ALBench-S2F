@@ -1,0 +1,7 @@
+_target_: albench.acquisition.prior_knowledge.PriorKnowledgeAcquisition
+w_activity_prior: 0.5
+w_motif_prior: 0.3
+w_gc_prior: 0.2
+target_activity: null
+target_gc: 0.45
+motifs: [TATA, CACGTG, GGGCGG]

@@ -1,0 +1,5 @@
+_target_: albench.reservoir.partial_mutagenesis.PartialMutagenesisSampler
+seed: ${seed}
+min_mutation_fraction: 0.01
+max_mutation_fraction: 0.25
+mutation_fraction_key: mutation_fraction
