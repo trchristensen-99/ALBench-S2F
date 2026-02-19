@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ class RoundResult:
     selected_sequences: list[str]
     test_metrics: dict[str, dict[str, float]]
     checkpoint_path: str
+    round_wall_seconds: float
 
 
 def _scheduled(schedule: dict[int | str, Any], round_idx: int) -> Any:
@@ -54,6 +56,7 @@ def run_al_loop(
     initial_labeled: list[str],
     run_config: RunConfig,
     pool_sequences: list[str] | None = None,
+    pool_metadata: list[dict[str, Any]] | None = None,
 ) -> list[RoundResult]:
     """Run active learning rounds with schedule-based dispatch.
 
@@ -67,6 +70,8 @@ def run_al_loop(
         pool_sequences: Optional fixed pool of unlabeled sequences
             for reservoir to select from. When ``None``, the reservoir's
             ``sample()`` method is expected to generate sequences itself.
+        pool_metadata: Optional metadata aligned with ``pool_sequences``.
+            When provided, reservoir samplers can use metadata-aware logic.
 
     Returns:
         List of per-round results.
@@ -79,10 +84,17 @@ def run_al_loop(
 
     # Capture the pool into a concrete local so the type-checker
     # knows it cannot be ``None`` inside the branch.
-    pool: list[str] = pool_sequences if pool_sequences is not None else []
+    pool: list[str] = list(pool_sequences) if pool_sequences is not None else []
+    metadata_pool: list[dict[str, Any]] | None = (
+        list(pool_metadata) if pool_metadata is not None else None
+    )
     use_fixed_pool: bool = pool_sequences is not None
 
     for round_idx in range(run_config.n_rounds):
+        round_start = time.perf_counter()
+        if use_fixed_pool and len(pool) == 0:
+            break
+
         sampler = _scheduled(run_config.reservoir_schedule, round_idx)
         acquirer = _scheduled(run_config.acquisition_schedule, round_idx)
 
@@ -92,7 +104,7 @@ def run_al_loop(
             candidate_indices: list[int] = sampler.sample(
                 candidates=pool,
                 n_samples=min(run_config.n_reservoir_candidates, len(pool)),
-                metadata=None,
+                metadata=metadata_pool,
             )
             candidate_sequences: list[str] = [pool[i] for i in candidate_indices]
         else:
@@ -119,6 +131,14 @@ def run_al_loop(
         labeled.extend(selected)
         labels = np.concatenate([labels, new_labels], axis=0)
 
+        # Remove selected sequences from unlabeled pool to avoid reselection.
+        if use_fixed_pool:
+            selected_pool_indices = {candidate_indices[i] for i in selected_local_idx}
+            keep_indices = [i for i in range(len(pool)) if i not in selected_pool_indices]
+            pool = [pool[i] for i in keep_indices]
+            if metadata_pool is not None:
+                metadata_pool = [metadata_pool[i] for i in keep_indices]
+
         student.fit(labeled, labels)
 
         out_dir = Path(run_config.output_dir) / f"round_{round_idx}"
@@ -138,7 +158,9 @@ def run_al_loop(
         }
         for test_name, test_metrics in metrics.items():
             log_payload[f"test/{test_name}/pearson_r"] = test_metrics.get("pearson_r", 0.0)
+        round_duration = time.perf_counter() - round_start
         if wandb.run is not None:
+            log_payload["round/wall_seconds"] = round_duration
             wandb.log(log_payload)
 
         results.append(
@@ -148,6 +170,7 @@ def run_al_loop(
                 selected_sequences=selected,
                 test_metrics=metrics,
                 checkpoint_path=checkpoint_path,
+                round_wall_seconds=round_duration,
             )
         )
 

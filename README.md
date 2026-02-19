@@ -50,12 +50,59 @@ uv run python experiments/exp0_yeast_scaling.py \
     --fraction 0.1 --seed 42 --wandb-mode offline
 ```
 
-### 3. Active Learning Benchmark
+### 3. Active Learning Benchmark (Exp1)
 Run a full active learning loop with specific strategies.
 ```bash
 uv run python experiments/exp1_benchmark.py --multirun \
     +task=k562 +student=dream_rnn \
     reservoir=random,genomic acquisition=random,uncertainty
+```
+
+### 4. Round-Structure Sweep (Exp2)
+Compare different numbers of AL rounds while keeping budget fixed.
+```bash
+uv run python experiments/exp2_rounds.py --multirun \
+    +task=k562 +student=dream_rnn \
+    experiment.n_rounds=2,4,8 experiment.batch_size=32
+```
+
+### 5. Reservoir Candidate Sweep (Exp3)
+Compare candidate reservoir sizes per round.
+```bash
+uv run python experiments/exp3_pool_size.py --multirun \
+    +task=k562 +student=dream_rnn \
+    experiment.n_reservoir_candidates=512,2048,8192
+```
+
+### 6. Cost-Adjusted Ranking (Exp4)
+Run AL with random subsampling acquisition, then export synthesis-cost-adjusted metrics.
+```bash
+uv run python experiments/exp4_cost.py \
+    +task=k562 +student=dream_rnn +reservoir=random +acquisition=uncertainty
+```
+
+Override placeholder synthesis costs (relative units per selected sequence):
+```bash
+uv run python experiments/exp4_cost.py \
+    +task=k562 +student=dream_rnn +reservoir=genomic \
+    experiment.synthesis_cost_per_sequence.randomsampler=1.0 \
+    experiment.synthesis_cost_per_sequence.genomicsampler=0.4 \
+    experiment.synthesis_cost_per_sequence.partialmutagenesissampler=0.6
+```
+
+### 7. Best Student Export (Exp5)
+Run AL, then export the highest-Pearson checkpoint as `best_student_checkpoint.pt`.
+```bash
+uv run python experiments/exp5_best_student.py \
+    +task=k562 +student=dream_rnn +reservoir=random +acquisition=uncertainty
+```
+
+### 8. General Fixed-Pool Subselection
+Use the generic pool sampler (metadata filters optional):
+```bash
+uv run python experiments/exp1_benchmark.py --multirun \
+    +task=k562 +student=dream_rnn \
+    +reservoir=fixed_pool acquisition=random,uncertainty
 ```
 
 ---

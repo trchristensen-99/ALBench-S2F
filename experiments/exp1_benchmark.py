@@ -3,33 +3,23 @@
 from __future__ import annotations
 
 import hydra
-import wandb
 from dotenv import load_dotenv
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, open_dict
+
+from experiments.exp0_scaling import run_exp0_scaling
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Run benchmark combinations (Hydra multirun compatible)."""
+    """Run benchmark combinations (Hydra multirun compatible).
+
+    This entry point reuses Exp0 runtime logic while changing experiment
+    grouping so each Hydra multirun job is tracked under Exp1 in W&B.
+    """
     load_dotenv()
-    run = wandb.init(
-        project=cfg.wandb.project,
-        name=f"{cfg.task.name}_exp1",
-        config=OmegaConf.to_container(cfg, resolve=True),
-        tags=[cfg.task.name, "exp1", "benchmark"],
-        group="exp1_benchmark",
-        mode=cfg.wandb.mode,
-    )
-    wandb.log(
-        {
-            "status": 1,
-            "task": cfg.task.name,
-            "reservoir": cfg.reservoir._target_.split(".")[-1],
-            "acquisition": cfg.acquisition._target_.split(".")[-1],
-        }
-    )
-    if run is not None:
-        wandb.finish()
+    with open_dict(cfg):
+        cfg.experiment.name = "exp1_benchmark"
+    run_exp0_scaling(cfg)
 
 
 if __name__ == "__main__":

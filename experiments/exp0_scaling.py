@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import hydra
 import numpy as np
+import pandas as pd
 import wandb
 from dotenv import load_dotenv
 from hydra.utils import instantiate
@@ -16,6 +19,15 @@ from albench.evaluation import compute_scaling_curve
 from albench.loop import RunConfig, run_al_loop
 from albench.oracle.perfect_oracle import PerfectOracle
 from albench.task import TaskConfig
+
+
+@dataclass
+class ExpRunArtifacts:
+    """Container for experiment outputs needed by downstream scripts."""
+
+    results: list[Any]
+    curve: pd.DataFrame
+    output_dir: Path
 
 
 def _set_seed(seed: int) -> None:
@@ -31,15 +43,26 @@ def _random_sequences(n: int, length: int, seed: int) -> list[str]:
     return ["".join(alphabet[rng.integers(0, 4, size=length)]) for _ in range(n)]
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="config")
-def main(cfg: DictConfig) -> None:
-    """Run Experiment 0 scaling benchmark.
+def _metadata_rows(dataset: Any) -> list[dict[str, Any]] | None:
+    """Convert dataset metadata dict-of-arrays into per-example rows."""
+    metadata = getattr(dataset, "metadata", None)
+    if not metadata:
+        return None
+    n_examples = len(dataset.sequences)
+    rows: list[dict[str, Any]] = []
+    for idx in range(n_examples):
+        row: dict[str, Any] = {}
+        for key, values in metadata.items():
+            value = values[idx]
+            if hasattr(value, "item"):
+                value = value.item()
+            row[str(key)] = value
+        rows.append(row)
+    return rows
 
-    This experiment trains the student on random subsets of increasing size
-    using the real labeled data, evaluating on test sets to characterize how
-    model performance scales with dataset size.
-    """
-    load_dotenv()
+
+def run_exp0_scaling(cfg: DictConfig) -> ExpRunArtifacts:
+    """Execute Experiment 0 core logic with current Hydra config."""
     _set_seed(int(cfg.seed))
 
     task = TaskConfig(
@@ -69,6 +92,7 @@ def main(cfg: DictConfig) -> None:
     student = instantiate(cfg.student)
     reservoir = instantiate(cfg.reservoir)
     acquisition = instantiate(cfg.acquisition)
+    pool_metadata: list[dict[str, Any]] | None = None
 
     if cfg.experiment.dry_run:
         # --- Dry-run: synthetic data, 1 round, 1 ensemble member ---
@@ -107,6 +131,7 @@ def main(cfg: DictConfig) -> None:
         sequences = list(ds_train.sequences)
         labels = ds_train.labels.astype(np.float32)
         pool_sequences = list(ds_pool.sequences)
+        pool_metadata = _metadata_rows(ds_pool)
 
         task.test_set = {
             "test": {
@@ -126,7 +151,12 @@ def main(cfg: DictConfig) -> None:
 
     oracle = PerfectOracle(label_map)
 
-    initial_labeled = sequences[: int(cfg.experiment.batch_size)]
+    initial_size = min(int(cfg.experiment.batch_size), len(sequences))
+    if initial_size == 0:
+        raise ValueError("No training sequences available for initial labeled set")
+    rng = np.random.default_rng(int(cfg.seed))
+    initial_indices = rng.choice(len(sequences), size=initial_size, replace=False).tolist()
+    initial_labeled = [sequences[i] for i in initial_indices]
 
     run_config = RunConfig(
         n_rounds=1 if cfg.experiment.dry_run else int(cfg.experiment.n_rounds),
@@ -144,6 +174,7 @@ def main(cfg: DictConfig) -> None:
         initial_labeled=initial_labeled,
         run_config=run_config,
         pool_sequences=pool_sequences,
+        pool_metadata=pool_metadata,
     )
     curve = compute_scaling_curve(results)
     out = Path(cfg.experiment.output_dir)
@@ -162,6 +193,14 @@ def main(cfg: DictConfig) -> None:
                     }
                 )
         wandb.finish()
+    return ExpRunArtifacts(results=results, curve=curve, output_dir=out)
+
+
+@hydra.main(version_base=None, config_path="../configs", config_name="config")
+def main(cfg: DictConfig) -> None:
+    """Run Experiment 0 scaling benchmark."""
+    load_dotenv()
+    run_exp0_scaling(cfg)
 
 
 if __name__ == "__main__":

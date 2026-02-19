@@ -1,0 +1,2 @@
+_target_: albench.acquisition.combined.CombinedAcquisition
+alpha: 0.5
