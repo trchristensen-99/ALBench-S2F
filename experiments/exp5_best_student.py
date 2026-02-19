@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Iterable
 
 import hydra
 import pandas as pd
@@ -28,6 +29,17 @@ def _pick_best_row(curve: pd.DataFrame, metric: str) -> pd.Series:
             f"Metric '{metric}' not present in scaling-curve columns: {list(curve.columns)}"
         )
     return curve.sort_values(by=metric, ascending=False).iloc[0]
+
+
+def _write_fasta(path: Path, sequences: Iterable[str], prefix: str = "exp5_seq") -> int:
+    """Write sequences to FASTA and return count written."""
+    count = 0
+    with path.open("w", encoding="utf-8") as handle:
+        for i, seq in enumerate(sequences, start=1):
+            handle.write(f">{prefix}_{i}\n")
+            handle.write(f"{seq}\n")
+            count += 1
+    return count
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
@@ -58,6 +70,22 @@ def main(cfg: DictConfig) -> None:
         shutil.copy2(source_ckpt, target_ckpt)
         copied = True
 
+    selected = list(best_result.selected_sequences)
+    export_limit = int(cfg.experiment.get("exp5_export_limit", len(selected)))
+    if export_limit < 0:
+        raise ValueError("experiment.exp5_export_limit must be >= 0")
+    selected = selected[: min(export_limit, len(selected))]
+
+    selected_df = pd.DataFrame(
+        [
+            {"rank": i + 1, "sequence": seq, "round_idx": best_round}
+            for i, seq in enumerate(selected)
+        ]
+    )
+    selected_df.to_csv(out_dir / "exp5_selected_sequences.csv", index=False)
+
+    fasta_count = _write_fasta(out_dir / "exp5_selected_sequences.fasta", selected, prefix="exp5")
+
     summary = {
         "best_round_idx": best_round,
         "best_n_labeled": int(best_result.n_labeled),
@@ -67,6 +95,10 @@ def main(cfg: DictConfig) -> None:
         "source_checkpoint_path": str(source_ckpt),
         "best_checkpoint_path": str(target_ckpt),
         "checkpoint_copied": copied,
+        "selected_sequences_exported": int(len(selected)),
+        "selected_sequences_fasta_records": int(fasta_count),
+        "selected_sequences_csv": str(out_dir / "exp5_selected_sequences.csv"),
+        "selected_sequences_fasta": str(out_dir / "exp5_selected_sequences.fasta"),
     }
     with (out_dir / "exp5_best_student_summary.json").open("w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2)
