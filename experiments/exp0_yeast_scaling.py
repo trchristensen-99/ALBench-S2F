@@ -282,6 +282,9 @@ def main(cfg: DictConfig) -> None:
                 "test/snv/pearson_r": result.get("test_metrics", {})
                 .get("snv", {})
                 .get("pearson_r", 0.0),
+                "test/snv_abs/pearson_r": result.get("test_metrics", {})
+                .get("snv_abs", {})
+                .get("pearson_r", 0.0),
                 "test/genomic/pearson_r": result.get("test_metrics", {})
                 .get("genomic", {})
                 .get("pearson_r", 0.0),

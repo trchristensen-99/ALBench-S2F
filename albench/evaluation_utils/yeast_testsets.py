@@ -123,6 +123,8 @@ def evaluate_yeast_test_subsets(
 
     Returns:
         Nested metric dictionary keyed by subset name.
+        `snv` is variant-effect delta Pearson. `snv_abs` is raw-expression Pearson
+        across ref+alt alleles in the SNV subset.
     """
     out: dict[str, dict[str, float]] = {}
 
@@ -142,6 +144,17 @@ def evaluate_yeast_test_subsets(
     if len(snv_pairs) > 0:
         ref = snv_pairs[:, 0].astype(int)
         alt = snv_pairs[:, 1].astype(int)
+
+        # Raw SNV expression metric across both alleles.
+        pred_abs = np.concatenate([predictions[ref], predictions[alt]], axis=0)
+        true_abs = np.concatenate([labels[ref], labels[alt]], axis=0)
+        out["snv_abs"] = {
+            "pearson_r": _safe_corr(true_abs, pred_abs, pearsonr),
+            "spearman_r": _safe_corr(true_abs, pred_abs, spearmanr),
+            "n": int(2 * len(snv_pairs)),
+        }
+
+        # Variant-effect metric (delta alt-ref), retained as primary SNV effect score.
         pred_delta = predictions[alt] - predictions[ref]
         true_delta = labels[alt] - labels[ref]
         out["snv"] = {
@@ -150,6 +163,7 @@ def evaluate_yeast_test_subsets(
             "n": int(len(snv_pairs)),
         }
     else:
+        out["snv_abs"] = {"pearson_r": 0.0, "spearman_r": 0.0, "n": 0}
         out["snv"] = {"pearson_r": 0.0, "spearman_r": 0.0, "n": 0}
 
     return out

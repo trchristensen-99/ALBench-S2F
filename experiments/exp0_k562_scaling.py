@@ -3,7 +3,7 @@
 
 Trains DREAM-RNN at the requested fractions and evaluates each run on:
 - in-domain hashfrag test set
-- SNV delta test set
+- SNV delta test set and raw SNV expression set
 - OOD CRE test set
 """
 
@@ -136,6 +136,19 @@ def _evaluate_k562_test_sets(
     if len(snv_df) > 0:
         ref_pred = _predict_sequences(model, snv_df["sequence_ref"].astype(str).tolist(), device)
         alt_pred = _predict_sequences(model, snv_df["sequence_alt"].astype(str).tolist(), device)
+
+        # SNV raw-expression metric across both alleles.
+        snv_abs_pred = np.concatenate([ref_pred, alt_pred], axis=0)
+        ref_true = snv_df["K562_log2FC_ref"].to_numpy(dtype=np.float32)
+        alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        snv_abs_true = np.concatenate([ref_true, alt_true], axis=0)
+        metrics["snv_abs"] = {
+            "pearson_r": _safe_corr(snv_abs_pred, snv_abs_true, pearsonr),
+            "spearman_r": _safe_corr(snv_abs_pred, snv_abs_true, spearmanr),
+            "mse": float(np.mean((snv_abs_pred - snv_abs_true) ** 2)),
+        }
+
+        # SNV variant-effect metric (delta alt-ref), retained for compatibility.
         delta_pred = alt_pred - ref_pred
         delta_true = snv_df["delta_log2FC"].to_numpy(dtype=np.float32)
         metrics["snv_delta"] = {
@@ -144,6 +157,7 @@ def _evaluate_k562_test_sets(
             "mse": float(np.mean((delta_pred - delta_true) ** 2)),
         }
     else:
+        metrics["snv_abs"] = {"pearson_r": 0.0, "spearman_r": 0.0, "mse": float("inf")}
         metrics["snv_delta"] = {"pearson_r": 0.0, "spearman_r": 0.0, "mse": float("inf")}
 
     ood_df = pd.read_csv(ood_path, sep="\t")
@@ -340,6 +354,7 @@ def main(cfg: DictConfig) -> None:
                 "test/in_distribution/pearson_r": res["test_metrics"]["in_distribution"][
                     "pearson_r"
                 ],
+                "test/snv_abs/pearson_r": res["test_metrics"]["snv_abs"]["pearson_r"],
                 "test/snv_delta/pearson_r": res["test_metrics"]["snv_delta"]["pearson_r"],
                 "test/ood/pearson_r": res["test_metrics"]["ood"]["pearson_r"],
             }
