@@ -37,6 +37,10 @@ from torch.utils.data import DataLoader, Subset
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from albench.data.yeast import YeastDataset
+from albench.evaluation_utils.yeast_testsets import (
+    evaluate_yeast_test_subsets,
+    load_yeast_test_subsets,
+)
 from albench.models.dream_rnn import create_dream_rnn
 from albench.models.loss_utils import YeastKLLoss
 from albench.models.training import train_model_optimized
@@ -101,6 +105,9 @@ def run_fraction(
     val_loader: DataLoader,
     device: torch.device,
     output_root: Path,
+    test_loader: DataLoader | None = None,
+    test_labels: np.ndarray | None = None,
+    test_subsets: dict[str, np.ndarray] | None = None,
     wandb_run: bool = True,
 ) -> dict:
     """Train DREAM-RNN on a random subset at a given fraction."""
@@ -181,6 +188,22 @@ def run_fraction(
     best_val_spearman = max(history["val_spearman_r"]) if history["val_spearman_r"] else 0.0
     best_val_loss = min(history["val_loss"]) if history["val_loss"] else float("inf")
 
+    test_metrics: dict[str, dict[str, float]] = {}
+    if test_loader is not None and test_labels is not None and test_subsets is not None:
+        model.eval()
+        preds: list[np.ndarray] = []
+        with torch.no_grad():
+            for xb, _ in test_loader:
+                xb = xb.to(device, non_blocking=True)
+                yhat = model.predict(xb, use_reverse_complement=CONFIG["use_reverse_complement"])
+                preds.append(yhat.detach().cpu().numpy().reshape(-1))
+        test_predictions = np.concatenate(preds, axis=0)
+        test_metrics = evaluate_yeast_test_subsets(
+            predictions=test_predictions,
+            labels=test_labels,
+            subsets=test_subsets,
+        )
+
     result = {
         "fraction": fraction,
         "n_samples": n_samples,
@@ -190,6 +213,7 @@ def run_fraction(
         "best_val_spearman_r": best_val_spearman,
         "best_val_loss": best_val_loss,
         "num_epochs_run": len(history["val_loss"]),
+        "test_metrics": test_metrics,
     }
 
     # Save per-fraction results
@@ -221,6 +245,23 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=CONFIG["seed"])
     parser.add_argument(
         "--wandb-mode", type=str, default="online", choices=["online", "offline", "disabled"]
+    )
+    parser.add_argument(
+        "--test-subset-dir",
+        type=str,
+        default=None,
+        help="Path to yeast test subset CSVs (all_random_seqs.csv, all_SNVs_seqs.csv, yeast_seqs.csv).",
+    )
+    parser.add_argument(
+        "--public-leaderboard-dir",
+        type=str,
+        default=None,
+        help="Optional path to public leaderboard JSONs for private-only evaluation filtering.",
+    )
+    parser.add_argument(
+        "--private-only-test",
+        action="store_true",
+        help="If set, exclude public leaderboard IDs from subset metrics.",
     )
     args = parser.parse_args()
 
@@ -281,6 +322,31 @@ def main() -> None:
     print(f"Full training set: {len(train_dataset):,} sequences")
     print(f"Validation set:    {len(val_dataset):,} sequences")
 
+    # Optional test-subset evaluation setup
+    test_loader: DataLoader | None = None
+    test_labels: np.ndarray | None = None
+    test_subsets: dict[str, np.ndarray] | None = None
+    default_subset_dir = Path(CONFIG["data_path"]) / "test_subset_ids"
+    subset_dir = Path(args.test_subset_dir) if args.test_subset_dir else default_subset_dir
+    if subset_dir.exists():
+        print(f"Loading yeast test subsets from {subset_dir}")
+        test_dataset = YeastDataset(data_path=CONFIG["data_path"], split="test")
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=CONFIG["batch_size"],
+            shuffle=False,
+            num_workers=CONFIG["num_workers"],
+            pin_memory=CONFIG["pin_memory"],
+        )
+        test_labels = test_dataset.labels.astype(np.float32)
+        test_subsets = load_yeast_test_subsets(
+            subset_dir=subset_dir,
+            public_dir=args.public_leaderboard_dir,
+            use_private_only=args.private_only_test,
+        )
+    else:
+        print(f"Skipping yeast subset test evaluation (subset files not found at {subset_dir}).")
+
     # ── Run fractions ───────────────────────────────────────────────────
     all_results: list[dict] = []
     for frac in fractions:
@@ -295,7 +361,16 @@ def main() -> None:
             all_results.append(result)
             continue
 
-        result = run_fraction(frac, train_dataset, val_loader, device, output_root)
+        result = run_fraction(
+            frac,
+            train_dataset,
+            val_loader,
+            device,
+            output_root,
+            test_loader=test_loader,
+            test_labels=test_labels,
+            test_subsets=test_subsets,
+        )
         all_results.append(result)
 
         # Log summary to W&B
@@ -307,6 +382,15 @@ def main() -> None:
                 "best_val_spearman_r": result["best_val_spearman_r"],
                 "best_val_loss": result["best_val_loss"],
                 "training_time_minutes": result["training_time_seconds"] / 60,
+                "test/random/pearson_r": result.get("test_metrics", {})
+                .get("random", {})
+                .get("pearson_r", 0.0),
+                "test/snv/pearson_r": result.get("test_metrics", {})
+                .get("snv", {})
+                .get("pearson_r", 0.0),
+                "test/genomic/pearson_r": result.get("test_metrics", {})
+                .get("genomic", {})
+                .get("pearson_r", 0.0),
             }
         )
 
