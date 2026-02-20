@@ -17,8 +17,9 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURMD_NODENAME"
 echo "Date: $(date)"
 
-# Run training
-python experiments/train_oracle_dream_rnn.py \
+# Run training with project-managed Python (3.11+)
+~/.local/bin/uv sync --extra dev
+~/.local/bin/uv run --no-sync python experiments/train_oracle_dream_rnn.py \
     --data-path data/yeast \
     --output-dir outputs/oracle_dream_rnn_yeast \
     --epochs 80 \
