@@ -13,7 +13,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SLURM_SCRIPT = REPO_ROOT / "scripts" / "slurm" / "exp0_yeast_scaling.sh"
-OUTPUT_DIR = REPO_ROOT / "outputs" / "exp0_yeast_scaling" / "seed_42"
 OUTPUT_ROOT = REPO_ROOT / "outputs" / "exp0_yeast_scaling"
 FRACTIONS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
 DEFAULT_CHECK_INTERVAL_SEC = 1800  # 30 minutes
@@ -78,8 +77,8 @@ def get_missing_fractions(output_dir: Path) -> list[float]:
                 completed.add(frac)
 
     # 2) Timestamped run directories used by exp0_yeast_scaling.py
-    if OUTPUT_ROOT.exists():
-        for run_dir in OUTPUT_ROOT.glob("run_*_seed42"):
+    if output_dir.exists():
+        for run_dir in output_dir.glob("run_*"):
             if not run_dir.is_dir():
                 continue
             for frac in FRACTIONS:

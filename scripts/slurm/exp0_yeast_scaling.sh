@@ -36,5 +36,4 @@ fi
 
 uv run python experiments/exp0_yeast_scaling.py \
     --fraction "${FRACTION}" \
-    --seed 42 \
     --wandb-mode offline

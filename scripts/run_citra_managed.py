@@ -12,7 +12,7 @@ import time
 
 # Fractions to run (largest to smallest)
 FRACTIONS = [1.0, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001]
-CMD_TEMPLATE = "bash scripts/run_with_runtime.sh python experiments/exp0_yeast_scaling.py --fraction {} --seed 42 --wandb-mode offline --gpu {}"
+CMD_TEMPLATE = "bash scripts/run_with_runtime.sh python experiments/exp0_yeast_scaling.py --fraction {} --wandb-mode offline --gpu {}"
 LOG_DIR = "logs"
 
 
