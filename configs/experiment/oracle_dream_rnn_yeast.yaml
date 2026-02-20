@@ -21,3 +21,4 @@ use_compile: false
 use_reverse_complement: true
 early_stopping_patience: null
 metric_for_best: pearson_r
+include_pool: true

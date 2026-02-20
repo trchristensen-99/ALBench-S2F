@@ -12,6 +12,8 @@
 #   sbatch scripts/slurm/train_oracle_alphagenome.sh
 #   sbatch --export=ALL,CFG=oracle_alphagenome_k562,HEAD=pool-flatten scripts/slurm/train_oracle_alphagenome.sh
 
+set -euxo pipefail
+
 source /etc/profile.d/modules.sh
 module load EB5
 
@@ -24,6 +26,25 @@ WANDB_MODE="${WANDB_MODE:-offline}"
 WEIGHTS_PATH="${ALPHAGENOME_WEIGHTS_PATH:-checkpoints/alphagenome-jax-all_folds-v1}"
 HEAD_TAG="${HEAD//-/_}"
 OUTDIR="${OUTDIR:-outputs/${CFG}/${HEAD_TAG}}"
+
+export HYDRA_FULL_ERROR=1
+export PYTHONFAULTHANDLER=1
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Host: $(hostname)"
+echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}"
+echo "CFG=${CFG}"
+echo "HEAD=${HEAD}"
+echo "WANDB_MODE=${WANDB_MODE}"
+echo "WEIGHTS_PATH=${WEIGHTS_PATH}"
+echo "OUTDIR=${OUTDIR}"
+echo "PWD=$(pwd)"
+which python || true
+which ~/.local/bin/uv || true
+python --version || true
+nvidia-smi || true
+ls -ld "${WEIGHTS_PATH}" || true
+mkdir -p "${OUTDIR}"
+ls -ld "${OUTDIR}" || true
 
 ~/.local/bin/uv run --no-sync python experiments/train_oracle_alphagenome.py \
   --config-name "${CFG}" \
