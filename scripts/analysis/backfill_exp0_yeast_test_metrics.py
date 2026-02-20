@@ -38,6 +38,7 @@ def main() -> None:
     parser.add_argument("--public-leaderboard-dir", type=Path, default=None)
     parser.add_argument("--private-only", action="store_true")
     parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
@@ -54,7 +55,11 @@ def main() -> None:
 
     test_dataset = YeastDataset(data_path=args.data_path, split="test")
     test_loader = DataLoader(
-        test_dataset, batch_size=1024, shuffle=False, num_workers=0, pin_memory=True
+        test_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
     )
     test_labels = test_dataset.labels.astype(np.float32)
     subsets = load_yeast_test_subsets(
