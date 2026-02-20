@@ -22,4 +22,4 @@ python experiments/train_oracle_dream_rnn.py \
     --data-path data/yeast \
     --output-dir outputs/oracle_dream_rnn_yeast \
     --epochs 80 \
-    --wandb-mode online
+    --wandb-mode "${WANDB_MODE:-offline}"
