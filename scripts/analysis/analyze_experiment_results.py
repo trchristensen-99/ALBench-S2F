@@ -54,6 +54,17 @@ def load_records(input_root: Path) -> pd.DataFrame:
             "seed": infer_seed(run_dir),
             **flat,
         }
+        # Normalize common nested test metric names for stable CLI defaults.
+        for src, dst in [
+            ("test_metrics_random_pearson_r", "test_random_pearson_r"),
+            ("test_metrics_random_spearman_r", "test_random_spearman_r"),
+            ("test_metrics_snv_pearson_r", "test_snv_pearson_r"),
+            ("test_metrics_snv_spearman_r", "test_snv_spearman_r"),
+            ("test_metrics_genomic_pearson_r", "test_genomic_pearson_r"),
+            ("test_metrics_genomic_spearman_r", "test_genomic_spearman_r"),
+        ]:
+            if src in row and dst not in row:
+                row[dst] = row[src]
 
         source = "local"
         if "/citra/" in str(path):
@@ -73,7 +84,9 @@ def load_records(input_root: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def deduplicate(
+    df: pd.DataFrame, preferred_metric_col: str | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     if "fraction" not in df.columns:
         return df.copy(), pd.DataFrame(columns=df.columns)
 
@@ -85,6 +98,12 @@ def deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     metric = "best_val_pearson_r" if "best_val_pearson_r" in ranked.columns else None
     ranked["_metric"] = ranked[metric].fillna(-1e9) if metric else -1e9
+    if preferred_metric_col and preferred_metric_col in ranked.columns:
+        ranked["_preferred_metric"] = ranked[preferred_metric_col]
+        ranked["_has_preferred_metric"] = ranked["_preferred_metric"].notna().astype(int)
+    else:
+        ranked["_preferred_metric"] = -1e9
+        ranked["_has_preferred_metric"] = 0
 
     loss = "best_val_loss" if "best_val_loss" in ranked.columns else None
     ranked["_loss"] = ranked[loss].fillna(1e9) if loss else 1e9
@@ -93,12 +112,15 @@ def deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     if not subset:
         return df.copy(), pd.DataFrame(columns=df.columns)
 
-    ranked = ranked.sort_values(subset + ["_epochs", "_metric", "_loss"], ascending=True)
+    ranked = ranked.sort_values(
+        subset + ["_has_preferred_metric", "_preferred_metric", "_epochs", "_metric", "_loss"],
+        ascending=True,
+    )
     keep = ranked.drop_duplicates(subset=subset, keep="last").drop(
-        columns=["_epochs", "_metric", "_loss"]
+        columns=["_epochs", "_metric", "_loss", "_preferred_metric", "_has_preferred_metric"]
     )
     drop = ranked[ranked.duplicated(subset=subset, keep="last")].drop(
-        columns=["_epochs", "_metric", "_loss"]
+        columns=["_epochs", "_metric", "_loss", "_preferred_metric", "_has_preferred_metric"]
     )
     return keep, drop
 
@@ -160,7 +182,7 @@ def main() -> None:
         dedup_df = df.copy()
         dropped_df = pd.DataFrame(columns=df.columns)
     else:
-        dedup_df, dropped_df = deduplicate(df)
+        dedup_df, dropped_df = deduplicate(df, preferred_metric_col=args.metric_col)
 
     raw_csv = out_dir / "results_raw.csv"
     dedup_csv = out_dir / "results_dedup.csv"
