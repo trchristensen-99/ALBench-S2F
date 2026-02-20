@@ -1,7 +1,7 @@
-name: yeast
+name: yeast_alphagenome
 organism: yeast
-sequence_length: 150
-context_mode: dream150
+sequence_length: 384
+context_mode: alphagenome384
 data_root: data/yeast
 input_channels: 6
 task_mode: yeast

@@ -1,4 +1,5 @@
 data_path: data/yeast
+context_mode: dream150
 output_dir: outputs/oracle_dream_rnn_yeast
 gpu: 0
 epochs: 80

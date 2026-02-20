@@ -59,8 +59,17 @@ def main(cfg: DictConfig) -> None:
     )
 
     print("\nLoading datasets...")
-    train_dataset = YeastDataset(data_path=str(cfg.data_path), split="train", subset_size=None)
-    val_dataset = YeastDataset(data_path=str(cfg.data_path), split="val")
+    train_dataset = YeastDataset(
+        data_path=str(cfg.data_path),
+        split="train",
+        subset_size=None,
+        context_mode=str(cfg.context_mode),
+    )
+    val_dataset = YeastDataset(
+        data_path=str(cfg.data_path),
+        split="val",
+        context_mode=str(cfg.context_mode),
+    )
 
     print(f"Training set:   {len(train_dataset):,} sequences")
     print(f"Validation set: {len(val_dataset):,} sequences")
@@ -82,7 +91,7 @@ def main(cfg: DictConfig) -> None:
 
     model = create_dream_rnn(
         input_channels=6,
-        sequence_length=150,
+        sequence_length=train_dataset.get_sequence_length(),
         task_mode="yeast",
         hidden_dim=int(cfg.hidden_dim),
         cnn_filters=int(cfg.cnn_filters),

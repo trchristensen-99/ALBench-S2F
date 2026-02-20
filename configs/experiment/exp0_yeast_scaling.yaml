@@ -1,4 +1,5 @@
 data_path: data/yeast
+context_mode: dream150
 output_dir: outputs/exp0_yeast_scaling
 gpu: 0
 epochs: 80

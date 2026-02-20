@@ -28,13 +28,27 @@ class YeastDataset(SequenceDataset):
     FLANK_3_PRIME = "GGTTACGGCTGTT"  # 13bp
 
     SEQUENCE_LENGTH = 150
+    ALPHAGENOME_SEQUENCE_LENGTH = 384
     RANDOM_REGION_LENGTH = 80
     NUM_CHANNELS = 6
     FIXED_TRAIN_SIZE = 100_000
     FIXED_VAL_SIZE = 20_000
+    ALPHAGENOME_FLANK_5_PRIME = "GCTAGCAGGAATGATGCAAAAGGTTCCCGATTCGAACTGCATTTTTTTCACATC"  # 54bp
+    ALPHAGENOME_FLANK_3_PRIME = "GGTTACGGCTGTTTCTTAATTAAAAAAAGATAGAAAACATTAGGAGTGTAACACAAGACTTTCGGATCCTGAGCAGGCAAGATAAACGA"  # 89bp
 
-    def __init__(self, data_path: str, split: str = "train", subset_size: Optional[int] = None):
+    def __init__(
+        self,
+        data_path: str,
+        split: str = "train",
+        subset_size: Optional[int] = None,
+        context_mode: str = "dream150",
+    ):
         self.subset_size = subset_size
+        if context_mode not in {"dream150", "alphagenome384"}:
+            raise ValueError(
+                f"Invalid context_mode={context_mode!r}. Expected 'dream150' or 'alphagenome384'."
+            )
+        self.context_mode = context_mode
         super().__init__(data_path, split)
 
     @staticmethod
@@ -93,6 +107,8 @@ class YeastDataset(SequenceDataset):
         self.is_singleton = is_singleton
 
         self.sequences = self._add_plasmid_context(self.sequences)
+        if self.context_mode == "alphagenome384":
+            self.sequences = self._add_alphagenome_context(self.sequences)
 
         if self.subset_size is not None and self.subset_size < len(self.sequences):
             indices = np.random.choice(len(self.sequences), size=self.subset_size, replace=False)
@@ -101,7 +117,10 @@ class YeastDataset(SequenceDataset):
             self.is_singleton = self.is_singleton[indices]
             print(f"Downsampled to {self.subset_size} sequences (random sampling, no replacement)")
 
-        self.sequence_length = self.SEQUENCE_LENGTH
+        if self.context_mode == "alphagenome384":
+            self.sequence_length = self.ALPHAGENOME_SEQUENCE_LENGTH
+        else:
+            self.sequence_length = self.SEQUENCE_LENGTH
 
         print(f"Loaded {len(self.sequences)} sequences for {self.split} split")
         print(f"Sequence length: {self.sequence_length}")
@@ -133,6 +152,26 @@ class YeastDataset(SequenceDataset):
                 )
 
             processed.append(full_seq)
+
+        return np.array(processed)
+
+    def _add_alphagenome_context(self, sequences_150bp: np.ndarray) -> np.ndarray:
+        """Expand 150bp DREAM-formatted sequences to AlphaGenome 384bp context."""
+        processed = []
+        flank5 = self.ALPHAGENOME_FLANK_5_PRIME
+        flank3 = self.ALPHAGENOME_FLANK_3_PRIME
+        total_valid = len(flank5) + self.SEQUENCE_LENGTH + len(flank3)  # 293
+        left_pad = (self.ALPHAGENOME_SEQUENCE_LENGTH - total_valid) // 2  # 45
+        right_pad = self.ALPHAGENOME_SEQUENCE_LENGTH - total_valid - left_pad  # 46
+
+        for seq in sequences_150bp:
+            expanded = "N" * left_pad + flank5 + seq + flank3 + "N" * right_pad
+            if len(expanded) != self.ALPHAGENOME_SEQUENCE_LENGTH:
+                raise ValueError(
+                    f"AlphaGenome-expanded sequence has length {len(expanded)} "
+                    f"(expected {self.ALPHAGENOME_SEQUENCE_LENGTH})"
+                )
+            processed.append(expanded)
 
         return np.array(processed)
 

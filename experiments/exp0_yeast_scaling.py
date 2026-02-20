@@ -80,7 +80,7 @@ def run_fraction(
 
     model = create_dream_rnn(
         input_channels=6,
-        sequence_length=150,
+        sequence_length=train_dataset.get_sequence_length(),
         task_mode="yeast",
         hidden_dim=int(CONFIG["hidden_dim"]),
         cnn_filters=int(CONFIG["cnn_filters"]),
@@ -199,8 +199,16 @@ def main(cfg: DictConfig) -> None:
         mode=str(cfg.wandb_mode),
     )
 
-    train_dataset = YeastDataset(data_path=str(cfg.data_path), split="train")
-    val_dataset = YeastDataset(data_path=str(cfg.data_path), split="val")
+    train_dataset = YeastDataset(
+        data_path=str(cfg.data_path),
+        split="train",
+        context_mode=str(cfg.context_mode),
+    )
+    val_dataset = YeastDataset(
+        data_path=str(cfg.data_path),
+        split="val",
+        context_mode=str(cfg.context_mode),
+    )
 
     val_loader = DataLoader(
         val_dataset,
@@ -217,7 +225,11 @@ def main(cfg: DictConfig) -> None:
     subset_dir = Path(str(cfg.test_subset_dir)) if cfg.test_subset_dir else default_subset_dir
 
     if subset_dir.exists():
-        test_dataset = YeastDataset(data_path=str(cfg.data_path), split="test")
+        test_dataset = YeastDataset(
+            data_path=str(cfg.data_path),
+            split="test",
+            context_mode=str(cfg.context_mode),
+        )
         test_loader = DataLoader(
             test_dataset,
             batch_size=int(cfg.batch_size),
