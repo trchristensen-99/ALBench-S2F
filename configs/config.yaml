@@ -7,7 +7,7 @@ defaults:
 # Task and student are added via +task= and +student= overrides
 # so they are not listed in defaults
 
-seed: 42
+seed: null
 wandb:
   project: albench-s2f
   mode: online

@@ -56,7 +56,10 @@ def main(cfg: DictConfig) -> None:
     with open_dict(cfg):
         cfg.experiment.name = "exp4_cost"
         cfg.acquisition = OmegaConf.create(
-            {"_target_": "albench.acquisition.random_acq.RandomAcquisition", "seed": int(cfg.seed)}
+            {
+                "_target_": "albench.acquisition.random_acq.RandomAcquisition",
+                "seed": int(cfg.seed) if cfg.seed is not None else None,
+            }
         )
 
     artifacts = run_exp0_scaling(cfg)

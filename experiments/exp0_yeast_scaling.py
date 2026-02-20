@@ -72,27 +72,32 @@ CONFIG = {
     "early_stopping_patience": None,  # Train for full 80 epochs
     "metric_for_best": "pearson_r",
     # Reproducibility
-    "seed": 42,
+    "seed": None,
 }
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def set_seed(seed: int) -> None:
-    """Set all random seeds for reproducibility."""
+def set_seed(seed: int | None) -> int:
+    """Set seed if provided, otherwise sample one from system entropy."""
+    if seed is None:
+        seed = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+    return seed
 
 
-def create_subset_indices(dataset_size: int, fraction: float, seed: int) -> np.ndarray:
-    """Create deterministic random subset indices."""
-    rng = np.random.RandomState(seed)
+def create_subset_indices(dataset_size: int, fraction: float, seed: int | None) -> np.ndarray:
+    """Create subset indices (deterministic only when seed is provided)."""
     num_samples = max(1, int(dataset_size * fraction))
+    if seed is None:
+        return np.random.choice(dataset_size, size=num_samples, replace=False)
+    rng = np.random.RandomState(seed)
     return rng.choice(dataset_size, size=num_samples, replace=False)
 
 
@@ -120,7 +125,7 @@ def run_fraction(
 
     # Deterministic subset — seed encodes the fraction so each gets a unique
     # but reproducible subset.
-    subset_seed = CONFIG["seed"] + int(fraction * 100_000)
+    subset_seed = None if CONFIG["seed"] is None else int(CONFIG["seed"]) + int(fraction * 100_000)
     indices = create_subset_indices(n_total, fraction, subset_seed)
     train_subset = Subset(train_dataset, indices)
 
@@ -242,7 +247,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=str, default="./outputs/exp0_yeast_scaling")
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=CONFIG["seed"])
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
         "--wandb-mode", type=str, default="online", choices=["online", "offline", "disabled"]
     )
@@ -266,8 +271,8 @@ def main() -> None:
     args = parser.parse_args()
 
     # Seed
+    used_seed = set_seed(args.seed)
     CONFIG["seed"] = args.seed
-    set_seed(args.seed)
     if args.epochs is not None:
         CONFIG["num_epochs"] = args.epochs
     CONFIG["data_path"] = args.data_path
@@ -290,7 +295,7 @@ def main() -> None:
     # Output - use deterministic path to allow resuming
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # output_root = Path(args.output_dir) / f"run_{timestamp}_seed{args.seed}"
-    output_root = Path(args.output_dir) / f"seed_{args.seed}"
+    output_root = Path(args.output_dir) / f"seed_{used_seed}"
     output_root.mkdir(parents=True, exist_ok=True)
 
     # Save config
@@ -300,7 +305,7 @@ def main() -> None:
     # W&B
     wandb.init(
         project="albench-s2f",
-        name=f"exp0_yeast_scaling_seed{args.seed}_{timestamp}",
+        name=f"exp0_yeast_scaling_seed{used_seed}_{timestamp}",
         config={**CONFIG, "fractions": fractions},
         tags=["exp0", "yeast", "scaling"],
         mode=args.wandb_mode,

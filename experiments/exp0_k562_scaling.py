@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -41,20 +42,25 @@ CONFIG = {
     "use_reverse_complement": True,
     "early_stopping_patience": None,
     "metric_for_best": "pearson_r",
-    "seed": 42,
+    "seed": None,
 }
 
 
-def set_seed(seed: int) -> None:
+def set_seed(seed: int | None) -> int:
+    if seed is None:
+        seed = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    return seed
 
 
-def create_subset_indices(n_total: int, fraction: float, seed: int) -> np.ndarray:
-    rng = np.random.RandomState(seed)
+def create_subset_indices(n_total: int, fraction: float, seed: int | None) -> np.ndarray:
     n = max(1, int(n_total * fraction))
+    if seed is None:
+        return np.random.choice(n_total, size=n, replace=False)
+    rng = np.random.RandomState(seed)
     return rng.choice(n_total, size=n, replace=False)
 
 
@@ -68,7 +74,7 @@ def run_fraction(
     n_total = len(full_train)
     n_samples = max(1, int(n_total * fraction))
 
-    subset_seed = CONFIG["seed"] + int(fraction * 100_000)
+    subset_seed = None if CONFIG["seed"] is None else int(CONFIG["seed"]) + int(fraction * 100_000)
     indices = create_subset_indices(n_total, fraction, subset_seed)
     train_subset = Subset(full_train, indices)
 
@@ -146,14 +152,14 @@ def main() -> None:
     parser.add_argument("--output-dir", type=str, default="./outputs/exp0_k562_scaling")
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=CONFIG["seed"])
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
         "--wandb-mode", type=str, default="offline", choices=["online", "offline", "disabled"]
     )
     args = parser.parse_args()
 
+    used_seed = set_seed(args.seed)
     CONFIG["seed"] = args.seed
-    set_seed(args.seed)
     if args.epochs is not None:
         CONFIG["num_epochs"] = args.epochs
     CONFIG["data_path"] = args.data_path
@@ -167,12 +173,12 @@ def main() -> None:
 
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
-    output_root = Path(args.output_dir) / f"seed_{args.seed}"
+    output_root = Path(args.output_dir) / f"seed_{used_seed}"
     output_root.mkdir(parents=True, exist_ok=True)
 
     wandb.init(
         project="albench-s2f",
-        name=f"exp0_k562_scaling_seed{args.seed}",
+        name=f"exp0_k562_scaling_seed{used_seed}",
         config={**CONFIG, "fractions": fractions},
         tags=["exp0", "k562", "scaling"],
         mode=args.wandb_mode,

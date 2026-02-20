@@ -56,18 +56,21 @@ CONFIG = {
     "early_stopping_patience": None,
     "metric_for_best": "pearson_r",
     # Reproducibility
-    "seed": 42,
+    "seed": None,
 }
 
 
-def set_seed(seed: int) -> None:
-    """Set all random seeds."""
+def set_seed(seed: int | None) -> int:
+    """Set seed if provided, otherwise sample one from system entropy."""
+    if seed is None:
+        seed = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+    return seed
 
 
 def main() -> None:
@@ -78,17 +81,17 @@ def main() -> None:
     parser.add_argument("--output-dir", type=str, default="./outputs/oracle_dream_rnn_yeast")
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=CONFIG["num_epochs"])
-    parser.add_argument("--seed", type=int, default=CONFIG["seed"])
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
         "--wandb-mode", type=str, default="online", choices=["online", "offline", "disabled"]
     )
     args = parser.parse_args()
 
     # Setup
+    used_seed = set_seed(args.seed)
     CONFIG["seed"] = args.seed
     CONFIG["num_epochs"] = args.epochs
     CONFIG["data_path"] = args.data_path
-    set_seed(args.seed)
 
     if torch.cuda.is_available():
         device = torch.device(f"cuda:{args.gpu}")
@@ -103,7 +106,7 @@ def main() -> None:
     # W&B
     wandb.init(
         project="albench-s2f",
-        name=f"oracle_dream_rnn_yeast_seed{args.seed}",
+        name=f"oracle_dream_rnn_yeast_seed{used_seed}",
         config=CONFIG,
         tags=["oracle", "yeast", "dream_rnn"],
         mode=args.wandb_mode,

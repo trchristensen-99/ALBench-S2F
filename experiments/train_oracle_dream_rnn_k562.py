@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -39,15 +40,18 @@ CONFIG = {
     "use_reverse_complement": True,
     "early_stopping_patience": None,
     "metric_for_best": "pearson_r",
-    "seed": 42,
+    "seed": None,
 }
 
 
-def set_seed(seed: int) -> None:
+def set_seed(seed: int | None) -> int:
+    if seed is None:
+        seed = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    return seed
 
 
 def main() -> None:
@@ -59,16 +63,16 @@ def main() -> None:
     parser.add_argument("--output-dir", type=str, default="./outputs/oracle_dream_rnn_k562")
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=CONFIG["num_epochs"])
-    parser.add_argument("--seed", type=int, default=CONFIG["seed"])
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
         "--wandb-mode", type=str, default="offline", choices=["online", "offline", "disabled"]
     )
     args = parser.parse_args()
 
+    used_seed = set_seed(args.seed)
     CONFIG["seed"] = args.seed
     CONFIG["num_epochs"] = args.epochs
     CONFIG["data_path"] = args.data_path
-    set_seed(args.seed)
 
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     output_root = Path(args.output_dir)
@@ -76,7 +80,7 @@ def main() -> None:
 
     wandb.init(
         project="albench-s2f",
-        name=f"oracle_dream_rnn_k562_seed{args.seed}",
+        name=f"oracle_dream_rnn_k562_seed{used_seed}",
         config=CONFIG,
         tags=["oracle", "k562", "dream_rnn"],
         mode=args.wandb_mode,

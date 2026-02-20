@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,10 +31,13 @@ class ExpRunArtifacts:
     output_dir: Path
 
 
-def _set_seed(seed: int) -> None:
-    """Set all experiment random seeds."""
+def _set_seed(seed: int | None) -> int:
+    """Set experiment random seeds and return the seed used."""
+    if seed is None:
+        seed = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
     random.seed(seed)
     np.random.seed(seed)
+    return seed
 
 
 def _random_sequences(n: int, length: int, seed: int) -> list[str]:
@@ -63,7 +67,7 @@ def _metadata_rows(dataset: Any) -> list[dict[str, Any]] | None:
 
 def run_exp0_scaling(cfg: DictConfig) -> ExpRunArtifacts:
     """Execute Experiment 0 core logic with current Hydra config."""
-    _set_seed(int(cfg.seed))
+    used_seed = _set_seed(int(cfg.seed) if cfg.seed is not None else None)
 
     task = TaskConfig(
         name=cfg.task.name,
@@ -102,8 +106,8 @@ def run_exp0_scaling(cfg: DictConfig) -> ExpRunArtifacts:
         if hasattr(student, "models"):
             student.models = student.models[:1]
             student.ensemble_size = 1
-        sequences = _random_sequences(256, int(cfg.task.sequence_length), int(cfg.seed))
-        labels = np.random.default_rng(int(cfg.seed)).normal(size=len(sequences)).astype(np.float32)
+        sequences = _random_sequences(256, int(cfg.task.sequence_length), used_seed)
+        labels = np.random.default_rng(used_seed).normal(size=len(sequences)).astype(np.float32)
         task.test_set = {
             "dry": {
                 "sequences": sequences[:64],
@@ -154,7 +158,7 @@ def run_exp0_scaling(cfg: DictConfig) -> ExpRunArtifacts:
     initial_size = min(int(cfg.experiment.batch_size), len(sequences))
     if initial_size == 0:
         raise ValueError("No training sequences available for initial labeled set")
-    rng = np.random.default_rng(int(cfg.seed))
+    rng = np.random.default_rng(used_seed)
     initial_indices = rng.choice(len(sequences), size=initial_size, replace=False).tolist()
     initial_labeled = [sequences[i] for i in initial_indices]
 
