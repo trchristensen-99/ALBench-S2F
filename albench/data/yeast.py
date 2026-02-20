@@ -38,13 +38,10 @@ class YeastDataset(SequenceDataset):
         super().__init__(data_path, split)
 
     @staticmethod
-    def _deterministic_order(values: pd.Series) -> np.ndarray:
-        """Return a deterministic pseudo-random order without RNG seeds."""
-        # Stable hash per sequence gives host-independent ordering.
-        hashes = pd.util.hash_pandas_object(values.astype(str), index=False).to_numpy(
-            dtype=np.uint64
-        )
-        return np.argsort(hashes, kind="mergesort")
+    def _deterministic_order(n: int, seed: int = 42) -> np.ndarray:
+        """Return a deterministic random ordering with a fixed seed."""
+        rng = np.random.default_rng(seed=seed)
+        return rng.permutation(n)
 
     def load_data(self) -> None:
         """Load yeast MPRA data with fixed train/pool/val/test splits."""
@@ -55,7 +52,7 @@ class YeastDataset(SequenceDataset):
             print(f"Loading Yeast train data from {file_path}")
             df = pd.read_csv(file_path, sep="\t", header=None, names=["sequence", "expression"])
 
-            order = self._deterministic_order(df["sequence"])
+            order = self._deterministic_order(len(df), seed=42)
             train_idx = order[: self.FIXED_TRAIN_SIZE]
             pool_idx = order[self.FIXED_TRAIN_SIZE :]
 
@@ -74,7 +71,7 @@ class YeastDataset(SequenceDataset):
             df = pd.read_csv(file_path, sep="\t", header=None, names=["sequence", "expression"])
 
             if len(df) > self.FIXED_VAL_SIZE:
-                order = self._deterministic_order(df["sequence"])
+                order = self._deterministic_order(len(df), seed=42)
                 keep_idx = order[: self.FIXED_VAL_SIZE]
                 df = df.iloc[keep_idx].reset_index(drop=True)
                 print(f"Using fixed validation subset: {self.FIXED_VAL_SIZE:,} sequences")
@@ -160,9 +157,11 @@ class YeastDataset(SequenceDataset):
         sequence = self.sequences[idx]
         label = self.labels[idx]
 
-        metadata = {
-            "is_singleton": self.is_singleton[idx] if hasattr(self, "is_singleton") else 0.0
-        }
+        # Singleton channel is label-derived, so keep it off at inference/eval.
+        singleton_value = 0.0
+        if self.split == "train" and hasattr(self, "is_singleton"):
+            singleton_value = float(self.is_singleton[idx])
+        metadata = {"is_singleton": singleton_value}
 
         encoded = self.encode_sequence(sequence, metadata)
         encoded_tensor = torch.from_numpy(encoded).float()

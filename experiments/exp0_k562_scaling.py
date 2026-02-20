@@ -58,9 +58,25 @@ def _safe_corr(pred: np.ndarray, target: np.ndarray, fn: object) -> float:
 
 
 def _encode_k562_sequence(sequence: str) -> np.ndarray:
+    sequence = _standardize_to_200bp(sequence)
     one_hot = one_hot_encode(sequence, add_singleton_channel=False)
     rc = np.zeros((1, one_hot.shape[1]), dtype=np.float32)
     return np.concatenate([one_hot, rc], axis=0)
+
+
+def _standardize_to_200bp(sequence: str) -> str:
+    """Center-pad/truncate to 200bp to match K562Dataset preprocessing."""
+    target_len = 200
+    curr_len = len(sequence)
+    if curr_len == target_len:
+        return sequence
+    if curr_len < target_len:
+        pad_needed = target_len - curr_len
+        left_pad = pad_needed // 2
+        right_pad = pad_needed - left_pad
+        return "N" * left_pad + sequence + "N" * right_pad
+    start = (curr_len - target_len) // 2
+    return sequence[start : start + target_len]
 
 
 def _predict_sequences(
