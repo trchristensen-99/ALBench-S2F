@@ -60,6 +60,20 @@ def set_seed(seed: int | None) -> int:
     return seed
 
 
+def _center_pad_4ch(seq: np.ndarray, target_len: int) -> np.ndarray:
+    """Center-pad or trim a (L, 4) sequence to ``target_len``."""
+    curr_len = seq.shape[0]
+    if curr_len == target_len:
+        return seq
+    if curr_len > target_len:
+        start = (curr_len - target_len) // 2
+        return seq[start : start + target_len]
+    out = np.zeros((target_len, 4), dtype=np.float32)
+    left = (target_len - curr_len) // 2
+    out[left : left + curr_len, :] = seq
+    return out
+
+
 def collate_yeast(batch: list[tuple], max_len: int = 384) -> dict[str, np.ndarray]:
     """Build AlphaGenome inputs for yeast using plasmid-style context."""
     flank_5, flank_3 = _init_yeast_flanks()
@@ -69,23 +83,28 @@ def collate_yeast(batch: list[tuple], max_len: int = 384) -> dict[str, np.ndarra
 
     len_5 = flank_5.shape[0]
     len_3 = flank_3.shape[0]
-    len_core = 150
-    total_valid = len_5 + len_core + len_3
-    start_idx = (max_len - total_valid) // 2
+    canonical_core_len = 150
+    canonical_total = len_5 + canonical_core_len + len_3
+    canonical_start = (max_len - canonical_total) // 2
 
-    idx_5_start = start_idx
+    idx_5_start = canonical_start
     idx_5_end = idx_5_start + len_5
     idx_core_start = idx_5_end
-    idx_core_end = idx_core_start + len_core
+    idx_core_end = idx_core_start + canonical_core_len
     idx_3_start = idx_core_end
     idx_3_end = idx_3_start + len_3
 
     for i, (seq, label) in enumerate(batch):
         seq_np = seq.numpy()
-        core = seq_np[:4, :].T
-        x_batch[i, idx_5_start:idx_5_end, :] = flank_5
-        x_batch[i, idx_core_start:idx_core_end, :] = core
-        x_batch[i, idx_3_start:idx_3_end, :] = flank_3
+        core = seq_np[:4, :].T  # (L, 4)
+
+        # If dataset already returns AlphaGenome-length inputs (e.g. 384), use as-is.
+        if core.shape[0] != canonical_core_len:
+            x_batch[i, :, :] = _center_pad_4ch(core, max_len)
+        else:
+            x_batch[i, idx_5_start:idx_5_end, :] = flank_5
+            x_batch[i, idx_core_start:idx_core_end, :] = core
+            x_batch[i, idx_3_start:idx_3_end, :] = flank_3
         y_batch[i] = float(label.numpy())
 
     return {
@@ -145,7 +164,7 @@ def main(cfg: DictConfig) -> None:
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(cfg.gpu))
 
     used_seed = set_seed(int(cfg.seed) if cfg.seed is not None else None)
-    output_dir = Path(str(cfg.output_dir))
+    output_dir = Path(str(cfg.output_dir)).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     num_tracks = int(cfg.num_tracks)
