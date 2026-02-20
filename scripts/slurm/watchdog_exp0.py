@@ -5,85 +5,146 @@ Resubmits the Slurm array job if it finishes/times out but results are missing.
 Relying on the specific resume logic in exp0_yeast_scaling.py to skip completed work.
 """
 
-import glob
+import argparse
+import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
-# Config
-SLURM_SCRIPT = "scripts/slurm/exp0_yeast_scaling.sh"
-OUTPUT_DIR = "outputs/exp0_yeast_scaling/seed_42"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SLURM_SCRIPT = REPO_ROOT / "scripts" / "slurm" / "exp0_yeast_scaling.sh"
+OUTPUT_DIR = REPO_ROOT / "outputs" / "exp0_yeast_scaling" / "seed_42"
 FRACTIONS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
-CHECK_INTERVAL_SEC = 1800  # 30 minutes
+DEFAULT_CHECK_INTERVAL_SEC = 1800  # 30 minutes
 
 
-def is_job_running(job_name="exp0_yeast"):
+def _have_cmd(name: str) -> bool:
+    """Return True if command is available in PATH."""
+    return shutil.which(name) is not None
+
+
+def is_job_running(job_name: str = "exp0_yeast") -> bool:
     """Check if a job with the given name is running/pending using squeue."""
+    if not _have_cmd("squeue"):
+        print("squeue not found in PATH; treating scheduler state as unknown.")
+        return False
     try:
-        # Check all jobs for the current user
-        user = subprocess.check_output("whoami", shell=True).strip().decode()
-        output = subprocess.check_output(f"squeue -u {user} --format=%j", shell=True).decode()
+        user = subprocess.check_output(["whoami"], text=True).strip()
+        output = subprocess.check_output(
+            ["squeue", "-u", user, "--format=%j"], text=True, cwd=str(REPO_ROOT)
+        )
         return job_name in output
-    except Exception as e:
-        print(f"Error checking squeue: {e}")
-        return True  # Assume running to be safe
+    except Exception as exc:  # pragma: no cover - defensive shell interaction
+        print(f"Error checking squeue: {exc}")
+        return False
 
 
-def get_missing_fractions():
+def is_local_process_running(pattern: str = "exp0_yeast_scaling.py") -> bool:
+    """Fallback check: detect local python process if no scheduler is visible."""
+    try:
+        user = subprocess.check_output(["whoami"], text=True).strip()
+        output = subprocess.check_output(
+            ["ps", "-u", user, "-o", "pid=,cmd="], text=True, cwd=str(REPO_ROOT)
+        )
+        return any(pattern in line for line in output.splitlines())
+    except Exception as exc:  # pragma: no cover
+        print(f"Error checking local processes: {exc}")
+        return False
+
+
+def get_missing_fractions(output_dir: Path) -> list[float]:
     """Check which fractions are missing result.json."""
-    missing = []
-    base_path = Path(OUTPUT_DIR)
-
-    if not base_path.exists():
+    missing: list[float] = []
+    if not output_dir.exists():
         return FRACTIONS
 
     for frac in FRACTIONS:
-        # Format matching the script: f"fraction_{frac:.4f}"
-        frac_dir = base_path / f"fraction_{frac:.4f}"
+        frac_dir = output_dir / f"fraction_{frac:.4f}"
         result_file = frac_dir / "result.json"
-
         if not result_file.exists():
             missing.append(frac)
-
     return missing
 
 
-def submit_job():
-    """Submit the Slurm script."""
-    print(f"Submitting job: {SLURM_SCRIPT}")
-    try:
-        output = subprocess.check_output(f"sbatch {SLURM_SCRIPT}", shell=True).decode()
-        print(f"Submission output: {output.strip()}")
-    except subprocess.CalledProcessError as e:
-        print(f"Submission failed: {e}")
+def submit_job(slurm_script: Path) -> None:
+    """Submit the Slurm script from repository root."""
+    if not slurm_script.exists():
+        raise FileNotFoundError(f"Slurm script not found: {slurm_script}")
+    print(f"Submitting job: {slurm_script}")
+    output = subprocess.check_output(
+        ["sbatch", str(slurm_script)], text=True, cwd=str(REPO_ROOT)
+    ).strip()
+    print(f"Submission output: {output}")
 
 
-def main():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--job-name", default="exp0_yeast")
+    parser.add_argument("--once", action="store_true", help="Run one check cycle and exit.")
+    parser.add_argument(
+        "--check-interval-sec",
+        type=int,
+        default=DEFAULT_CHECK_INTERVAL_SEC,
+        help="Polling interval in seconds.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=str(OUTPUT_DIR),
+        help="Output directory containing fraction_x/result.json folders.",
+    )
+    return parser.parse_args()
+
+
+def run_once(job_name: str, output_dir: Path) -> bool:
+    """Run one watchdog cycle.
+
+    Returns:
+        True if all fractions are complete.
+    """
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    missing = get_missing_fractions(output_dir=output_dir)
+    if not missing:
+        print(f"[{timestamp}] All fractions complete.")
+        return True
+
+    print(f"[{timestamp}] Missing fractions: {missing}")
+    scheduler_running = is_job_running(job_name=job_name)
+    local_running = is_local_process_running()
+    if scheduler_running or local_running:
+        print(
+            f"[{timestamp}] Work appears to be running (scheduler={scheduler_running}, local={local_running})."
+        )
+        return False
+
+    print(f"[{timestamp}] No active run detected. Submitting array job...")
+    submit_job(SLURM_SCRIPT)
+    return False
+
+
+def main() -> None:
+    """Entry point."""
+    args = parse_args()
+    output_dir = Path(args.output_dir).expanduser().resolve()
+
     print("Starting Exp0 Watchdog...")
-    print(f"Monitoring output dir: {OUTPUT_DIR}")
+    print(f"Repo root: {REPO_ROOT}")
+    print(f"Slurm script: {SLURM_SCRIPT}")
+    print(f"Monitoring output dir: {output_dir}")
+
+    if args.once:
+        done = run_once(job_name=args.job_name, output_dir=output_dir)
+        if done:
+            print("Watchdog check completed: all done.")
+        return
 
     while True:
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-
-        # 1. Check completion
-        missing = get_missing_fractions()
-        if not missing:
-            print(f"[{timestamp}] ✅ All fractions complete! Watchdog exiting.")
+        done = run_once(job_name=args.job_name, output_dir=output_dir)
+        if done:
+            print("All fractions complete. Watchdog exiting.")
             return
-
-        print(f"[{timestamp}] Missing fractions: {missing}")
-
-        # 2. Check if running
-        if is_job_running():
-            print(f"[{timestamp}] Job currently running. Waiting...")
-        else:
-            print(f"[{timestamp}] Job NOT running and work remains. Resubmitting...")
-            submit_job()
-
-        # 3. Sleep
-        print(f"[{timestamp}] Sleeping for {CHECK_INTERVAL_SEC} seconds...")
-        time.sleep(CHECK_INTERVAL_SEC)
+        print(f"Sleeping for {args.check_interval_sec} seconds...")
+        time.sleep(args.check_interval_sec)
 
 
 if __name__ == "__main__":
