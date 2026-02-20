@@ -63,7 +63,7 @@ CONFIG = {
     # Training
     "num_epochs": 80,
     "lr": 0.005,
-    "lr_lstm": 0.001,
+    "lr_lstm": 0.005,
     "weight_decay": 0.01,
     "pct_start": 0.3,
     "use_amp": True,

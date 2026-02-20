@@ -344,7 +344,7 @@ def create_optimizer_and_scheduler(
     train_loader: DataLoader,
     num_epochs: int,
     lr: float = 0.005,
-    lr_lstm: float = 0.001,
+    lr_lstm: float = 0.005,
     weight_decay: float = 0.01,
     pct_start: float = 0.3,
 ) -> Tuple[Optimizer, Any]:

@@ -25,7 +25,7 @@ class TrainConfig:
     batch_size: int = 1024
     epochs: int = 80
     lr: float = 0.005
-    lr_lstm: float = 0.001
+    lr_lstm: float = 0.005
     weight_decay: float = 0.01
     pct_start: float = 0.3
 
