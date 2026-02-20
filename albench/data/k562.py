@@ -131,10 +131,9 @@ class K562Dataset(SequenceDataset):
         self.sequences = self._standardize_to_200bp(self.sequences)
 
         # Apply subset size if specified (for downsampling experiments)
-        # Use truly random sampling without replacement
+        # Use random sampling without replacement (seedless unless caller sets global seed)
         if self.subset_size is not None and self.subset_size < len(self.sequences):
-            # Use deterministic seed for reproducibility across environments
-            rng = np.random.default_rng(seed=42)
+            rng = np.random.default_rng()
             indices = rng.choice(len(self.sequences), size=self.subset_size, replace=False)
             self.sequences = self.sequences[indices]
             self.labels = self.labels[indices]

@@ -23,7 +23,7 @@ class SequenceDataset(ABC, Dataset):
 
     Attributes:
         data_path: Path to data directory
-        split: Which split to load ("train", "val", or "test")
+        split: Which split to load ("train", "pool", "val", or "test")
         sequences: Array of DNA sequences (strings)
         labels: Array of functional measurements (continuous values)
         metadata: Additional information about sequences
@@ -42,12 +42,12 @@ class SequenceDataset(ABC, Dataset):
 
         Args:
             data_path: Path to data directory
-            split: Which split to load ("train", "val", or "test")
+            split: Which split to load ("train", "pool", "val", or "test")
             transform: Optional transform to apply to sequences
             target_transform: Optional transform to apply to labels
         """
-        if split not in ["train", "val", "test"]:
-            raise ValueError(f"Split must be 'train', 'val', or 'test', got {split}")
+        if split not in ["train", "pool", "val", "test"]:
+            raise ValueError(f"Split must be 'train', 'pool', 'val', or 'test', got {split}")
 
         self.data_path = data_path
         self.split = split
