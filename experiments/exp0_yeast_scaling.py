@@ -1,40 +1,21 @@
 #!/usr/bin/env python
-"""
-Experiment 0 — Yeast random downsampling scaling curve.
-
-Trains DREAM-RNN on random subsets of the full yeast training data at
-varying fractions, evaluating on a held-out validation set.  This establishes
-the baseline data-efficiency curve WITHOUT active learning.
-
-Usage (single fraction):
-    python experiments/exp0_yeast_scaling.py --fraction 0.01
-
-Usage (all fractions):
-    python experiments/exp0_yeast_scaling.py
-
-Usage (specific GPU):
-    CUDA_VISIBLE_DEVICES=2 python experiments/exp0_yeast_scaling.py --fraction 0.05
-"""
+"""Experiment 0 — Yeast random downsampling scaling curve."""
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
+import hydra
 import numpy as np
 import torch
-import torch.nn as nn
 import wandb
 from dotenv import load_dotenv
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader, Subset
-
-# Ensure project root is importable
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from albench.data.yeast import YeastDataset
 from albench.evaluation_utils.yeast_testsets import (
@@ -46,37 +27,7 @@ from albench.models.loss_utils import YeastKLLoss
 from albench.models.training import train_model_optimized
 from albench.models.training_base import create_optimizer_and_scheduler
 
-# ── Default config ──────────────────────────────────────────────────────────
-
-DEFAULT_FRACTIONS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
-
-CONFIG = {
-    "data_path": "./data/yeast",
-    "batch_size": 1024,
-    "num_workers": 0,  # 0 avoids DataLoader RuntimeError on some hosts
-    "pin_memory": True,
-    # Model
-    "hidden_dim": 320,
-    "cnn_filters": 160,
-    "dropout_cnn": 0.1,  # MC-dropout for active-learning uncertainty
-    "dropout_lstm": 0.1,
-    # Training
-    "num_epochs": 80,
-    "lr": 0.005,
-    "lr_lstm": 0.005,
-    "weight_decay": 0.01,
-    "pct_start": 0.3,
-    "use_amp": True,
-    "use_compile": False,
-    "use_reverse_complement": True,
-    "early_stopping_patience": None,  # Train for full 80 epochs
-    "metric_for_best": "pearson_r",
-    # Reproducibility
-    "seed": None,
-}
-
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
+CONFIG: dict[str, object] = {}
 
 
 def set_seed(seed: int | None) -> int:
@@ -101,9 +52,6 @@ def create_subset_indices(dataset_size: int, fraction: float, seed: int | None) 
     return rng.choice(dataset_size, size=num_samples, replace=False)
 
 
-# ── Main ────────────────────────────────────────────────────────────────────
-
-
 def run_fraction(
     fraction: float,
     train_dataset: YeastDataset,
@@ -113,80 +61,65 @@ def run_fraction(
     test_loader: DataLoader | None = None,
     test_labels: np.ndarray | None = None,
     test_subsets: dict[str, np.ndarray] | None = None,
-    wandb_run: bool = True,
 ) -> dict:
     """Train DREAM-RNN on a random subset at a given fraction."""
     n_total = len(train_dataset)
     n_samples = max(1, int(n_total * fraction))
 
-    print(f"\n{'=' * 80}")
-    print(f"FRACTION {fraction:.3f} — {n_samples:,} / {n_total:,} sequences")
-    print(f"{'=' * 80}")
-
-    # Deterministic subset — seed encodes the fraction so each gets a unique
-    # but reproducible subset.
     subset_seed = None if CONFIG["seed"] is None else int(CONFIG["seed"]) + int(fraction * 100_000)
     indices = create_subset_indices(n_total, fraction, subset_seed)
     train_subset = Subset(train_dataset, indices)
 
     train_loader = DataLoader(
         train_subset,
-        batch_size=CONFIG["batch_size"],
+        batch_size=int(CONFIG["batch_size"]),
         shuffle=True,
-        num_workers=CONFIG["num_workers"],
-        pin_memory=CONFIG["pin_memory"],
+        num_workers=int(CONFIG["num_workers"]),
+        pin_memory=bool(CONFIG["pin_memory"]),
     )
 
-    # Create model
     model = create_dream_rnn(
         input_channels=6,
         sequence_length=150,
         task_mode="yeast",
-        hidden_dim=CONFIG["hidden_dim"],
-        cnn_filters=CONFIG["cnn_filters"],
-        dropout_cnn=CONFIG["dropout_cnn"],
-        dropout_lstm=CONFIG["dropout_lstm"],
+        hidden_dim=int(CONFIG["hidden_dim"]),
+        cnn_filters=int(CONFIG["cnn_filters"]),
+        dropout_cnn=float(CONFIG["dropout_cnn"]),
+        dropout_lstm=float(CONFIG["dropout_lstm"]),
     ).to(device)
 
-    print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
-
-    # Loss = KL divergence for yeast 18-bin classification
     criterion = YeastKLLoss(reduction="batchmean")
 
-    # Optimizer + OneCycleLR scheduler
     optimizer, scheduler = create_optimizer_and_scheduler(
         model=model,
         train_loader=train_loader,
-        num_epochs=CONFIG["num_epochs"],
-        lr=CONFIG["lr"],
-        lr_lstm=CONFIG["lr_lstm"],
-        weight_decay=CONFIG["weight_decay"],
-        pct_start=CONFIG["pct_start"],
+        num_epochs=int(CONFIG["epochs"]),
+        lr=float(CONFIG["lr"]),
+        lr_lstm=float(CONFIG["lr_lstm"]),
+        weight_decay=float(CONFIG["weight_decay"]),
+        pct_start=float(CONFIG["pct_start"]),
     )
 
-    # Checkpoint directory
     checkpoint_dir = output_root / f"fraction_{fraction:.4f}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     start = time.time()
-
     history = train_model_optimized(
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
         optimizer=optimizer,
         criterion=criterion,
-        num_epochs=CONFIG["num_epochs"],
+        num_epochs=int(CONFIG["epochs"]),
         device=device,
         scheduler=scheduler,
         checkpoint_dir=checkpoint_dir,
-        use_reverse_complement=CONFIG["use_reverse_complement"],
+        use_reverse_complement=bool(CONFIG["use_reverse_complement"]),
         early_stopping_patience=CONFIG["early_stopping_patience"],
-        metric_for_best=CONFIG["metric_for_best"],
-        use_amp=CONFIG["use_amp"],
-        use_compile=CONFIG["use_compile"],
+        metric_for_best=str(CONFIG["metric_for_best"]),
+        use_amp=bool(CONFIG["use_amp"]),
+        use_compile=bool(CONFIG["use_compile"]),
     )
-
     elapsed = time.time() - start
 
     best_val_pearson = max(history["val_pearson_r"]) if history["val_pearson_r"] else 0.0
@@ -200,7 +133,9 @@ def run_fraction(
         with torch.no_grad():
             for xb, _ in test_loader:
                 xb = xb.to(device, non_blocking=True)
-                yhat = model.predict(xb, use_reverse_complement=CONFIG["use_reverse_complement"])
+                yhat = model.predict(
+                    xb, use_reverse_complement=bool(CONFIG["use_reverse_complement"])
+                )
                 preds.append(yhat.detach().cpu().numpy().reshape(-1))
         test_predictions = np.concatenate(preds, axis=0)
         test_metrics = evaluate_yeast_test_subsets(
@@ -221,148 +156,91 @@ def run_fraction(
         "test_metrics": test_metrics,
     }
 
-    # Save per-fraction results
-    with (checkpoint_dir / "result.json").open("w") as f:
-        json.dump(result, f, indent=2)
-
-    print(f"\nFraction {fraction:.3f} done in {elapsed / 60:.1f} min")
-    print(f"  Best val Pearson R:  {best_val_pearson:.4f}")
-    print(f"  Best val Spearman R: {best_val_spearman:.4f}")
+    with (checkpoint_dir / "result.json").open("w", encoding="utf-8") as handle:
+        json.dump(result, handle, indent=2)
 
     return result
 
 
-def main() -> None:
+@hydra.main(
+    version_base=None,
+    config_path="../configs/experiment",
+    config_name="exp0_yeast_scaling",
+)
+def main(cfg: DictConfig) -> None:
     load_dotenv()
+    global CONFIG
+    CONFIG = OmegaConf.to_container(cfg, resolve=True)
 
-    parser = argparse.ArgumentParser(description="Exp 0: Yeast scaling curve")
-    parser.add_argument(
-        "--fraction",
-        type=float,
-        default=None,
-        help="Run a single fraction (e.g. 0.01). Omit to run all.",
-    )
-    parser.add_argument("--fractions", type=float, nargs="+", default=None)
-    parser.add_argument("--data-path", type=str, default=CONFIG["data_path"])
-    parser.add_argument("--output-dir", type=str, default="./outputs/exp0_yeast_scaling")
-    parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument(
-        "--wandb-mode", type=str, default="online", choices=["online", "offline", "disabled"]
-    )
-    parser.add_argument(
-        "--test-subset-dir",
-        type=str,
-        default=None,
-        help="Path to yeast test subset CSVs (all_random_seqs.csv, all_SNVs_seqs.csv, yeast_seqs.csv).",
-    )
-    parser.add_argument(
-        "--public-leaderboard-dir",
-        type=str,
-        default=None,
-        help="Optional path to public leaderboard JSONs for private-only evaluation filtering.",
-    )
-    parser.add_argument(
-        "--private-only-test",
-        action="store_true",
-        help="If set, exclude public leaderboard IDs from subset metrics.",
-    )
-    args = parser.parse_args()
+    used_seed = set_seed(int(cfg.seed) if cfg.seed is not None else None)
+    CONFIG["seed"] = cfg.seed
 
-    # Seed
-    used_seed = set_seed(args.seed)
-    CONFIG["seed"] = args.seed
-    if args.epochs is not None:
-        CONFIG["num_epochs"] = args.epochs
-    CONFIG["data_path"] = args.data_path
-
-    # Fractions
-    if args.fraction is not None:
-        fractions = [args.fraction]
-    elif args.fractions is not None:
-        fractions = sorted(args.fractions)
+    if cfg.fraction is not None:
+        fractions = [float(cfg.fraction)]
+    elif cfg.fractions is not None:
+        fractions = sorted([float(x) for x in cfg.fractions])
     else:
-        fractions = DEFAULT_FRACTIONS
+        fractions = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
 
-    # Device
-    if torch.cuda.is_available():
-        device = torch.device(f"cuda:{args.gpu}")
-    else:
-        device = torch.device("cpu")
-    print(f"Device: {device}")
+    device = torch.device(f"cuda:{int(cfg.gpu)}" if torch.cuda.is_available() else "cpu")
 
-    # Output - use deterministic path to allow resuming
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # output_root = Path(args.output_dir) / f"run_{timestamp}_seed{args.seed}"
-    output_root = Path(args.output_dir) / f"seed_{used_seed}"
+    output_root = Path(str(cfg.output_dir)) / f"seed_{used_seed}"
     output_root.mkdir(parents=True, exist_ok=True)
 
-    # Save config
-    with (output_root / "config.json").open("w") as f:
-        json.dump({**CONFIG, "fractions": fractions, "device": str(device)}, f, indent=2)
+    with (output_root / "config.json").open("w", encoding="utf-8") as handle:
+        json.dump({**CONFIG, "fractions": fractions, "device": str(device)}, handle, indent=2)
 
-    # W&B
     wandb.init(
         project="albench-s2f",
         name=f"exp0_yeast_scaling_seed{used_seed}_{timestamp}",
         config={**CONFIG, "fractions": fractions},
         tags=["exp0", "yeast", "scaling"],
-        mode=args.wandb_mode,
+        mode=str(cfg.wandb_mode),
     )
 
-    # ── Load datasets ───────────────────────────────────────────────────
-    print("\nLoading datasets...")
-    train_dataset = YeastDataset(data_path=CONFIG["data_path"], split="train")
-    val_dataset = YeastDataset(data_path=CONFIG["data_path"], split="val")
+    train_dataset = YeastDataset(data_path=str(cfg.data_path), split="train")
+    val_dataset = YeastDataset(data_path=str(cfg.data_path), split="val")
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=CONFIG["batch_size"],
+        batch_size=int(cfg.batch_size),
         shuffle=False,
-        num_workers=CONFIG["num_workers"],
-        pin_memory=CONFIG["pin_memory"],
+        num_workers=int(cfg.num_workers),
+        pin_memory=bool(cfg.pin_memory),
     )
 
-    print(f"Full training set: {len(train_dataset):,} sequences")
-    print(f"Validation set:    {len(val_dataset):,} sequences")
-
-    # Optional test-subset evaluation setup
     test_loader: DataLoader | None = None
     test_labels: np.ndarray | None = None
     test_subsets: dict[str, np.ndarray] | None = None
-    default_subset_dir = Path(CONFIG["data_path"]) / "test_subset_ids"
-    subset_dir = Path(args.test_subset_dir) if args.test_subset_dir else default_subset_dir
+    default_subset_dir = Path(str(cfg.data_path)) / "test_subset_ids"
+    subset_dir = Path(str(cfg.test_subset_dir)) if cfg.test_subset_dir else default_subset_dir
+
     if subset_dir.exists():
-        print(f"Loading yeast test subsets from {subset_dir}")
-        test_dataset = YeastDataset(data_path=CONFIG["data_path"], split="test")
+        test_dataset = YeastDataset(data_path=str(cfg.data_path), split="test")
         test_loader = DataLoader(
             test_dataset,
-            batch_size=CONFIG["batch_size"],
+            batch_size=int(cfg.batch_size),
             shuffle=False,
-            num_workers=CONFIG["num_workers"],
-            pin_memory=CONFIG["pin_memory"],
+            num_workers=int(cfg.num_workers),
+            pin_memory=bool(cfg.pin_memory),
         )
         test_labels = test_dataset.labels.astype(np.float32)
+        public_dir = str(cfg.public_leaderboard_dir) if cfg.public_leaderboard_dir else None
         test_subsets = load_yeast_test_subsets(
             subset_dir=subset_dir,
-            public_dir=args.public_leaderboard_dir,
-            use_private_only=args.private_only_test,
+            public_dir=public_dir,
+            use_private_only=bool(cfg.private_only_test),
         )
-    else:
-        print(f"Skipping yeast subset test evaluation (subset files not found at {subset_dir}).")
 
-    # ── Run fractions ───────────────────────────────────────────────────
     all_results: list[dict] = []
     for frac in fractions:
-        # Check if already done
         fraction_dir = output_root / f"fraction_{frac:.4f}"
         result_json = fraction_dir / "result.json"
 
         if result_json.exists():
-            print(f"\nSkipping fraction {frac} (already complete found at {result_json})")
-            with result_json.open() as f:
-                result = json.load(f)
+            with result_json.open("r", encoding="utf-8") as handle:
+                result = json.load(handle)
             all_results.append(result)
             continue
 
@@ -378,7 +256,6 @@ def main() -> None:
         )
         all_results.append(result)
 
-        # Log summary to W&B
         wandb.log(
             {
                 "fraction": frac,
@@ -399,27 +276,10 @@ def main() -> None:
             }
         )
 
-    # ── Summary ─────────────────────────────────────────────────────────
-    print(f"\n{'=' * 80}")
-    print("EXPERIMENT 0 COMPLETE — YEAST SCALING CURVE")
-    print(f"{'=' * 80}")
-    print(f"{'Fraction':<10} {'N':<10} {'Time (min)':<12} {'Pearson R':<12} {'Spearman R':<12}")
-    print("-" * 56)
-    for r in all_results:
-        print(
-            f"{r['fraction']:<10.4f} "
-            f"{r['n_samples']:<10,} "
-            f"{r['training_time_seconds'] / 60:<12.1f} "
-            f"{r['best_val_pearson_r']:<12.4f} "
-            f"{r['best_val_spearman_r']:<12.4f}"
-        )
-
-    # Save final results
-    with (output_root / "scaling_curve.json").open("w") as f:
-        json.dump(all_results, f, indent=2)
+    with (output_root / "scaling_curve.json").open("w", encoding="utf-8") as handle:
+        json.dump(all_results, handle, indent=2)
 
     wandb.finish()
-    print(f"\nResults saved to: {output_root}")
 
 
 if __name__ == "__main__":

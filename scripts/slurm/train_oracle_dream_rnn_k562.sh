@@ -18,7 +18,7 @@ echo "Date: $(date)"
 
 ~/.local/bin/uv sync --extra dev
 ~/.local/bin/uv run --no-sync python experiments/train_oracle_dream_rnn_k562.py \
-  --data-path data/k562 \
-  --output-dir outputs/oracle_dream_rnn_k562 \
-  --epochs 80 \
-  --wandb-mode "${WANDB_MODE:-offline}"
+  data_path=data/k562 \
+  output_dir=outputs/oracle_dream_rnn_k562 \
+  epochs=80 \
+  wandb_mode="${WANDB_MODE:-offline}"

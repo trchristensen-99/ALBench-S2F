@@ -22,7 +22,7 @@ echo "Date: $(date)"
 
 ~/.local/bin/uv sync --extra dev
 ~/.local/bin/uv run --no-sync python experiments/exp0_k562_scaling.py \
-  --fraction "$FRACTION" \
-  --data-path data/k562 \
-  --output-dir outputs/exp0_k562_scaling \
-  --wandb-mode "${WANDB_MODE:-offline}"
+  fraction="$FRACTION" \
+  data_path=data/k562 \
+  output_dir=outputs/exp0_k562_scaling \
+  wandb_mode="${WANDB_MODE:-offline}"

@@ -3,45 +3,24 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import time
 from pathlib import Path
 
+import hydra
 import numpy as np
 import torch
 import torch.nn as nn
 import wandb
 from dotenv import load_dotenv
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import ConcatDataset, DataLoader
 
 from albench.data.k562 import K562Dataset
 from albench.models.dream_rnn import create_dream_rnn
 from albench.models.training import train_model_optimized
 from albench.models.training_base import create_optimizer_and_scheduler
-
-CONFIG = {
-    "data_path": "./data/k562",
-    "batch_size": 1024,
-    "num_workers": 4,
-    "pin_memory": True,
-    "hidden_dim": 320,
-    "cnn_filters": 160,
-    "dropout_cnn": 0.1,
-    "dropout_lstm": 0.1,
-    "num_epochs": 80,
-    "lr": 0.005,
-    "lr_lstm": 0.005,
-    "weight_decay": 0.01,
-    "pct_start": 0.3,
-    "use_amp": True,
-    "use_compile": False,
-    "use_reverse_complement": True,
-    "early_stopping_patience": None,
-    "metric_for_best": "pearson_r",
-    "seed": None,
-}
 
 
 def set_seed(seed: int | None) -> int:
@@ -54,79 +33,69 @@ def set_seed(seed: int | None) -> int:
     return seed
 
 
-def main() -> None:
+@hydra.main(
+    version_base=None,
+    config_path="../configs/experiment",
+    config_name="oracle_dream_rnn_k562",
+)
+def main(cfg: DictConfig) -> None:
     load_dotenv()
-    parser = argparse.ArgumentParser(
-        description="Oracle: DREAM-RNN on full K562 HashFrag train+pool"
-    )
-    parser.add_argument("--data-path", type=str, default=CONFIG["data_path"])
-    parser.add_argument("--output-dir", type=str, default="./outputs/oracle_dream_rnn_k562")
-    parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=CONFIG["num_epochs"])
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument(
-        "--wandb-mode", type=str, default="offline", choices=["online", "offline", "disabled"]
-    )
-    args = parser.parse_args()
 
-    used_seed = set_seed(args.seed)
-    CONFIG["seed"] = args.seed
-    CONFIG["num_epochs"] = args.epochs
-    CONFIG["data_path"] = args.data_path
+    used_seed = set_seed(int(cfg.seed) if cfg.seed is not None else None)
+    device = torch.device(f"cuda:{int(cfg.gpu)}" if torch.cuda.is_available() else "cpu")
 
-    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
-    output_root = Path(args.output_dir)
+    output_root = Path(str(cfg.output_dir))
     output_root.mkdir(parents=True, exist_ok=True)
 
     wandb.init(
         project="albench-s2f",
         name=f"oracle_dream_rnn_k562_seed{used_seed}",
-        config=CONFIG,
+        config=OmegaConf.to_container(cfg, resolve=True),
         tags=["oracle", "k562", "dream_rnn"],
-        mode=args.wandb_mode,
+        mode=str(cfg.wandb_mode),
         job_type="oracle_training",
     )
 
-    ds_train = K562Dataset(data_path=args.data_path, split="train")
-    ds_pool = K562Dataset(data_path=args.data_path, split="pool")
-    ds_val = K562Dataset(data_path=args.data_path, split="val")
+    ds_train = K562Dataset(data_path=str(cfg.data_path), split="train")
+    ds_pool = K562Dataset(data_path=str(cfg.data_path), split="pool")
+    ds_val = K562Dataset(data_path=str(cfg.data_path), split="val")
 
     full_train = ConcatDataset([ds_train, ds_pool])
 
     train_loader = DataLoader(
         full_train,
-        batch_size=CONFIG["batch_size"],
+        batch_size=int(cfg.batch_size),
         shuffle=True,
-        num_workers=CONFIG["num_workers"],
-        pin_memory=CONFIG["pin_memory"],
+        num_workers=int(cfg.num_workers),
+        pin_memory=bool(cfg.pin_memory),
     )
     val_loader = DataLoader(
         ds_val,
-        batch_size=CONFIG["batch_size"],
+        batch_size=int(cfg.batch_size),
         shuffle=False,
-        num_workers=CONFIG["num_workers"],
-        pin_memory=CONFIG["pin_memory"],
+        num_workers=int(cfg.num_workers),
+        pin_memory=bool(cfg.pin_memory),
     )
 
     model = create_dream_rnn(
         input_channels=5,
         sequence_length=200,
         task_mode="k562",
-        hidden_dim=CONFIG["hidden_dim"],
-        cnn_filters=CONFIG["cnn_filters"],
-        dropout_cnn=CONFIG["dropout_cnn"],
-        dropout_lstm=CONFIG["dropout_lstm"],
+        hidden_dim=int(cfg.hidden_dim),
+        cnn_filters=int(cfg.cnn_filters),
+        dropout_cnn=float(cfg.dropout_cnn),
+        dropout_lstm=float(cfg.dropout_lstm),
     ).to(device)
 
     criterion = nn.MSELoss()
     optimizer, scheduler = create_optimizer_and_scheduler(
         model=model,
         train_loader=train_loader,
-        num_epochs=CONFIG["num_epochs"],
-        lr=CONFIG["lr"],
-        lr_lstm=CONFIG["lr_lstm"],
-        weight_decay=CONFIG["weight_decay"],
-        pct_start=CONFIG["pct_start"],
+        num_epochs=int(cfg.epochs),
+        lr=float(cfg.lr),
+        lr_lstm=float(cfg.lr_lstm),
+        weight_decay=float(cfg.weight_decay),
+        pct_start=float(cfg.pct_start),
     )
 
     start = time.time()
@@ -136,15 +105,15 @@ def main() -> None:
         val_loader=val_loader,
         optimizer=optimizer,
         criterion=criterion,
-        num_epochs=CONFIG["num_epochs"],
+        num_epochs=int(cfg.epochs),
         device=device,
         scheduler=scheduler,
         checkpoint_dir=output_root,
-        use_reverse_complement=CONFIG["use_reverse_complement"],
-        early_stopping_patience=CONFIG["early_stopping_patience"],
-        metric_for_best=CONFIG["metric_for_best"],
-        use_amp=CONFIG["use_amp"],
-        use_compile=CONFIG["use_compile"],
+        use_reverse_complement=bool(cfg.use_reverse_complement),
+        early_stopping_patience=cfg.early_stopping_patience,
+        metric_for_best=str(cfg.metric_for_best),
+        use_amp=bool(cfg.use_amp),
+        use_compile=bool(cfg.use_compile),
     )
     elapsed = time.time() - start
 

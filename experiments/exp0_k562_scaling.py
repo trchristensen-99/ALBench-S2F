@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Experiment 0 (K562): random downsampling scaling curve on HashFrag train+pool.
 
-This script trains DREAM-RNN at the requested fractions and evaluates each run on:
+Trains DREAM-RNN at the requested fractions and evaluates each run on:
 - in-domain hashfrag test set
 - SNV delta test set
 - OOD CRE test set
@@ -9,18 +9,19 @@ This script trains DREAM-RNN at the requested fractions and evaluates each run o
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import time
 from pathlib import Path
 
+import hydra
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import wandb
 from dotenv import load_dotenv
+from omegaconf import DictConfig, OmegaConf
 from scipy.stats import pearsonr, spearmanr
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
 
@@ -30,29 +31,7 @@ from albench.models.dream_rnn import create_dream_rnn
 from albench.models.training import train_model_optimized
 from albench.models.training_base import create_optimizer_and_scheduler
 
-DEFAULT_FRACTIONS = [0.05, 0.10, 0.25, 0.50, 0.75, 1.0]
-
-CONFIG = {
-    "data_path": "./data/k562",
-    "batch_size": 1024,
-    "num_workers": 4,
-    "pin_memory": True,
-    "hidden_dim": 320,
-    "cnn_filters": 160,
-    "dropout_cnn": 0.1,
-    "dropout_lstm": 0.1,
-    "num_epochs": 80,
-    "lr": 0.005,
-    "lr_lstm": 0.005,
-    "weight_decay": 0.01,
-    "pct_start": 0.3,
-    "use_amp": True,
-    "use_compile": False,
-    "use_reverse_complement": True,
-    "early_stopping_patience": None,
-    "metric_for_best": "pearson_r",
-    "seed": None,
-}
+CONFIG: dict[str, object] = {}
 
 
 class EncodedK562Dataset(Dataset):
@@ -79,7 +58,6 @@ def _safe_corr(pred: np.ndarray, target: np.ndarray, fn: object) -> float:
 
 
 def _encode_k562_sequence(sequence: str) -> np.ndarray:
-    """Encode a K562 sequence into 5-channel format (ACGT + RC flag)."""
     one_hot = one_hot_encode(sequence, add_singleton_channel=False)
     rc = np.zeros((1, one_hot.shape[1]), dtype=np.float32)
     return np.concatenate([one_hot, rc], axis=0)
@@ -88,17 +66,16 @@ def _encode_k562_sequence(sequence: str) -> np.ndarray:
 def _predict_sequences(
     model: torch.nn.Module, sequences: list[str], device: torch.device
 ) -> np.ndarray:
-    """Predict expression for a list of sequences using RC-averaged inference."""
     if not sequences:
         return np.asarray([], dtype=np.float32)
 
     ds = EncodedK562Dataset(sequences)
     loader = DataLoader(
         ds,
-        batch_size=CONFIG["batch_size"],
+        batch_size=int(CONFIG["batch_size"]),
         shuffle=False,
         num_workers=0,
-        pin_memory=CONFIG["pin_memory"],
+        pin_memory=bool(CONFIG["pin_memory"]),
     )
 
     preds: list[np.ndarray] = []
@@ -106,7 +83,7 @@ def _predict_sequences(
     with torch.no_grad():
         for xb in loader:
             xb = xb.to(device, non_blocking=True)
-            yb = model.predict(xb, use_reverse_complement=CONFIG["use_reverse_complement"])
+            yb = model.predict(xb, use_reverse_complement=bool(CONFIG["use_reverse_complement"]))
             preds.append(yb.detach().cpu().numpy().reshape(-1))
     return np.concatenate(preds, axis=0)
 
@@ -116,7 +93,6 @@ def _evaluate_k562_test_sets(
     device: torch.device,
     test_set_dir: Path,
 ) -> dict[str, dict[str, float]]:
-    """Evaluate model on in-domain, SNV, and OOD K562 test sets."""
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
     snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
     ood_path = test_set_dir / "test_ood_cre.tsv"
@@ -167,7 +143,6 @@ def _evaluate_k562_test_sets(
 
 
 def _load_best_checkpoint(model: torch.nn.Module, checkpoint_dir: Path) -> None:
-    """Load best checkpoint if present; fallback to final model."""
     best = checkpoint_dir / "best_model.pt"
     final = checkpoint_dir / "final_model.pt"
     if best.exists():
@@ -213,31 +188,31 @@ def run_fraction(
 
     train_loader = DataLoader(
         train_subset,
-        batch_size=CONFIG["batch_size"],
+        batch_size=int(CONFIG["batch_size"]),
         shuffle=True,
-        num_workers=CONFIG["num_workers"],
-        pin_memory=CONFIG["pin_memory"],
+        num_workers=int(CONFIG["num_workers"]),
+        pin_memory=bool(CONFIG["pin_memory"]),
     )
 
     model = create_dream_rnn(
         input_channels=5,
         sequence_length=200,
         task_mode="k562",
-        hidden_dim=CONFIG["hidden_dim"],
-        cnn_filters=CONFIG["cnn_filters"],
-        dropout_cnn=CONFIG["dropout_cnn"],
-        dropout_lstm=CONFIG["dropout_lstm"],
+        hidden_dim=int(CONFIG["hidden_dim"]),
+        cnn_filters=int(CONFIG["cnn_filters"]),
+        dropout_cnn=float(CONFIG["dropout_cnn"]),
+        dropout_lstm=float(CONFIG["dropout_lstm"]),
     ).to(device)
 
     criterion = nn.MSELoss()
     optimizer, scheduler = create_optimizer_and_scheduler(
         model=model,
         train_loader=train_loader,
-        num_epochs=CONFIG["num_epochs"],
-        lr=CONFIG["lr"],
-        lr_lstm=CONFIG["lr_lstm"],
-        weight_decay=CONFIG["weight_decay"],
-        pct_start=CONFIG["pct_start"],
+        num_epochs=int(CONFIG["epochs"]),
+        lr=float(CONFIG["lr"]),
+        lr_lstm=float(CONFIG["lr_lstm"]),
+        weight_decay=float(CONFIG["weight_decay"]),
+        pct_start=float(CONFIG["pct_start"]),
     )
 
     fraction_dir = output_root / f"fraction_{fraction:.4f}"
@@ -250,15 +225,15 @@ def run_fraction(
         val_loader=val_loader,
         optimizer=optimizer,
         criterion=criterion,
-        num_epochs=CONFIG["num_epochs"],
+        num_epochs=int(CONFIG["epochs"]),
         device=device,
         scheduler=scheduler,
         checkpoint_dir=fraction_dir,
-        use_reverse_complement=CONFIG["use_reverse_complement"],
+        use_reverse_complement=bool(CONFIG["use_reverse_complement"]),
         early_stopping_patience=CONFIG["early_stopping_patience"],
-        metric_for_best=CONFIG["metric_for_best"],
-        use_amp=CONFIG["use_amp"],
-        use_compile=CONFIG["use_compile"],
+        metric_for_best=str(CONFIG["metric_for_best"]),
+        use_amp=bool(CONFIG["use_amp"]),
+        use_compile=bool(CONFIG["use_compile"]),
     )
     elapsed = time.time() - start
 
@@ -281,37 +256,29 @@ def run_fraction(
     return result
 
 
-def main() -> None:
+@hydra.main(
+    version_base=None,
+    config_path="../configs/experiment",
+    config_name="exp0_k562_scaling",
+)
+def main(cfg: DictConfig) -> None:
     load_dotenv()
-    parser = argparse.ArgumentParser(description="Exp0 K562 scaling")
-    parser.add_argument("--fraction", type=float, default=None)
-    parser.add_argument("--fractions", type=float, nargs="+", default=None)
-    parser.add_argument("--data-path", type=str, default=CONFIG["data_path"])
-    parser.add_argument("--output-dir", type=str, default="./outputs/exp0_k562_scaling")
-    parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument(
-        "--wandb-mode", type=str, default="offline", choices=["online", "offline", "disabled"]
-    )
-    args = parser.parse_args()
+    global CONFIG
+    CONFIG = OmegaConf.to_container(cfg, resolve=True)
 
-    used_seed = set_seed(args.seed)
-    CONFIG["seed"] = args.seed
-    if args.epochs is not None:
-        CONFIG["num_epochs"] = args.epochs
-    CONFIG["data_path"] = args.data_path
+    used_seed = set_seed(int(cfg.seed) if cfg.seed is not None else None)
+    CONFIG["seed"] = cfg.seed
 
-    if args.fraction is not None:
-        fractions = [args.fraction]
-    elif args.fractions is not None:
-        fractions = sorted(args.fractions)
+    if cfg.fraction is not None:
+        fractions = [float(cfg.fraction)]
+    elif cfg.fractions is not None:
+        fractions = sorted([float(x) for x in cfg.fractions])
     else:
-        fractions = DEFAULT_FRACTIONS
+        fractions = [0.05, 0.10, 0.25, 0.50, 0.75, 1.0]
 
-    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{int(cfg.gpu)}" if torch.cuda.is_available() else "cpu")
 
-    output_root = Path(args.output_dir) / f"seed_{used_seed}"
+    output_root = Path(str(cfg.output_dir)) / f"seed_{used_seed}"
     output_root.mkdir(parents=True, exist_ok=True)
 
     wandb.init(
@@ -319,23 +286,23 @@ def main() -> None:
         name=f"exp0_k562_scaling_seed{used_seed}",
         config={**CONFIG, "fractions": fractions},
         tags=["exp0", "k562", "scaling"],
-        mode=args.wandb_mode,
+        mode=str(cfg.wandb_mode),
     )
 
-    ds_train = K562Dataset(data_path=args.data_path, split="train")
-    ds_pool = K562Dataset(data_path=args.data_path, split="pool")
-    ds_val = K562Dataset(data_path=args.data_path, split="val")
+    ds_train = K562Dataset(data_path=str(cfg.data_path), split="train")
+    ds_pool = K562Dataset(data_path=str(cfg.data_path), split="pool")
+    ds_val = K562Dataset(data_path=str(cfg.data_path), split="val")
 
     full_train = ConcatDataset([ds_train, ds_pool])
     val_loader = DataLoader(
         ds_val,
-        batch_size=CONFIG["batch_size"],
+        batch_size=int(cfg.batch_size),
         shuffle=False,
-        num_workers=CONFIG["num_workers"],
-        pin_memory=CONFIG["pin_memory"],
+        num_workers=int(cfg.num_workers),
+        pin_memory=bool(cfg.pin_memory),
     )
 
-    test_set_dir = Path(args.data_path) / "test_sets"
+    test_set_dir = Path(str(cfg.data_path)) / "test_sets"
 
     all_results = []
     for frac in fractions:

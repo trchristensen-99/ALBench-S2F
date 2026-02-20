@@ -15,7 +15,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import wandb
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -57,7 +57,7 @@ def train_epoch_optimized(
     all_targets = []
 
     # Initialize scaler for mixed precision if on CUDA
-    scaler = GradScaler() if use_amp and device.type == "cuda" else None
+    scaler = GradScaler("cuda", enabled=use_amp and device.type == "cuda")
 
     pbar = tqdm(dataloader, desc="Training", leave=False)
 
@@ -69,8 +69,8 @@ def train_epoch_optimized(
         optimizer.zero_grad()
 
         # Forward and backward pass with optional mixed precision
-        if use_amp and scaler is not None:
-            with autocast():
+        if scaler.is_enabled():
+            with autocast("cuda"):
                 # For yeast: get logits and use KL divergence
                 # For K562: get predictions and use MSE
                 if hasattr(model, "task_mode") and model.task_mode == "yeast":
@@ -81,9 +81,11 @@ def train_epoch_optimized(
                     predictions = model(sequences)
                     loss = criterion(predictions, targets)
 
+            scale_before = scaler.get_scale()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
+            optimizer_step_ran = scaler.get_scale() >= scale_before
         else:
             # For yeast: get logits and use KL divergence
             # For K562: get predictions and use MSE
@@ -96,9 +98,10 @@ def train_epoch_optimized(
                 loss = criterion(predictions, targets)
             loss.backward()
             optimizer.step()
+            optimizer_step_ran = True
 
         # Update scheduler if provided
-        if scheduler is not None:
+        if scheduler is not None and optimizer_step_ran:
             scheduler.step()
 
         # Track metrics
