@@ -1,0 +1,26 @@
+task_mode: yeast
+head_arch: mlp-512-512
+head_name: alphagenome_yeast_student_head
+num_tracks: 18
+
+yeast_data_path: data/yeast
+k562_data_path: data/k562
+context_mode: alphagenome384
+
+output_dir: outputs/student_alphagenome_yeast
+weights_path: checkpoints/alphagenome-jax-all_folds-v1
+gpu: 0
+epochs: 30
+seed: null
+wandb_mode: offline
+
+batch_size: 128
+num_workers: 4
+max_seq_len: 384
+lr: 0.0001
+weight_decay: 0.0001
+gradients_clip: 1.0
+save_full_model: false
+
+include_pool: false
+subset_fraction: null
