@@ -3,14 +3,13 @@
 
 Outputs under ``data/k562/test_sets``:
 - ``test_in_distribution_hashfrag.tsv``: HashFrag test split (expression prediction).
-- ``test_snv_pairs_hashfrag.tsv``: ref/alt SNV pairs from the HashFrag test split.
+- ``test_snv_pairs_hashfrag.tsv``: ref/alt SNV pairs aligned to HashFrag test loci.
 - ``test_ood_cre.tsv``: out-of-domain proxy set from the CRE library.
 - ``manifest.json``: criteria and counts used to build each file.
 
 Notes:
-- The public Gosai K562 file in this repo does not include ``target_cell`` / ``origin``
-  columns, so the exact AdaLead/FastSeqProp/Simulated_Annealing filter is unavailable.
-- In this case, OOD is built from ``data_project == 'CRE'`` as the best available proxy.
+- The public Gosai K562 file in this repo may not include ``target_cell`` / ``origin``
+  columns. In that case, OOD is built from ``data_project == 'CRE'`` as proxy.
 """
 
 from __future__ import annotations
@@ -26,79 +25,90 @@ import pandas as pd
 
 def _parse_ids(df: pd.DataFrame) -> pd.DataFrame:
     id_parts = df["IDs"].astype(str).str.split(":", expand=True)
-    df = df.copy()
-    df["chr_parsed"] = id_parts[0]
-    df["pos_parsed"] = id_parts[1]
-    df["ref_parsed"] = id_parts[2]
-    df["alt_parsed"] = id_parts[3]
-    df["allele_parsed"] = id_parts[4]
-    return df
+    parsed = df.copy()
+    parsed["chr_parsed"] = id_parts[0]
+    parsed["pos_parsed"] = id_parts[1]
+    parsed["ref_parsed"] = id_parts[2]
+    parsed["alt_parsed"] = id_parts[3]
+    parsed["allele_parsed"] = id_parts[4]
+    parsed["variant_key"] = (
+        parsed["chr_parsed"]
+        + ":"
+        + parsed["pos_parsed"]
+        + ":"
+        + parsed["ref_parsed"]
+        + ":"
+        + parsed["alt_parsed"]
+    )
+    return parsed
 
 
 def _filtered_reference_like(df: pd.DataFrame) -> pd.DataFrame:
-    df = _parse_ids(df)
-    is_reference = df["allele_parsed"] == "R"
-    is_non_variant = (df["ref_parsed"] == "NA") & (df["alt_parsed"] == "NA")
-    keep = df[is_reference | is_non_variant].copy()
+    parsed = _parse_ids(df)
+    is_reference = parsed["allele_parsed"] == "R"
+    is_non_variant = (parsed["ref_parsed"] == "NA") & (parsed["alt_parsed"] == "NA")
+    keep = parsed[is_reference | is_non_variant].copy()
 
     keep["seq_len"] = keep["sequence"].astype(str).str.len()
     keep = keep[keep["seq_len"] >= 198].copy()
     keep = keep.drop(columns=["seq_len"])
-    keep = keep.reset_index(drop=True)
-    return keep
+    return keep.reset_index(drop=True)
 
 
 def _build_in_distribution_hashfrag(
     filtered_df: pd.DataFrame, hashfrag_dir: Path, out_dir: Path
-) -> Path:
+) -> tuple[Path, pd.DataFrame]:
     test_idx_path = hashfrag_dir / "test_indices.npy"
     if not test_idx_path.exists():
         raise FileNotFoundError(f"Missing HashFrag test indices: {test_idx_path}")
-    test_idx = np.load(test_idx_path)
 
-    in_dist = filtered_df.iloc[test_idx].copy()
+    test_idx = np.load(test_idx_path)
+    in_dist = filtered_df.iloc[test_idx].copy().reset_index(drop=True)
     out_path = out_dir / "test_in_distribution_hashfrag.tsv"
     in_dist.to_csv(out_path, sep="\t", index=False)
-    return out_path
+    return out_path, in_dist
 
 
-def _build_snv_pairs_from_hashfrag_test(in_dist_df: pd.DataFrame, out_dir: Path) -> Path:
-    has_snv = (
-        (in_dist_df["ref_parsed"] != "NA")
+def _build_snv_pairs_from_hashfrag_test(
+    raw_df: pd.DataFrame, in_dist_df: pd.DataFrame, out_dir: Path
+) -> Path:
+    raw = _parse_ids(raw_df)
+
+    # Reference loci in the hashfrag test set that are true SNVs.
+    ref_loci = in_dist_df[
+        (in_dist_df["allele_parsed"] == "R")
+        & (in_dist_df["ref_parsed"] != "NA")
         & (in_dist_df["alt_parsed"] != "NA")
-        & (in_dist_df["allele_parsed"].isin(["A", "R"]))
-    )
-    snv_df = in_dist_df[has_snv].copy()
+    ]["variant_key"].drop_duplicates()
 
-    snv_ref = snv_df[snv_df["allele_parsed"] == "R"].copy()
-    snv_alt = snv_df[snv_df["allele_parsed"] == "A"].copy()
+    if ref_loci.empty:
+        snv_pairs = pd.DataFrame(
+            columns=[
+                "variant_key",
+                "IDs_ref",
+                "sequence_ref",
+                "K562_log2FC_ref",
+                "IDs_alt",
+                "sequence_alt",
+                "K562_log2FC_alt",
+                "delta_log2FC",
+            ]
+        )
+    else:
+        ref_rows = raw[(raw["allele_parsed"] == "R") & (raw["variant_key"].isin(ref_loci))].copy()
+        alt_rows = raw[(raw["allele_parsed"] == "A") & (raw["variant_key"].isin(ref_loci))].copy()
 
-    snv_ref["pair_key"] = (
-        snv_ref["chr_parsed"]
-        + ":"
-        + snv_ref["pos_parsed"]
-        + ":"
-        + snv_ref["ref_parsed"]
-        + ":"
-        + snv_ref["alt_parsed"]
-    )
-    snv_alt["pair_key"] = (
-        snv_alt["chr_parsed"]
-        + ":"
-        + snv_alt["pos_parsed"]
-        + ":"
-        + snv_alt["ref_parsed"]
-        + ":"
-        + snv_alt["alt_parsed"]
-    )
+        ref_rows = ref_rows.drop_duplicates(subset=["variant_key"])
+        alt_rows = alt_rows.drop_duplicates(subset=["variant_key"])
 
-    snv_pairs = pd.merge(
-        snv_ref[["pair_key", "IDs", "sequence", "K562_log2FC", "K562_lfcSE"]],
-        snv_alt[["pair_key", "IDs", "sequence", "K562_log2FC", "K562_lfcSE"]],
-        on="pair_key",
-        suffixes=("_ref", "_alt"),
-    )
-    snv_pairs["delta_log2FC"] = snv_pairs["K562_log2FC_alt"] - snv_pairs["K562_log2FC_ref"]
+        snv_pairs = pd.merge(
+            ref_rows[["variant_key", "IDs", "sequence", "K562_log2FC", "K562_lfcSE"]],
+            alt_rows[["variant_key", "IDs", "sequence", "K562_log2FC", "K562_lfcSE"]],
+            on="variant_key",
+            how="inner",
+            suffixes=("_ref", "_alt"),
+        )
+        snv_pairs["delta_log2FC"] = snv_pairs["K562_log2FC_alt"] - snv_pairs["K562_log2FC_ref"]
 
     out_path = out_dir / "test_snv_pairs_hashfrag.tsv"
     snv_pairs.to_csv(out_path, sep="\t", index=False)
@@ -116,7 +126,6 @@ def _build_ood_set(raw_df: pd.DataFrame, out_dir: Path) -> tuple[Path, dict[str,
             "origin": ["AdaLead", "FastSeqProp", "Simulated_Annealing"],
         }
     else:
-        # Best available proxy from public columns.
         ood_mask = raw_df["data_project"].astype(str).eq("CRE")
         criteria = {
             "mode": "data_project_proxy",
@@ -147,14 +156,14 @@ def main() -> None:
     raw_df = pd.read_csv(raw_file, sep="\t", dtype={"OL": str})
     filtered_df = _filtered_reference_like(raw_df)
 
-    in_dist_path = _build_in_distribution_hashfrag(
+    in_dist_path, in_dist_df = _build_in_distribution_hashfrag(
         filtered_df=filtered_df,
         hashfrag_dir=hashfrag_dir,
         out_dir=out_dir,
     )
-
-    in_dist_df = pd.read_csv(in_dist_path, sep="\t")
-    snv_path = _build_snv_pairs_from_hashfrag_test(in_dist_df=in_dist_df, out_dir=out_dir)
+    snv_path = _build_snv_pairs_from_hashfrag_test(
+        raw_df=raw_df, in_dist_df=in_dist_df, out_dir=out_dir
+    )
     ood_path, ood_criteria = _build_ood_set(raw_df=raw_df, out_dir=out_dir)
 
     manifest = {

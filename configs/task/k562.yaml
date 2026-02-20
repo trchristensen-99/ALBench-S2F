@@ -5,4 +5,17 @@ data_root: data/k562
 input_channels: 5
 task_mode: k562
 random_region_length: 200
-test_set: {}
+test_set:
+  in_distribution:
+    file: data/k562/test_sets/test_in_distribution_hashfrag.tsv
+    target_column: K562_log2FC
+    sequence_column: sequence
+  snv_delta:
+    file: data/k562/test_sets/test_snv_pairs_hashfrag.tsv
+    ref_sequence_column: sequence_ref
+    alt_sequence_column: sequence_alt
+    delta_column: delta_log2FC
+  ood:
+    file: data/k562/test_sets/test_ood_cre.tsv
+    target_column: K562_log2FC
+    sequence_column: sequence
