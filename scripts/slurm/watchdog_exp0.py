@@ -16,6 +16,7 @@ SLURM_SCRIPT = REPO_ROOT / "scripts" / "slurm" / "exp0_yeast_scaling.sh"
 OUTPUT_DIR = REPO_ROOT / "outputs" / "exp0_yeast_scaling" / "seed_42"
 FRACTIONS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
 DEFAULT_CHECK_INTERVAL_SEC = 1800  # 30 minutes
+SLURM_BIN_CANDIDATE = Path("/cm/shared/apps/slurm/current/bin")
 
 
 def _have_cmd(name: str) -> bool:
@@ -23,15 +24,27 @@ def _have_cmd(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def _slurm_cmd(name: str) -> str | None:
+    """Resolve slurm command path in PATH or common HPC install dir."""
+    from_path = shutil.which(name)
+    if from_path:
+        return from_path
+    candidate = SLURM_BIN_CANDIDATE / name
+    if candidate.exists():
+        return str(candidate)
+    return None
+
+
 def is_job_running(job_name: str = "exp0_yeast") -> bool:
     """Check if a job with the given name is running/pending using squeue."""
-    if not _have_cmd("squeue"):
+    squeue = _slurm_cmd("squeue")
+    if squeue is None:
         print("squeue not found in PATH; treating scheduler state as unknown.")
         return False
     try:
         user = subprocess.check_output(["whoami"], text=True).strip()
         output = subprocess.check_output(
-            ["squeue", "-u", user, "--format=%j"], text=True, cwd=str(REPO_ROOT)
+            [squeue, "-u", user, "--format=%j"], text=True, cwd=str(REPO_ROOT)
         )
         return job_name in output
     except Exception as exc:  # pragma: no cover - defensive shell interaction
@@ -68,11 +81,14 @@ def get_missing_fractions(output_dir: Path) -> list[float]:
 
 def submit_job(slurm_script: Path) -> None:
     """Submit the Slurm script from repository root."""
+    sbatch = _slurm_cmd("sbatch")
+    if sbatch is None:
+        raise RuntimeError("sbatch not found in PATH or expected Slurm bin directory")
     if not slurm_script.exists():
         raise FileNotFoundError(f"Slurm script not found: {slurm_script}")
     print(f"Submitting job: {slurm_script}")
     output = subprocess.check_output(
-        ["sbatch", str(slurm_script)], text=True, cwd=str(REPO_ROOT)
+        [sbatch, str(slurm_script)], text=True, cwd=str(REPO_ROOT)
     ).strip()
     print(f"Submission output: {output}")
 
