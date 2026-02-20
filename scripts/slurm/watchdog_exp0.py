@@ -14,6 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SLURM_SCRIPT = REPO_ROOT / "scripts" / "slurm" / "exp0_yeast_scaling.sh"
 OUTPUT_DIR = REPO_ROOT / "outputs" / "exp0_yeast_scaling" / "seed_42"
+OUTPUT_ROOT = REPO_ROOT / "outputs" / "exp0_yeast_scaling"
 FRACTIONS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
 DEFAULT_CHECK_INTERVAL_SEC = 1800  # 30 minutes
 SLURM_BIN_CANDIDATE = Path("/cm/shared/apps/slurm/current/bin")
@@ -67,16 +68,26 @@ def is_local_process_running(pattern: str = "exp0_yeast_scaling.py") -> bool:
 
 def get_missing_fractions(output_dir: Path) -> list[float]:
     """Check which fractions are missing result.json."""
-    missing: list[float] = []
-    if not output_dir.exists():
-        return FRACTIONS
+    completed: set[float] = set()
 
-    for frac in FRACTIONS:
-        frac_dir = output_dir / f"fraction_{frac:.4f}"
-        result_file = frac_dir / "result.json"
-        if not result_file.exists():
-            missing.append(frac)
-    return missing
+    # 1) Legacy fixed output path (single-run mode)
+    if output_dir.exists():
+        for frac in FRACTIONS:
+            result_file = output_dir / f"fraction_{frac:.4f}" / "result.json"
+            if result_file.exists():
+                completed.add(frac)
+
+    # 2) Timestamped run directories used by exp0_yeast_scaling.py
+    if OUTPUT_ROOT.exists():
+        for run_dir in OUTPUT_ROOT.glob("run_*_seed42"):
+            if not run_dir.is_dir():
+                continue
+            for frac in FRACTIONS:
+                result_file = run_dir / f"fraction_{frac:.4f}" / "result.json"
+                if result_file.exists():
+                    completed.add(frac)
+
+    return [frac for frac in FRACTIONS if frac not in completed]
 
 
 def submit_job(slurm_script: Path) -> None:
@@ -106,8 +117,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default=str(OUTPUT_DIR),
-        help="Output directory containing fraction_x/result.json folders.",
+        default=str(OUTPUT_ROOT),
+        help="Output directory root for exp0 yeast runs.",
     )
     return parser.parse_args()
 
