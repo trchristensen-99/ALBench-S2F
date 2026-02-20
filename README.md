@@ -128,6 +128,38 @@ To enable Weights & Biases logging:
 
 ---
 
+## 📈 Standardized Result Aggregation & Analysis
+
+Analysis is now built into the repo and uses reproducible defaults under:
+- `outputs/analysis/synced/<experiment>/...` for pulled remote results
+- `outputs/analysis/reports/<experiment>/...` for CSVs and plots
+
+### Sync remote results (Citra/HPC) for any experiment
+```bash
+uv run python scripts/analysis/sync_remote_results.py --experiment exp0_yeast_scaling
+```
+
+### Analyze any experiment from synced results
+```bash
+uv run python scripts/analysis/analyze_experiment_results.py \
+  --experiment exp0_yeast_scaling \
+  --metric-col test_random_pearson_r
+```
+
+### Exp0 convenience wrapper (sync + analyze)
+```bash
+uv run python scripts/analysis/aggregate_exp0_results.py \
+  --metric-col test_random_pearson_r
+```
+
+For Exp0 with yeast subset metrics, valid plot metrics include:
+- `best_val_pearson_r`
+- `test_random_pearson_r`
+- `test_snv_pearson_r`
+- `test_genomic_pearson_r`
+
+---
+
 ## 📂 Project Layout
 
 - `albench/`: Core library (model, loop, evaluation).

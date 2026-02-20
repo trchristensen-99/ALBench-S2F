@@ -1,6 +1,7 @@
 /data/
 checkpoints/
 outputs/
+outputs/analysis/
 wandb/
 .env
 __pycache__/
