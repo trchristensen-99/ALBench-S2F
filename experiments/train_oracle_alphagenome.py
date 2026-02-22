@@ -109,50 +109,42 @@ def _center_pad_4ch(seq: np.ndarray, target_len: int, max_shift: int = 0) -> np.
 def collate_yeast(
     batch: list[tuple], max_len: int = 384, augment: bool = False
 ) -> dict[str, np.ndarray]:
-    """Build AlphaGenome inputs for yeast using plasmid-style context with optional augmentations."""
+    """Build AlphaGenome inputs for yeast using plasmid-style context with optional continuous augmentations."""
     flank_5, flank_3 = _init_yeast_flanks()
     batch_size = len(batch)
     x_batch = np.zeros((batch_size, max_len, 4), dtype=np.float32)
     y_batch = np.zeros((batch_size,), dtype=np.float32)
 
-    len_5 = flank_5.shape[0]
-    len_3 = flank_3.shape[0]
+    len_5 = flank_5.shape[0]  # 54
+    len_3 = flank_3.shape[0]  # 89
     canonical_core_len = 150
-    canonical_total = len_5 + canonical_core_len + len_3
-    canonical_start = (max_len - canonical_total) // 2
+    canonical_total = len_5 + canonical_core_len + len_3  # 293
 
     for i, (seq, label) in enumerate(batch):
         seq_np = seq.numpy()
-        core = seq_np[:4, :].T  # (L, 4)
-
-        if augment:
-            max_shift = 54  # smaller adapter length (flank_5)
-            max_valid_shift = min(
-                max_shift, canonical_start, max_len - canonical_total - canonical_start
-            )
-            shift = (
-                np.random.randint(-max_valid_shift, max_valid_shift + 1)
-                if max_valid_shift > 0
-                else 0
-            )
-            start_idx = canonical_start + shift
-        else:
-            start_idx = canonical_start
-
-        idx_5_start = start_idx
-        idx_5_end = idx_5_start + len_5
-        idx_core_start = idx_5_end
-        idx_core_end = idx_core_start + canonical_core_len
-        idx_3_start = idx_core_end
-        idx_3_end = idx_3_start + len_3
+        core = seq_np[:4, :].T
 
         if core.shape[0] != canonical_core_len:
-            pad_seq = _center_pad_4ch(core, max_len, max_shift=54 if augment else 0)
+            pad_seq = _center_pad(core, target_len=max_len)
         else:
-            pad_seq = np.zeros((max_len, 4), dtype=np.float32)
-            pad_seq[idx_5_start:idx_5_end, :] = flank_5
-            pad_seq[idx_core_start:idx_core_end, :] = core
-            pad_seq[idx_3_start:idx_3_end, :] = flank_3
+            full_seq = np.concatenate([flank_5, core, flank_3], axis=0)  # (293, 4)
+            # Create a safely large buffer to slide the 384 window across without wrapping/clipping
+            max_possible_shift = 110
+            buffer_len = max_len + 2 * max_possible_shift  # 384 + 220 = 604
+            buffer = np.zeros((buffer_len, 4), dtype=np.float32)
+            
+            base_start = (buffer_len - canonical_total) // 2  # (604 - 293) // 2 = 155
+            buffer[base_start : base_start + canonical_total, :] = full_seq
+            
+            window_base_start = (buffer_len - max_len) // 2  # (604 - 384) // 2 = 110
+            
+            if augment:
+                shift = np.random.randint(-max_possible_shift, max_possible_shift + 1)
+                start_idx = window_base_start + shift
+            else:
+                start_idx = window_base_start
+                
+            pad_seq = buffer[start_idx : start_idx + max_len]
 
         if augment and np.random.rand() > 0.5:
             pad_seq = pad_seq[::-1, ::-1]
@@ -216,7 +208,7 @@ def collate_k562(
         base_start = (total_len - max_len) // 2  # 108
 
         if augment:
-            max_shift = 15
+            max_shift = 90
             shift = np.random.randint(-max_shift, max_shift + 1)
             start_idx = base_start + shift
         else:
