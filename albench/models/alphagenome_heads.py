@@ -62,7 +62,7 @@ class MLP512512Head(_BaseLossHead):
             )
 
         x = embeddings.encoder_output  # (B, T, 1536)
-        x = jnp.mean(x, axis=1)  # (B, 1536)
+        x = jnp.reshape(x, (x.shape[0], -1))  # (B, T*1536)
         x = hk.Linear(512, name="hidden1")(x)
         x = jax.nn.relu(x)
         x = hk.Linear(512, name="hidden2")(x)

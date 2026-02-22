@@ -60,8 +60,8 @@ def set_seed(seed: int | None) -> int:
     return seed
 
 
-def _center_pad_4ch(seq: np.ndarray, target_len: int) -> np.ndarray:
-    """Center-pad or trim a (L, 4) sequence to ``target_len``."""
+def _center_pad_4ch(seq: np.ndarray, target_len: int, max_shift: int = 0) -> np.ndarray:
+    """Center-pad or trim a (L, 4) sequence to ``target_len`` with optional shift."""
     curr_len = seq.shape[0]
     if curr_len == target_len:
         return seq
@@ -69,13 +69,23 @@ def _center_pad_4ch(seq: np.ndarray, target_len: int) -> np.ndarray:
         start = (curr_len - target_len) // 2
         return seq[start : start + target_len]
     out = np.zeros((target_len, 4), dtype=np.float32)
-    left = (target_len - curr_len) // 2
+    base_left = (target_len - curr_len) // 2
+    if max_shift > 0:
+        max_valid_shift = min(max_shift, base_left, target_len - curr_len - base_left)
+        shift = (
+            np.random.randint(-max_valid_shift, max_valid_shift + 1) if max_valid_shift > 0 else 0
+        )
+    else:
+        shift = 0
+    left = base_left + shift
     out[left : left + curr_len, :] = seq
     return out
 
 
-def collate_yeast(batch: list[tuple], max_len: int = 384) -> dict[str, np.ndarray]:
-    """Build AlphaGenome inputs for yeast using plasmid-style context."""
+def collate_yeast(
+    batch: list[tuple], max_len: int = 384, augment: bool = False
+) -> dict[str, np.ndarray]:
+    """Build AlphaGenome inputs for yeast using plasmid-style context with optional augmentations."""
     flank_5, flank_3 = _init_yeast_flanks()
     batch_size = len(batch)
     x_batch = np.zeros((batch_size, max_len, 4), dtype=np.float32)
@@ -87,24 +97,43 @@ def collate_yeast(batch: list[tuple], max_len: int = 384) -> dict[str, np.ndarra
     canonical_total = len_5 + canonical_core_len + len_3
     canonical_start = (max_len - canonical_total) // 2
 
-    idx_5_start = canonical_start
-    idx_5_end = idx_5_start + len_5
-    idx_core_start = idx_5_end
-    idx_core_end = idx_core_start + canonical_core_len
-    idx_3_start = idx_core_end
-    idx_3_end = idx_3_start + len_3
-
     for i, (seq, label) in enumerate(batch):
         seq_np = seq.numpy()
         core = seq_np[:4, :].T  # (L, 4)
 
-        # If dataset already returns AlphaGenome-length inputs (e.g. 384), use as-is.
-        if core.shape[0] != canonical_core_len:
-            x_batch[i, :, :] = _center_pad_4ch(core, max_len)
+        if augment:
+            max_shift = 54  # smaller adapter length (flank_5)
+            max_valid_shift = min(
+                max_shift, canonical_start, max_len - canonical_total - canonical_start
+            )
+            shift = (
+                np.random.randint(-max_valid_shift, max_valid_shift + 1)
+                if max_valid_shift > 0
+                else 0
+            )
+            start_idx = canonical_start + shift
         else:
-            x_batch[i, idx_5_start:idx_5_end, :] = flank_5
-            x_batch[i, idx_core_start:idx_core_end, :] = core
-            x_batch[i, idx_3_start:idx_3_end, :] = flank_3
+            start_idx = canonical_start
+
+        idx_5_start = start_idx
+        idx_5_end = idx_5_start + len_5
+        idx_core_start = idx_5_end
+        idx_core_end = idx_core_start + canonical_core_len
+        idx_3_start = idx_core_end
+        idx_3_end = idx_3_start + len_3
+
+        if core.shape[0] != canonical_core_len:
+            pad_seq = _center_pad_4ch(core, max_len, max_shift=54 if augment else 0)
+        else:
+            pad_seq = np.zeros((max_len, 4), dtype=np.float32)
+            pad_seq[idx_5_start:idx_5_end, :] = flank_5
+            pad_seq[idx_core_start:idx_core_end, :] = core
+            pad_seq[idx_3_start:idx_3_end, :] = flank_3
+
+        if augment and np.random.rand() > 0.5:
+            pad_seq = pad_seq[::-1, ::-1]
+
+        x_batch[i] = pad_seq
         y_batch[i] = float(label.numpy())
 
     return {
@@ -129,15 +158,37 @@ def _center_pad(seq: np.ndarray, target_len: int = 384) -> np.ndarray:
     return pad
 
 
-def collate_k562(batch: list[tuple], max_len: int = 384) -> dict[str, np.ndarray]:
-    """Build AlphaGenome inputs for K562 using center-padded 200bp cores."""
+def collate_k562(
+    batch: list[tuple], max_len: int = 384, augment: bool = False
+) -> dict[str, np.ndarray]:
+    """Build AlphaGenome inputs for K562 using 200bp cores with optional augmentations."""
     batch_size = len(batch)
     x_batch = np.zeros((batch_size, max_len, 4), dtype=np.float32)
     y_batch = np.zeros((batch_size,), dtype=np.float32)
 
     for i, (seq, label) in enumerate(batch):
         seq_np = seq.numpy()[:4, :].T
-        x_batch[i] = _center_pad(seq_np, target_len=max_len)
+
+        core_len = 200
+        curr_len = seq_np.shape[0]
+        if curr_len > core_len:
+            base_start = (curr_len - core_len) // 2
+            if augment:
+                max_shift = min(base_start, curr_len - core_len - base_start, 15)
+                shift = np.random.randint(-max_shift, max_shift + 1) if max_shift > 0 else 0
+                start = base_start + shift
+            else:
+                start = base_start
+            seq_to_pad = seq_np[start : start + core_len]
+        else:
+            seq_to_pad = seq_np
+
+        pad_seq = _center_pad(seq_to_pad, target_len=max_len)
+
+        if augment and np.random.rand() > 0.5:
+            pad_seq = pad_seq[::-1, ::-1]
+
+        x_batch[i] = pad_seq
         y_batch[i] = float(label.numpy())
 
     return {
@@ -231,8 +282,11 @@ def main(cfg: DictConfig) -> None:
             context_mode=str(cfg.context_mode),
         )
 
-        def collate_fn(batch: list[tuple]) -> dict[str, np.ndarray]:
-            return collate_yeast(batch, int(cfg.max_seq_len))
+        def collate_fn_train(batch: list[tuple]) -> dict[str, np.ndarray]:
+            return collate_yeast(batch, int(cfg.max_seq_len), augment=True)
+
+        def collate_fn_eval(batch: list[tuple]) -> dict[str, np.ndarray]:
+            return collate_yeast(batch, int(cfg.max_seq_len), augment=False)
     else:
         ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
         if bool(cfg.include_pool):
@@ -243,8 +297,11 @@ def main(cfg: DictConfig) -> None:
         ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
         val_dataset = ds_val
 
-        def collate_fn(batch: list[tuple]) -> dict[str, np.ndarray]:
-            return collate_k562(batch, int(cfg.max_seq_len))
+        def collate_fn_train(batch: list[tuple]) -> dict[str, np.ndarray]:
+            return collate_k562(batch, int(cfg.max_seq_len), augment=True)
+
+        def collate_fn_eval(batch: list[tuple]) -> dict[str, np.ndarray]:
+            return collate_k562(batch, int(cfg.max_seq_len), augment=False)
 
     subset_fraction = cfg.subset_fraction
     if subset_fraction is not None:
@@ -261,14 +318,14 @@ def main(cfg: DictConfig) -> None:
         batch_size=int(cfg.batch_size),
         shuffle=True,
         num_workers=int(cfg.num_workers),
-        collate_fn=collate_fn,
+        collate_fn=collate_fn_train,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=int(cfg.batch_size),
         shuffle=False,
         num_workers=int(cfg.num_workers),
-        collate_fn=collate_fn,
+        collate_fn=collate_fn_eval,
     )
 
     @jax.jit
