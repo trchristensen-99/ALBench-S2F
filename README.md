@@ -105,6 +105,25 @@ uv run python experiments/exp1_benchmark.py --multirun \
     +reservoir=fixed_pool acquisition=random,uncertainty
 ```
 
+### 9. AlphaGenome Frozen-Encoder Runs (Hydra)
+Oracle-style run (full K562 train+pool):
+```bash
+uv run python experiments/train_oracle_alphagenome.py \
+    --config-name oracle_alphagenome_k562
+```
+
+Student-style run (train split only):
+```bash
+uv run python experiments/train_oracle_alphagenome.py \
+    --config-name student_alphagenome_k562
+```
+
+Switch head architecture:
+```bash
+uv run python experiments/train_oracle_alphagenome.py \
+    --config-name oracle_alphagenome_yeast head_arch=pool-flatten
+```
+
 ---
 
 ## 📦 Data Download

@@ -14,6 +14,7 @@ import torch
 import wandb
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import ConcatDataset
 from torch.utils.data import DataLoader
 
 from albench.data.yeast import YeastDataset
@@ -59,12 +60,22 @@ def main(cfg: DictConfig) -> None:
     )
 
     print("\nLoading datasets...")
-    train_dataset = YeastDataset(
+    ds_train = YeastDataset(
         data_path=str(cfg.data_path),
         split="train",
         subset_size=None,
         context_mode=str(cfg.context_mode),
     )
+    if bool(cfg.include_pool):
+        ds_pool = YeastDataset(
+            data_path=str(cfg.data_path),
+            split="pool",
+            subset_size=None,
+            context_mode=str(cfg.context_mode),
+        )
+        train_dataset = ConcatDataset([ds_train, ds_pool])
+    else:
+        train_dataset = ds_train
     val_dataset = YeastDataset(
         data_path=str(cfg.data_path),
         split="val",
@@ -89,9 +100,10 @@ def main(cfg: DictConfig) -> None:
         pin_memory=bool(cfg.pin_memory),
     )
 
+    seq_len = ds_train.get_sequence_length()
     model = create_dream_rnn(
         input_channels=6,
-        sequence_length=train_dataset.get_sequence_length(),
+        sequence_length=seq_len,
         task_mode="yeast",
         hidden_dim=int(cfg.hidden_dim),
         cnn_filters=int(cfg.cnn_filters),

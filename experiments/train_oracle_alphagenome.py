@@ -231,8 +231,11 @@ def main(cfg: DictConfig) -> None:
         job_type="oracle_training",
     )
 
+    # Rename head to avoid loading incompatible pre-trained weights from checkpoint
+    unique_head_name = f"{cfg.head_name}_scratch"
+
     register_s2f_head(
-        head_name=str(cfg.head_name),
+        head_name=unique_head_name,
         arch=str(cfg.head_arch),
         task_mode=str(cfg.task_mode),
         num_tracks=num_tracks,
@@ -246,13 +249,24 @@ def main(cfg: DictConfig) -> None:
         )
     model = create_model_with_heads(
         "all_folds",
-        heads=[str(cfg.head_name)],
+        heads=[unique_head_name],
         checkpoint_path=weights_path,
         use_encoder_output=True,
     )
-    model.freeze_except_head(str(cfg.head_name))
-    loss_fn_head = model.create_loss_fn_for_head(str(cfg.head_name))
+    model.freeze_except_head(unique_head_name)
 
+    param_count = sum(x.size for x in jax.tree_util.tree_leaves(model._params))
+    trainable_count = sum(
+        x.size
+        for x in jax.tree_util.tree_leaves(
+            model._get_trainable_params(model._params, unique_head_name)
+        )
+    )
+    print(f"Total parameters: {param_count:,}")
+    print(f"Trainable parameters (head only): {trainable_count:,}")
+
+    loss_fn = model.create_loss_fn_for_head(unique_head_name)
+    eval_fn = model.create_loss_fn_for_head(unique_head_name)  # identical for validation
     optimizer = optax.chain(
         optax.clip_by_global_norm(float(cfg.gradients_clip)),
         optax.adamw(learning_rate=float(cfg.lr), weight_decay=float(cfg.weight_decay)),
@@ -339,7 +353,7 @@ def main(cfg: DictConfig) -> None:
                 negative_strand_mask=jnp.zeros(len(batch["sequences"]), dtype=bool),
                 strand_reindexing=None,
             )[str(cfg.head_name)]
-            return loss_fn_head(preds, batch)["loss"]
+            return loss_fn(preds, batch)["loss"]
 
         loss, grads = jax.value_and_grad(loss_func)(params)
         updates, next_opt_state = optimizer.update(grads, current_opt_state, params)
@@ -355,8 +369,8 @@ def main(cfg: DictConfig) -> None:
             batch["organism_index"],
             negative_strand_mask=jnp.zeros(len(batch["sequences"]), dtype=bool),
             strand_reindexing=None,
-        )[str(cfg.head_name)]
-        return loss_fn_head(preds, batch)["loss"], preds
+        )
+        return eval_fn(preds[unique_head_name], batch)["loss"], preds
 
     best_val_pearson = -1.0
     bin_values = jnp.arange(18, dtype=jnp.float32)
@@ -379,9 +393,9 @@ def main(cfg: DictConfig) -> None:
             val_loss, preds = eval_step(model._params, batch_jax)
             val_losses.append(float(val_loss))
 
-            preds_np = np.array(preds)
+            preds_np = np.array(preds[unique_head_name])
             if str(cfg.task_mode) == "yeast":
-                probs = jax.nn.softmax(preds, axis=-1)
+                probs = jax.nn.softmax(preds_np, axis=-1)
                 pred_expr = np.array(jnp.sum(probs * bin_values, axis=-1))
             else:
                 pred_expr = preds_np.reshape(-1)

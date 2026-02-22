@@ -35,5 +35,5 @@ elif [[ -f .env ]]; then
 fi
 
 uv run python experiments/exp0_yeast_scaling.py \
-    --fraction "${FRACTION}" \
-    --wandb-mode offline
+    fraction="${FRACTION}" \
+    wandb_mode=offline

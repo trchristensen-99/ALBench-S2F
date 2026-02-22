@@ -58,8 +58,10 @@ def load_records(input_root: Path) -> pd.DataFrame:
         for src, dst in [
             ("test_metrics_random_pearson_r", "test_random_pearson_r"),
             ("test_metrics_random_spearman_r", "test_random_spearman_r"),
-            ("test_metrics_snv_pearson_r", "test_snv_pearson_r"),
-            ("test_metrics_snv_spearman_r", "test_snv_spearman_r"),
+            ("test_metrics_snv_abs_pearson_r", "test_snv_pearson_r"),
+            ("test_metrics_snv_abs_spearman_r", "test_snv_spearman_r"),
+            ("test_metrics_snv_pearson_r", "test_snv_pearson_r"),  # fallback
+            ("test_metrics_snv_spearman_r", "test_snv_spearman_r"),  # fallback
             ("test_metrics_genomic_pearson_r", "test_genomic_pearson_r"),
             ("test_metrics_genomic_spearman_r", "test_genomic_spearman_r"),
         ]:
