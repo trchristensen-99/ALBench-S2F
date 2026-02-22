@@ -174,12 +174,13 @@ def main():
         pred_alt = _predict(df_snv["alt_sequence"].tolist())
         pred_ref = _predict(df_snv["ref_sequence"].tolist())
         
-        preds = np.concatenate([pred_alt, pred_ref])
-        targets = np.concatenate([df_snv["alt_exp"].values, df_snv["ref_exp"].values])
+        pr_alt = _safe_corr(pred_alt, df_snv["alt_exp"].values, pearsonr)
+        pr_ref = _safe_corr(pred_ref, df_snv["ref_exp"].values, pearsonr)
         
-        pr = _safe_corr(preds, targets, pearsonr)
-        metrics["snv_pearson_r"] = pr
-        print(f"SNV Pearson R: {pr:.4f}")
+        metrics["snv_alt_pearson_r"] = pr_alt
+        metrics["snv_ref_pearson_r"] = pr_ref
+        print(f"SNV Alt Pearson R: {pr_alt:.4f}")
+        print(f"SNV Ref Pearson R: {pr_ref:.4f}")
 
     out_path = Path(ckpt_dir) / f"{head_name}_eval_yeast_metrics.json"
     with open(out_path, 'w') as f:
