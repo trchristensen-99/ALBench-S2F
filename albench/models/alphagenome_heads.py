@@ -52,7 +52,7 @@ class _BaseLossHead(templates.EncoderOnlyHead):
 
 
 class MLP512512Head(_BaseLossHead):
-    """Mean-pool encoder tokens then apply 512->512 MLP."""
+    """DeepSets architecture: LayerNorm, then per-token 512->512 MLP, then mean-pool."""
 
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
         if not hasattr(embeddings, "encoder_output") or embeddings.encoder_output is None:
@@ -62,19 +62,23 @@ class MLP512512Head(_BaseLossHead):
             )
 
         x = embeddings.encoder_output  # (B, T, 1536)
-        x = jnp.reshape(x, (x.shape[0], -1))  # (B, T*1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
         x = hk.Linear(512, name="hidden1")(x)
         x = jax.nn.relu(x)
         x = hk.Linear(512, name="hidden2")(x)
         x = jax.nn.relu(x)
-        return hk.Linear(self._num_tracks, name="output")(x)
+        x = hk.Linear(self._num_tracks, name="output")(x)
+        
+        # Pool logits over the sequence dimension (T)
+        predictions = jnp.mean(x, axis=1)
+        return predictions
 
     def loss(self, predictions, batch):  # type: ignore[override]
         return self._task_loss(predictions, batch)
 
 
 class PoolFlattenHead(_BaseLossHead):
-    """Pool+flatten encoder representation, then project to outputs.
+    """LayerNorm + Pool+flatten encoder representation, then project to outputs.
 
     Concatenates mean-pooled and max-pooled token features with flattened token
     features to preserve both global and position-aware signals on short inputs.
@@ -88,11 +92,13 @@ class PoolFlattenHead(_BaseLossHead):
             )
 
         x = embeddings.encoder_output  # (B, T, 1536)
-        # Keep a token-length-invariant representation so head params are valid
-        # regardless of encoder token count.
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        
         mean_pool = jnp.mean(x, axis=1)
         max_pool = jnp.max(x, axis=1)
-        z = jnp.concatenate([mean_pool, max_pool], axis=-1)
+        # Avoid exploding parameter counts on very long inputs, but for T=3 it's fine.
+        flat = jnp.reshape(x, (x.shape[0], -1))
+        z = jnp.concatenate([mean_pool, max_pool, flat], axis=-1)
         z = hk.Linear(512, name="hidden1")(z)
         z = jax.nn.relu(z)
         z = hk.Linear(256, name="hidden2")(z)
