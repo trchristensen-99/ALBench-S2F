@@ -34,22 +34,46 @@ FLANK_3_ENC = None
 
 
 def _init_yeast_flanks() -> tuple[np.ndarray, np.ndarray]:
-    """Build one-hot flank tensors once for yeast collation."""
-    global FLANK_5_ENC, FLANK_3_ENC
-    if FLANK_5_ENC is not None and FLANK_3_ENC is not None:
-        return FLANK_5_ENC, FLANK_3_ENC
+    """Return pre-encoded 5' and 3' yeast plasmid flanks (54bp and 89bp)."""
+    flank_5_str = "GCTAGCGCCGATATCCTAACGAAGTCACTACTACGTACTGCCCTGCACGATAGC"
+    flank_3_str = (
+        "CCTGCAGCAGACGTCGACACGCGTCGTAAAGTGACGTTGTCCGAAACCCTT"
+        "GCATTCGACACCAAACATTCTCTCAGTGCGTGCCCATGAAC"
+    )
 
-    def one_hot_encode_sequence(seq: str) -> np.ndarray:
-        mapping = {"A": 0, "C": 1, "G": 2, "T": 3}
-        arr = np.zeros((len(seq), 4), dtype=np.float32)
-        for i, char in enumerate(seq):
-            if char in mapping:
-                arr[i, mapping[char]] = 1.0
-        return arr
+    mapping = {"A": 0, "C": 1, "G": 2, "T": 3}
 
-    FLANK_5_ENC = one_hot_encode_sequence(FLANK_5_PRIME)
-    FLANK_3_ENC = one_hot_encode_sequence(FLANK_3_PRIME)
-    return FLANK_5_ENC, FLANK_3_ENC
+    flank_5 = np.zeros((len(flank_5_str), 4), dtype=np.float32)
+    for i, c in enumerate(flank_5_str):
+        if c in mapping:
+            flank_5[i, mapping[c]] = 1.0
+
+    flank_3 = np.zeros((len(flank_3_str), 4), dtype=np.float32)
+    for i, c in enumerate(flank_3_str):
+        if c in mapping:
+            flank_3[i, mapping[c]] = 1.0
+
+    return flank_5, flank_3
+
+
+def _init_k562_full_context() -> tuple[np.ndarray, np.ndarray]:
+    """Return full 200bp 5' and 3' context flanks from the K562 Addgene plasmid sequence."""
+    flank_5_str = "ATTGGACAGGCCGCAATAAAATATCTTTATTTTCATTACATCTGTGTGTTGGTTTTTTGTGTGAATCGATAGTACTAACATACGCTCTCCATCAAAACAAAACGAAACAAAACAAACTAGCAAAATAGGCTGTCCCCAGTGCAAGTGCAGGTGCCAGAACATTTCTCTGGCCTAACTGGCCGGTACCTGAGCTCGCTAGC"
+    flank_3_str = "GGCCTCGGCGGCCAAGCTAGTCGGGGCGGCCGGCCGCTTCGAGCAGACATGATAAGATACATTGATGAGTTTGGACAAACCACAACTAGAATGCAGTGAAAAAAATGCTTTATTTGTGAAATTTGTGATGCTATTGCTTTATTTGTAACCATTATAAGCTGCAATAAACAAGTTAACAACAACAATTGCATTCATTTTAT"
+
+    mapping = {"A": 0, "C": 1, "G": 2, "T": 3}
+
+    flank_5 = np.zeros((len(flank_5_str), 4), dtype=np.float32)
+    for i, c in enumerate(flank_5_str):
+        if c in mapping:
+            flank_5[i, mapping[c]] = 1.0
+
+    flank_3 = np.zeros((len(flank_3_str), 4), dtype=np.float32)
+    for i, c in enumerate(flank_3_str):
+        if c in mapping:
+            flank_3[i, mapping[c]] = 1.0
+
+    return flank_5, flank_3
 
 
 def set_seed(seed: int | None) -> int:
@@ -161,29 +185,44 @@ def _center_pad(seq: np.ndarray, target_len: int = 384) -> np.ndarray:
 def collate_k562(
     batch: list[tuple], max_len: int = 384, augment: bool = False
 ) -> dict[str, np.ndarray]:
-    """Build AlphaGenome inputs for K562 using 200bp cores with optional augmentations."""
+    """Build AlphaGenome inputs for K562 using full Addgene plasmid flanks with optional shift augmentations."""
+    flank_5, flank_3 = _init_k562_full_context()
     batch_size = len(batch)
     x_batch = np.zeros((batch_size, max_len, 4), dtype=np.float32)
     y_batch = np.zeros((batch_size,), dtype=np.float32)
 
+    len_5 = flank_5.shape[0]  # 200
+    len_3 = flank_3.shape[0]  # 200
+    core_len = 200
+    total_len = len_5 + core_len + len_3  # 600
+
     for i, (seq, label) in enumerate(batch):
-        seq_np = seq.numpy()[:4, :].T
+        seq_np = seq.numpy()[:4, :].T  # (curr_len, 4)
 
-        core_len = 200
         curr_len = seq_np.shape[0]
-        if curr_len > core_len:
-            base_start = (curr_len - core_len) // 2
-            if augment:
-                max_shift = min(base_start, curr_len - core_len - base_start, 15)
-                shift = np.random.randint(-max_shift, max_shift + 1) if max_shift > 0 else 0
-                start = base_start + shift
-            else:
-                start = base_start
-            seq_to_pad = seq_np[start : start + core_len]
+        if curr_len < core_len:
+            pad = np.zeros((core_len, 4), dtype=np.float32)
+            left = (core_len - curr_len) // 2
+            pad[left : left + curr_len, :] = seq_np
+            core = pad
+        elif curr_len > core_len:
+            start = (curr_len - core_len) // 2
+            core = seq_np[start : start + core_len]
         else:
-            seq_to_pad = seq_np
+            core = seq_np
 
-        pad_seq = _center_pad(seq_to_pad, target_len=max_len)
+        full_seq = np.concatenate([flank_5, core, flank_3], axis=0)  # (600, 4)
+
+        base_start = (total_len - max_len) // 2  # 108
+
+        if augment:
+            max_shift = 15
+            shift = np.random.randint(-max_shift, max_shift + 1)
+            start_idx = base_start + shift
+        else:
+            start_idx = base_start
+
+        pad_seq = full_seq[start_idx : start_idx + max_len]
 
         if augment and np.random.rand() > 0.5:
             pad_seq = pad_seq[::-1, ::-1]
