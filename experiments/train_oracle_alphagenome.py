@@ -256,14 +256,7 @@ def main(cfg: DictConfig) -> None:
     model.freeze_except_head(unique_head_name)
 
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(model._params))
-    trainable_count = sum(
-        x.size
-        for x in jax.tree_util.tree_leaves(
-            model._get_trainable_params(model._params, unique_head_name)
-        )
-    )
     print(f"Total parameters: {param_count:,}")
-    print(f"Trainable parameters (head only): {trainable_count:,}")
 
     loss_fn = model.create_loss_fn_for_head(unique_head_name)
     eval_fn = model.create_loss_fn_for_head(unique_head_name)  # identical for validation
