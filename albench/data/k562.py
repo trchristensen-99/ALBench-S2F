@@ -102,7 +102,7 @@ class K562Dataset(SequenceDataset):
         logger.info(f"Loading K562 {self.split} data from {file_path}")
 
         # Load and filter data
-        all_sequences, all_labels = self._load_and_filter_data(file_path)
+        all_sequences, all_labels, all_ids = self._load_and_filter_data(file_path)
 
         # Get or create splits using HashFrag (or fallback to chromosome-based)
         if self.use_hashfrag:
@@ -112,12 +112,12 @@ class K562Dataset(SequenceDataset):
                 if self.use_chromosome_fallback:
                     logger.warning(f"HashFrag failed: {e}")
                     logger.warning("Falling back to chromosome-based splits")
-                    splits = self._create_chromosome_splits(all_sequences, all_labels)
+                    splits = self._create_chromosome_splits(all_sequences, all_labels, all_ids)
                 else:
                     raise
         else:
             if self.use_chromosome_fallback:
-                splits = self._create_chromosome_splits(all_sequences, all_labels)
+                splits = self._create_chromosome_splits(all_sequences, all_labels, all_ids)
             else:
                 raise ValueError(
                     "use_hashfrag=False requires use_chromosome_fallback=True. "
@@ -146,12 +146,12 @@ class K562Dataset(SequenceDataset):
         logger.info(f"Loaded {len(self.sequences)} sequences for {self.split} split")
         logger.info(f"Label range: [{np.min(self.labels):.3f}, {np.max(self.labels):.3f}]")
 
-    def _load_and_filter_data(self, file_path: Path) -> Tuple[np.ndarray, np.ndarray]:
+    def _load_and_filter_data(self, file_path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Load and filter K562 data to reference alleles only.
 
         Returns:
-            Tuple of (sequences, labels) for all filtered data
+            Tuple of (sequences, labels, ids) for all filtered data
         """
         # Load data (tab-separated with header)
         try:
@@ -191,8 +191,9 @@ class K562Dataset(SequenceDataset):
         # Extract sequences and labels
         sequences = df["sequence"].values
         labels = df["K562_log2FC"].values.astype(np.float32)
+        ids = df["IDs"].values
 
-        return sequences, labels
+        return sequences, labels, ids
 
     def _get_or_create_hashfrag_splits(
         self, all_sequences: np.ndarray, all_labels: np.ndarray, data_dir: Path
@@ -307,28 +308,55 @@ class K562Dataset(SequenceDataset):
         return splits
 
     def _create_chromosome_splits(
-        self, all_sequences: np.ndarray, all_labels: np.ndarray
+        self, all_sequences: np.ndarray, all_labels: np.ndarray, all_ids: np.ndarray
     ) -> Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """
-        Fallback: Create chromosome-based splits.
+        Create chromosome-based splits matching the Malinois paper.
 
-        This is less accurate than HashFrag but provides a reasonable approximation.
-        Test: chr 7, 13 (~10%)
-        Val: chr 19, 21, X (~10%)
-        Train+Pool: remaining chromosomes (~80%)
+        Test: chr7, chr13
+        Val: chr19, chr21, chrX
+        Train+Pool: remaining chromosomes
         """
-        logger.warning(
-            "Using chromosome-based splits as fallback. "
-            "This may result in some data leakage from homologous sequences. "
-            "For publication-quality results, use HashFrag splits."
-        )
+        logger.info("Creating chromosome-based splits matching the Malinois paper allocation.")
 
-        # This method would need chromosome information
-        # For now, raise an error as we need to implement this properly
-        raise NotImplementedError(
-            "Chromosome-based fallback not yet implemented. "
-            "Please install BLAST+ and use HashFrag for proper splits."
-        )
+        # Extract chromosome from the IDs (format: chr:pos:ref:alt:type:wc)
+        chrs = np.array([seq_id.split(":")[0] for seq_id in all_ids])
+
+        val_chrs = {"chr19", "chr21", "chrX"}
+        test_chrs = {"chr7", "chr13"}
+
+        val_mask = np.isin(chrs, list(val_chrs))
+        test_mask = np.isin(chrs, list(test_chrs))
+        train_pool_mask = ~(val_mask | test_mask)
+
+        train_pool_indices = np.where(train_pool_mask)[0]
+        val_indices = np.where(val_mask)[0]
+        test_indices = np.where(test_mask)[0]
+
+        # Splitting train matching original HashFrag constraints (100K Train, rest to Pool)
+        rng = np.random.default_rng(seed=42)
+        shuffle_idx = rng.permutation(len(train_pool_indices))
+        n_train = min(100_000, len(train_pool_indices))
+
+        train_shuffle = shuffle_idx[:n_train]
+        pool_shuffle = shuffle_idx[n_train:]
+
+        train_idx = train_pool_indices[train_shuffle]
+        pool_idx = train_pool_indices[pool_shuffle]
+
+        splits = {
+            "train": (all_sequences[train_idx], all_labels[train_idx], train_idx),
+            "pool": (all_sequences[pool_idx], all_labels[pool_idx], pool_idx),
+            "val": (all_sequences[val_indices], all_labels[val_indices], val_indices),
+            "test": (all_sequences[test_indices], all_labels[test_indices], test_indices),
+        }
+
+        logger.info(f"Generated Test  {len(test_indices)} seqs (chr7, chr13)")
+        logger.info(f"Generated Val   {len(val_indices)} seqs (chr19, chr21, chrX)")
+        logger.info(f"Generated Train {len(train_idx)} seqs")
+        logger.info(f"Generated Pool  {len(pool_idx)} seqs")
+
+        return splits
 
     def _standardize_to_200bp(self, sequences: np.ndarray) -> np.ndarray:
         """
