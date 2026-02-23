@@ -29,6 +29,7 @@ HeadArch = Literal[
     "boda-mean-512-512",
     "boda-max-512-512",
     "boda-center-512-512",
+    "encoder-1024-dropout",
 ]
 TaskMode = Literal["yeast", "human"]
 
@@ -71,9 +72,9 @@ class MLP512512Head(_BaseLossHead):
 
         x = embeddings.encoder_output  # (B, T, 1536)
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
-        x = hk.Linear(512, name="hidden1")(x)
+        x = hk.Linear(512, name="hidden_0")(x)
         x = jax.nn.relu(x)
-        x = hk.Linear(512, name="hidden2")(x)
+        x = hk.Linear(512, name="hidden_1")(x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
 
@@ -107,9 +108,9 @@ class PoolFlattenHead(_BaseLossHead):
         # Avoid exploding parameter counts on very long inputs, but for T=3 it's fine.
         flat = jnp.reshape(x, (x.shape[0], -1))
         z = jnp.concatenate([mean_pool, max_pool, flat], axis=-1)
-        z = hk.Linear(512, name="hidden1")(z)
+        z = hk.Linear(512, name="hidden_0")(z)
         z = jax.nn.relu(z)
-        z = hk.Linear(256, name="hidden2")(z)
+        z = hk.Linear(256, name="hidden_1")(z)
         z = jax.nn.relu(z)
         return hk.Linear(self._num_tracks, name="output")(z)
 
@@ -127,9 +128,9 @@ class BodaFlattenHead(_BaseLossHead):
         # Boda 'flatten':
         x = jnp.reshape(x, (x.shape[0], -1))
 
-        x = hk.Linear(512, name="hidden1")(x)
+        x = hk.Linear(512, name="hidden_0")(x)
         x = jax.nn.relu(x)
-        x = hk.Linear(512, name="hidden2")(x)
+        x = hk.Linear(512, name="hidden_1")(x)
         x = jax.nn.relu(x)
 
         return hk.Linear(self._num_tracks, name="output")(x)
@@ -145,9 +146,9 @@ class BodaSumHead(_BaseLossHead):
         x = embeddings.encoder_output  # (B, T, 1536)
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
 
-        x = hk.Linear(512, name="hidden1")(x)
+        x = hk.Linear(512, name="hidden_0")(x)
         x = jax.nn.relu(x)
-        x = hk.Linear(512, name="hidden2")(x)
+        x = hk.Linear(512, name="hidden_1")(x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
 
@@ -164,9 +165,9 @@ class BodaMeanHead(_BaseLossHead):
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
         x = embeddings.encoder_output
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
-        x = hk.Linear(512, name="hidden1")(x)
+        x = hk.Linear(512, name="hidden_0")(x)
         x = jax.nn.relu(x)
-        x = hk.Linear(512, name="hidden2")(x)
+        x = hk.Linear(512, name="hidden_1")(x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
         return jnp.mean(x, axis=1)
@@ -181,9 +182,9 @@ class BodaMaxHead(_BaseLossHead):
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
         x = embeddings.encoder_output
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
-        x = hk.Linear(512, name="hidden1")(x)
+        x = hk.Linear(512, name="hidden_0")(x)
         x = jax.nn.relu(x)
-        x = hk.Linear(512, name="hidden2")(x)
+        x = hk.Linear(512, name="hidden_1")(x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
         return jnp.max(x, axis=1)
@@ -198,15 +199,49 @@ class BodaCenterHead(_BaseLossHead):
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
         x = embeddings.encoder_output
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
-        x = hk.Linear(512, name="hidden1")(x)
+        x = hk.Linear(512, name="hidden_0")(x)
         x = jax.nn.relu(x)
-        x = hk.Linear(512, name="hidden2")(x)
+        x = hk.Linear(512, name="hidden_1")(x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
 
         # Boda 'center' extracting raw center-most slice:
         center_idx = x.shape[1] // 2
         return x[:, center_idx, :]
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
+class Encoder1024DropoutHead(_BaseLossHead):
+    """Reference-style head: LayerNorm → mean-pool → Linear(1024) → Dropout(0.1) → ReLU → Linear(1).
+
+    Mirrors the exact architecture from the alphagenome_FT_MPRA reference implementation
+    for K562. Single hidden layer with 1024 units and 10% dropout for regularisation.
+
+    Note on dropout: ``hk.dropout`` requires an RNG key in the Haiku transform scope.
+    Dropout is only applied when the caller passes ``is_training=True`` as a kwarg.
+    If the ``alphagenome_ft`` framework does not thread this kwarg, the head runs as a
+    plain ``encoder-1024`` without dropout — still a useful architectural comparison.
+    """
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        if not hasattr(embeddings, "encoder_output") or embeddings.encoder_output is None:
+            raise ValueError(
+                "Encoder1024DropoutHead requires encoder_output. "
+                "Use create_model_with_heads(..., use_encoder_output=True)."
+            )
+
+        is_training = kwargs.get("is_training", False)
+
+        x = embeddings.encoder_output  # (B, T, 1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = jnp.mean(x, axis=1)  # mean-pool over tokens → (B, 1536)
+        x = hk.Linear(1024, name="hidden_0")(x)
+        if is_training:
+            x = hk.dropout(hk.next_rng_key(), 0.1, x)
+        x = jax.nn.relu(x)
+        return hk.Linear(self._num_tracks, name="output")(x)
 
     def loss(self, predictions, batch):  # type: ignore[override]
         return self._task_loss(predictions, batch)
@@ -238,6 +273,8 @@ def get_head_class(arch: HeadArch) -> type[CustomHead]:
         return BodaMaxHead
     if arch == "boda-center-512-512":
         return BodaCenterHead
+    if arch == "encoder-1024-dropout":
+        return Encoder1024DropoutHead
     raise ValueError(f"Unsupported AlphaGenome head architecture: {arch}")
 
 

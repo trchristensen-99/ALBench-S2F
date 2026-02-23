@@ -9,16 +9,22 @@ context_mode: alphagenome600
 output_dir: outputs/oracle_alphagenome_k562_full
 weights_path: checkpoints/alphagenome-jax-all_folds-v1
 gpu: 0
-epochs: 30
+epochs: 50
 seed: null
 wandb_mode: offline
 
 batch_size: 128
 num_workers: 4
 max_seq_len: 600
-lr: 0.0001
-weight_decay: 0.0001
-gradients_clip: 1.0
+lr: 0.001
+weight_decay: 1e-6
+gradients_clip: null
 save_full_model: false
 include_pool: false
 subset_fraction: null
+early_stop_patience: 5
+val_eval_interval: 1
+# no_shift = cache embeddings once, train head only (~20–50× faster). Use for rapid iteration.
+# full = encoder every step + shift aug (production). hybrid = 50% cache / 50% encoder.
+aug_mode: "no_shift"
+cache_dir: null        # null = {output_dir}/embedding_cache

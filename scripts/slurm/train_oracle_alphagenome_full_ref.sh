@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ag_orc_full_sum
+#SBATCH --job-name=ag_orc_full_ref
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --partition=gpuq
@@ -15,12 +15,10 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 
 export PYTHONPATH="$PWD:$PYTHONPATH"
 
-# no_shift for fast iteration. For production use ++aug_mode="full".
 uv run python experiments/train_oracle_alphagenome_full.py \
-    ++head_arch="boda-sum-512-512" \
-    ++aug_mode="no_shift" \
+    ++head_arch="encoder-1024-dropout" \
     ++gpu=0 \
     ++seed=42 \
-    ++output_dir=outputs/ag_sum
+    ++output_dir=outputs/ag_ref
 
-# cp -r outputs/ag_sum /grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/
+# cp -r outputs/ag_ref /grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/
