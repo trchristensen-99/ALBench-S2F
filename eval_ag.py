@@ -76,14 +76,10 @@ def rc_seq(seq):
     return "".join(comp.get(c, "N") for c in reversed(seq))
 
 
-def main():
-    if len(sys.argv) < 3:
-        print(__doc__, file=sys.stderr)
-        sys.exit(1)
-
-    ckpt_dir = sys.argv[1]
-    head_name = sys.argv[2]
-    arch = sys.argv[3] if len(sys.argv) > 3 else _arch_from_head_name(head_name)
+def evaluate(ckpt_dir: str, head_name: str, arch: str | None = None) -> dict:
+    """Run K562 ID/OOD/SNV eval for a single checkpoint and head."""
+    if arch is None:
+        arch = _arch_from_head_name(head_name)
 
     from albench.models.alphagenome_heads import register_s2f_head
 
@@ -92,7 +88,7 @@ def main():
     model = create_model_with_heads(
         "all_folds",
         heads=[head_name],
-        checkpoint_path=f"/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+        checkpoint_path="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
         use_encoder_output=True,
     )
 
@@ -160,7 +156,7 @@ def main():
         return (np.concatenate(preds_fwd) + np.concatenate(preds_rev)) / 2.0
 
     test_set_dir = Path("data/k562/test_sets")
-    metrics = {}
+    metrics: dict[str, dict[str, float]] = {}
 
     # ID
     in_df = pd.read_csv(test_set_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
@@ -197,6 +193,19 @@ def main():
         )
     }
 
+    return metrics
+
+
+def main():
+    if len(sys.argv) < 3:
+        print(__doc__, file=sys.stderr)
+        sys.exit(1)
+
+    ckpt_dir = sys.argv[1]
+    head_name = sys.argv[2]
+    arch = sys.argv[3] if len(sys.argv) > 3 else None
+
+    metrics = evaluate(ckpt_dir, head_name, arch)
     print(f"\nEvaluating: {ckpt_dir}\nMetrics: {json.dumps(metrics, indent=2)}")
 
 
