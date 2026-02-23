@@ -98,6 +98,11 @@ def build_embedding_cache(
         {cache_dir}/{split}_rc.npy          shape (N, T, D)  dtype float16
 
     If both files already exist the function returns immediately (idempotent).
+
+    **Cache build time (rough):** One encoder forward per sequence (×2 for canonical + RC).
+    With N=627_660 train, batch_size=128 → ~4_902 batches × 2 ≈ 9_804 passes. On an H100,
+    expect ~35–60 minutes for train and ~5–10 minutes for val (58k seqs). Total before
+    head-only training starts: ~40–70 min.
     """
     out_canonical = cache_dir / f"{split}_canonical.npy"
     out_rc = cache_dir / f"{split}_rc.npy"
@@ -229,6 +234,57 @@ def build_head_only_predict_fn(
         return output
 
     return head_predict
+
+
+def reinit_head_params(
+    model: Any,
+    head_name: str,
+    num_tokens: int = 5,
+    dim: int = 1536,
+    num_organisms: int = 2,
+    rng: int | None = 0,
+) -> None:
+    """Re-initialize the head parameters to fix shape mismatch from stale checkpoints.
+
+    When the checkpoint was saved with a different context (e.g. T=128 giving 196608
+    input size for flatten), the head params have the wrong shape. This runs the head
+    init with dummy (1, num_tokens, dim) encoder output and replaces the head subtree
+    in model._params (and model._state if present) so training uses the correct shapes.
+
+    Call this after create_model_with_heads() when using a checkpoint that may contain
+    old head weights (e.g. from a previous run with different seq length).
+    """
+    rng_key = jax.random.PRNGKey(rng) if isinstance(rng, int) else rng
+    dummy_encoder_output = jnp.zeros((1, num_tokens, dim), dtype=jnp.float32)
+    dummy_organism_index = jnp.zeros((1,), dtype=jnp.int32)
+
+    @hk.transform_with_state
+    def _head_fwd(encoder_output, organism_index):
+        embeddings = ExtendedEmbeddings(
+            embeddings_1bp=None,
+            embeddings_128bp=None,
+            encoder_output=encoder_output,
+        )
+        with hk.name_scope("head"):
+            head = custom_heads_module.create_registered_head(
+                head_name,
+                metadata=None,
+                num_organisms=num_organisms,
+            )
+            return head(embeddings, organism_index)
+
+    head_params, head_state = _head_fwd.init(rng_key, dummy_encoder_output, dummy_organism_index)
+    # Replace only the head subtree so encoder params are unchanged.
+    if not isinstance(model._params, dict):
+        return
+    head_subtree = head_params.get("head", head_params)
+    model._params = dict(model._params)
+    model._params["head"] = head_subtree
+    if getattr(model, "_state", None) and isinstance(model._state, dict):
+        state_subtree = head_state.get("head", head_state)
+        model._state = dict(model._state)
+        model._state["head"] = state_subtree
+    print("[EmbeddingCache] Re-initialized head parameters to fix checkpoint shape mismatch.")
 
 
 # ── Batch helpers ─────────────────────────────────────────────────────────────

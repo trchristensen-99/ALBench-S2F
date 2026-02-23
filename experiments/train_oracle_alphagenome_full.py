@@ -37,13 +37,15 @@ from scipy.stats import pearsonr, spearmanr
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from albench.data.k562_full import K562FullDataset
+from albench.data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM, K562FullDataset
+from albench.data.utils import one_hot_encode
 from albench.models.alphagenome_heads import register_s2f_head
 from albench.models.embedding_cache import (
     build_embedding_cache,
     build_head_only_predict_fn,
     load_embedding_cache,
     lookup_cached_batch,
+    reinit_head_params,
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,6 +57,110 @@ def set_seed(seed: int | None) -> int:
         seed = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
     np.random.seed(seed)
     return seed
+
+
+def _build_compact_window_string(
+    raw_seq: str,
+    W: int,
+    flank_bp: int,
+    shift: int = 0,
+) -> str:
+    """Build left_flank + var + right_flank (full var, no N's). shift redistributes flank."""
+    L = len(raw_seq)
+    available = W - L
+    if available < 0:
+        raise ValueError(f"Compact window W={W} < len(seq)={L}")
+    cap = min(200, flank_bp)
+    left_len_base = min(cap, available // 2)
+    shift_lo = left_len_base - min(cap, available)
+    shift_hi = left_len_base - max(0, available - cap)
+    s = np.clip(shift, shift_lo, shift_hi)
+    left_len = left_len_base - s
+    right_len = available - left_len
+    left = MPRA_UPSTREAM[-left_len:] if left_len > 0 else ""
+    right = MPRA_DOWNSTREAM[:right_len] if right_len > 0 else ""
+    return left + raw_seq + right
+
+
+def collate_compact_k562_full(
+    batch: list[tuple],
+    W: int,
+    flank_bp: int = 200,
+    augment: bool = False,
+    max_shift: int = 200,
+) -> dict[str, np.ndarray]:
+    """Collate for compact window: raw (seq_str, label) -> build window with optional shift, encode."""
+    batch_size = len(batch)
+    x_batch = np.zeros((batch_size, W, 4), dtype=np.float32)
+    y_batch = np.zeros((batch_size,), dtype=np.float32)
+
+    for i, (raw_seq, label) in enumerate(batch):
+        label_val = float(label.numpy()) if hasattr(label, "numpy") else float(label)
+        shift = 0
+        if augment:
+            L = len(raw_seq)
+            available = W - L
+            cap = min(200, flank_bp)
+            left_len_base = min(cap, available // 2)
+            shift_lo = left_len_base - min(cap, available)
+            shift_hi = left_len_base - max(0, available - cap)
+            if shift_hi > shift_lo:
+                shift = int(np.random.randint(shift_lo, shift_hi + 1))
+        built = _build_compact_window_string(raw_seq, W, flank_bp, shift=shift)
+        enc = one_hot_encode(built, add_singleton_channel=False)
+        seq_np = enc.T
+        if augment and np.random.rand() > 0.5:
+            seq_np = seq_np[::-1, ::-1]
+        x_batch[i] = seq_np
+        y_batch[i] = label_val
+
+    return {
+        "sequences": x_batch,
+        "targets": y_batch,
+        "organism_index": np.zeros((batch_size,), dtype=np.int32),
+    }
+
+
+def collate_compact_k562_indexed(
+    batch_items: list[tuple],
+    W: int,
+    flank_bp: int = 200,
+    augment: bool = False,
+    max_shift: int = 200,
+) -> dict[str, np.ndarray]:
+    """Collate for indexed compact: (orig_idx, raw_seq, label) -> build window with optional shift, encode."""
+    batch_size = len(batch_items)
+    indices = np.empty(batch_size, dtype=np.int64)
+    x_batch = np.zeros((batch_size, W, 4), dtype=np.float32)
+    y_batch = np.zeros((batch_size,), dtype=np.float32)
+
+    for i, (orig_idx, raw_seq, label) in enumerate(batch_items):
+        indices[i] = orig_idx
+        label_val = float(label.numpy()) if hasattr(label, "numpy") else float(label)
+        shift = 0
+        if augment:
+            L = len(raw_seq)
+            available = W - L
+            cap = min(200, flank_bp)
+            left_len_base = min(cap, available // 2)
+            shift_lo = left_len_base - min(cap, available)
+            shift_hi = left_len_base - max(0, available - cap)
+            if shift_hi > shift_lo:
+                shift = int(np.random.randint(shift_lo, shift_hi + 1))
+        built = _build_compact_window_string(raw_seq, W, flank_bp, shift=shift)
+        enc = one_hot_encode(built, add_singleton_channel=False)
+        seq_np = enc.T
+        if augment and np.random.rand() > 0.5:
+            seq_np = seq_np[::-1, ::-1]
+        x_batch[i] = seq_np
+        y_batch[i] = label_val
+
+    return {
+        "indices": indices,
+        "sequences": x_batch,
+        "targets": y_batch,
+        "organism_index": np.zeros((batch_size,), dtype=np.int32),
+    }
 
 
 def collate_k562_full(
@@ -228,6 +334,8 @@ def main(cfg: DictConfig) -> None:
         checkpoint_path=weights_path,
         use_encoder_output=True,
     )
+    # Re-init head so checkpoint head params (e.g. from T=128 run) don't cause shape mismatch.
+    reinit_head_params(model, unique_head_name, num_tokens=5, dim=1536)
     model.freeze_except_head(unique_head_name)
 
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(model._params))
@@ -245,7 +353,29 @@ def main(cfg: DictConfig) -> None:
     opt_state = optimizer.init(model._params)
 
     # ── Datasets ──────────────────────────────────────────────────────────────
-    ds_train = K562FullDataset(data_path=str(cfg.k562_data_path), split="train")
+    use_compact_window = bool(cfg.get("use_compact_window", False))
+    flank_bp = int(cfg.get("flank_bp", 200))
+    compact_window_bp = cfg.get("compact_window_bp", None)
+    compact_window_bp = int(compact_window_bp) if compact_window_bp is not None else None
+
+    if use_compact_window:
+        ds_train = K562FullDataset(data_path=str(cfg.k562_data_path), split="train", store_raw=True)
+        min_var_len = int(np.min(ds_train.raw_lengths))
+        ds_train.set_compact_window(min_var_len, flank_bp, window_bp=compact_window_bp)
+        effective_max_seq_len = ds_train.sequence_length
+        val_dataset = K562FullDataset(
+            data_path=str(cfg.k562_data_path), split="val", store_raw=True
+        )
+        val_dataset.set_compact_window(min_var_len, flank_bp, window_bp=compact_window_bp)
+        print(
+            f"[Compact window] min_var_len={min_var_len}, flank_bp={flank_bp}, "
+            f"W={effective_max_seq_len} (compact_window_bp={compact_window_bp})"
+        )
+    else:
+        ds_train = K562FullDataset(data_path=str(cfg.k562_data_path), split="train")
+        val_dataset = K562FullDataset(data_path=str(cfg.k562_data_path), split="val")
+        effective_max_seq_len = int(cfg.max_seq_len)
+
     include_pool = bool(cfg.get("include_pool", False))
     if include_pool:
         if aug_mode != "full":
@@ -253,14 +383,14 @@ def main(cfg: DictConfig) -> None:
                 "include_pool=True is not supported with cached aug_mode. "
                 "Set aug_mode='full' or include_pool=False."
             )
+        if use_compact_window:
+            raise ValueError("include_pool=True is not supported with use_compact_window.")
         ds_pool = K562FullDataset(data_path=str(cfg.k562_data_path), split="pool")
         train_dataset: torch.utils.data.Dataset = torch.utils.data.ConcatDataset(
             [ds_train, ds_pool]
         )
     else:
         train_dataset = ds_train
-
-    val_dataset = K562FullDataset(data_path=str(cfg.k562_data_path), split="val")
 
     subset_fraction = cfg.get("subset_fraction", None)
     if subset_fraction is not None:
@@ -278,18 +408,19 @@ def main(cfg: DictConfig) -> None:
 
     if aug_mode != "full":
         raw_cache_dir = cfg.get("cache_dir", None)
-        cache_dir = (
-            Path(str(raw_cache_dir)).expanduser().resolve()
-            if raw_cache_dir is not None
-            else output_dir / "embedding_cache"
-        )
+        if raw_cache_dir is not None:
+            cache_dir = Path(str(raw_cache_dir)).expanduser().resolve()
+        else:
+            cache_dir = output_dir / (
+                "embedding_cache_compact" if use_compact_window else "embedding_cache"
+            )
         # Always build cache on the FULL ds_train (not subset) so indices stay valid.
         build_embedding_cache(
             model,
             ds_train,
             cache_dir,
             "train",
-            max_seq_len=int(cfg.max_seq_len),
+            max_seq_len=effective_max_seq_len,
             batch_size=int(cfg.batch_size),
             num_workers=int(cfg.num_workers),
         )
@@ -298,7 +429,7 @@ def main(cfg: DictConfig) -> None:
             val_dataset,
             cache_dir,
             "val",
-            max_seq_len=int(cfg.max_seq_len),
+            max_seq_len=effective_max_seq_len,
             batch_size=int(cfg.batch_size),
             num_workers=int(cfg.num_workers),
         )
@@ -358,16 +489,33 @@ def main(cfg: DictConfig) -> None:
         def cached_eval_step(params, encoder_output, organism_index):
             return head_predict_fn(params, encoder_output, organism_index)
 
+    # When compact + collate-from-raw: dataset must return raw (cache already built with encoded).
+    if use_compact_window:
+        ds_train.set_compact_return_raw(True)
+        val_dataset.set_compact_return_raw(True)
+
     # ── Data loaders ──────────────────────────────────────────────────────────
     n_workers = int(cfg.num_workers)
 
     if aug_mode == "full":
+        if use_compact_window:
 
-        def collate_fn_train(batch):
-            return collate_k562_full(batch, int(cfg.max_seq_len), augment=True)
+            def collate_fn_train(batch):
+                return collate_compact_k562_full(
+                    batch, effective_max_seq_len, flank_bp=flank_bp, augment=True
+                )
 
-        def collate_fn_eval(batch):
-            return collate_k562_full(batch, int(cfg.max_seq_len), augment=False)
+            def collate_fn_eval(batch):
+                return collate_compact_k562_full(
+                    batch, effective_max_seq_len, flank_bp=flank_bp, augment=False
+                )
+        else:
+
+            def collate_fn_train(batch):
+                return collate_k562_full(batch, effective_max_seq_len, augment=True)
+
+            def collate_fn_eval(batch):
+                return collate_k562_full(batch, effective_max_seq_len, augment=False)
 
         train_loader = DataLoader(
             train_dataset,
@@ -393,8 +541,16 @@ def main(cfg: DictConfig) -> None:
         # hybrid  collate: full augmentation (for the 50% encoder-path batches).
         # We always collate with augment=True so encoder-path batches are ready; the
         # cache path ignores the sequences and looks up embeddings instead.
-        def collate_fn_train_indexed(batch):
-            return collate_k562_indexed(batch, int(cfg.max_seq_len), augment=True)
+        if use_compact_window:
+
+            def collate_fn_train_indexed(batch):
+                return collate_compact_k562_indexed(
+                    batch, effective_max_seq_len, flank_bp=flank_bp, augment=True
+                )
+        else:
+
+            def collate_fn_train_indexed(batch):
+                return collate_k562_indexed(batch, effective_max_seq_len, augment=True)
 
         train_loader = DataLoader(
             IndexedDataset(train_dataset),
