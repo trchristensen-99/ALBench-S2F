@@ -15,10 +15,11 @@ set -euo pipefail
 
 # Source system profiles for modules and tmpdir
 source /etc/profile.d/modules.sh
-source /etc/profile.d/slurm_tmpdir.sh
 module load EB5
 
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
+
+export PYTHONPATH="$PWD:$PYTHONPATH"
 mkdir -p logs
 
 # Map array index to fraction

@@ -38,7 +38,6 @@ echo ""
 
 # Setup environment (BLAST+ and HashFrag)
 source /etc/profile.d/modules.sh
-source /etc/profile.d/slurm_tmpdir.sh
 source setup_env.sh
 
 # Ensure BLAST+ is found
@@ -49,6 +48,8 @@ fi
 
 # Change to project directory
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
+
+export PYTHONPATH="$PWD:$PYTHONPATH"
 echo "Working directory: $(pwd)"
 echo ""
 

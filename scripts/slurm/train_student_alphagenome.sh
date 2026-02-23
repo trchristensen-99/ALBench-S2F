@@ -16,6 +16,8 @@ source /etc/profile.d/modules.sh
 module load EB5
 
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
+
+export PYTHONPATH="$PWD:$PYTHONPATH"
 mkdir -p logs
 
 CFG="${CFG:-student_alphagenome_yeast}"

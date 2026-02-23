@@ -21,7 +21,15 @@ from alphagenome_ft import (
     templates,
 )
 
-HeadArch = Literal["mlp-512-512", "pool-flatten"]
+HeadArch = Literal[
+    "mlp-512-512",
+    "pool-flatten",
+    "boda-flatten-512-512",
+    "boda-sum-512-512",
+    "boda-mean-512-512",
+    "boda-max-512-512",
+    "boda-center-512-512",
+]
 TaskMode = Literal["yeast", "human"]
 
 
@@ -68,7 +76,7 @@ class MLP512512Head(_BaseLossHead):
         x = hk.Linear(512, name="hidden2")(x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
-        
+
         # Pool logits over the sequence dimension (T)
         predictions = jnp.mean(x, axis=1)
         return predictions
@@ -93,7 +101,7 @@ class PoolFlattenHead(_BaseLossHead):
 
         x = embeddings.encoder_output  # (B, T, 1536)
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
-        
+
         mean_pool = jnp.mean(x, axis=1)
         max_pool = jnp.max(x, axis=1)
         # Avoid exploding parameter counts on very long inputs, but for T=3 it's fine.
@@ -104,6 +112,101 @@ class PoolFlattenHead(_BaseLossHead):
         z = hk.Linear(256, name="hidden2")(z)
         z = jax.nn.relu(z)
         return hk.Linear(self._num_tracks, name="output")(z)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
+class BodaFlattenHead(_BaseLossHead):
+    """Exactly replicates boda 'flatten' pooling: Flattens Spatial -> MLP[512, 512]."""
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        x = embeddings.encoder_output  # (B, T, 1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+
+        # Boda 'flatten':
+        x = jnp.reshape(x, (x.shape[0], -1))
+
+        x = hk.Linear(512, name="hidden1")(x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(512, name="hidden2")(x)
+        x = jax.nn.relu(x)
+
+        return hk.Linear(self._num_tracks, name="output")(x)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
+class BodaSumHead(_BaseLossHead):
+    """Exactly replicates boda 'sum' pooling: per-position MLP[512, 512] -> Sum Spatial."""
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        x = embeddings.encoder_output  # (B, T, 1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+
+        x = hk.Linear(512, name="hidden1")(x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(512, name="hidden2")(x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(self._num_tracks, name="output")(x)
+
+        # Boda 'sum' pools post-MLP:
+        return jnp.sum(x, axis=1)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
+class BodaMeanHead(_BaseLossHead):
+    """Exactly replicates boda 'mean' pooling: per-position MLP[512, 512] -> Mean Spatial."""
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        x = embeddings.encoder_output
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = hk.Linear(512, name="hidden1")(x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(512, name="hidden2")(x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(self._num_tracks, name="output")(x)
+        return jnp.mean(x, axis=1)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
+class BodaMaxHead(_BaseLossHead):
+    """Exactly replicates boda 'max' pooling: per-position MLP[512, 512] -> Max Spatial."""
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        x = embeddings.encoder_output
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = hk.Linear(512, name="hidden1")(x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(512, name="hidden2")(x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(self._num_tracks, name="output")(x)
+        return jnp.max(x, axis=1)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
+class BodaCenterHead(_BaseLossHead):
+    """Exactly replicates boda 'center' pooling: per-position MLP[512, 512] -> Slice Center."""
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        x = embeddings.encoder_output
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = hk.Linear(512, name="hidden1")(x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(512, name="hidden2")(x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(self._num_tracks, name="output")(x)
+
+        # Boda 'center' extracting raw center-most slice:
+        center_idx = x.shape[1] // 2
+        return x[:, center_idx, :]
 
     def loss(self, predictions, batch):  # type: ignore[override]
         return self._task_loss(predictions, batch)
@@ -125,6 +228,16 @@ def get_head_class(arch: HeadArch) -> type[CustomHead]:
         return MLP512512Head
     if arch == "pool-flatten":
         return PoolFlattenHead
+    if arch == "boda-flatten-512-512":
+        return BodaFlattenHead
+    if arch == "boda-sum-512-512":
+        return BodaSumHead
+    if arch == "boda-mean-512-512":
+        return BodaMeanHead
+    if arch == "boda-max-512-512":
+        return BodaMaxHead
+    if arch == "boda-center-512-512":
+        return BodaCenterHead
     raise ValueError(f"Unsupported AlphaGenome head architecture: {arch}")
 
 

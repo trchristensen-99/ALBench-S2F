@@ -14,6 +14,8 @@ set -euo pipefail
 
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 
+export PYTHONPATH="$PWD:$PYTHONPATH"
+
 # Ensure logs directory exists
 mkdir -p logs
 

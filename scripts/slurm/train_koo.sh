@@ -10,12 +10,11 @@
 #SBATCH --mem=200G
 #SBATCH --time=48:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=trevorch@cshl.edu
+#SBATCH --mail-user=christen@cshl.edu
 
-source /etc/profile.d/slurm_tmpdir.sh
-cd /grid/koo/data/trevorch/ALBench-S2F || exit 1
+cd /grid/koo/data/christen/ALBench-S2F || exit 1
 module load EB5
 uv sync
 export WANDB_API_KEY=$(cat ~/.wandb_key)
 uv run python experiments/exp0_scaling.py +task=k562 +student=dream_rnn experiment.dry_run=false
-cp -r "$SLURM_TMPDIR/outputs" /grid/koo/data/trevorch/ALBench-S2F/outputs/
+cp -r "outputs" /grid/koo/data/christen/ALBench-S2F/outputs/

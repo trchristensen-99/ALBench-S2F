@@ -256,8 +256,8 @@ bash scripts/run_with_runtime.sh python experiments/exp0_scaling.py \
 ### Koo Lab HPC (Full Experiments)
 
 ```bash
-ssh trevorch@bamdev4.cshl.edu
-cd /grid/koo/data/trevorch/ALBench-S2F
+ssh christen@bamdev4.cshl.edu
+cd /grid/koo/data/christen/ALBench-S2F
 sbatch scripts/slurm/train_koo.sh
 ```
 

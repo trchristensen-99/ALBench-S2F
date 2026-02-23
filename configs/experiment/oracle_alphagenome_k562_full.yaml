@@ -1,0 +1,24 @@
+task_mode: human
+head_arch: mlp-512-512
+head_name: alphagenome_k562_head
+num_tracks: 1
+
+k562_data_path: data/k562
+context_mode: alphagenome600
+
+output_dir: outputs/oracle_alphagenome_k562_full
+weights_path: checkpoints/alphagenome-jax-all_folds-v1
+gpu: 0
+epochs: 30
+seed: null
+wandb_mode: offline
+
+batch_size: 128
+num_workers: 4
+max_seq_len: 600
+lr: 0.0001
+weight_decay: 0.0001
+gradients_clip: 1.0
+save_full_model: false
+include_pool: false
+subset_fraction: null
