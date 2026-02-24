@@ -2,14 +2,24 @@
 # Install HPC-specific AlphaGenome packages into the uv venv after uv sync.
 # Source this file from Slurm scripts before calling uv run python.
 # Packages not on PyPI that must come from HPC-local paths or GitHub:
+#   - alphagenome     (PyPI: base DeepMind SDK, not declared as dep by alphagenome_ft)
 #   - alphagenome_ft   (local: ~/alphagenome_ft-main)
 #   - alphagenome_research  (GitHub: google-deepmind/alphagenome_research)
 #   - jmp              (PyPI: mixed-precision for JAX)
+#   - jaxtyping        (PyPI: type annotations for JAX)
+#   - dm-haiku         (PyPI: Haiku neural network library)
+#   - chex             (PyPI: JAX test utilities)
+#   - orbax-checkpoint (PyPI: JAX checkpoint library)
 
 AG_FT_PATH="${HOME}/alphagenome_ft-main"
 AG_RES_REV="35ea7aa5"
 
 _check() { uv run python -c "import $1" 2>/dev/null; }
+
+if ! _check alphagenome; then
+  echo "[setup_hpc_deps] Installing alphagenome ..."
+  uv pip install "alphagenome==0.6.0" || echo "[setup_hpc_deps] WARNING: alphagenome install failed"
+fi
 
 if ! _check alphagenome_ft; then
   if [ -d "$AG_FT_PATH" ]; then
@@ -21,8 +31,8 @@ if ! _check alphagenome_ft; then
 fi
 
 if ! _check alphagenome_research; then
-  echo "[setup_hpc_deps] Installing alphagenome_research from GitHub ..."
-  uv pip install --no-deps \
+  echo "[setup_hpc_deps] Installing alphagenome_research from GitHub (with deps) ..."
+  uv pip install \
     "alphagenome-research @ git+https://github.com/google-deepmind/alphagenome_research@${AG_RES_REV}" \
     || echo "[setup_hpc_deps] WARNING: alphagenome_research install failed"
 fi
