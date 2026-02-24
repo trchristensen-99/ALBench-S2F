@@ -32,6 +32,11 @@ if ! _check jmp; then
   uv pip install "jmp==0.0.4" || echo "[setup_hpc_deps] WARNING: jmp install failed"
 fi
 
+if ! _check jaxtyping; then
+  echo "[setup_hpc_deps] Installing jaxtyping ..."
+  uv pip install "jaxtyping" || echo "[setup_hpc_deps] WARNING: jaxtyping install failed"
+fi
+
 if ! _check haiku; then
   echo "[setup_hpc_deps] Installing dm-haiku ..."
   uv pip install "dm-haiku" || echo "[setup_hpc_deps] WARNING: dm-haiku install failed"
