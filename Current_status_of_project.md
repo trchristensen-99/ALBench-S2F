@@ -74,19 +74,31 @@ Job 654751 (`malinois_boda2`) completed successfully. Boda2 tutorial protocol (F
 
 Result saved at `outputs/malinois_eval_boda2_tutorial/result.json` on HPC.
 
-### AlphaGenome no_shift test set results (COMPLETED Feb 24, job 655747)
+### AlphaGenome + Malinois test set results — full comparison (COMPLETED Feb 24)
 
-Corrected eval using full 600bp padded sequences (with Addgene flanks) matching training distribution.
+Eval on chr 7, 13 (N=62,582). All AlphaGenome evals use FW+RC averaging. Malinois eval
+updated to also use FW+RC averaging (job 656461; result: Pearson R = 0.8834).
 
-| Model | Pearson R | Spearman R | MSE |
-|-------|-----------|------------|-----|
-| boda-sum | **0.905** | 0.820 | 0.239 |
-| boda-mean | **0.905** | 0.822 | 0.242 |
-| boda-max | **0.903** | 0.814 | 0.247 |
-| boda-center | **0.897** | 0.809 | 0.261 |
-| Malinois baseline | 0.869 | 0.793 | 0.326 |
+| Model | aug_mode | Pearson R | Spearman R | MSE |
+|-------|----------|-----------|------------|-----|
+| **boda-flatten** | no_shift | **0.9061** | 0.8245 | 0.2368 |
+| **boda-sum** | no_shift | **0.9051** | 0.8205 | 0.2379 |
+| **boda-mean** | no_shift | **0.9046** | 0.8216 | 0.2397 |
+| boda-mean | hybrid | 0.9047 | 0.8204 | 0.2436 |
+| boda-sum | hybrid | 0.9038 | 0.8202 | 0.2466 |
+| **boda-max** | no_shift | **0.9027** | 0.8142 | 0.2507 |
+| boda-flatten | hybrid | 0.9035 | 0.8200 | 0.2440 |
+| boda-max | hybrid | 0.9035 | 0.8148 | 0.2443 |
+| boda-center | no_shift | 0.8966 | 0.8090 | 0.2618 |
+| boda-center | hybrid | 0.8957 | 0.8031 | 0.2660 |
+| **Malinois (RC-ensemble)** | — | **0.8834** | 0.8086 | 0.2958 |
+| Malinois (no RC) | — | 0.8688 | 0.7928 | 0.3259 |
 
-**AlphaGenome adapter heads outperform Malinois by ~3-4% Pearson R on chr 7,13 test set.** These are no_shift runs (cached embeddings, no shift augmentation). Hybrid runs with shift augmentation are in progress.
+**Key findings:**
+- AlphaGenome adapter heads outperform Malinois by **~2–2.3% Pearson R** (RC-to-RC comparison).
+- `boda-flatten` no_shift is the best single model (0.9061 Pearson R).
+- Hybrid augmentation (±15 bp shift) does **not** improve over no_shift on this test set — scores are essentially equal or slightly lower. The no_shift cached-embedding protocol is both faster and matches quality.
+- The Malinois RC-ensemble result (0.8834) now matches the published value (~0.88–0.89), confirming the earlier gap was entirely due to missing RC averaging.
 
 Result file: `outputs/ag_chrom_test_results.json` on HPC.
 
@@ -104,19 +116,17 @@ Our Malinois eval gives Pearson R = 0.869, while the original Gosai et al. (2023
 
 **Bottom line**: The 0.869 vs. 0.88–0.89 gap is most likely due to the absence of RC averaging/ensembling in our Malinois eval. The meaningful comparison is AlphaGenome vs. Malinois **on the same chr 7,13 split** (~0.90 vs. 0.87), which shows a clear ~3–4% advantage for AlphaGenome.
 
-### Hybrid training jobs (Feb 24, jobs 655491–655495, RUNNING)
+### Hybrid training jobs (Feb 24, jobs 655491–655495, COMPLETED)
 
-| Job | Name | Status |
-|-----|------|--------|
-| 655491 | ag_sum_hybrid | RUNNING — hybrid training (50% cache + 50% encoder+shift) |
-| 655492 | ag_mean_hybrid | RUNNING |
-| 655493 | ag_max_hybrid | RUNNING |
-| 655494 | ag_center_hybrid | RUNNING |
-| 655495 | ag_flatten_hybrid | RUNNING |
+| Job | Name | Val Pearson | Test Pearson | Status |
+|-----|------|-------------|--------------|--------|
+| 655491 | ag_sum_hybrid | — | 0.9038 | ✓ DONE |
+| 655492 | ag_mean_hybrid | 0.9233 | 0.9047 | ✓ DONE |
+| 655493 | ag_max_hybrid | 0.9229 | 0.9035 | ✓ DONE |
+| 655494 | ag_center_hybrid | 0.9217 | 0.8957 | ✓ DONE |
+| 655495 | ag_flatten_hybrid | — | 0.9035 | ✓ DONE |
 
-All jobs on `gpuq` partition. Settings: `aug_mode=hybrid`, `batch_size=64`, output to `outputs/ag_*_hybrid/`, time limit 12h.
-
-**Note**: Multiple earlier job batches failed due to missing Python packages. All resolved in `setup_hpc_deps.sh` (see section 5.3).
+All jobs on `gpuq` partition, 12h limit. Checkpoints at `outputs/ag_*_hybrid/best_model/`.
 
 ---
 
