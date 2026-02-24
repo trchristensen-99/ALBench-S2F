@@ -236,6 +236,23 @@ def build_head_only_predict_fn(
     return head_predict
 
 
+def _get_head_subtree(params: dict) -> dict:
+    """Extract the 'head' subtree from Haiku init params, handling transform-name wrapping."""
+    if "_head_fwd" in params and isinstance(params.get("_head_fwd"), dict):
+        inner = params["_head_fwd"]
+        return inner.get("head", inner)
+    return params.get("head", params)
+
+
+def _set_nested(d: dict, keys: list, value: Any) -> dict:
+    """Return a new nested dict with ``value`` set at ``keys`` path (immutable-style)."""
+    if len(keys) == 1:
+        return {k: (value if k == keys[0] else v) for k, v in d.items()}
+    if keys[0] not in d or not isinstance(d[keys[0]], dict):
+        return d  # path not found – leave unchanged
+    return {k: (_set_nested(v, keys[1:], value) if k == keys[0] else v) for k, v in d.items()}
+
+
 def reinit_head_params(
     model: Any,
     head_name: str,
@@ -246,13 +263,18 @@ def reinit_head_params(
 ) -> None:
     """Re-initialize the head parameters to fix shape mismatch from stale checkpoints.
 
-    When the checkpoint was saved with a different context (e.g. T=128 giving 196608
-    input size for flatten), the head params have the wrong shape. This runs the head
-    init with dummy (1, num_tokens, dim) encoder output and replaces the head subtree
-    in model._params (and model._state if present) so training uses the correct shapes.
+    ``create_model_with_heads`` initialises the head with a library-chosen dummy
+    sequence length that may differ from the training length (e.g. T=128 giving
+    ``hidden_0/w`` shape (196608, 512) instead of the correct (7680, 512) for T=5).
+    This function re-inits with the correct ``(1, num_tokens, dim)`` encoder output
+    and writes the fresh params back into ``model._params``, handling three common
+    Haiku/alphagenome_ft parameter tree layouts:
 
-    Call this after create_model_with_heads() when using a checkpoint that may contain
-    old head weights (e.g. from a previous run with different seq length).
+    * **Nested top-level** ``{"head": {...}}``
+    * **Nested inside alphagenome** ``{"alphagenome": {"head": {...}}}``
+    * **Flat slash-string keys** ``{"head/layer/w": tensor, ...}``
+
+    Call this after ``create_model_with_heads()`` and before ``freeze_except_head()``.
     """
     rng_key = jax.random.PRNGKey(rng) if isinstance(rng, int) else rng
     dummy_encoder_output = jnp.zeros((1, num_tokens, dim), dtype=jnp.float32)
@@ -273,32 +295,69 @@ def reinit_head_params(
             )
             return head(embeddings, organism_index)
 
-    head_params, head_state = _head_fwd.init(rng_key, dummy_encoder_output, dummy_organism_index)
+    fresh_params, fresh_state = _head_fwd.init(rng_key, dummy_encoder_output, dummy_organism_index)
+
     if not isinstance(model._params, dict):
+        print("[EmbeddingCache] WARNING: model._params is not a dict; skipping reinit.")
         return
-    # Haiku init may return params under "head" (name_scope) or nested under transform name.
-    if (
-        "_head_fwd" in head_params
-        and isinstance(head_params["_head_fwd"], dict)
-        and "head" in head_params["_head_fwd"]
+
+    head_subtree = _get_head_subtree(fresh_params)
+
+    # ── Detect and handle params layout ──────────────────────────────────────
+    layout = None
+
+    # Layout 1: top-level "head" key  {"head": {...}, "alphagenome": {...}}
+    if "head" in model._params:
+        model._params = _set_nested(model._params, ["head"], head_subtree)
+        layout = "top-level 'head'"
+
+    # Layout 2: nested  {"alphagenome": {"head": {...}}}
+    elif (
+        "alphagenome" in model._params
+        and isinstance(model._params.get("alphagenome"), dict)
+        and "head" in model._params["alphagenome"]
     ):
-        head_subtree = head_params["_head_fwd"]["head"]
-    else:
-        head_subtree = head_params.get("head", head_params)
-    new_params = {k: (head_subtree if k == "head" else v) for k, v in model._params.items()}
-    model._params = new_params
+        model._params = _set_nested(model._params, ["alphagenome", "head"], head_subtree)
+        layout = "alphagenome/head nested"
+
+    # Layout 3: flat slash-string keys  {"head/layer/w": tensor, ...}
+    elif any(isinstance(k, str) and k.startswith("head/") for k in model._params):
+        flat_fresh: dict = {}
+
+        def _flatten(d: dict, prefix: str) -> None:
+            for k, v in d.items():
+                path = f"{prefix}/{k}"
+                if isinstance(v, dict):
+                    _flatten(v, path)
+                else:
+                    flat_fresh[path] = v
+
+        _flatten(head_subtree, "head")
+        model._params = {k: flat_fresh.get(k, v) for k, v in model._params.items()}
+        layout = "flat slash-string keys"
+
+    if layout is None:
+        top_keys = list(model._params.keys())[:8]
+        print(
+            f"[EmbeddingCache] WARNING: could not locate 'head' in model._params "
+            f"(top-level keys: {top_keys}). Head params NOT re-initialised; "
+            "shape mismatch may occur."
+        )
+        return
+
+    # ── Mirror for _state if present ─────────────────────────────────────────
     if getattr(model, "_state", None) and isinstance(model._state, dict):
-        if (
-            "_head_fwd" in head_state
-            and isinstance(head_state.get("_head_fwd"), dict)
-            and "head" in head_state["_head_fwd"]
+        state_subtree = _get_head_subtree(fresh_state)
+        if "head" in model._state:
+            model._state = _set_nested(model._state, ["head"], state_subtree)
+        elif (
+            "alphagenome" in model._state
+            and isinstance(model._state.get("alphagenome"), dict)
+            and "head" in model._state["alphagenome"]
         ):
-            state_subtree = head_state["_head_fwd"]["head"]
-        else:
-            state_subtree = head_state.get("head", head_state)
-        new_state = {k: (state_subtree if k == "head" else v) for k, v in model._state.items()}
-        model._state = new_state
-    print("[EmbeddingCache] Re-initialized head parameters to fix checkpoint shape mismatch.")
+            model._state = _set_nested(model._state, ["alphagenome", "head"], state_subtree)
+
+    print(f"[EmbeddingCache] Re-initialized head params (layout: {layout}).")
 
 
 # ── Batch helpers ─────────────────────────────────────────────────────────────
