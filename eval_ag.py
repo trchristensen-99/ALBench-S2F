@@ -42,6 +42,8 @@ def _arch_from_head_name(head_name: str) -> str:
         return "boda-center-512-512"
     if "encoder_1024" in h or "encoder-1024" in h:
         return "encoder-1024-dropout"
+    if "boda_flatten_1024" in h or "boda-flatten-1024" in h:
+        return "boda-flatten-1024-dropout"
     return "mlp-512-512"
 
 

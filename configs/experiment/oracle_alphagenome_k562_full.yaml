@@ -33,3 +33,9 @@ val_eval_interval: 1
 # full = encoder every step + shift aug (production). hybrid = 50% cache / 50% encoder.
 aug_mode: "no_shift"
 cache_dir: null        # null = {output_dir}/embedding_cache
+
+# Regularisation and LR scheduling (set in per-run SLURM scripts for ablations)
+dropout_rate: 0.0       # 0.0 = no dropout. Use 0.1 to match FT_MPRA K562 reference.
+lr_schedule: "none"     # "none" (constant) | "plateau" (reduce-on-plateau)
+lr_plateau_patience: 5  # epochs without val Pearson improvement before reducing LR
+lr_plateau_factor: 0.5  # multiply LR by this when plateau detected (floor = lr * 0.01)

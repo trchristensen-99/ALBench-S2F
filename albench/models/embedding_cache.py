@@ -186,6 +186,52 @@ def load_embedding_cache(cache_dir: Path, split: str) -> tuple[np.ndarray, np.nd
 # ── Head-only JIT functions ───────────────────────────────────────────────────
 
 
+def build_head_only_train_fn(
+    model: Any,
+    head_name: str,
+    num_organisms: int = 2,
+):
+    """Build a JIT-compiled head-only train function with ``is_training=True``.
+
+    Identical to :func:`build_head_only_predict_fn` except the head is called
+    with ``is_training=True``, activating dropout (if configured in head metadata).
+    An RNG key must be provided by the caller for ``hk.dropout`` to work.
+
+    Args:
+        model:         The ``CustomAlphaGenomeModel`` from ``create_model_with_heads``.
+        head_name:     Registered head name.
+        num_organisms: Must match the value used at model creation (typically 2).
+
+    Returns:
+        ``head_train(params, rng, encoder_output_f32, organism_indices)``
+            → predictions of shape ``(B,)`` or ``(B, num_tracks)``.
+    """
+
+    @hk.transform_with_state
+    def _head_train_fwd(encoder_output, organism_index):
+        embeddings = ExtendedEmbeddings(
+            embeddings_1bp=None,
+            embeddings_128bp=None,
+            encoder_output=encoder_output,
+        )
+        with hk.name_scope("head"):
+            head = custom_heads_module.create_registered_head(
+                head_name,
+                metadata=None,
+                num_organisms=num_organisms,
+            )
+            return head(embeddings, organism_index, is_training=True)
+
+    state = model._state
+
+    @jax.jit
+    def head_train(params, rng, encoder_output, organism_index):
+        output, _ = _head_train_fwd.apply(params, state, rng, encoder_output, organism_index)
+        return output
+
+    return head_train
+
+
 def build_head_only_predict_fn(
     model: Any,
     head_name: str,

@@ -43,6 +43,7 @@ from albench.models.alphagenome_heads import register_s2f_head
 from albench.models.embedding_cache import (
     build_embedding_cache,
     build_head_only_predict_fn,
+    build_head_only_train_fn,
     load_embedding_cache,
     lookup_cached_batch,
     reinit_head_params,
@@ -315,11 +316,14 @@ def main(cfg: DictConfig) -> None:
     arch_slug = str(cfg.head_arch).replace("-", "_")
     unique_head_name = f"{cfg.head_name}_{arch_slug}_v4"
 
+    dropout_rate = float(cfg.get("dropout_rate", 0.0))
+
     register_s2f_head(
         head_name=unique_head_name,
         arch=str(cfg.head_arch),
         task_mode=str(cfg.task_mode),
         num_tracks=num_tracks,
+        dropout_rate=dropout_rate,
     )
 
     weights_path = str(Path(str(cfg.weights_path)).expanduser().resolve())
@@ -343,7 +347,18 @@ def main(cfg: DictConfig) -> None:
 
     loss_fn = model.create_loss_fn_for_head(unique_head_name)
     eval_fn = model.create_loss_fn_for_head(unique_head_name)
-    if cfg.gradients_clip is not None:
+
+    lr_schedule_type = str(cfg.get("lr_schedule", "none"))
+    lr_plateau_patience = int(cfg.get("lr_plateau_patience", 5))
+    lr_plateau_factor = float(cfg.get("lr_plateau_factor", 0.5))
+    _use_plateau = lr_schedule_type == "plateau" and cfg.gradients_clip is None
+
+    if _use_plateau:
+        # inject_hyperparams allows updating learning_rate between epochs.
+        optimizer = optax.inject_hyperparams(optax.adamw)(
+            learning_rate=float(cfg.lr), weight_decay=float(cfg.weight_decay)
+        )
+    elif cfg.gradients_clip is not None:
         optimizer = optax.chain(
             optax.clip_by_global_norm(float(cfg.gradients_clip)),
             optax.adamw(learning_rate=float(cfg.lr), weight_decay=float(cfg.weight_decay)),
@@ -405,6 +420,7 @@ def main(cfg: DictConfig) -> None:
     # ── Embedding cache (non-full modes) ──────────────────────────────────────
     train_canonical = train_rc = val_canonical = None
     head_predict_fn = None
+    head_train_fn = None
 
     if aug_mode != "full":
         raw_cache_dir = cfg.get("cache_dir", None)
@@ -440,6 +456,11 @@ def main(cfg: DictConfig) -> None:
         _dummy_emb = jnp.zeros((2, 5, 1536), dtype=jnp.float32)
         _dummy_org = jnp.zeros((2,), dtype=jnp.int32)
         _ = head_predict_fn(model._params, _dummy_emb, _dummy_org)
+        # Build dropout-aware train fn when dropout is configured.
+        if dropout_rate > 0.0:
+            head_train_fn = build_head_only_train_fn(model, unique_head_name)
+        else:
+            head_train_fn = None
 
     # ── JIT steps ─────────────────────────────────────────────────────────────
 
@@ -478,9 +499,15 @@ def main(cfg: DictConfig) -> None:
     if head_predict_fn is not None:
 
         @jax.jit
-        def cached_train_step(params, current_opt_state, encoder_output, targets, organism_index):
+        def cached_train_step(
+            params, current_opt_state, rng, encoder_output, targets, organism_index
+        ):
             def loss_func(p):
-                preds = head_predict_fn(p, encoder_output, organism_index)
+                # Use dropout-aware train fn when available, otherwise eval fn (no dropout).
+                if head_train_fn is not None:
+                    preds = head_train_fn(p, rng, encoder_output, organism_index)
+                else:
+                    preds = head_predict_fn(p, encoder_output, organism_index)
                 pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
                 return jnp.mean((pred - targets) ** 2)
 
@@ -580,6 +607,15 @@ def main(cfg: DictConfig) -> None:
     val_eval_interval = int(cfg.get("val_eval_interval", 1))
     epochs_no_improve = 0
 
+    # RNG key for dropout (also used when dropout_rate=0 — just unused then).
+    rng = jax.random.PRNGKey(used_seed)
+
+    # Plateau LR state (only active when _use_plateau=True).
+    current_lr = float(cfg.lr)
+    lr_plateau_best = -float("inf")
+    lr_plateau_counter = 0
+    _min_lr = float(cfg.lr) * 0.01  # floor at 1% of initial LR
+
     for epoch in range(int(cfg.epochs)):
         train_losses: list[float] = []
         pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{int(cfg.epochs)}")
@@ -606,16 +642,18 @@ def main(cfg: DictConfig) -> None:
                 targets_jax = jnp.array(targets)
 
                 # Canonical pass
+                rng, step_rng = jax.random.split(rng)
                 emb_can = train_canonical[indices].astype(np.float32)
                 model._params, opt_state, loss = cached_train_step(
-                    model._params, opt_state, jnp.array(emb_can), targets_jax, org_idx
+                    model._params, opt_state, step_rng, jnp.array(emb_can), targets_jax, org_idx
                 )
                 train_losses.append(float(loss))
 
                 # RC pass (same labels)
+                rng, step_rng = jax.random.split(rng)
                 emb_rc = train_rc[indices].astype(np.float32)
                 model._params, opt_state, loss = cached_train_step(
-                    model._params, opt_state, jnp.array(emb_rc), targets_jax, org_idx
+                    model._params, opt_state, step_rng, jnp.array(emb_rc), targets_jax, org_idx
                 )
                 loss_v = float(loss)
                 train_losses.append(loss_v)
@@ -630,9 +668,11 @@ def main(cfg: DictConfig) -> None:
                     targets = batch["targets"]
                     emb = lookup_cached_batch(indices, train_canonical, train_rc)
                     org_idx = jnp.zeros(len(indices), dtype=jnp.int32)
+                    rng, step_rng = jax.random.split(rng)
                     model._params, opt_state, loss = cached_train_step(
                         model._params,
                         opt_state,
+                        step_rng,
                         jnp.array(emb),
                         jnp.array(targets),
                         org_idx,
@@ -687,6 +727,22 @@ def main(cfg: DictConfig) -> None:
         pear = _safe_corr(y_true, y_pred, pearsonr)
         spear = _safe_corr(y_true, y_pred, spearmanr)
 
+        # ── Plateau LR reduction ──────────────────────────────────────────────
+        if _use_plateau:
+            if pear > lr_plateau_best:
+                lr_plateau_best = pear
+                lr_plateau_counter = 0
+            else:
+                lr_plateau_counter += 1
+                if lr_plateau_counter >= lr_plateau_patience:
+                    current_lr = max(current_lr * lr_plateau_factor, _min_lr)
+                    opt_state.hyperparams["learning_rate"] = np.float32(current_lr)
+                    lr_plateau_counter = 0
+                    print(
+                        f"  [LR plateau] No improvement for {lr_plateau_patience} epochs "
+                        f"→ LR reduced to {current_lr:.2e}"
+                    )
+
         print(f"Epoch {epoch + 1} val/pearson_r={pear:.4f} val/spearman_r={spear:.4f}")
         wandb.log(
             {
@@ -695,6 +751,7 @@ def main(cfg: DictConfig) -> None:
                 "val/loss": avg_val,
                 "val/pearson_r": pear,
                 "val/spearman_r": spear,
+                "lr": current_lr,
             }
         )
 

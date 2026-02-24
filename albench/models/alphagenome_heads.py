@@ -30,6 +30,7 @@ HeadArch = Literal[
     "boda-max-512-512",
     "boda-center-512-512",
     "encoder-1024-dropout",
+    "boda-flatten-1024-dropout",
 ]
 TaskMode = Literal["yeast", "human"]
 
@@ -70,11 +71,18 @@ class MLP512512Head(_BaseLossHead):
                 "Use create_model_with_heads(..., use_encoder_output=True)."
             )
 
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.0))
+
         x = embeddings.encoder_output  # (B, T, 1536)
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
         x = hk.Linear(512, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(512, name="hidden_1")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
 
@@ -122,6 +130,9 @@ class BodaFlattenHead(_BaseLossHead):
     """Exactly replicates boda 'flatten' pooling: Flattens Spatial -> MLP[512, 512]."""
 
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.0))
+
         x = embeddings.encoder_output  # (B, T, 1536)
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
 
@@ -129,8 +140,12 @@ class BodaFlattenHead(_BaseLossHead):
         x = jnp.reshape(x, (x.shape[0], -1))
 
         x = hk.Linear(512, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(512, name="hidden_1")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
 
         return hk.Linear(self._num_tracks, name="output")(x)
@@ -143,12 +158,19 @@ class BodaSumHead(_BaseLossHead):
     """Exactly replicates boda 'sum' pooling: per-position MLP[512, 512] -> Sum Spatial."""
 
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.0))
+
         x = embeddings.encoder_output  # (B, T, 1536)
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
 
         x = hk.Linear(512, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(512, name="hidden_1")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
 
@@ -163,11 +185,18 @@ class BodaMeanHead(_BaseLossHead):
     """Exactly replicates boda 'mean' pooling: per-position MLP[512, 512] -> Mean Spatial."""
 
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.0))
+
         x = embeddings.encoder_output
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
         x = hk.Linear(512, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(512, name="hidden_1")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
         return jnp.mean(x, axis=1)
@@ -180,11 +209,18 @@ class BodaMaxHead(_BaseLossHead):
     """Exactly replicates boda 'max' pooling: per-position MLP[512, 512] -> Max Spatial."""
 
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.0))
+
         x = embeddings.encoder_output
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
         x = hk.Linear(512, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(512, name="hidden_1")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
         return jnp.max(x, axis=1)
@@ -197,11 +233,18 @@ class BodaCenterHead(_BaseLossHead):
     """Exactly replicates boda 'center' pooling: per-position MLP[512, 512] -> Slice Center."""
 
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.0))
+
         x = embeddings.encoder_output
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
         x = hk.Linear(512, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(512, name="hidden_1")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         x = hk.Linear(self._num_tracks, name="output")(x)
 
@@ -214,15 +257,11 @@ class BodaCenterHead(_BaseLossHead):
 
 
 class Encoder1024DropoutHead(_BaseLossHead):
-    """Reference-style head: LayerNorm → mean-pool → Linear(1024) → Dropout(0.1) → ReLU → Linear(1).
+    """Reference-style head: LayerNorm → mean-pool → Linear(1024) → Dropout → ReLU → Linear(1).
 
-    Mirrors the exact architecture from the alphagenome_FT_MPRA reference implementation
-    for K562. Single hidden layer with 1024 units and 10% dropout for regularisation.
-
-    Note on dropout: ``hk.dropout`` requires an RNG key in the Haiku transform scope.
+    Mirrors the architecture from the alphagenome_FT_MPRA reference for K562.
+    Single hidden layer with 1024 units. Dropout rate read from metadata (default 0.1).
     Dropout is only applied when the caller passes ``is_training=True`` as a kwarg.
-    If the ``alphagenome_ft`` framework does not thread this kwarg, the head runs as a
-    plain ``encoder-1024`` without dropout — still a useful architectural comparison.
     """
 
     def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
@@ -233,13 +272,39 @@ class Encoder1024DropoutHead(_BaseLossHead):
             )
 
         is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.1))
 
         x = embeddings.encoder_output  # (B, T, 1536)
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
         x = jnp.mean(x, axis=1)  # mean-pool over tokens → (B, 1536)
         x = hk.Linear(1024, name="hidden_0")(x)
-        if is_training:
-            x = hk.dropout(hk.next_rng_key(), 0.1, x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
+        x = jax.nn.relu(x)
+        return hk.Linear(self._num_tracks, name="output")(x)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
+class BodaFlatten1024DropoutHead(_BaseLossHead):
+    """Reference K562-optimal: LayerNorm → Flatten → Linear(1024) → Dropout → ReLU → Linear(1).
+
+    Exactly replicates the best config from alphagenome_FT_MPRA/configs/mpra_K562.json:
+    pooling_type="flatten", nl_size="1024", do=0.1.
+    Dropout rate read from metadata (default 0.1).
+    """
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.1))
+
+        x = embeddings.encoder_output  # (B, T, 1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = jnp.reshape(x, (x.shape[0], -1))  # flatten: (B, T*1536)
+        x = hk.Linear(1024, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         x = jax.nn.relu(x)
         return hk.Linear(self._num_tracks, name="output")(x)
 
@@ -275,6 +340,8 @@ def get_head_class(arch: HeadArch) -> type[CustomHead]:
         return BodaCenterHead
     if arch == "encoder-1024-dropout":
         return Encoder1024DropoutHead
+    if arch == "boda-flatten-1024-dropout":
+        return BodaFlatten1024DropoutHead
     raise ValueError(f"Unsupported AlphaGenome head architecture: {arch}")
 
 
@@ -285,6 +352,7 @@ def register_s2f_head(
     task_mode: TaskMode,
     num_tracks: int,
     output_type: dna_output.OutputType = dna_output.OutputType.RNA_SEQ,
+    dropout_rate: float = 0.0,
 ) -> None:
     """Register an ALBench S2F AlphaGenome head with frozen-encoder training.
 
@@ -294,12 +362,14 @@ def register_s2f_head(
         task_mode: ``yeast`` for binned objective, ``human`` for regression.
         num_tracks: Number of output channels/logits.
         output_type: AlphaGenome output type enum.
+        dropout_rate: Dropout probability applied after each hidden layer during
+            training (when the caller passes ``is_training=True``). 0.0 = no dropout.
     """
     head_class = get_head_class(arch)
     head_config = CustomHeadConfig(
         type=CustomHeadType.GENOME_TRACKS,
         output_type=output_type,
         num_tracks=num_tracks,
-        metadata={"task_mode": task_mode},
+        metadata={"task_mode": task_mode, "dropout_rate": dropout_rate},
     )
     register_custom_head(head_name, head_class, head_config)
