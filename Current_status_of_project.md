@@ -25,48 +25,58 @@ Five Boda-style heads, all registered as `alphagenome_k562_head_{arch_slug}_v4`:
 | `boda-max-512-512` | Max over T | norm → 512 → 512 → 1 → max |
 | `boda-center-512-512` | Center token | norm → 512 → 512 → 1 → center |
 
-Layer names: `hidden_0`, `hidden_1`, `output`, `norm` (avoids stale checkpoint collisions with old `hidden1`/`hidden2` names).
+Layer names: `hidden_0`, `hidden_1`, `output`, `norm` (avoids stale checkpoint collisions).
 
 ### 1.3 Embedding cache (no_shift mode)
 
-- **Mode in use:** `aug_mode=no_shift` — encoder runs once at startup to build canonical + RC caches; head-only training with 50% RC augmentation per sequence. ~20–50× faster per epoch than full mode.
+- **Mode:** `aug_mode=no_shift` — encoder runs once at startup to build canonical + RC caches; head-only training uses **all** precomputed embeddings every epoch.
+- **Training protocol:** For each batch, two gradient steps are taken — one on canonical embeddings and one on RC embeddings with the same labels. This fully utilises both cached files (~2× gradient updates per epoch vs random 50% RC sampling) at zero additional compute cost.
 - **Cache location:** `outputs/ag_flatten/embedding_cache/` (shared by all 5 head runs)
-- **Cache size:** ~21.5 GB float16 (train + val). Already built Feb 23.
-- **Speed:** ~2–4 min/epoch on H100 (bamgpu01). Typical run: 8–12 epochs → 20–50 min total.
-- **Production plan:** Once no_shift runs give good performance, rerun with `aug_mode=full` (shift ±15 bp + RC) for final production results.
+- **Cache contents:** N=627k canonical embeddings (N, T=5, D=1536) float16 + N RC embeddings with same labels = ~21.5 GB total. Already built Feb 23.
+- **Speed:** ~4–8 min/epoch on H100 (bamgpu01) with doubled updates. Expect early stop at ~6–10 epochs → 30–80 min total.
+- **Production plan:** Once no_shift runs converge, rerun with `aug_mode=full` (shift ±15 bp + RC) for final production results.
 
 ### 1.4 Evaluation
 
-- **Script:** `eval_ag.py` — loads checkpoint, evaluates on K562 HashFrag test sets under `data/k562/test_sets/`:
+- **Script:** `eval_ag.py` — evaluates on K562 HashFrag test sets under `data/k562/test_sets/`:
   - **ID:** `test_in_distribution_hashfrag.tsv` → Pearson R
   - **SNV:** `test_snv_pairs_hashfrag.tsv` → absolute and delta Pearson R
   - **OOD:** `test_ood_cre.tsv` → Pearson R
-- **Batch eval:** `scripts/analysis/eval_boda_k562.py` — loops over all `outputs/ag_*` checkpoints, prints TSV.
-- **Malinois baseline:** `scripts/analysis/eval_malinois_baseline.py` — evaluates same HashFrag + chrom-test sets for apples-to-apples comparison.
-- **Unified comparison:** `scripts/analysis/compare_malinois_ag.py` — runs both models, prints one TSV.
+- **Batch eval:** `scripts/analysis/eval_boda_k562.py` — loops over all `outputs/ag_*` checkpoints.
+- **Malinois baseline:** `scripts/analysis/eval_malinois_baseline.py` — same HashFrag + chrom-test sets.
+- **Unified comparison:** `scripts/analysis/compare_malinois_ag.py`.
 
 ---
 
 ## 2. Current State (Feb 23, 2026)
 
-### Completed runs
+### Running jobs (all 5 heads, doubled-cache protocol)
 
-| Head | Job | Val Pearson (best) | Epochs | Time |
-|------|-----|--------------------|--------|------|
-| boda-sum | 652607 | **0.9262** | 11 (early stop) | 34 min |
-| boda-mean | 652608 | **0.9277** | 8 (early stop) | 27 min |
-| boda-max | 652609 | **0.9258** | 9 (early stop) | 38 min |
-| boda-center | 652610 | **0.9233** | 12 (early stop) | 40 min |
+| Job | Head | Status |
+|-----|------|--------|
+| 652947 | boda-flatten | PENDING → bamgpu01 |
+| 652948 | boda-sum | PENDING → bamgpu01 |
+| 652949 | boda-mean | PENDING → bamgpu01 |
+| 652950 | boda-max | PENDING → bamgpu01 |
+| 652951 | boda-center | PENDING → bamgpu01 |
 
-### Running
+All using `aug_mode=no_shift` + shared cache at `outputs/ag_flatten/embedding_cache/`. No cache rebuild needed.
 
-| Head | Job | Status |
-|------|-----|--------|
-| boda-flatten | **652943** | RUNNING on bamgpu01 — reinit now confirmed working (replaced 4 head param entries) |
+### Previous runs (old protocol — 50% random RC sampling)
 
-### Key bug fixed (Feb 23)
+These completed with good results and are useful as a baseline:
 
-The `reinit_head_params` function in `albench/models/embedding_cache.py` silently failed to replace stale `hidden_0/w` weights (shape 196608×512, from T=128 dummy init by `create_model_with_heads`) with correct ones (7680×512, for T=5). Root cause: the function assumed Haiku's `fresh_params` was a nested dict but it's actually a semi-flat dict (keys like `"head/.../hidden_0"` → value `{"w": tensor}`). Fixed by detecting the flat key format and using direct dict lookup to replace matching keys. Took multiple iterations to diagnose the exact `fresh_params` structure.
+| Head | Val Pearson (best) | Epochs | Time |
+|------|--------------------|--------|------|
+| boda-sum | 0.9262 | 11 | 34 min |
+| boda-mean | 0.9277 | 8 | 27 min |
+| boda-max | 0.9258 | 9 | 38 min |
+| boda-center | 0.9233 | 12 | 40 min |
+
+### Key fixes applied (Feb 23)
+
+1. **reinit_head_params Layout3:** `fresh_params` from Haiku's `init()` uses a semi-flat key format (`"head/.../hidden_0" → {"w": tensor}`). Fixed by direct dict lookup instead of complex navigation.
+2. **All-cache training:** no_shift loop now processes both canonical and RC embeddings per batch (same labels for RC), fully utilising both cache files per epoch.
 
 ---
 
@@ -74,25 +84,25 @@ The `reinit_head_params` function in `albench/models/embedding_cache.py` silentl
 
 ### 3.1 Immediate
 
-1. **Wait for flatten (652943) to complete** — expect ~8–12 epochs, ~30–50 min. Check for val Pearson ~0.92–0.93 (consistent with other heads).
-2. **Confirm `best_model/` checkpoints** exist for all 5 heads under `outputs/ag_*/`.
+- Wait for jobs 652947–652951 to complete. Expect ~6–10 epochs early stop.
+- Check `outputs/ag_*/best_model/` checkpoints exist for all 5 heads.
 
 ### 3.2 Evaluation
 
 Once all 5 heads have `best_model/` checkpoints:
-1. Run `scripts/analysis/eval_boda_k562.py` (or `compare_malinois_ag.py`) on HPC.
-2. Compare all heads + Malinois on HashFrag ID/SNV/OOD test sets.
+1. Run `scripts/analysis/eval_boda_k562.py` on HPC for HashFrag ID/SNV/OOD results.
+2. Run `scripts/analysis/compare_malinois_ag.py` for side-by-side Malinois comparison.
 
 ### 3.3 Production runs (shift augmentation)
 
-After confirming no_shift results are good:
-1. Resubmit all 5 heads with `++aug_mode=full` for final production quality runs.
-2. Use longer walltime (kooq/koolab partition recommended for 30-day limit).
+After confirming no_shift results:
+1. Resubmit with `++aug_mode=full` for final production runs (encoder runs every step, full shift ±15 bp + RC).
+2. Use `kooq/koolab` partition for longer time limits.
 
 ### 3.4 Optional
 
-- **encoder-1024-dropout:** Reference-style head (`encoder-1024-dropout` arch), submitted as a 6th variant.
-- **Compact-window run:** `use_compact_window: true` to compare 600 bp vs adaptive-W approach.
+- `encoder-1024-dropout` head: reference-style single hidden layer (1024 units + dropout).
+- Compact-window run: `use_compact_window: true` for adaptive-W approach.
 
 ---
 
@@ -102,11 +112,11 @@ After confirming no_shift results are good:
 |------|----------|
 | Train AlphaGenome head | `experiments/train_oracle_alphagenome_full.py` |
 | Config | `configs/experiment/oracle_alphagenome_k562_full.yaml` |
-| Boda head runs | `scripts/slurm/train_oracle_alphagenome_full_{flatten,sum,mean,max,center}.sh` |
+| Boda head run scripts | `scripts/slurm/train_oracle_alphagenome_full_{flatten,sum,mean,max,center}.sh` |
 | Eval one AG checkpoint | `python eval_ag.py <ckpt_dir> <head_name> [arch]` |
 | Batch eval Boda heads | `python scripts/analysis/eval_boda_k562.py` |
 | Eval Malinois | `python scripts/analysis/eval_malinois_baseline.py` |
 | Compare all models | `python scripts/analysis/compare_malinois_ag.py` |
-| Shared embedding cache | `outputs/ag_flatten/embedding_cache/` (already built) |
+| Shared embedding cache | `outputs/ag_flatten/embedding_cache/` (already built, ~21.5 GB) |
 | HPC SSH | `ssh -i ~/.ssh/id_ed25519_citra christen@bamdev4.cshl.edu` |
 | Repo on HPC | `/grid/wsbs/home_norepl/christen/ALBench-S2F` |
