@@ -16,6 +16,15 @@ AG_RES_REV="35ea7aa5"
 
 _check() { uv run python -c "import $1" 2>/dev/null; }
 
+# On GPU SLURM nodes (CUDA 12.4), upgrade jax to GPU-capable build.
+# pyproject.toml installs CPU-only jax; this upgrades it when a GPU is present.
+if [ -n "$SLURM_JOB_ID" ] && [ -n "$CUDA_VISIBLE_DEVICES" ]; then
+  if ! uv run python -c "import jax; jax.devices('gpu')" 2>/dev/null; then
+    echo "[setup_hpc_deps] Installing GPU-capable JAX (CUDA 12) ..."
+    uv pip install "jax[cuda12]" || echo "[setup_hpc_deps] WARNING: GPU jax install failed"
+  fi
+fi
+
 if ! _check alphagenome; then
   echo "[setup_hpc_deps] Installing alphagenome ..."
   uv pip install "alphagenome==0.6.0" || echo "[setup_hpc_deps] WARNING: alphagenome install failed"
