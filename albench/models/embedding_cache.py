@@ -29,6 +29,7 @@ Storage estimate (K562, ~700k train seqs, T=5, D=1536, float16):
 from __future__ import annotations
 
 import functools
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -236,20 +237,20 @@ def build_head_only_predict_fn(
     return head_predict
 
 
-def _get_head_subtree(params: dict) -> dict:
+def _get_head_subtree(params: Mapping) -> Mapping:
     """Extract the 'head' subtree from Haiku init params, handling transform-name wrapping."""
-    if "_head_fwd" in params and isinstance(params.get("_head_fwd"), dict):
+    if "_head_fwd" in params and isinstance(params.get("_head_fwd"), Mapping):
         inner = params["_head_fwd"]
         return inner.get("head", inner)
     return params.get("head", params)
 
 
-def _set_nested(d: dict, keys: list, value: Any) -> dict:
+def _set_nested(d: Mapping, keys: list, value: Any) -> dict:
     """Return a new nested dict with ``value`` set at ``keys`` path (immutable-style)."""
     if len(keys) == 1:
         return {k: (value if k == keys[0] else v) for k, v in d.items()}
-    if keys[0] not in d or not isinstance(d[keys[0]], dict):
-        return d  # path not found – leave unchanged
+    if keys[0] not in d or not isinstance(d[keys[0]], Mapping):
+        return dict(d)  # path not found – return copy unchanged
     return {k: (_set_nested(v, keys[1:], value) if k == keys[0] else v) for k, v in d.items()}
 
 
@@ -297,8 +298,8 @@ def reinit_head_params(
 
     fresh_params, fresh_state = _head_fwd.init(rng_key, dummy_encoder_output, dummy_organism_index)
 
-    if not isinstance(model._params, dict):
-        print("[EmbeddingCache] WARNING: model._params is not a dict; skipping reinit.")
+    if not isinstance(model._params, Mapping):
+        print("[EmbeddingCache] WARNING: model._params is not a Mapping; skipping reinit.")
         return
 
     head_subtree = _get_head_subtree(fresh_params)
@@ -314,7 +315,7 @@ def reinit_head_params(
     # Layout 2: nested  {"alphagenome": {"head": {...}}}
     elif (
         "alphagenome" in model._params
-        and isinstance(model._params.get("alphagenome"), dict)
+        and isinstance(model._params.get("alphagenome"), Mapping)
         and "head" in model._params["alphagenome"]
     ):
         model._params = _set_nested(model._params, ["alphagenome", "head"], head_subtree)
@@ -324,16 +325,19 @@ def reinit_head_params(
     elif any(isinstance(k, str) and k.startswith("head/") for k in model._params):
         flat_fresh: dict = {}
 
-        def _flatten(d: dict, prefix: str) -> None:
+        def _flatten(d: Mapping, prefix: str) -> None:
             for k, v in d.items():
                 path = f"{prefix}/{k}"
-                if isinstance(v, dict):
+                # Use Mapping (not dict) to handle Haiku FlatMap objects
+                if isinstance(v, Mapping):
                     _flatten(v, path)
                 else:
                     flat_fresh[path] = v
 
         _flatten(head_subtree, "head")
+        n_replaced = sum(1 for k in model._params if k in flat_fresh)
         model._params = {k: flat_fresh.get(k, v) for k, v in model._params.items()}
+        print(f"[EmbeddingCache] Layout3: replaced {n_replaced}/{len(model._params)} head keys.")
         layout = "flat slash-string keys"
 
     if layout is None:
