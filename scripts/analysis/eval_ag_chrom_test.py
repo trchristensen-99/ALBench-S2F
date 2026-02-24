@@ -69,6 +69,55 @@ CONFIGS = [
         "alphagenome_k562_head_boda_flatten_512_512_v4",
         None,
     ),
+    # v2 heads: dropout=0.1 + plateau LR (512-512) or constant LR (1024)
+    (
+        "boda_sum_v2",
+        "outputs/ag_sum_v2/best_model",
+        "alphagenome_k562_head_boda_sum_512_512_v4",
+        None,
+    ),
+    (
+        "boda_mean_v2",
+        "outputs/ag_mean_v2/best_model",
+        "alphagenome_k562_head_boda_mean_512_512_v4",
+        None,
+    ),
+    (
+        "boda_flatten_v2",
+        "outputs/ag_flatten_v2/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+        None,
+    ),
+    (
+        "boda_flatten_v2_do02",
+        "outputs/ag_flatten_v2_do02/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+        None,
+    ),
+    (
+        "boda_flatten_ref",
+        "outputs/ag_flatten_ref/best_model",
+        "alphagenome_k562_head_boda_flatten_1024_dropout_v4",
+        None,
+    ),
+    (
+        "boda_flatten_ref_do02",
+        "outputs/ag_flatten_ref_do02/best_model",
+        "alphagenome_k562_head_boda_flatten_1024_dropout_v4",
+        None,
+    ),
+    (
+        "boda_flatten_ref_do05",
+        "outputs/ag_flatten_ref_do05/best_model",
+        "alphagenome_k562_head_boda_flatten_1024_dropout_v4",
+        None,
+    ),
+    (
+        "boda_flatten_ref_lr01",
+        "outputs/ag_flatten_ref_lr01/best_model",
+        "alphagenome_k562_head_boda_flatten_1024_dropout_v4",
+        None,
+    ),
     # 384bp compact-window heads (T=3 tokens; separate embedding cache)
     (
         "boda_sum_compact",
