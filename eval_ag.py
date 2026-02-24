@@ -22,7 +22,7 @@ import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 from alphagenome_ft import create_model_with_heads
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, spearmanr
 
 
 def _arch_from_head_name(head_name: str) -> str:
@@ -194,6 +194,106 @@ def evaluate(ckpt_dir: str, head_name: str, arch: str | None = None) -> dict:
     }
 
     return metrics
+
+
+def evaluate_chrom_test(
+    ckpt_dir: str,
+    head_name: str,
+    data_path: str = "data/k562",
+    arch: str | None = None,
+) -> dict:
+    """Evaluate a trained AlphaGenome head on the chromosome test split (chr 7, 13).
+
+    Same test set as Malinois eval. Returns pearson_r, spearman_r, mse, n.
+    """
+    if arch is None:
+        arch = _arch_from_head_name(head_name)
+
+    from albench.models.alphagenome_heads import register_s2f_head
+
+    register_s2f_head(head_name=head_name, arch=arch, task_mode="human", num_tracks=1)
+
+    model = create_model_with_heads(
+        "all_folds",
+        heads=[head_name],
+        checkpoint_path="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+        use_encoder_output=True,
+    )
+
+    def merge_nested_dicts(base, override):
+        from collections.abc import Mapping
+
+        if not isinstance(override, Mapping):
+            return override
+        if not isinstance(base, Mapping):
+            return override
+        merged = dict(base)
+        for k, v in override.items():
+            if k in merged and isinstance(merged[k], Mapping) and isinstance(v, Mapping):
+                merged[k] = merge_nested_dicts(merged[k], v)
+            else:
+                merged[k] = v
+        return merged
+
+    import orbax.checkpoint as ocp
+
+    checkpointer = ocp.StandardCheckpointer()
+    loaded_params, _ = checkpointer.restore(Path(ckpt_dir).resolve() / "checkpoint")
+    model._params = jax.device_put(merge_nested_dicts(model._params, loaded_params))
+
+    @jax.jit
+    def predict_step(params, state, sequences):
+        return model._predict(
+            params,
+            state,
+            sequences,
+            jnp.zeros(len(sequences), dtype=jnp.int32),
+            negative_strand_mask=jnp.zeros(len(sequences), dtype=bool),
+            strand_reindexing=None,
+        )[head_name]
+
+    def _standardize_to_200bp(sequence: str) -> str:
+        target_len = 200
+        curr_len = len(sequence)
+        if curr_len == target_len:
+            return sequence
+        if curr_len < target_len:
+            pad_needed = target_len - curr_len
+            left_pad = pad_needed // 2
+            right_pad = pad_needed - left_pad
+            return "N" * left_pad + sequence + "N" * right_pad
+        start = (curr_len - target_len) // 2
+        return sequence[start : start + target_len]
+
+    def _predict(seqs_str):
+        if not seqs_str:
+            return np.array([])
+        x_fwd = np.stack([_center_pad(_standardize_to_200bp(s)) for s in seqs_str])
+        x_rev = np.stack([_center_pad(rc_seq(_standardize_to_200bp(s))) for s in seqs_str])
+        preds_fwd, preds_rev = [], []
+        for i in range(0, len(x_fwd), 256):
+            batch_params = (model._params, model._state)
+            preds_fwd.append(
+                np.array(predict_step(*batch_params, jnp.array(x_fwd[i : i + 256]))).reshape(-1)
+            )
+            preds_rev.append(
+                np.array(predict_step(*batch_params, jnp.array(x_rev[i : i + 256]))).reshape(-1)
+            )
+        return (np.concatenate(preds_fwd) + np.concatenate(preds_rev)) / 2.0
+
+    from albench.data.k562_full import K562FullDataset
+
+    ds = K562FullDataset(data_path, split="test")
+    seqs = [str(ds.sequences[j]) for j in range(len(ds))]
+    labels = np.array(ds.labels, dtype=np.float32)
+    preds = _predict(seqs)
+    n = int(len(preds))
+    return {
+        "pearson_r": _safe_corr(preds, labels, pearsonr),
+        "spearman_r": _safe_corr(preds, labels, spearmanr),
+        "mse": float(np.mean((labels - preds) ** 2)),
+        "n": n,
+    }
 
 
 def main():

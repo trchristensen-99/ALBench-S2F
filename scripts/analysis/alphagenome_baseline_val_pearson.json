@@ -1,0 +1,12 @@
+{
+  "description": "AlphaGenome adapter heads (frozen encoder + Boda-style head), val Pearson R (best epoch). No_shift mode, 50% random RC sampling per sequence. K562 Malinois-style chromosome splits (val = chr 19,21,X).",
+  "source": "Current_status_of_project.md §2 'Previous runs (old protocol)'",
+  "verification": "From status doc table of completed runs (Head, Val Pearson, Epochs, Time). train_oracle_alphagenome_full.py reports val/pearson_r per epoch and saves best_model on improvement; these are best-epoch values from those runs.",
+  "val_pearson_by_head": {
+    "boda-sum": 0.9262,
+    "boda-mean": 0.9277,
+    "boda-max": 0.9258,
+    "boda-center": 0.9233
+  },
+  "notes": "boda-flatten completed in same run batch; add val_pearson when logged. Test-set (HashFrag ID/SNV/OOD) evals from eval_boda_k562.py when best_model checkpoints exist."
+}
