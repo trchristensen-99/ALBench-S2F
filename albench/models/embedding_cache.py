@@ -314,19 +314,11 @@ def reinit_head_params(
 
     fresh_params, fresh_state = _head_fwd.init(rng_key, dummy_encoder_output, dummy_organism_index)
 
-    # Debug: print actual fresh_params structure
-    print(
-        f"[DEBUG reinit] type(fresh_params)={type(fresh_params).__name__}, keys={list(fresh_params.keys())[:6]}"
-    )
-
     if not isinstance(model._params, Mapping):
         print("[EmbeddingCache] WARNING: model._params is not a Mapping; skipping reinit.")
         return
 
     head_subtree = _get_head_subtree(fresh_params)
-    print(
-        f"[DEBUG reinit] type(head_subtree)={type(head_subtree).__name__}, keys={list(head_subtree.keys())[:5]}"
-    )
 
     # ── Detect and handle params layout ──────────────────────────────────────
     layout = None
@@ -346,28 +338,15 @@ def reinit_head_params(
         layout = "alphagenome/head nested"
 
     # Layout 3: semi-flat slash-string keys  {"head/module/submodule": {params}, ...}
-    # Keys are slash-separated paths; values may be nested dicts (not always leaf arrays).
-    # Navigate head_subtree (already rooted at "head") using the relative path after "head/".
+    # Both model._params and fresh_params use the exact same flat key format.
+    # Direct key lookup replaces stale values.
     elif any(isinstance(k, str) and k.startswith("head/") for k in model._params):
-
-        def _nav(d: Mapping, path: str):
-            """Return the sub-tree in d at the given slash-separated path, or None."""
-            for part in path.split("/"):
-                if not isinstance(d, Mapping) or part not in d:
-                    return None
-                d = d[part]
-            return d
-
         new_params = dict(model._params)
         n_replaced = 0
-        for k in model._params:
-            if isinstance(k, str) and k.startswith("head/"):
-                # head_subtree is rooted at the "head" level; strip "head/" prefix
-                relative_k = k[len("head/") :]
-                fresh_val = _nav(head_subtree, relative_k)
-                if fresh_val is not None:
-                    new_params[k] = fresh_val
-                    n_replaced += 1
+        for k in list(model._params.keys()):
+            if isinstance(k, str) and k.startswith("head/") and k in fresh_params:
+                new_params[k] = fresh_params[k]
+                n_replaced += 1
         model._params = new_params
         print(f"[EmbeddingCache] Layout3: replaced {n_replaced} head param entries.")
         layout = "flat slash-string keys"
