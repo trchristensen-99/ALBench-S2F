@@ -15,7 +15,12 @@ wandb_mode: offline
 
 batch_size: 128
 num_workers: 4
-max_seq_len: 600
+max_seq_len: 600   # ignored when use_compact_window=true
+# use_compact_window: true => full variable + flank slices only, fixed W; no N's in variable.
+use_compact_window: false
+flank_bp: 200
+# compact_window_bp: null => W = min_var_len + 2*flank_bp (adaptive). Set to 384 for encoder-friendly fixed window.
+compact_window_bp: null
 lr: 0.001
 weight_decay: 1e-6
 gradients_clip: null
