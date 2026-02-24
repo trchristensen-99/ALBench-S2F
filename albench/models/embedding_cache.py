@@ -314,11 +314,19 @@ def reinit_head_params(
 
     fresh_params, fresh_state = _head_fwd.init(rng_key, dummy_encoder_output, dummy_organism_index)
 
+    # Debug: print actual fresh_params structure
+    print(
+        f"[DEBUG reinit] type(fresh_params)={type(fresh_params).__name__}, keys={list(fresh_params.keys())[:6]}"
+    )
+
     if not isinstance(model._params, Mapping):
         print("[EmbeddingCache] WARNING: model._params is not a Mapping; skipping reinit.")
         return
 
     head_subtree = _get_head_subtree(fresh_params)
+    print(
+        f"[DEBUG reinit] type(head_subtree)={type(head_subtree).__name__}, keys={list(head_subtree.keys())[:5]}"
+    )
 
     # ── Detect and handle params layout ──────────────────────────────────────
     layout = None
