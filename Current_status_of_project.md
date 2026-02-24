@@ -48,56 +48,67 @@ Layer names: `hidden_0`, `hidden_1`, `output`, `norm` (avoids stale checkpoint c
 
 ---
 
-## 2. Current State (Feb 23, 2026)
+## 2. Current State (Feb 24, 2026)
 
-### Running jobs (all 5 heads, doubled-cache protocol)
+### Completed no_shift runs (doubled-cache protocol, jobs 652947–652951)
 
-| Job | Head | Status |
-|-----|------|--------|
-| 652947 | boda-flatten | PENDING → bamgpu01 |
-| 652948 | boda-sum | PENDING → bamgpu01 |
-| 652949 | boda-mean | PENDING → bamgpu01 |
-| 652950 | boda-max | PENDING → bamgpu01 |
-| 652951 | boda-center | PENDING → bamgpu01 |
+All 5 heads completed. Checkpoints at `outputs/ag_*/best_model/`:
 
-All using `aug_mode=no_shift` + shared cache at `outputs/ag_flatten/embedding_cache/`. No cache rebuild needed.
+| Head | Val Pearson (best) | Status |
+|------|--------------------|--------|
+| boda-sum | 0.9262 | ✓ DONE |
+| boda-mean | 0.9268 | ✓ DONE |
+| boda-max | 0.9224 | ✓ DONE |
+| boda-center | 0.9195 | ✓ DONE |
+| boda-flatten | TBD (check log) | ✓ DONE |
 
-### Previous runs (old protocol — 50% random RC sampling)
+### Running evaluation and hybrid training jobs (Feb 24)
 
-These completed with good results and are useful as a baseline:
+| Job | Name | Type |
+|-----|------|------|
+| 654279 | ag_chrom_test | Eval AG heads on chr 7,13 → `outputs/ag_chrom_test_results.json` |
+| 654280 | malinois_boda2 | Eval Malinois on chr 7,13 → `outputs/malinois_eval_boda2_tutorial/result.json` |
+| 654281 | ag_sum_hybrid | Hybrid training (50% cache + 50% encoder+shift) |
+| 654282 | ag_mean_hybrid | Hybrid training |
+| 654283 | ag_max_hybrid | Hybrid training |
+| 654284 | ag_center_hybrid | Hybrid training |
+| 654285 | ag_flatten_hybrid | Hybrid training |
 
-| Head | Val Pearson (best) | Epochs | Time |
-|------|--------------------|--------|------|
-| boda-sum | 0.9262 | 11 | 34 min |
-| boda-mean | 0.9277 | 8 | 27 min |
-| boda-max | 0.9258 | 9 | 38 min |
-| boda-center | 0.9233 | 12 | 40 min |
-
-### Key fixes applied (Feb 23)
-
-1. **reinit_head_params Layout3:** `fresh_params` from Haiku's `init()` uses a semi-flat key format (`"head/.../hidden_0" → {"w": tensor}`). Fixed by direct dict lookup instead of complex navigation.
-2. **All-cache training:** no_shift loop now processes both canonical and RC embeddings per batch (same labels for RC), fully utilising both cache files per epoch.
+All jobs on `gpuq` partition. Hybrid jobs use `aug_mode=hybrid`, `batch_size=64`, output to `outputs/ag_*_hybrid/`.
 
 ---
 
 ## 3. Remaining Steps
 
-### 3.1 Immediate
+### 3.1 Immediate (in progress)
 
-- Wait for jobs 652947–652951 to complete. Expect ~6–10 epochs early stop.
-- Check `outputs/ag_*/best_model/` checkpoints exist for all 5 heads.
+- Wait for jobs 654279 (chrom-test eval) and 654280 (Malinois eval) to finish.
+- Retrieve `outputs/ag_chrom_test_results.json` and `outputs/malinois_eval_boda2_tutorial/result.json` from HPC.
+- Run `uv run python scripts/analysis/compare_malinois_alphagenome_results.py` to generate comparison report.
 
-### 3.2 Evaluation
+### 3.2 Evaluation (after job completion)
 
-Once all 5 heads have `best_model/` checkpoints:
-1. Run `scripts/analysis/eval_boda_k562.py` on HPC for HashFrag ID/SNV/OOD results.
-2. Run `scripts/analysis/compare_malinois_ag.py` for side-by-side Malinois comparison.
+```bash
+# On HPC — check eval outputs:
+cat outputs/ag_chrom_test_results.json
+cat outputs/malinois_eval_boda2_tutorial/result.json
 
-### 3.3 Production runs (shift augmentation)
+# Locally — generate comparison report:
+uv run python scripts/analysis/compare_malinois_alphagenome_results.py \
+  --output outputs/malinois_ag_comparison.md
+```
 
-After confirming no_shift results:
-1. Resubmit with `++aug_mode=full` for final production runs (encoder runs every step, full shift ±15 bp + RC).
-2. Use `kooq/koolab` partition for longer time limits.
+### 3.3 Hybrid runs (in progress, jobs 654281–654285)
+
+Hybrid runs use `aug_mode=hybrid`: 50% batches from cache (no shift), 50% from live encoder (±15 bp shift + RC). This matches the reference training distribution in expectation at ~2× the speed of full mode.
+
+Expect 12h walltime limit on `gpuq`. If they hit the limit, resubmit on `kooq --qos=koolab` for a 30-day limit:
+```bash
+# In each hybrid slurm script, change:
+# #SBATCH --partition=gpuq  →  --partition=kooq
+# #SBATCH --time=12:00:00   →  --time=24:00:00
+# and add: #SBATCH --qos=koolab
+```
 
 ### 3.4 Optional
 
