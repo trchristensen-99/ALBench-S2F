@@ -265,11 +265,12 @@ def evaluate_chrom_test(
         start = (curr_len - target_len) // 2
         return sequence[start : start + target_len]
 
-    def _predict(seqs_str):
+    def _predict(seqs_str, seq_len=600):
         if not seqs_str:
             return np.array([])
-        x_fwd = np.stack([_center_pad(_standardize_to_200bp(s)) for s in seqs_str])
-        x_rev = np.stack([_center_pad(rc_seq(_standardize_to_200bp(s))) for s in seqs_str])
+        # Use full 600bp sequences (with Addgene flanks) to match training distribution.
+        x_fwd = np.stack([_center_pad(s, target_len=seq_len) for s in seqs_str])
+        x_rev = np.stack([_center_pad(rc_seq(s), target_len=seq_len) for s in seqs_str])
         preds_fwd, preds_rev = [], []
         for i in range(0, len(x_fwd), 256):
             batch_params = (model._params, model._state)
