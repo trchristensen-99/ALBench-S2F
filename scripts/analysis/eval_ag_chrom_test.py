@@ -137,6 +137,31 @@ CONFIGS = [
         "alphagenome_k562_head_boda_sum_1024_dropout_v4",
         None,
     ),
+    # MLP-512-512 and pool-flatten heads with dropout=0.1
+    (
+        "mlp_ref",
+        "outputs/ag_mlp_ref/best_model",
+        "alphagenome_k562_head_mlp_512_512_v4",
+        None,
+    ),
+    (
+        "mlp_plateau",
+        "outputs/ag_mlp_plateau/best_model",
+        "alphagenome_k562_head_mlp_512_512_v4",
+        None,
+    ),
+    (
+        "pool_flatten_ref",
+        "outputs/ag_pool_flatten_ref/best_model",
+        "alphagenome_k562_head_pool_flatten_v4",
+        None,
+    ),
+    (
+        "pool_flatten_plateau",
+        "outputs/ag_pool_flatten_plateau/best_model",
+        "alphagenome_k562_head_pool_flatten_v4",
+        None,
+    ),
     # Full shift augmentation heads (aug_mode=full, encoder on every batch)
     (
         "boda_flatten_full_aug",

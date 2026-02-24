@@ -111,6 +111,9 @@ class PoolFlattenHead(_BaseLossHead):
                 "Use create_model_with_heads(..., use_encoder_output=True)."
             )
 
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.0))
+
         x = embeddings.encoder_output  # (B, T, 1536)
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
 
@@ -120,8 +123,12 @@ class PoolFlattenHead(_BaseLossHead):
         flat = jnp.reshape(x, (x.shape[0], -1))
         z = jnp.concatenate([mean_pool, max_pool, flat], axis=-1)
         z = hk.Linear(512, name="hidden_0")(z)
+        if is_training and dropout_rate > 0.0:
+            z = hk.dropout(hk.next_rng_key(), dropout_rate, z)
         z = jax.nn.relu(z)
         z = hk.Linear(256, name="hidden_1")(z)
+        if is_training and dropout_rate > 0.0:
+            z = hk.dropout(hk.next_rng_key(), dropout_rate, z)
         z = jax.nn.relu(z)
         return hk.Linear(self._num_tracks, name="output")(z)
 
