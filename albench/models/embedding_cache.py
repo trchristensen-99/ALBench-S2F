@@ -321,30 +321,29 @@ def reinit_head_params(
         model._params = _set_nested(model._params, ["alphagenome", "head"], head_subtree)
         layout = "alphagenome/head nested"
 
-    # Layout 3: flat slash-string keys  {"head/layer/w": tensor, ...}
+    # Layout 3: semi-flat slash-string keys  {"head/module/submodule": {params}, ...}
+    # Keys are slash-separated paths; values may be nested dicts (not always leaf arrays).
+    # We navigate fresh_params using the same path to get the replacement value.
     elif any(isinstance(k, str) and k.startswith("head/") for k in model._params):
-        flat_fresh: dict = {}
 
-        def _flatten(d: Mapping, prefix: str) -> None:
-            for k, v in d.items():
-                path = f"{prefix}/{k}"
-                # Use Mapping (not dict) to handle Haiku FlatMap objects
-                if isinstance(v, Mapping):
-                    _flatten(v, path)
-                else:
-                    flat_fresh[path] = v
+        def _nav(d: Mapping, path: str):
+            """Return the sub-tree in d at the given slash-separated path, or None."""
+            for part in path.split("/"):
+                if not isinstance(d, Mapping) or part not in d:
+                    return None
+                d = d[part]
+            return d
 
-        _flatten(head_subtree, "head")
-        n_replaced = sum(1 for k in model._params if k in flat_fresh)
-        # Debug: print sample keys from both sides to diagnose mismatches
-        params_head_keys = sorted(
-            k for k in model._params if isinstance(k, str) and k.startswith("head/")
-        )[:4]
-        fresh_keys = sorted(flat_fresh.keys())[:4]
-        print(f"[EmbeddingCache] Layout3 debug: model._params head keys: {params_head_keys}")
-        print(f"[EmbeddingCache] Layout3 debug: flat_fresh keys:         {fresh_keys}")
-        model._params = {k: flat_fresh.get(k, v) for k, v in model._params.items()}
-        print(f"[EmbeddingCache] Layout3: replaced {n_replaced}/{len(model._params)} head keys.")
+        new_params = dict(model._params)
+        n_replaced = 0
+        for k in model._params:
+            if isinstance(k, str) and k.startswith("head/"):
+                fresh_val = _nav(fresh_params, k)
+                if fresh_val is not None:
+                    new_params[k] = fresh_val
+                    n_replaced += 1
+        model._params = new_params
+        print(f"[EmbeddingCache] Layout3: replaced {n_replaced} head param entries.")
         layout = "flat slash-string keys"
 
     if layout is None:
