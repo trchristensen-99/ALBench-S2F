@@ -62,53 +62,68 @@ All 5 heads completed. Checkpoints at `outputs/ag_*/best_model/`:
 | boda-center | 0.9195 | ✓ DONE |
 | boda-flatten | TBD (check log) | ✓ DONE |
 
-### Running evaluation and hybrid training jobs (Feb 24)
+### Malinois baseline (COMPLETED Feb 24)
 
-| Job | Name | Type |
-|-----|------|------|
-| 654279 | ag_chrom_test | Eval AG heads on chr 7,13 → `outputs/ag_chrom_test_results.json` |
-| 654280 | malinois_boda2 | Eval Malinois on chr 7,13 → `outputs/malinois_eval_boda2_tutorial/result.json` |
-| 654281 | ag_sum_hybrid | Hybrid training (50% cache + 50% encoder+shift) |
-| 654282 | ag_mean_hybrid | Hybrid training |
-| 654283 | ag_max_hybrid | Hybrid training |
-| 654284 | ag_center_hybrid | Hybrid training |
-| 654285 | ag_flatten_hybrid | Hybrid training |
+Job 654751 (`malinois_boda2`) completed successfully. Boda2 tutorial protocol (FlankBuilder + load_model), evaluated on chr 7, 13:
 
-All jobs on `gpuq` partition. Hybrid jobs use `aug_mode=hybrid`, `batch_size=64`, output to `outputs/ag_*_hybrid/`.
+| Metric | Value |
+|--------|-------|
+| Pearson R | **0.8688** |
+| Spearman R | 0.7928 |
+| MSE | 0.3259 |
+
+Result saved at `outputs/malinois_eval_boda2_tutorial/result.json` on HPC.
+
+### Running evaluation and hybrid training jobs (Feb 24, jobs 655164–655169)
+
+| Job | Name | Status |
+|-----|------|--------|
+| 655164 | ag_chrom_test | RUNNING — evaluating boda heads on chr 7,13 → `outputs/ag_chrom_test_results.json` |
+| 655165 | ag_sum_hybrid | RUNNING — hybrid training (50% cache + 50% encoder+shift) |
+| 655166 | ag_mean_hybrid | RUNNING |
+| 655167 | ag_max_hybrid | RUNNING |
+| 655168 | ag_center_hybrid | RUNNING |
+| 655169 | ag_flatten_hybrid | RUNNING |
+
+All jobs on `gpuq` partition. Hybrid jobs: `aug_mode=hybrid`, `batch_size=64`, output to `outputs/ag_*_hybrid/`.
+
+**Note**: Earlier job batches (654750–654756, 654843–654848) failed due to missing Python packages (`haiku`, `jaxtyping`, `alphagenome` base package). These are now resolved in `setup_hpc_deps.sh`.
 
 ---
 
 ## 3. Remaining Steps
 
-### 3.1 Immediate (in progress)
+### 3.1 Immediate (in progress — Feb 24)
 
-- Wait for jobs 654279 (chrom-test eval) and 654280 (Malinois eval) to finish.
-- Retrieve `outputs/ag_chrom_test_results.json` and `outputs/malinois_eval_boda2_tutorial/result.json` from HPC.
-- Run `uv run python scripts/analysis/compare_malinois_alphagenome_results.py` to generate comparison report.
+- **Wait for job 655164** (ag_chrom_test) to finish. Check: `squeue --me`
+- **Retrieve results** once complete:
+  ```bash
+  # On HPC:
+  cat outputs/ag_chrom_test_results.json
+  ```
+- **Generate comparison report locally** after copying results:
+  ```bash
+  uv run python scripts/analysis/compare_malinois_alphagenome_results.py \
+    --output outputs/malinois_ag_comparison.md
+  ```
 
-### 3.2 Evaluation (after job completion)
+### 3.2 Hybrid runs (RUNNING, jobs 655165–655169)
 
-```bash
-# On HPC — check eval outputs:
-cat outputs/ag_chrom_test_results.json
-cat outputs/malinois_eval_boda2_tutorial/result.json
+Hybrid runs: `aug_mode=hybrid`, 50% cache + 50% live encoder (±15 bp shift + RC). Time limit: 12h on `gpuq`.
 
-# Locally — generate comparison report:
-uv run python scripts/analysis/compare_malinois_alphagenome_results.py \
-  --output outputs/malinois_ag_comparison.md
-```
-
-### 3.3 Hybrid runs (in progress, jobs 654281–654285)
-
-Hybrid runs use `aug_mode=hybrid`: 50% batches from cache (no shift), 50% from live encoder (±15 bp shift + RC). This matches the reference training distribution in expectation at ~2× the speed of full mode.
-
-Expect 12h walltime limit on `gpuq`. If they hit the limit, resubmit on `kooq --qos=koolab` for a 30-day limit:
+If they hit the limit, resubmit on `kooq --qos=koolab`:
 ```bash
 # In each hybrid slurm script, change:
 # #SBATCH --partition=gpuq  →  --partition=kooq
 # #SBATCH --time=12:00:00   →  --time=24:00:00
 # and add: #SBATCH --qos=koolab
 ```
+
+### 3.3 After hybrid runs complete
+
+1. Eval hybrid heads on chr 7, 13 (update `eval_ag_chrom_test.py` to include `outputs/ag_*_hybrid/best_model`)
+2. Rerun comparison report with all heads (no_shift + hybrid)
+3. Consider `full` shift aug runs if hybrid results are promising
 
 ### 3.4 Optional
 
@@ -202,51 +217,43 @@ Expect 12h walltime limit on `gpuq`. If they hit the limit, resubmit on `kooq --
 
 - **`pyproject.toml`**:
   - Added core JAX + optimizer deps so `uv sync` on HPC installs them:
-    - `jax>=0.4.0`
-    - `jaxlib>=0.4.0`
-    - `optax>=0.2.0`
-  - This fixes the previous `ModuleNotFoundError: jax` in `experiments/train_oracle_alphagenome_full.py`.
-- **External packages**:
-  - `experiments/train_oracle_alphagenome_full.py` imports `alphagenome_ft` (external/original AlphaGenome code).
-  - On HPC, this still needs to be available in the environment (e.g. installed via pip from a private wheel/repo or added to `PYTHONPATH`); otherwise jobs will fail with `ModuleNotFoundError: alphagenome_ft` after JAX is installed.
+    - `jax>=0.4.0`, `jaxlib>=0.4.0`, `optax>=0.2.0`
 
-### 5.4 HPC job and evaluation status
+- **`scripts/slurm/setup_hpc_deps.sh`** (KEY FILE — sourced by all Slurm scripts):
+  - Idempotent script that installs HPC-specific packages missing from `pyproject.toml` into the uv venv.
+  - Packages managed (in install order):
+    1. `alphagenome==0.6.0` — base DeepMind SDK (not declared by alphagenome_ft)
+    2. `alphagenome_ft` — from `~/alphagenome_ft-main` (local, `--no-deps`)
+    3. `alphagenome-research` — from GitHub rev `35ea7aa5` (**with deps** — pulls pyfaidx, pyranges, tensorflow, etc.)
+    4. `jmp==0.0.4` — mixed-precision for JAX
+    5. `jaxtyping` — type annotations for JAX (used throughout alphagenome_ft)
+    6. `dm-haiku` — Haiku neural network library
+    7. `chex` — JAX test/assertion utilities
+    8. `orbax-checkpoint` — JAX checkpoint I/O
+  - Each check uses `uv run python -c "import <pkg>"` so subsequent job runs skip already-installed packages.
+  - **All Slurm scripts source this before `uv run python`.**
 
-- **Hybrid training jobs (gpuq)**
-  - Recent job IDs (e.g. `653426–653429` on `gpuq`) failed quickly with:
-    - `ModuleNotFoundError: No module named 'jax'`.
-  - After syncing the updated `pyproject.toml` and running `uv sync` on HPC, these hybrid jobs should progress past that error.
-  - Partition `kooq` / QoS `koolab` H100 variants were prototyped but rolled back in the public scripts due to access/queue constraints; current recommended config is `gpuq` with 1 GPU.
+### 5.4 HPC job and evaluation status (Feb 24)
 
-- **AlphaGenome chrom-test (chr 7, 13)**
-  - Code and Slurm wrapper are in place (`eval_ag_chrom_test.py`, `scripts/slurm/eval_ag_chrom_test.sh`).
-  - The evaluation must run **on HPC**, where:
-    - `outputs/ag_*/best_model` checkpoints exist.
-    - `data/k562` (full K562 MPRA table) is present.
-  - From HPC repo root:
-    - `sbatch scripts/slurm/eval_ag_chrom_test.sh`
-  - Expected output: `outputs/ag_chrom_test_results.json`, used by `compare_malinois_alphagenome_results.py`.
+- **Malinois boda2**: COMPLETE. Pearson R = 0.8688, Spearman R = 0.7928 on chr 7,13.
+- **AlphaGenome chrom-test (655164)**: RUNNING on bamgpu01. Expected ~30–60 min.
+- **Hybrid training (655165–655169)**: RUNNING on bamgpu01/02. Expected ~12h (50 epochs or early stop).
 
-- **Malinois boda2 evaluation**
-  - Recent HPC jobs named `malinois_boda2` on `gpuq` (e.g. `653430–653433`) failed early; log inspection and artifact download are still pending on-cluster.
-  - Locally, a `outputs/malinois_eval_boda2_tutorial/result.json` exists and is currently used for the comparison report; you may still want to regenerate/verify this on HPC for consistency.
+- **SSH note**: Use `ssh -i ~/.ssh/id_ed25519_citra christen@143.48.80.155` (IP instead of hostname when DNS is flaky). The SSH agent often needs re-keying after system sleep: `ssh-add ~/.ssh/id_ed25519_citra`.
+- **sbatch on login node**: Use full path `/cm/shared/apps/slurm/current/bin/sbatch` on bamdev4; `sbatch` is available without path inside Slurm job scripts.
 
-- **VPN / connectivity constraints**
-  - From the Cursor environment, `bamdev4.cshl.edu` is **not reachable** (DNS resolution fails or times out), even when your laptop is on VPN.
-  - All ssh/rsync/Slurm commands in this document are therefore **instructions for you to run in a local terminal** (where VPN is active), not commands that can be executed by Cursor itself.
+### 5.5 Next actions
 
-### 5.5 Next actions for you
-
-- **On your laptop (with VPN active):**
-  - Sync repo to HPC and ensure deps are installed:
-    - `rsync -avz --exclude='.git' --exclude='*.tar.gz' --exclude='__pycache__' ./ christen@bamdev4.cshl.edu:/grid/wsbs/home_norepl/christen/ALBench-S2F/`
-    - `ssh christen@bamdev4.cshl.edu "cd /grid/wsbs/home_norepl/christen/ALBench-S2F && uv sync"`
-  - Submit hybrid runs and chrom-test eval:
-    - `ssh christen@bamdev4.cshl.edu "cd /grid/wsbs/home_norepl/christen/ALBench-S2F && bash scripts/slurm/submit_hybrid_jobs.sh && sbatch scripts/slurm/eval_ag_chrom_test.sh"`
-  - Monitor:
-    - `ssh christen@bamdev4.cshl.edu "squeue -u christen"`
-
-- **After `outputs/ag_chrom_test_results.json` exists (HPC or local copy):**
-  - Regenerate comparison report with Malinois + AlphaGenome on chr 7, 13:
-    - `uv run python scripts/analysis/compare_malinois_alphagenome_results.py --output outputs/malinois_ag_comparison.md`
+1. **Check ag_chrom_test results** once job 655164 completes:
+   ```bash
+   ssh -i ~/.ssh/id_ed25519_citra christen@143.48.80.155 \
+     "cat /grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/ag_chrom_test_results.json"
+   ```
+2. **Run comparison report** locally:
+   ```bash
+   uv run python scripts/analysis/compare_malinois_alphagenome_results.py \
+     --output outputs/malinois_ag_comparison.md
+   ```
+3. **Monitor hybrid jobs** (~12h): check logs at `logs/ag_*_hybrid-655165*.{out,err}`
+4. After hybrid runs: eval them on chr 7,13 (add `outputs/ag_*_hybrid/best_model` to `eval_ag_chrom_test.py`)
 
