@@ -25,7 +25,10 @@ HeadArch = Literal[
     "mlp-512-512",
     "pool-flatten",
     "boda-flatten-512-512",
+    "boda-flatten-512-256",
+    "boda-flatten-1024-512",
     "boda-sum-512-512",
+    "boda-sum-1024-dropout",
     "boda-mean-512-512",
     "boda-max-512-512",
     "boda-center-512-512",
@@ -287,6 +290,83 @@ class Encoder1024DropoutHead(_BaseLossHead):
         return self._task_loss(predictions, batch)
 
 
+class BodaFlatten512x256Head(_BaseLossHead):
+    """Flatten → LayerNorm → Linear(512) → Dropout → ReLU → Linear(256) → Dropout → ReLU → Linear(1).
+
+    Decreasing two-layer variant; smaller capacity than 512-512 but more compressed.
+    """
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.0))
+
+        x = embeddings.encoder_output  # (B, T, 1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = jnp.reshape(x, (x.shape[0], -1))  # flatten
+        x = hk.Linear(512, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(256, name="hidden_1")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
+        x = jax.nn.relu(x)
+        return hk.Linear(self._num_tracks, name="output")(x)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
+class BodaFlatten1024x512Head(_BaseLossHead):
+    """Flatten → LayerNorm → Linear(1024) → Dropout → ReLU → Linear(512) → Dropout → ReLU → Linear(1).
+
+    Two-layer decreasing variant with larger first layer than 512-512.
+    """
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.0))
+
+        x = embeddings.encoder_output  # (B, T, 1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = jnp.reshape(x, (x.shape[0], -1))  # flatten
+        x = hk.Linear(1024, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
+        x = jax.nn.relu(x)
+        x = hk.Linear(512, name="hidden_1")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
+        x = jax.nn.relu(x)
+        return hk.Linear(self._num_tracks, name="output")(x)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
+class BodaSum1024DropoutHead(_BaseLossHead):
+    """Sum pool → LayerNorm → Linear(1024) → Dropout → ReLU → Linear(1).
+
+    Like flatten_ref but with sum pooling instead of flattening.
+    """
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.1))
+
+        x = embeddings.encoder_output  # (B, T, 1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = jnp.sum(x, axis=1)  # sum pool → (B, 1536)
+        x = hk.Linear(1024, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
+        x = jax.nn.relu(x)
+        return hk.Linear(self._num_tracks, name="output")(x)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
 class BodaFlatten1024DropoutHead(_BaseLossHead):
     """Reference K562-optimal: LayerNorm → Flatten → Linear(1024) → Dropout → ReLU → Linear(1).
 
@@ -330,8 +410,14 @@ def get_head_class(arch: HeadArch) -> type[CustomHead]:
         return PoolFlattenHead
     if arch == "boda-flatten-512-512":
         return BodaFlattenHead
+    if arch == "boda-flatten-512-256":
+        return BodaFlatten512x256Head
+    if arch == "boda-flatten-1024-512":
+        return BodaFlatten1024x512Head
     if arch == "boda-sum-512-512":
         return BodaSumHead
+    if arch == "boda-sum-1024-dropout":
+        return BodaSum1024DropoutHead
     if arch == "boda-mean-512-512":
         return BodaMeanHead
     if arch == "boda-max-512-512":

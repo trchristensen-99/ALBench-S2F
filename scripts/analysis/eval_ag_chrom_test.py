@@ -118,6 +118,38 @@ CONFIGS = [
         "alphagenome_k562_head_boda_flatten_1024_dropout_v4",
         None,
     ),
+    # Novel architecture heads (no_shift, 600bp cache)
+    (
+        "boda_flatten_512_256",
+        "outputs/ag_flatten_512_256/best_model",
+        "alphagenome_k562_head_boda_flatten_512_256_v4",
+        None,
+    ),
+    (
+        "boda_flatten_1024_512",
+        "outputs/ag_flatten_1024_512/best_model",
+        "alphagenome_k562_head_boda_flatten_1024_512_v4",
+        None,
+    ),
+    (
+        "boda_sum_1024_ref",
+        "outputs/ag_sum_1024_ref/best_model",
+        "alphagenome_k562_head_boda_sum_1024_dropout_v4",
+        None,
+    ),
+    # Full shift augmentation heads (aug_mode=full, encoder on every batch)
+    (
+        "boda_flatten_full_aug",
+        "outputs/ag_flatten_full_aug/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+        None,
+    ),
+    (
+        "boda_flatten_full_aug_plateau",
+        "outputs/ag_flatten_full_aug_plateau/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+        None,
+    ),
     # 384bp compact-window heads (T=3 tokens; separate embedding cache)
     (
         "boda_sum_compact",
