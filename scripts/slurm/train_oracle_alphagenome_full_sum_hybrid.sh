@@ -14,9 +14,9 @@ source /etc/profile.d/modules.sh
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD:$PYTHONPATH"
-
+source scripts/slurm/setup_hpc_deps.sh
 # Hybrid runs encoder for 50% of batches; use smaller batch to avoid GPU OOM.
-python experiments/train_oracle_alphagenome_full.py \
+uv run python experiments/train_oracle_alphagenome_full.py \
     ++head_arch="boda-sum-512-512" \
     ++aug_mode="hybrid" \
     ++batch_size=64 \
