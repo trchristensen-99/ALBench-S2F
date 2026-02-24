@@ -21,6 +21,7 @@ uv run python experiments/train_oracle_alphagenome_full.py \
     ++aug_mode="no_shift" \
     ++gpu=0 \
     ++seed=42 \
-    ++output_dir=outputs/ag_max
+    ++output_dir=outputs/ag_max \
+    ++cache_dir=outputs/ag_flatten/embedding_cache
 
 # cp -r outputs/ag_max /grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/

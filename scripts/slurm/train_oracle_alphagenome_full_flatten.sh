@@ -21,6 +21,7 @@ uv run python experiments/train_oracle_alphagenome_full.py \
     ++aug_mode="no_shift" \
     ++gpu=0 \
     ++seed=42 \
-    ++output_dir=outputs/ag_flatten
+    ++output_dir=outputs/ag_flatten \
+    ++cache_dir=outputs/ag_flatten/embedding_cache
 
 # cp -r outputs/ag_flatten /grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/

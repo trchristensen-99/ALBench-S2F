@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ag_orc_full_center
+#SBATCH --job-name=ag_orc_full_sum
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --partition=gpuq
@@ -15,13 +15,11 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 
 export PYTHONPATH="$PWD:$PYTHONPATH"
 
-# no_shift for fast iteration. For production use ++aug_mode="full".
+# no_shift for fast iteration. Reuses shared embedding cache from ag_flatten (skip rebuild).
 uv run python experiments/train_oracle_alphagenome_full.py \
-    ++head_arch="boda-center-512-512" \
+    ++head_arch="boda-sum-512-512" \
     ++aug_mode="no_shift" \
     ++gpu=0 \
     ++seed=42 \
-    ++output_dir=outputs/ag_center \
+    ++output_dir=outputs/ag_sum \
     ++cache_dir=outputs/ag_flatten/embedding_cache
-
-# cp -r outputs/ag_center /grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/
