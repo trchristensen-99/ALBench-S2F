@@ -238,11 +238,27 @@ def build_head_only_predict_fn(
 
 
 def _get_head_subtree(params: Mapping) -> Mapping:
-    """Extract the 'head' subtree from Haiku init params, handling transform-name wrapping."""
-    if "_head_fwd" in params and isinstance(params.get("_head_fwd"), Mapping):
-        inner = params["_head_fwd"]
-        return inner.get("head", inner)
-    return params.get("head", params)
+    """Extract the 'head' subtree from Haiku init params via depth-first search.
+
+    Haiku may wrap params under a function-name scope (e.g. ``_head_fwd``) or
+    leave them at the top level.  We search up to 3 levels deep for a ``"head"``
+    key so the result is correct regardless of nesting.
+    """
+
+    def _search(d: Mapping, depth: int) -> Mapping | None:
+        if "head" in d:
+            return d["head"]
+        if depth == 0:
+            return None
+        for v in d.values():
+            if isinstance(v, Mapping):
+                found = _search(v, depth - 1)
+                if found is not None:
+                    return found
+        return None
+
+    result = _search(params, depth=3)
+    return result if result is not None else params
 
 
 def _set_nested(d: Mapping, keys: list, value: Any) -> dict:
@@ -323,7 +339,7 @@ def reinit_head_params(
 
     # Layout 3: semi-flat slash-string keys  {"head/module/submodule": {params}, ...}
     # Keys are slash-separated paths; values may be nested dicts (not always leaf arrays).
-    # We navigate fresh_params using the same path to get the replacement value.
+    # Navigate head_subtree (already rooted at "head") using the relative path after "head/".
     elif any(isinstance(k, str) and k.startswith("head/") for k in model._params):
 
         def _nav(d: Mapping, path: str):
@@ -338,7 +354,9 @@ def reinit_head_params(
         n_replaced = 0
         for k in model._params:
             if isinstance(k, str) and k.startswith("head/"):
-                fresh_val = _nav(fresh_params, k)
+                # head_subtree is rooted at the "head" level; strip "head/" prefix
+                relative_k = k[len("head/") :]
+                fresh_val = _nav(head_subtree, relative_k)
                 if fresh_val is not None:
                     new_params[k] = fresh_val
                     n_replaced += 1
