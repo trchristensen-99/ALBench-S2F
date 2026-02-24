@@ -336,6 +336,13 @@ def reinit_head_params(
 
         _flatten(head_subtree, "head")
         n_replaced = sum(1 for k in model._params if k in flat_fresh)
+        # Debug: print sample keys from both sides to diagnose mismatches
+        params_head_keys = sorted(
+            k for k in model._params if isinstance(k, str) and k.startswith("head/")
+        )[:4]
+        fresh_keys = sorted(flat_fresh.keys())[:4]
+        print(f"[EmbeddingCache] Layout3 debug: model._params head keys: {params_head_keys}")
+        print(f"[EmbeddingCache] Layout3 debug: flat_fresh keys:         {fresh_keys}")
         model._params = {k: flat_fresh.get(k, v) for k, v in model._params.items()}
         print(f"[EmbeddingCache] Layout3: replaced {n_replaced}/{len(model._params)} head keys.")
         layout = "flat slash-string keys"
