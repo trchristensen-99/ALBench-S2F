@@ -74,35 +74,53 @@ Job 654751 (`malinois_boda2`) completed successfully. Boda2 tutorial protocol (F
 
 Result saved at `outputs/malinois_eval_boda2_tutorial/result.json` on HPC.
 
-### Running evaluation and hybrid training jobs (Feb 24, jobs 655164–655169)
+### AlphaGenome no_shift test set results (COMPLETED Feb 24, job 655747)
+
+Corrected eval using full 600bp padded sequences (with Addgene flanks) matching training distribution.
+
+| Model | Pearson R | Spearman R | MSE |
+|-------|-----------|------------|-----|
+| boda-sum | **0.905** | 0.820 | 0.239 |
+| boda-mean | **0.905** | 0.822 | 0.242 |
+| boda-max | **0.903** | 0.814 | 0.247 |
+| boda-center | **0.897** | 0.809 | 0.261 |
+| Malinois baseline | 0.869 | 0.793 | 0.326 |
+
+**AlphaGenome adapter heads outperform Malinois by ~3-4% Pearson R on chr 7,13 test set.** These are no_shift runs (cached embeddings, no shift augmentation). Hybrid runs with shift augmentation are in progress.
+
+Result file: `outputs/ag_chrom_test_results.json` on HPC.
+
+**Bug fixed**: The initial eval (job 655490) used 200bp center-crop + 384bp padding (wrong), giving 0.70x Pearson. Fixed in `eval_ag.py:evaluate_chrom_test` to use the full 600bp sequences.
+
+**N-padding placement**: Ns are added at the **outer ends** of the sequence (before upstream flank / after downstream flank), not between the variable region and flanks. The Addgene flanks are each 300bp; Ns only appear for sequences shorter than ~600bp where the combined flank slices + insert fall short of 600bp.
+
+### Hybrid training jobs (Feb 24, jobs 655491–655495, RUNNING)
 
 | Job | Name | Status |
 |-----|------|--------|
-| 655164 | ag_chrom_test | RUNNING — evaluating boda heads on chr 7,13 → `outputs/ag_chrom_test_results.json` |
-| 655165 | ag_sum_hybrid | RUNNING — hybrid training (50% cache + 50% encoder+shift) |
-| 655166 | ag_mean_hybrid | RUNNING |
-| 655167 | ag_max_hybrid | RUNNING |
-| 655168 | ag_center_hybrid | RUNNING |
-| 655169 | ag_flatten_hybrid | RUNNING |
+| 655491 | ag_sum_hybrid | RUNNING — hybrid training (50% cache + 50% encoder+shift) |
+| 655492 | ag_mean_hybrid | RUNNING |
+| 655493 | ag_max_hybrid | RUNNING |
+| 655494 | ag_center_hybrid | RUNNING |
+| 655495 | ag_flatten_hybrid | RUNNING |
 
-All jobs on `gpuq` partition. Hybrid jobs: `aug_mode=hybrid`, `batch_size=64`, output to `outputs/ag_*_hybrid/`.
+All jobs on `gpuq` partition. Settings: `aug_mode=hybrid`, `batch_size=64`, output to `outputs/ag_*_hybrid/`, time limit 12h.
 
-**Note**: Earlier job batches (654750–654756, 654843–654848) failed due to missing Python packages (`haiku`, `jaxtyping`, `alphagenome` base package). These are now resolved in `setup_hpc_deps.sh`.
+**Note**: Multiple earlier job batches failed due to missing Python packages. All resolved in `setup_hpc_deps.sh` (see section 5.3).
 
 ---
 
 ## 3. Remaining Steps
 
-### 3.1 Immediate (in progress — Feb 24)
+### 3.1 Immediate (Feb 24)
 
-- **Wait for job 655164** (ag_chrom_test) to finish. Check: `squeue --me`
-- **Retrieve results** once complete:
+- **Chrom-test eval DONE** — results in `outputs/ag_chrom_test_results.json` on HPC (see table above).
+- **Generate comparison report** (can do now):
   ```bash
-  # On HPC:
-  cat outputs/ag_chrom_test_results.json
-  ```
-- **Generate comparison report locally** after copying results:
-  ```bash
+  # Copy results from HPC:
+  scp christen@bamdev4.cshl.edu:/grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/ag_chrom_test_results.json outputs/
+  scp christen@bamdev4.cshl.edu:/grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/malinois_eval_boda2_tutorial/result.json outputs/malinois_eval_boda2_tutorial/
+  # Generate report:
   uv run python scripts/analysis/compare_malinois_alphagenome_results.py \
     --output outputs/malinois_ag_comparison.md
   ```
