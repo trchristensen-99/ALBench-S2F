@@ -594,18 +594,28 @@ def main(cfg: DictConfig) -> None:
                 pbar.set_postfix({"loss": f"{loss_v:.4f}"})
 
         elif aug_mode == "no_shift":
-            # ── No-shift mode: always use cache, head-only step ───────────────
+            # ── No-shift mode: use ALL cached embeddings per epoch ────────────
+            # For each batch we do TWO gradient steps: one with canonical
+            # embeddings and one with RC embeddings (same labels for both).
+            # This fully utilises the precomputed cache (~2× more gradient
+            # updates per epoch vs random 50% RC sampling).
             for batch in pbar:
                 indices = batch["indices"]
                 targets = batch["targets"]
-                emb = lookup_cached_batch(indices, train_canonical, train_rc)
                 org_idx = jnp.zeros(len(indices), dtype=jnp.int32)
+                targets_jax = jnp.array(targets)
+
+                # Canonical pass
+                emb_can = train_canonical[indices].astype(np.float32)
                 model._params, opt_state, loss = cached_train_step(
-                    model._params,
-                    opt_state,
-                    jnp.array(emb),
-                    jnp.array(targets),
-                    org_idx,
+                    model._params, opt_state, jnp.array(emb_can), targets_jax, org_idx
+                )
+                train_losses.append(float(loss))
+
+                # RC pass (same labels)
+                emb_rc = train_rc[indices].astype(np.float32)
+                model._params, opt_state, loss = cached_train_step(
+                    model._params, opt_state, jnp.array(emb_rc), targets_jax, org_idx
                 )
                 loss_v = float(loss)
                 train_losses.append(loss_v)
