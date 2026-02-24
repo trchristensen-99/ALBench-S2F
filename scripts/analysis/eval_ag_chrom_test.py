@@ -17,42 +17,82 @@ from pathlib import Path
 
 from eval_ag import evaluate_chrom_test
 
+# 4-tuple: (label, ckpt_dir, head_name, cache_dir_override)
+# cache_dir_override=None means fall back to --cache_dir CLI arg (standard 600bp cache).
+_COMPACT_CACHE = "outputs/ag_compact/embedding_cache_compact"
+
 CONFIGS = [
-    # no_shift heads (precomputed embedding cache, canonical + RC)
-    ("boda_sum", "outputs/ag_sum/best_model", "alphagenome_k562_head_boda_sum_512_512_v4"),
-    ("boda_mean", "outputs/ag_mean/best_model", "alphagenome_k562_head_boda_mean_512_512_v4"),
-    ("boda_max", "outputs/ag_max/best_model", "alphagenome_k562_head_boda_max_512_512_v4"),
-    ("boda_center", "outputs/ag_center/best_model", "alphagenome_k562_head_boda_center_512_512_v4"),
+    # no_shift heads (precomputed 600bp embedding cache, canonical + RC)
+    ("boda_sum", "outputs/ag_sum/best_model", "alphagenome_k562_head_boda_sum_512_512_v4", None),
+    ("boda_mean", "outputs/ag_mean/best_model", "alphagenome_k562_head_boda_mean_512_512_v4", None),
+    ("boda_max", "outputs/ag_max/best_model", "alphagenome_k562_head_boda_max_512_512_v4", None),
+    (
+        "boda_center",
+        "outputs/ag_center/best_model",
+        "alphagenome_k562_head_boda_center_512_512_v4",
+        None,
+    ),
     (
         "boda_flatten",
         "outputs/ag_flatten/best_model",
         "alphagenome_k562_head_boda_flatten_512_512_v4",
+        None,
     ),
     # hybrid heads (50% cache + 50% live encoder with ±15 bp shift augmentation)
     (
         "boda_sum_hybrid",
         "outputs/ag_sum_hybrid/best_model",
         "alphagenome_k562_head_boda_sum_512_512_v4",
+        None,
     ),
     (
         "boda_mean_hybrid",
         "outputs/ag_mean_hybrid/best_model",
         "alphagenome_k562_head_boda_mean_512_512_v4",
+        None,
     ),
     (
         "boda_max_hybrid",
         "outputs/ag_max_hybrid/best_model",
         "alphagenome_k562_head_boda_max_512_512_v4",
+        None,
     ),
     (
         "boda_center_hybrid",
         "outputs/ag_center_hybrid/best_model",
         "alphagenome_k562_head_boda_center_512_512_v4",
+        None,
     ),
     (
         "boda_flatten_hybrid",
         "outputs/ag_flatten_hybrid/best_model",
         "alphagenome_k562_head_boda_flatten_512_512_v4",
+        None,
+    ),
+    # 384bp compact-window heads (T=3 tokens; separate embedding cache)
+    (
+        "boda_sum_compact",
+        "outputs/ag_sum_compact/best_model",
+        "alphagenome_k562_head_boda_sum_512_512_v4",
+        _COMPACT_CACHE,
+    ),
+    (
+        "boda_mean_compact",
+        "outputs/ag_mean_compact/best_model",
+        "alphagenome_k562_head_boda_mean_512_512_v4",
+        _COMPACT_CACHE,
+    ),
+    (
+        "boda_max_compact",
+        "outputs/ag_max_compact/best_model",
+        "alphagenome_k562_head_boda_max_512_512_v4",
+        _COMPACT_CACHE,
+    ),
+    (
+        "boda_center_compact",
+        "outputs/ag_center_compact/best_model",
+        "alphagenome_k562_head_boda_center_512_512_v4",
+        _COMPACT_CACHE,
     ),
 ]
 
@@ -67,24 +107,26 @@ def main():
         "--cache_dir",
         default=None,
         help=(
-            "Pre-built test embedding cache dir (contains test_canonical.npy / test_rc.npy). "
-            "If provided and files exist, encoder is skipped for ~10× faster per-head eval. "
-            "Build with: uv run python scripts/analysis/build_test_embedding_cache.py"
+            "Pre-built test embedding cache dir for 600bp heads (contains test_canonical.npy / "
+            "test_rc.npy). If provided and files exist, encoder is skipped for ~10× faster "
+            "per-head eval. Build with: uv run python scripts/analysis/build_test_embedding_cache.py"
         ),
     )
     args = p.parse_args()
 
     out: dict[str, dict] = {}
-    for label, ckpt_dir, head_name in CONFIGS:
+    for label, ckpt_dir, head_name, per_cfg_cache in CONFIGS:
         ckpt_path = Path(ckpt_dir).resolve()
         if not (ckpt_path / "checkpoint").exists():
             print(
                 f"[eval_ag_chrom_test] Skip {label}: no checkpoint at {ckpt_path}", file=sys.stderr
             )
             continue
+        # Per-config cache_dir takes priority; fall back to --cache_dir CLI arg.
+        cache = per_cfg_cache if per_cfg_cache is not None else args.cache_dir
         print(f"[eval_ag_chrom_test] Evaluating {label} on chr 7, 13 ...", file=sys.stderr)
         out[label] = evaluate_chrom_test(
-            str(ckpt_path), head_name, data_path=args.data_path, cache_dir=args.cache_dir
+            str(ckpt_path), head_name, data_path=args.data_path, cache_dir=cache
         )
 
     if not out:
