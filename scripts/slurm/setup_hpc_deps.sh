@@ -21,10 +21,22 @@ if ! _check alphagenome; then
   uv pip install "alphagenome==0.6.0" || echo "[setup_hpc_deps] WARNING: alphagenome install failed"
 fi
 
+# aiohttp and requests are declared deps of alphagenome_ft but not installed
+# because alphagenome_ft is installed with --no-deps. Install them explicitly.
+if ! _check aiohttp; then
+  echo "[setup_hpc_deps] Installing aiohttp ..."
+  uv pip install "aiohttp" || echo "[setup_hpc_deps] WARNING: aiohttp install failed"
+fi
+
+if ! _check requests; then
+  echo "[setup_hpc_deps] Installing requests ..."
+  uv pip install "requests" || echo "[setup_hpc_deps] WARNING: requests install failed"
+fi
+
 if ! _check alphagenome_ft; then
   if [ -d "$AG_FT_PATH" ]; then
     echo "[setup_hpc_deps] Installing alphagenome_ft from $AG_FT_PATH ..."
-    uv pip install --no-deps "$AG_FT_PATH" || echo "[setup_hpc_deps] WARNING: alphagenome_ft install failed"
+    uv pip install "$AG_FT_PATH" || echo "[setup_hpc_deps] WARNING: alphagenome_ft install failed"
   else
     echo "[setup_hpc_deps] WARNING: $AG_FT_PATH not found; skipping alphagenome_ft"
   fi
