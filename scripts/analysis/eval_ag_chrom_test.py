@@ -63,6 +63,15 @@ def main():
     p.add_argument(
         "--output", default="outputs/ag_chrom_test_results.json", help="Output JSON path."
     )
+    p.add_argument(
+        "--cache_dir",
+        default=None,
+        help=(
+            "Pre-built test embedding cache dir (contains test_canonical.npy / test_rc.npy). "
+            "If provided and files exist, encoder is skipped for ~10× faster per-head eval. "
+            "Build with: uv run python scripts/analysis/build_test_embedding_cache.py"
+        ),
+    )
     args = p.parse_args()
 
     out: dict[str, dict] = {}
@@ -74,7 +83,9 @@ def main():
             )
             continue
         print(f"[eval_ag_chrom_test] Evaluating {label} on chr 7, 13 ...", file=sys.stderr)
-        out[label] = evaluate_chrom_test(str(ckpt_path), head_name, data_path=args.data_path)
+        out[label] = evaluate_chrom_test(
+            str(ckpt_path), head_name, data_path=args.data_path, cache_dir=args.cache_dir
+        )
 
     if not out:
         print("[eval_ag_chrom_test] No checkpoints found.", file=sys.stderr)
