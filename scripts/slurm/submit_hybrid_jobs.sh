@@ -5,8 +5,7 @@ set -e
 cd "$(dirname "$0")/../.."
 export PYTHONPATH="$PWD:$PYTHONPATH"
 
-echo "Syncing uv environment (jax, jaxlib, optax)..."
-uv sync
+SBATCH=/cm/shared/apps/slurm/current/bin/sbatch
 
 echo "Submitting hybrid jobs..."
 for script in scripts/slurm/train_oracle_alphagenome_full_sum_hybrid.sh \
@@ -14,6 +13,6 @@ for script in scripts/slurm/train_oracle_alphagenome_full_sum_hybrid.sh \
               scripts/slurm/train_oracle_alphagenome_full_max_hybrid.sh \
               scripts/slurm/train_oracle_alphagenome_full_center_hybrid.sh \
               scripts/slurm/train_oracle_alphagenome_full_flatten_hybrid.sh; do
-  sbatch "$script" || true
+  $SBATCH "$script" || true
 done
 echo "Done. Check: squeue -u \$USER"

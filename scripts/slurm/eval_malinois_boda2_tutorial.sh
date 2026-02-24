@@ -50,11 +50,12 @@ fi
 
 # boda/model/basset.py imports lightning; use a dedicated venv to avoid pydantic conflicts with main venv.
 BODA_DIR="${BODA_DIR:-$HOME/boda2-main}"
-EVAL_VENV="$PWD/data/boda2_eval_venv"
+EVAL_VENV="$PWD/data/boda2_eval_venv_v2"
 if [ ! -f "$EVAL_VENV/bin/python" ]; then
   echo "Creating Malinois eval venv at $EVAL_VENV ..."
   uv venv "$EVAL_VENV"
-  uv pip install --python "$EVAL_VENV/bin/python" torch numpy pandas scipy imageio "lightning==1.9.5"
+  # lightning>=2.4 removes lightning.app (no lightning_cloud conflict); also has lightning.pytorch
+  uv pip install --python "$EVAL_VENV/bin/python" torch numpy pandas scipy imageio "lightning>=2.4,<2.6"
   uv pip install --python "$EVAL_VENV/bin/python" -e . 2>/dev/null || true
 fi
 PYTHON_BODA="$EVAL_VENV/bin/python"

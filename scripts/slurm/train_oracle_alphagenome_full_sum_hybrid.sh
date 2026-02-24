@@ -16,7 +16,7 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD:$PYTHONPATH"
 
 # Hybrid runs encoder for 50% of batches; use smaller batch to avoid GPU OOM.
-uv run python experiments/train_oracle_alphagenome_full.py \
+python experiments/train_oracle_alphagenome_full.py \
     ++head_arch="boda-sum-512-512" \
     ++aug_mode="hybrid" \
     ++batch_size=64 \

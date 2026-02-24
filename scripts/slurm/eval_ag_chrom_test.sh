@@ -16,6 +16,6 @@ module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD:$PYTHONPATH"
 
-uv run python scripts/analysis/eval_ag_chrom_test.py \
+python scripts/analysis/eval_ag_chrom_test.py \
     --data_path data/k562 \
     --output outputs/ag_chrom_test_results.json
