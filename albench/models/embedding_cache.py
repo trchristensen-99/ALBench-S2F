@@ -274,16 +274,30 @@ def reinit_head_params(
             return head(embeddings, organism_index)
 
     head_params, head_state = _head_fwd.init(rng_key, dummy_encoder_output, dummy_organism_index)
-    # Replace only the head subtree so encoder params are unchanged.
     if not isinstance(model._params, dict):
         return
-    head_subtree = head_params.get("head", head_params)
-    model._params = dict(model._params)
-    model._params["head"] = head_subtree
+    # Haiku init may return params under "head" (name_scope) or nested under transform name.
+    if (
+        "_head_fwd" in head_params
+        and isinstance(head_params["_head_fwd"], dict)
+        and "head" in head_params["_head_fwd"]
+    ):
+        head_subtree = head_params["_head_fwd"]["head"]
+    else:
+        head_subtree = head_params.get("head", head_params)
+    new_params = {k: (head_subtree if k == "head" else v) for k, v in model._params.items()}
+    model._params = new_params
     if getattr(model, "_state", None) and isinstance(model._state, dict):
-        state_subtree = head_state.get("head", head_state)
-        model._state = dict(model._state)
-        model._state["head"] = state_subtree
+        if (
+            "_head_fwd" in head_state
+            and isinstance(head_state.get("_head_fwd"), dict)
+            and "head" in head_state["_head_fwd"]
+        ):
+            state_subtree = head_state["_head_fwd"]["head"]
+        else:
+            state_subtree = head_state.get("head", head_state)
+        new_state = {k: (state_subtree if k == "head" else v) for k, v in model._state.items()}
+        model._state = new_state
     print("[EmbeddingCache] Re-initialized head parameters to fix checkpoint shape mismatch.")
 
 

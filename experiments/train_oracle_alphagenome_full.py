@@ -436,6 +436,10 @@ def main(cfg: DictConfig) -> None:
         train_canonical, train_rc = load_embedding_cache(cache_dir, "train")
         val_canonical, _ = load_embedding_cache(cache_dir, "val")
         head_predict_fn = build_head_only_predict_fn(model, unique_head_name)
+        # Verify head params shape (catches stale checkpoint head mismatch)
+        _dummy_emb = jnp.zeros((2, 5, 1536), dtype=jnp.float32)
+        _dummy_org = jnp.zeros((2,), dtype=jnp.int32)
+        _ = head_predict_fn(model._params, _dummy_emb, _dummy_org)
 
     # ── JIT steps ─────────────────────────────────────────────────────────────
 
