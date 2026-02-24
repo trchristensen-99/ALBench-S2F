@@ -31,3 +31,18 @@ if ! _check jmp; then
   echo "[setup_hpc_deps] Installing jmp ..."
   uv pip install "jmp==0.0.4" || echo "[setup_hpc_deps] WARNING: jmp install failed"
 fi
+
+if ! _check haiku; then
+  echo "[setup_hpc_deps] Installing dm-haiku ..."
+  uv pip install "dm-haiku" || echo "[setup_hpc_deps] WARNING: dm-haiku install failed"
+fi
+
+if ! _check chex; then
+  echo "[setup_hpc_deps] Installing chex ..."
+  uv pip install "chex" || echo "[setup_hpc_deps] WARNING: chex install failed"
+fi
+
+if ! _check orbax.checkpoint; then
+  echo "[setup_hpc_deps] Installing orbax-checkpoint ..."
+  uv pip install "orbax-checkpoint" || echo "[setup_hpc_deps] WARNING: orbax-checkpoint install failed"
+fi
