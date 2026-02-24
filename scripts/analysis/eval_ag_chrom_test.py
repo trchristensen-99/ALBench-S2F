@@ -18,10 +18,42 @@ from pathlib import Path
 from eval_ag import evaluate_chrom_test
 
 CONFIGS = [
+    # no_shift heads (precomputed embedding cache, canonical + RC)
     ("boda_sum", "outputs/ag_sum/best_model", "alphagenome_k562_head_boda_sum_512_512_v4"),
     ("boda_mean", "outputs/ag_mean/best_model", "alphagenome_k562_head_boda_mean_512_512_v4"),
     ("boda_max", "outputs/ag_max/best_model", "alphagenome_k562_head_boda_max_512_512_v4"),
     ("boda_center", "outputs/ag_center/best_model", "alphagenome_k562_head_boda_center_512_512_v4"),
+    (
+        "boda_flatten",
+        "outputs/ag_flatten/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+    ),
+    # hybrid heads (50% cache + 50% live encoder with ±15 bp shift augmentation)
+    (
+        "boda_sum_hybrid",
+        "outputs/ag_sum_hybrid/best_model",
+        "alphagenome_k562_head_boda_sum_512_512_v4",
+    ),
+    (
+        "boda_mean_hybrid",
+        "outputs/ag_mean_hybrid/best_model",
+        "alphagenome_k562_head_boda_mean_512_512_v4",
+    ),
+    (
+        "boda_max_hybrid",
+        "outputs/ag_max_hybrid/best_model",
+        "alphagenome_k562_head_boda_max_512_512_v4",
+    ),
+    (
+        "boda_center_hybrid",
+        "outputs/ag_center_hybrid/best_model",
+        "alphagenome_k562_head_boda_center_512_512_v4",
+    ),
+    (
+        "boda_flatten_hybrid",
+        "outputs/ag_flatten_hybrid/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+    ),
 ]
 
 

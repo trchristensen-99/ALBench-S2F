@@ -94,6 +94,16 @@ Result file: `outputs/ag_chrom_test_results.json` on HPC.
 
 **N-padding placement**: Ns are added at the **outer ends** of the sequence (before upstream flank / after downstream flank), not between the variable region and flanks. The Addgene flanks are each 300bp; Ns only appear for sequences shorter than ~600bp where the combined flank slices + insert fall short of 600bp.
 
+### Why Malinois scores slightly below the published result (~0.88–0.89)
+
+Our Malinois eval gives Pearson R = 0.869, while the original Gosai et al. (2023) paper reported ~0.88–0.89 on the **same chr 7, 13 test set**. Two factors likely explain the gap:
+
+1. **No reverse-complement averaging in our Malinois eval** (likely primary reason): `eval_malinois_boda2_tutorial.py` evaluates only one orientation (forward strand). Our AlphaGenome eval averages FW + RC predictions. RC averaging is a standard ensembling trick that consistently improves Pearson R by ~0.5–1%. The original paper may have done RC averaging or trained with RC augmentation that implicitly makes the model more strand-symmetric.
+
+2. **Data filtering or preprocessing differences**: Minor differences in how the K562 MPRA dataset is filtered (duplicate handling, quality thresholds, sequence length boundaries) could shift the test-set composition slightly relative to the original paper's internal dataset. We use the boda2 tutorial's `FlankBuilder` and `load_model()` which are the official artifact, so this effect is likely small.
+
+**Bottom line**: The 0.869 vs. 0.88–0.89 gap is most likely due to the absence of RC averaging/ensembling in our Malinois eval. The meaningful comparison is AlphaGenome vs. Malinois **on the same chr 7,13 split** (~0.90 vs. 0.87), which shows a clear ~3–4% advantage for AlphaGenome.
+
 ### Hybrid training jobs (Feb 24, jobs 655491–655495, RUNNING)
 
 | Job | Name | Status |
@@ -137,16 +147,110 @@ If they hit the limit, resubmit on `kooq --qos=koolab`:
 # and add: #SBATCH --qos=koolab
 ```
 
-### 3.3 After hybrid runs complete
+### 3.3 Evaluating hybrid runs once they complete
 
-1. Eval hybrid heads on chr 7, 13 (update `eval_ag_chrom_test.py` to include `outputs/ag_*_hybrid/best_model`)
-2. Rerun comparison report with all heads (no_shift + hybrid)
-3. Consider `full` shift aug runs if hybrid results are promising
+Follow these steps after jobs 655491–655495 finish (or after any future hybrid job batch).
+
+**Step 1 — Confirm jobs completed**
+```bash
+# From local machine (on VPN):
+ssh -i ~/.ssh/id_ed25519_citra christen@143.48.80.155 \
+  "sacct -u christen --jobs=655491,655492,655493,655494,655495 \
+    --format=JobID,JobName,State,ExitCode,Elapsed --noheader"
+```
+All five should show `COMPLETED` (or `TIMEOUT`). If a job timed out, the best checkpoint is still saved — see Step 2.
+
+**Step 2 — Verify checkpoints exist**
+```bash
+ssh -i ~/.ssh/id_ed25519_citra christen@143.48.80.155 \
+  "ls /grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/ag_*_hybrid/best_model/checkpoint 2>/dev/null || echo MISSING"
+```
+Expected: five lines, one per head (sum/mean/max/center/flatten). If any are missing, check the job log:
+```bash
+ssh -i ~/.ssh/id_ed25519_citra christen@143.48.80.155 \
+  "tail -50 /grid/wsbs/home_norepl/christen/ALBench-S2F/logs/ag_*hybrid*655491*.err"
+```
+
+**Step 3 — Push any local changes, then pull on HPC**
+```bash
+# On local machine:
+git push
+
+# On HPC:
+ssh -i ~/.ssh/id_ed25519_citra christen@143.48.80.155 \
+  "cd /grid/wsbs/home_norepl/christen/ALBench-S2F && git pull"
+```
+This ensures `eval_ag_chrom_test.py` (now updated to include hybrid CONFIGS) is present on HPC.
+
+**Step 4 — Submit eval job**
+```bash
+ssh -i ~/.ssh/id_ed25519_citra christen@143.48.80.155 \
+  "cd /grid/wsbs/home_norepl/christen/ALBench-S2F && \
+   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/eval_ag_chrom_test.sh"
+```
+The eval script (`scripts/slurm/eval_ag_chrom_test.sh`) runs on `gpuq` with a 2h time limit and writes `outputs/ag_chrom_test_results.json`. It automatically skips any head whose checkpoint is missing.
+
+Monitor progress:
+```bash
+ssh -i ~/.ssh/id_ed25519_citra christen@143.48.80.155 \
+  "squeue -u christen --format='%i %j %T %M' --noheader"
+```
+
+**Step 5 — Copy results back**
+```bash
+scp -i ~/.ssh/id_ed25519_citra \
+  christen@143.48.80.155:/grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/ag_chrom_test_results.json \
+  outputs/ag_chrom_test_results.json
+```
+
+**Step 6 — Generate comparison report**
+```bash
+uv run python scripts/analysis/compare_malinois_alphagenome_results.py \
+  --output outputs/malinois_ag_comparison.md
+```
+This reads `outputs/ag_chrom_test_results.json` (all heads: no_shift + hybrid) and `outputs/malinois_eval_boda2_tutorial/result.json`, then writes a Markdown table.
+
+**Head names in `eval_ag_chrom_test.py`**: As of the last update, CONFIGS includes:
+- no_shift: `boda_sum`, `boda_mean`, `boda_max`, `boda_center`, `boda_flatten`
+- hybrid: `boda_sum_hybrid`, `boda_mean_hybrid`, `boda_max_hybrid`, `boda_center_hybrid`, `boda_flatten_hybrid`
+
+Missing checkpoints are automatically skipped with a stderr message.
+
+**If hybrid jobs timed out before completing**: Resubmit with a longer time limit on `kooq`:
+```bash
+# Edit each hybrid Slurm script locally, then push+pull+sbatch as above.
+# Change in each script:
+#   #SBATCH --partition=gpuq   →  #SBATCH --partition=kooq
+#   #SBATCH --time=12:00:00    →  #SBATCH --time=24:00:00
+# Add:
+#   #SBATCH --qos=koolab
+# Then resume training from the latest checkpoint (set ++resume_from= in the script).
+```
 
 ### 3.4 Optional
 
 - `encoder-1024-dropout` head: reference-style single hidden layer (1024 units + dropout).
-- Compact-window run: `use_compact_window: true` for adaptive-W approach.
+
+#### 384 bp compact-window training (alternate preprocessing approach)
+
+**Rationale**: Instead of padding each variable-region sequence to 600 bp with real flanks (and N-padding the remainder), build a fixed 384 bp window (3 × 128 tokens — exact AlphaGenome stride alignment) around the variable region using only real Addgene flank sequence. This has several advantages:
+- **No N-padding at all**: even the shortest variable region (≥73 bp) + both 200 bp flanks = ≥473 bp > 384 bp, so there is always enough real sequence to fill a 384 bp window.
+- **Clean shift augmentation**: shifting ±N bp simply redistributes N bases between the upstream and downstream flank slices — no edge effects or N-sequence contamination.
+- **Example**: 73 bp insert → window has (384−73)/2 ≈ 155 bp flank on each side; can shift ±(155) bp and still have real sequence on both sides.
+
+**Existing infrastructure** (already in `albench/data/k562_full.py`):
+- `K562FullDataset(store_raw=True)` — stores variable-length raw sequences instead of 600 bp padded.
+- `dataset.set_compact_window(min_var_len=73, window_bp=384, flank_bp=200)` — sets W=384.
+- `dataset._build_compact_sequence(seq, shift=0)` — builds `left_flank + seq + right_flank` of exactly W bp, with `shift` redistributing flank length.
+
+**What would need to be added** (without touching the current 600 bp pipeline):
+1. New `aug_mode="compact_shift"` branch in `experiments/train_oracle_alphagenome_full.py` collate function that calls `_build_compact_sequence(seq, shift=np.random.randint(-max_shift, max_shift+1))` per sample.
+2. New Slurm scripts for compact-window runs (e.g., `train_oracle_alphagenome_full_sum_compact.sh`) with `++aug_mode=compact_shift ++output_dir=outputs/ag_sum_compact`.
+3. The compact eval in `eval_ag.py`/`eval_ag_chrom_test.py` must also use `store_raw=True` + `_build_compact_sequence(seq, shift=0)` for the test set (or just use `_center_pad(seq, target_len=384)`).
+
+**Token count change**: 384 bp → T=3 tokens (vs. T=5 for 600 bp). This affects the `boda_flatten` head (input dim 3×1536=4608 vs. 7680) — it would need retraining. Sum/mean/max/center heads are unaffected.
+
+**Priority**: Lower — do after hybrid runs are evaluated and results indicate a clear benefit from shift augmentation.
 
 ---
 

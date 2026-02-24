@@ -181,15 +181,22 @@ def _encode_200(seq_str: str, boda_dir: str) -> torch.Tensor:
 def _predict_k562_batched(
     model, flank_builder, seqs_str: list, batch_size: int, device: torch.device, boda_dir: str
 ):
-    """Run model on 200-mer sequences (padded to 600 via FlankBuilder); return K562 track."""
+    """Run model on 200-mer sequences (padded to 600 via FlankBuilder); return K562 track.
+
+    RC-ensemble: averages forward and reverse-complement predictions for parity with
+    AlphaGenome eval (which also averages FW+RC). RC of the full 600bp tensor uses
+    channel permutation [3,2,1,0] (A↔T, C↔G for ACGT ordering) + length-axis flip.
+    """
     preds = []
     for i in range(0, len(seqs_str), batch_size):
         batch_str = seqs_str[i : i + batch_size]
         batch_4_200 = torch.stack([_encode_200(s, boda_dir) for s in batch_str]).to(device)
         with torch.no_grad():
-            prepped = flank_builder(batch_4_200)
-            out = model(prepped)
-        preds.append(out[:, 0].cpu().numpy())
+            prepped_fwd = flank_builder(batch_4_200)
+            prepped_rc = prepped_fwd.flip(-1)[:, [3, 2, 1, 0], :]  # RC of full 600bp
+            out_fwd = model(prepped_fwd)
+            out_rc = model(prepped_rc)
+        preds.append(((out_fwd[:, 0] + out_rc[:, 0]) / 2.0).cpu().numpy())
     return np.concatenate(preds)
 
 
