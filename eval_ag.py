@@ -30,6 +30,9 @@ def _arch_from_head_name(head_name: str) -> str:
     h = head_name.lower()
     if "pool" in h and "flatten" in h:
         return "pool-flatten"
+    # More specific patterns must come before generic ones (e.g. boda_flatten_1024 before boda_flatten)
+    if "boda_flatten_1024" in h or "boda-flatten-1024" in h:
+        return "boda-flatten-1024-dropout"
     if "boda_flatten" in h or "boda-flatten" in h:
         return "boda-flatten-512-512"
     if "boda_sum" in h or "boda-sum" in h:
@@ -42,8 +45,6 @@ def _arch_from_head_name(head_name: str) -> str:
         return "boda-center-512-512"
     if "encoder_1024" in h or "encoder-1024" in h:
         return "encoder-1024-dropout"
-    if "boda_flatten_1024" in h or "boda-flatten-1024" in h:
-        return "boda-flatten-1024-dropout"
     return "mlp-512-512"
 
 
