@@ -207,6 +207,32 @@ CONFIGS = [
         "alphagenome_k562_head_boda_flatten_512_512_v4",
         None,
     ),
+    # Cosine LR variants: same full-aug training but with cosine annealing schedule
+    (
+        "boda_flatten_full_aug_cosine",
+        "outputs/ag_flatten_full_aug_cosine/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+        None,
+    ),
+    (
+        "boda_pool_flatten_full_aug_cosine",
+        "outputs/ag_pool_flatten_full_aug_cosine/best_model",
+        "alphagenome_k562_head_pool_flatten_v4",
+        None,
+    ),
+    # Sum head variants with full augmentation
+    (
+        "boda_sum_full_aug",
+        "outputs/ag_sum_full_aug/best_model",
+        "alphagenome_k562_head_boda_sum_512_512_v4",
+        None,
+    ),
+    (
+        "boda_sum_1024_full_aug",
+        "outputs/ag_sum_1024_full_aug/best_model",
+        "alphagenome_k562_head_boda_sum_1024_dropout_v4",
+        None,
+    ),
     # 384bp compact-window heads (T=3 tokens; separate embedding cache)
     (
         "boda_sum_compact",

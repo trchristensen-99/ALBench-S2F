@@ -352,8 +352,12 @@ def main(cfg: DictConfig) -> None:
     lr_plateau_patience = int(cfg.get("lr_plateau_patience", 5))
     lr_plateau_factor = float(cfg.get("lr_plateau_factor", 0.5))
     _use_plateau = lr_schedule_type == "plateau" and cfg.gradients_clip is None
+    # Cosine annealing: lr decays from cfg.lr → cfg.lr * 0.01 over cfg.epochs using a
+    # cosine schedule.  Early stopping is still active; set early_stop_patience high to
+    # let the full schedule play out (e.g. early_stop_patience=100).
+    _use_cosine = lr_schedule_type == "cosine"
 
-    if _use_plateau:
+    if _use_plateau or _use_cosine:
         # inject_hyperparams allows updating learning_rate between epochs.
         optimizer = optax.inject_hyperparams(optax.adamw)(
             learning_rate=float(cfg.lr), weight_decay=float(cfg.weight_decay)
@@ -620,6 +624,14 @@ def main(cfg: DictConfig) -> None:
     _min_lr = float(cfg.lr) * 0.01  # floor at 1% of initial LR
 
     for epoch in range(int(cfg.epochs)):
+        # ── Cosine LR update (applied before each epoch) ──────────────────────
+        if _use_cosine:
+            max_epochs = max(int(cfg.epochs) - 1, 1)
+            progress = epoch / max_epochs
+            cosine_factor = 0.5 * (1.0 + np.cos(np.pi * progress))
+            current_lr = float(cfg.lr) * (0.01 + 0.99 * cosine_factor)
+            opt_state.hyperparams["learning_rate"] = np.float32(current_lr)
+
         train_losses: list[float] = []
         pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{int(cfg.epochs)}")
 
