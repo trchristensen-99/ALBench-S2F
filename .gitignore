@@ -1,4 +1,6 @@
-/data/
+/data/k562/
+/data/yeast/
+/data/__pycache__/
 checkpoints/
 outputs/
 outputs/analysis/
