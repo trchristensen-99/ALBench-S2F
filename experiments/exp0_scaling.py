@@ -16,10 +16,10 @@ from dotenv import load_dotenv
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
-from albench.evaluation import compute_scaling_curve
 from albench.loop import RunConfig, run_al_loop
-from albench.oracle.perfect_oracle import PerfectOracle
-from albench.task import TaskConfig
+from data.task import TaskConfig
+from evaluation.scaling import compute_scaling_curve
+from models.perfect_oracle import PerfectOracle
 
 
 @dataclass
@@ -118,13 +118,13 @@ def run_exp0_scaling(cfg: DictConfig) -> ExpRunArtifacts:
     else:
         # --- Real data: load K562 or Yeast dataset ---
         if cfg.task.task_mode == "k562":
-            from albench.data.k562 import K562Dataset
+            from data.k562 import K562Dataset
 
             ds_train = K562Dataset(data_path=cfg.task.data_root, split="train")
             ds_pool = K562Dataset(data_path=cfg.task.data_root, split="pool")
             ds_test = K562Dataset(data_path=cfg.task.data_root, split="test")
         elif cfg.task.task_mode == "yeast":
-            from albench.data.yeast import YeastDataset
+            from data.yeast import YeastDataset
 
             ds_train = YeastDataset(data_path=cfg.task.data_root, split="train")
             ds_pool = YeastDataset(data_path=cfg.task.data_root, split="pool")

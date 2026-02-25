@@ -4,6 +4,34 @@ Summary of work done and remaining steps to efficiently train adapter heads on l
 
 ---
 
+## 0. Codebase Restructure (Feb 25, 2026 — IN PROGRESS)
+
+Per PI feedback, the repository is being restructured so that `albench/` becomes a **lightweight, model-agnostic active-learning engine** anyone can use with their own models and tasks. Application-specific code moves outside of it.
+
+### New top-level layout
+
+| Directory | Contents | Status |
+|-----------|---------|--------|
+| `albench/` | AL engine only: `SequenceModel` ABC, `ALLoop`, reservoir/acquisition strategies | Slimmed down |
+| `data/` | Dataset loaders (K562, Yeast), `TaskConfig`, hash-frag splits, utils | Moved from `albench/data/` + `albench/task.py` |
+| `models/` | DREAM-RNN, AlphaGenome heads/wrappers, oracle & student wrappers, training utils | Merged from `albench/models/` + `albench/oracle/` + `albench/student/` |
+| `evaluation/` | Scaling-curve utilities, yeast test-set helpers | Moved from `albench/evaluation.py` + `albench/evaluation_utils/` |
+
+### Key design decisions
+- **Oracle and Student merged into `SequenceModel`**: both roles implement the `albench.model.SequenceModel` ABC — the oracle/student split was a belt-and-suspenders distinction that added no real polymorphism. The old `Oracle`/`Student` aliases have been fully removed; all code now uses `SequenceModel` directly.
+- **`loop.py` stays in `albench/`** but is refactored into an `ALLoop` megaclass that tracks state across rounds, replacing the imperative `run_al_loop` function.
+- **`albench/utils.py`** re-exports the sequence utilities (`one_hot_encode`, `reverse_complement`) so `albench` users never need to know about the `data/` package.
+- **`pyproject.toml`** updated to export `data`, `models`, `evaluation` as top-level importable packages.
+
+### Implementation status
+- [ ] Phase 1: Move `albench/data/` → `data/`, `albench/models/`+`oracle/`+`student/` → `models/`, evaluation → `evaluation/`
+- [ ] Phase 2: Slim `albench/` (delete moved dirs, add shims, update `loop.py` imports)
+- [ ] Phase 3: Update all import sites (experiments, scripts, tests, root files)
+- [ ] Phase 4: Update `pyproject.toml`
+- [ ] Phase 5: Reorganise `tests/` into `tests/test_albench/` and `tests/test_experiments/`
+
+---
+
 ## 1. Architecture & Training Setup
 
 ### 1.1 Model

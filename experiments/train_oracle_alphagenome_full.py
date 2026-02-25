@@ -37,10 +37,10 @@ from scipy.stats import pearsonr, spearmanr
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from albench.data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM, K562FullDataset
-from albench.data.utils import one_hot_encode
-from albench.models.alphagenome_heads import register_s2f_head
-from albench.models.embedding_cache import (
+from data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM, K562FullDataset
+from data.utils import one_hot_encode
+from models.alphagenome_heads import register_s2f_head
+from models.embedding_cache import (
     build_embedding_cache,
     build_head_only_predict_fn,
     build_head_only_train_fn,

@@ -1,0 +1,64 @@
+[project]
+name = "albench"
+version = "0.1.0"
+description = "Lightweight, model-agnostic active-learning engine for sequence-to-function prediction"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["active-learning", "genomics", "sequence-to-function", "machine-learning"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
+
+dependencies = [
+  "numpy>=1.24.0",
+  "scipy>=1.10.0",
+]
+
+[project.optional-dependencies]
+# W&B experiment tracking (the loop logs gracefully without it)
+wandb = ["wandb>=0.19.0"]
+
+# Scaling-curve helper (compute_scaling_curve)
+analysis = ["pandas>=2.0.0"]
+
+# Everything for dev / CI
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.9.0",
+  "wandb>=0.19.0",
+  "pandas>=2.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/yourusername/ALBench-S2F"
+Issues = "https://github.com/yourusername/ALBench-S2F/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Only ship the albench package itself — not data/, models/, evaluation/
+packages = ["albench"]
+# Include the py.typed marker so downstream type-checkers recognise this as typed
+artifacts = ["albench/py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501", "E712", "F401", "F541"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/test_albench"]

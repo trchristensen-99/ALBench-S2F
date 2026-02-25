@@ -20,9 +20,9 @@ from scipy.stats import pearsonr, spearmanr
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from albench.data.k562 import K562Dataset
-from albench.data.yeast import YeastDataset
-from albench.models.alphagenome_heads import register_s2f_head
+from data.k562 import K562Dataset
+from data.yeast import YeastDataset
+from models.alphagenome_heads import register_s2f_head
 
 # 150bp yeast plasmid context assembled as 54 + core150 + 89.
 FLANK_5_PRIME = "GCTAGCAGGAATGATGCAAAAGGTTCCCGATTCGAACTGCATTTTTTTCACATC"
@@ -132,18 +132,18 @@ def collate_yeast(
             max_possible_shift = 110
             buffer_len = max_len + 2 * max_possible_shift  # 384 + 220 = 604
             buffer = np.zeros((buffer_len, 4), dtype=np.float32)
-            
+
             base_start = (buffer_len - canonical_total) // 2  # (604 - 293) // 2 = 155
             buffer[base_start : base_start + canonical_total, :] = full_seq
-            
+
             window_base_start = (buffer_len - max_len) // 2  # (604 - 384) // 2 = 110
-            
+
             if augment:
                 shift = np.random.randint(-max_possible_shift, max_possible_shift + 1)
                 start_idx = window_base_start + shift
             else:
                 start_idx = window_base_start
-                
+
             pad_seq = buffer[start_idx : start_idx + max_len]
 
         if augment and np.random.rand() > 0.5:

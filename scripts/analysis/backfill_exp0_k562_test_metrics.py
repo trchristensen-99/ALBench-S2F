@@ -21,8 +21,8 @@ import torch
 from scipy.stats import pearsonr, spearmanr
 from torch.utils.data import DataLoader, Dataset
 
-from albench.data.utils import one_hot_encode
-from albench.models.dream_rnn import create_dream_rnn
+from data.utils import one_hot_encode
+from models.dream_rnn import create_dream_rnn
 
 
 def _safe_corr(pred: np.ndarray, target: np.ndarray, fn: Any) -> float:

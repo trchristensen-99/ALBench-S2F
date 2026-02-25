@@ -21,9 +21,9 @@ import argparse
 import numpy as np
 from alphagenome_ft import create_model_with_heads
 
-from albench.data.k562_full import K562FullDataset
-from albench.models.alphagenome_heads import register_s2f_head
-from albench.models.embedding_cache import build_embedding_cache
+from data.k562_full import K562FullDataset
+from models.alphagenome_heads import register_s2f_head
+from models.embedding_cache import build_embedding_cache
 
 WEIGHTS_PATH = "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1"
 _DUMMY_HEAD = "alphagenome_k562_head_boda_sum_512_512_v4"

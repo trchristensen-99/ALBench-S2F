@@ -204,7 +204,7 @@ def _eval_chrom_test(
     model, flank_builder, data_path: str, batch_size: int, device: torch.device, boda_dir: str
 ):
     """Chromosome-based test split (chr 7, 13) using K562FullDataset. Sequences are 600 bp (Boda-padded); use middle 200 bp for FlankBuilder."""
-    from albench.data.k562_full import K562FullDataset
+    from data.k562_full import K562FullDataset
 
     ds = K562FullDataset(data_path, split="test")
     seqs = [ds.sequences[j] for j in range(len(ds))]

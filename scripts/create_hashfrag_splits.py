@@ -21,7 +21,7 @@ from pathlib import Path
 # Add project root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from albench.data.k562 import K562Dataset
+from data.k562 import K562Dataset
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"

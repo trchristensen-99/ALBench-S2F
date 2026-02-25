@@ -1,4 +1,4 @@
-_target_: albench.student.dream_rnn_student.DREAMRNNStudent
+_target_: models.dream_rnn_student.DREAMRNNStudent
 ensemble_size: 3
 input_channels: ${task.input_channels}
 sequence_length: ${task.sequence_length}

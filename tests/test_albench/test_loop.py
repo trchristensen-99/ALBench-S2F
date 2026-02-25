@@ -90,10 +90,9 @@ def run_config(tmp_path: Path) -> RunConfig:
     )
 
 
-@patch("albench.loop.wandb")
-def test_run_al_loop_basic(mock_wandb, test_task: TaskConfig, run_config: RunConfig) -> None:
+@patch("albench.loop._WANDB_AVAILABLE", False)
+def test_run_al_loop_basic(test_task: TaskConfig, run_config: RunConfig) -> None:
     """Verify AL loop produces expected number of results and runs student.fit."""
-    mock_wandb.run = None  # Disable W&B logging
 
     oracle = _FakeOracle()
     student = _FakeStudent()
@@ -123,12 +122,9 @@ def test_run_al_loop_basic(mock_wandb, test_task: TaskConfig, run_config: RunCon
     assert student.fit_count == 1 + run_config.n_rounds
 
 
-@patch("albench.loop.wandb")
-def test_run_al_loop_round_metadata(
-    mock_wandb, test_task: TaskConfig, run_config: RunConfig
-) -> None:
+@patch("albench.loop._WANDB_AVAILABLE", False)
+def test_run_al_loop_round_metadata(test_task: TaskConfig, run_config: RunConfig) -> None:
     """Verify each RoundResult has correct metadata."""
-    mock_wandb.run = None
 
     results = run_al_loop(
         task=test_task,

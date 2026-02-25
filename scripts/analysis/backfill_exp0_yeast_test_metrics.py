@@ -11,12 +11,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from albench.data.yeast import YeastDataset
-from albench.evaluation_utils.yeast_testsets import (
+from data.yeast import YeastDataset
+from evaluation.yeast_testsets import (
     evaluate_yeast_test_subsets,
     load_yeast_test_subsets,
 )
-from albench.models.dream_rnn import create_dream_rnn
+from models.dream_rnn import create_dream_rnn
 
 
 def predict_test(model: torch.nn.Module, loader: DataLoader, device: torch.device) -> np.ndarray:

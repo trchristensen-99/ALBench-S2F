@@ -37,7 +37,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["albench", "experiments", "scripts"]
+packages = ["albench", "data", "models", "evaluation", "experiments", "scripts"]
 
 [tool.ruff]
 line-length = 100
@@ -46,6 +46,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = ["E501", "E712", "F401", "F541"]
+
+[tool.ruff.lint.per-file-ignores]
+# jaxtyping annotations like Float[Array, "B S 4"] trigger false-positive F722/F821
+# F841: unused variables seq_len / logo are intentional (logomaker side-effects)
+"custom_model.py" = ["F722", "F821", "F841"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

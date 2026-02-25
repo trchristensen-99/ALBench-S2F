@@ -33,43 +33,53 @@ ALBench-S2F (Active Learning Benchmark — Sequence-to-Function) is a benchmarki
 
 ```
 ALBench-S2F/
-├── albench/                    # Core library package
+├── albench/                    # Core AL engine package (model-agnostic)
 │   ├── model.py                # SequenceModel ABC (predict, uncertainty, embed, fit)
-│   ├── task.py                 # TaskConfig dataclass
 │   ├── loop.py                 # run_al_loop() — AL round driver with schedule dispatch
-│   ├── evaluation.py           # evaluate_on_test_sets(), compute_scaling_curve()
-│   ├── data/                   # Data loading and preprocessing
-│   │   ├── base.py             # SequenceDataset ABC
-│   │   ├── k562.py             # K562Dataset — human lentiMPRA (200bp, 5ch)
-│   │   ├── yeast.py            # YeastDataset — yeast random promoter (150bp, 6ch)
-│   │   ├── hashfrag_splits.py  # HashFragSplitter — homology-aware train/val/test splits
-│   │   ├── pool.py             # Unlabeled pool management
-│   │   └── utils.py            # one_hot_encode, reverse_complement, pad_sequence, etc.
-│   ├── models/                 # Neural network architectures
-│   │   ├── base.py             # SequenceModel nn.Module base
-│   │   ├── dream_rnn.py        # DREAMRNN + create_dream_rnn() factory
-│   │   ├── training.py         # train_model_optimized() — main training loop with W&B
-│   │   ├── training_base.py    # create_optimizer_and_scheduler()
-│   │   └── loss_utils.py       # YeastKLLoss (18-bin KL divergence)
-│   ├── oracle/                 # Oracles provide ground-truth labels
-│   │   ├── perfect_oracle.py   # PerfectOracle — lookup table from real labels
-│   │   └── alphagenome.py      # AlphaGenomeOracle — stub (TODO: integrate via probing)
-│   ├── student/                # Student models learn from labeled data
-│   │   └── dream_rnn_student.py # DREAMRNNStudent — ensemble wrapper with MC dropout
+│   ├── utils.py                # Re-exports sequence utilities (one_hot_encode, etc.)
 │   ├── reservoir/              # Reservoir samplers generate candidate sequences
 │   │   ├── base.py             # ReservoirSampler ABC
 │   │   ├── random_sampler.py   # RandomSampler — uniform random selection
 │   │   ├── genomic.py          # GenomicSampler — chromosome-restricted selection
-│   │   ├── evoaug.py           # stub
-│   │   ├── tf_motif_shuffle.py # stub
-│   │   └── partial_mutagenesis.py # stub
+│   │   ├── evoaug.py           # EvoAugSampler
+│   │   ├── tf_motif_shuffle.py # TFMotifShuffleSampler
+│   │   └── partial_mutagenesis.py # PartialMutagenesisSampler
 │   └── acquisition/            # Acquisition functions select from candidate pool
 │       ├── base.py             # AcquisitionFunction ABC
 │       ├── random_acq.py       # RandomAcquisition
 │       ├── uncertainty.py      # UncertaintyAcquisition — top-k by MC dropout variance
-│       ├── diversity.py        # DiversityAcquisition — greedy farthest-point in embedding space
+│       ├── diversity.py        # DiversityAcquisition — greedy farthest-point in embedding
 │       ├── combined.py         # CombinedAcquisition — weighted uncertainty + diversity
-│       └── prior_knowledge.py  # stub
+│       └── prior_knowledge.py  # PriorKnowledgeAcquisition
+│
+├── data/                       # Application data loading and task config
+│   ├── task.py                 # TaskConfig dataclass
+│   ├── base.py                 # SequenceDataset ABC
+│   ├── k562.py                 # K562Dataset — human lentiMPRA (200bp, 5ch)
+│   ├── k562_full.py            # K562FullDataset — chr-split version for oracle training
+│   ├── yeast.py                # YeastDataset — yeast random promoter (150bp, 6ch)
+│   ├── hashfrag_splits.py      # HashFragSplitter — homology-aware train/val/test splits
+│   ├── pool.py                 # Unlabeled pool management
+│   ├── sequence_utils.py       # one_hot_encode, reverse_complement, etc.
+│   └── utils.py                # Misc shared data utilities
+│
+├── models/                     # Application model implementations
+│   ├── base.py                 # Shared head interface and base classes
+│   ├── dream_rnn.py            # DREAMRNN + create_dream_rnn() factory
+│   ├── dream_rnn_student.py    # DREAMRNNStudent — ensemble wrapper with MC dropout
+│   ├── training.py             # train_model_optimized() — main training loop with W&B
+│   ├── training_base.py        # create_optimizer_and_scheduler()
+│   ├── loss_utils.py           # YeastKLLoss (18-bin KL divergence)
+│   ├── alphagenome_wrapper.py  # Wraps AlphaGenome encoder for ALBench
+│   ├── alphagenome_heads.py    # Custom AlphaGenome frozen-encoder heads
+│   ├── alphagenome_oracle.py   # AlphaGenomeOracle wiring
+│   ├── perfect_oracle.py       # PerfectOracle — lookup table from real labels
+│   └── embedding_cache.py      # Embedding cache build/load for no_shift mode
+│
+├── evaluation/                 # Experiment-specific evaluation utilities
+│   ├── scaling.py              # evaluate_on_test_sets(), compute_scaling_curve()
+│   └── yeast_testsets.py       # Yeast test-set evaluation helpers
+│
 ├── experiments/                # Hydra entry-point scripts
 │   ├── exp0_scaling.py         # Experiment 0: scaling curves
 │   ├── exp1_benchmark.py       # Experiment 1: strategy benchmark (--multirun)
@@ -83,18 +93,18 @@ ALBench-S2F/
 ├── scripts/
 │   ├── download_data.py        # Dataset download utility
 │   ├── setup_runtime.sh        # One-shot bootstrap (uv sync + torch auto-config)
-│   ├── run_with_runtime.sh     # Wrapper to run without uv resync
-│   ├── auto_configure_torch.py # Detects CUDA and installs correct torch wheel
-│   └── slurm/
-│       └── train_koo.sh        # SLURM batch template for Koo Lab HPC
-├── tests/                      # pytest test suite
-│   ├── test_data.py            # Data utility tests (one-hot, RC, padding)
-│   ├── test_interfaces.py      # ABC contract tests (SequenceModel, Sampler, Acq)
-│   ├── test_dataset_loaders.py # Dataset instantiation smoke tests
-│   └── test_loop.py            # AL loop schedule dispatch and bookkeeping
+│   ├── analysis/               # Post-hoc analysis & comparison scripts
+│   └── slurm/                  # SLURM batch templates for HPC
+├── tests/
+│   ├── test_albench/           # Core AL engine tests
+│   │   ├── test_interfaces.py  # ABC contract tests (SequenceModel, Sampler, Acq)
+│   │   └── test_loop.py        # AL loop schedule dispatch and bookkeeping
+│   └── test_experiments/       # Integration and application-specific tests
+│       ├── test_data.py        # Data utility tests (one-hot, RC, padding)
+│       ├── test_dataset_loaders.py
+│       └── ...                 # Exp utils, fixed pool, layout compat, strategies
 ├── pyproject.toml              # Package config, deps, ruff, pytest
 ├── .pre-commit-config.yaml     # ruff + ruff-format hooks
-├── .gitignore                  # data/, checkpoints/, outputs/, wandb/, .env
 └── README.md                   # Quick-start guide
 ```
 
@@ -103,6 +113,8 @@ ALBench-S2F/
 ## 3. Core Abstractions
 
 ### 3.1 SequenceModel ([model.py](file:///Users/christen/Downloads/ALBench-S2F/albench/model.py))
+
+> **Note**: Oracle and Student are no longer separate subclasses — both implement `SequenceModel`. `from albench import Oracle, Student` still works as a backward-compatible alias.
 
 All oracles and students implement this interface:
 
@@ -115,13 +127,13 @@ All oracles and students implement this interface:
 
 ### 3.2 ReservoirSampler ([reservoir/base.py](file:///Users/christen/Downloads/ALBench-S2F/albench/reservoir/base.py))
 
-Generates or selects candidate sequences for the acquisition step. See migration plan §5.3.
+Generates or selects candidate sequences for the acquisition step.
 
 ### 3.3 AcquisitionFunction ([acquisition/base.py](file:///Users/christen/Downloads/ALBench-S2F/albench/acquisition/base.py))
 
-Selects the most informative sequences from the candidate pool. See migration plan §5.4.
+Selects the most informative sequences from the candidate pool.
 
-### 3.4 TaskConfig ([task.py](file:///Users/christen/Downloads/ALBench-S2F/albench/task.py))
+### 3.4 TaskConfig ([data/task.py](file:///Users/christen/Downloads/ALBench-S2F/data/task.py))
 
 Dataclass holding all task-specific configuration: organism, sequence length, data paths, test sets, flanking sequences, etc.
 
@@ -185,7 +197,7 @@ HashFrag prevents data leakage from homologous sequences:
 
 ## 5. Model Architecture: DREAM-RNN
 
-From [dream_rnn.py](file:///Users/christen/Downloads/ALBench-S2F/albench/models/dream_rnn.py):
+From [dream_rnn.py](file:///Users/christen/Downloads/ALBench-S2F/models/dream_rnn.py):
 
 ```
 Input: (B, C, L)  where C = input_channels, L = sequence_length
@@ -211,7 +223,7 @@ Linear(256, output_dim)   # output_dim=1 for K562, 18 for yeast
 
 ### DREAMRNNStudent Ensemble
 
-[dream_rnn_student.py](file:///Users/christen/Downloads/ALBench-S2F/albench/student/dream_rnn_student.py) wraps an ensemble (`ensemble_size=3` default):
+[dream_rnn_student.py](file:///Users/christen/Downloads/ALBench-S2F/models/dream_rnn_student.py) wraps an ensemble (`ensemble_size=3` default):
 - `predict()`: Mean across ensemble members (each in eval mode)
 - `uncertainty()`: Mean of per-member MC dropout variance (30 passes each, train mode)
 - `embed()`: Mean of per-member pooled conv3 features
@@ -226,7 +238,7 @@ The AlphaGenome oracle will use a **frozen encoder + custom probing head**, not 
 - **Architecture**: `EncoderOnlyHead` (CNN features only, for short sequences < 1kb)
 - **Head configs to try**: Pool-flatten vs MLP variants (512→256, 512→512)
 - **Framework**: JAX/Haiku (separate from PyTorch student models)
-- **Status**: Stub at `albench/oracle/alphagenome.py` — needs integration
+- **Status**: Implementation at `models/alphagenome_oracle.py` and `models/alphagenome_heads.py`
 
 ---
 
@@ -240,7 +252,7 @@ The AlphaGenome oracle will use a **frozen encoder + custom probing head**, not 
 cd ~/Downloads/ALBench-S2F
 uv sync --extra dev
 uv run pytest tests/ -v
-uv run python -c "from albench.data.k562 import K562Dataset; print('OK')"
+uv run python -c "from data.k562 import K562Dataset; from albench.loop import run_al_loop; print('OK')"
 ```
 
 ### Citra (Dev GPU Runs)

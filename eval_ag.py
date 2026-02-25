@@ -92,7 +92,7 @@ def evaluate(ckpt_dir: str, head_name: str, arch: str | None = None) -> dict:
     if arch is None:
         arch = _arch_from_head_name(head_name)
 
-    from albench.models.alphagenome_heads import register_s2f_head
+    from models.alphagenome_heads import register_s2f_head
 
     register_s2f_head(head_name=head_name, arch=arch, task_mode="human", num_tracks=1)
 
@@ -225,7 +225,7 @@ def evaluate_chrom_test(
     if arch is None:
         arch = _arch_from_head_name(head_name)
 
-    from albench.models.alphagenome_heads import register_s2f_head
+    from models.alphagenome_heads import register_s2f_head
 
     register_s2f_head(head_name=head_name, arch=arch, task_mode="human", num_tracks=1)
 
@@ -257,7 +257,7 @@ def evaluate_chrom_test(
     loaded_params, _ = checkpointer.restore(Path(ckpt_dir).resolve() / "checkpoint")
     model._params = jax.device_put(merge_nested_dicts(model._params, loaded_params))
 
-    from albench.data.k562_full import K562FullDataset
+    from data.k562_full import K562FullDataset
 
     ds = K562FullDataset(data_path, split="test")
     labels = np.array(ds.labels, dtype=np.float32)
@@ -268,7 +268,7 @@ def evaluate_chrom_test(
     rc_path = _cache_dir / "test_rc.npy" if _cache_dir else None
 
     if can_path is not None and can_path.exists() and rc_path.exists():
-        from albench.models.embedding_cache import build_head_only_predict_fn
+        from models.embedding_cache import build_head_only_predict_fn
 
         head_fn = build_head_only_predict_fn(model, head_name)
 

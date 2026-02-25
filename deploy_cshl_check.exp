@@ -1,0 +1,12 @@
+#!/usr/bin/expect -f
+set timeout 60
+spawn ssh -J christen@ssh.cshl.edu christen@steinitz.cshl.edu "squeue -u christen"
+expect "*?assword:*"
+send "R!ghth0us3\r"
+expect "*?ption:*"
+send "1\r"
+expect "*?assword:*"
+send "R!ghth0us3\r"
+expect "*?ption:*"
+send "1\r"
+expect eof

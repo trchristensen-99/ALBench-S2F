@@ -10,12 +10,12 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-from albench.data.utils import one_hot_encode
 from albench.model import SequenceModel
-from albench.models.dream_rnn import DREAMRNN, create_dream_rnn
-from albench.models.loss_utils import YeastKLLoss
-from albench.models.training import train_model_optimized
-from albench.models.training_base import create_optimizer_and_scheduler
+from data.utils import one_hot_encode
+from models.dream_rnn import DREAMRNN, create_dream_rnn
+from models.loss_utils import YeastKLLoss
+from models.training import train_model_optimized
+from models.training_base import create_optimizer_and_scheduler
 
 
 @dataclass

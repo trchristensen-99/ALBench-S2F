@@ -1,0 +1,17 @@
+#!/usr/bin/expect -f
+set timeout 60
+spawn ssh -J christen@ssh.cshl.edu christen@steinitz.cshl.edu "cd /grid/wsbs/home_norepl/christen/ALBench-S2F && git pull && sbatch scripts/slurm/train_oracle_alphagenome.sh && sbatch --export=ALL,CFG=oracle_alphagenome_k562,HEAD=pool-flatten scripts/slurm/train_oracle_alphagenome.sh"
+
+expect "password:"
+send "R!ghth0us3\r"
+
+expect "option:"
+send "1\r"
+
+expect "password:"
+send "R!ghth0us3\r"
+
+expect "option:"
+send "1\r"
+
+expect eof

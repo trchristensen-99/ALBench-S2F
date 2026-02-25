@@ -121,7 +121,7 @@ class MalinoisDatasetWrapper(Dataset):
     """Wraps the ALBench K562FullDataset to emit (4, L) tensors for boda2."""
 
     def __init__(self, data_path: str, split: str = "test"):
-        from albench.data.k562_full import K562FullDataset
+        from data.k562_full import K562FullDataset
 
         self.k562_ds = K562FullDataset(data_path, split=split)
         self.length = len(self.k562_ds)

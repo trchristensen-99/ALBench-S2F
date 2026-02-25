@@ -17,10 +17,10 @@ from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import ConcatDataset, DataLoader
 
-from albench.data.k562 import K562Dataset
-from albench.models.dream_rnn import create_dream_rnn
-from albench.models.training import train_model_optimized
-from albench.models.training_base import create_optimizer_and_scheduler
+from data.k562 import K562Dataset
+from models.dream_rnn import create_dream_rnn
+from models.training import train_model_optimized
+from models.training_base import create_optimizer_and_scheduler
 
 
 def set_seed(seed: int | None) -> int:

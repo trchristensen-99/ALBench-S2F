@@ -25,11 +25,11 @@ from omegaconf import DictConfig, OmegaConf
 from scipy.stats import pearsonr, spearmanr
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
 
-from albench.data.k562 import K562Dataset
-from albench.data.utils import one_hot_encode
-from albench.models.dream_rnn import create_dream_rnn
-from albench.models.training import train_model_optimized
-from albench.models.training_base import create_optimizer_and_scheduler
+from data.k562 import K562Dataset
+from data.utils import one_hot_encode
+from models.dream_rnn import create_dream_rnn
+from models.training import train_model_optimized
+from models.training_base import create_optimizer_and_scheduler
 
 CONFIG: dict[str, object] = {}
 

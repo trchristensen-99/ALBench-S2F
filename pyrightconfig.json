@@ -1,0 +1,21 @@
+{
+  "pythonPath": ".venv/bin/python",
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": [
+    "albench",
+    "data",
+    "models",
+    "evaluation",
+    "experiments",
+    "scripts",
+    "tests",
+    "eval_ag.py",
+    "test_head.py",
+    "custom_model.py"
+  ],
+  "extraPaths": ["."],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false
+}

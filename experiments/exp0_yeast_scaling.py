@@ -17,15 +17,15 @@ from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader, Subset
 
-from albench.data.yeast import YeastDataset
-from albench.evaluation_utils.yeast_testsets import (
+from data.yeast import YeastDataset
+from evaluation.yeast_testsets import (
     evaluate_yeast_test_subsets,
     load_yeast_test_subsets,
 )
-from albench.models.dream_rnn import create_dream_rnn
-from albench.models.loss_utils import YeastKLLoss
-from albench.models.training import train_model_optimized
-from albench.models.training_base import create_optimizer_and_scheduler
+from models.dream_rnn import create_dream_rnn
+from models.loss_utils import YeastKLLoss
+from models.training import train_model_optimized
+from models.training_base import create_optimizer_and_scheduler
 
 CONFIG: dict[str, object] = {}
 

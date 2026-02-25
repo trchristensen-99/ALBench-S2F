@@ -1,0 +1,13 @@
+#!/usr/bin/expect -f
+# Submit Malinois boda2-tutorial eval job on HPC (same SSH + Duo flow as deploy_cshl.exp).
+set timeout 60
+spawn ssh -J christen@ssh.cshl.edu christen@steinitz.cshl.edu "cd /grid/wsbs/home_norepl/christen/ALBench-S2F && sbatch scripts/slurm/eval_malinois_boda2_tutorial.sh"
+expect "*?assword:*"
+send "R!ghth0us3\r"
+expect "*?ption:*"
+send "1\r"
+expect "*?assword:*"
+send "R!ghth0us3\r"
+expect "*?ption:*"
+send "1\r"
+expect eof

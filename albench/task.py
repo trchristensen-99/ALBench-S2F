@@ -1,4 +1,9 @@
-"""Task-level configuration objects."""
+"""Task-level configuration for albench.
+
+``TaskConfig`` is intentionally generic: it carries the information the AL loop
+needs (test sets, data paths, organism meta) without tying albench to any
+specific dataset loader or model.
+"""
 
 from __future__ import annotations
 
@@ -11,12 +16,12 @@ class TaskConfig:
     """Configuration for a sequence-to-function learning task.
 
     Attributes:
-        name: Task identifier (e.g. ``k562``, ``yeast``).
+        name: Task identifier (e.g. ``"k562"``, ``"yeast"``).
         organism: Species name.
         sequence_length: Total padded sequence length (bp).
         data_root: Root directory for dataset files.
         input_channels: Number of model input channels (5 for K562, 6 for yeast).
-        task_mode: Training mode — ``k562`` (regression) or ``yeast`` (18-bin KL).
+        task_mode: Training mode — ``"k562"`` (regression) or ``"yeast"`` (18-bin KL).
         random_region_length: Length of the random/variable region (bp).
         train_path: Path to training data file.
         pool_path: Path to unlabeled pool data (for AL selection).

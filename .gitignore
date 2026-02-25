@@ -13,3 +13,5 @@ __pycache__/
 .DS_Store
 REMOTE_ACCESS.md
 Current_status_of_project.md
+transfer.log
+*.tar.gz

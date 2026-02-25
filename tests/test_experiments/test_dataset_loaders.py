@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from albench.data.k562 import K562Dataset
-from albench.data.yeast import YeastDataset
+from data.k562 import K562Dataset
+from data.yeast import YeastDataset
 
 
 def _fake_load_k562(self) -> None:

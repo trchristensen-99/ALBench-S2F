@@ -5,7 +5,7 @@ Unit tests for data loading and preprocessing.
 import numpy as np
 import pytest
 
-from albench.data.utils import (
+from data.utils import (
     batch_encode_sequences,
     one_hot_encode,
     pad_sequence,
