@@ -6,7 +6,7 @@
 #SBATCH --gpus=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --time=24:00:00
+#SBATCH --time=12:00:00
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=christen@cshl.edu
 
