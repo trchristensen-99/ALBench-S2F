@@ -3,12 +3,12 @@
 #SBATCH --job-name=ag_flatten_2x128
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
-#SBATCH --partition=kooq
+#SBATCH --partition=gpuq
 #SBATCH --time=04:00:00
 #SBATCH --gres=gpu:h100:1
-#SBATCH --qos=koolab
-#SBATCH --cpus-per-task=14
-#SBATCH --mem=200G
+#SBATCH --qos=fast
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=48G
 
 source /etc/profile.d/modules.sh
 module load EB5
