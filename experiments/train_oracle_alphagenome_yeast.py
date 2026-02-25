@@ -10,6 +10,13 @@ Supports the same three augmentation / caching modes:
                    architecture search described here.
 * ``"hybrid"``   — Cache canonical + RC. Each batch randomly chooses cache vs encoder.
 
+Two-stage training (optional):
+  Stage 1 — frozen encoder, head only (all modes above supported).
+  Stage 2 — full encoder unfrozen, end-to-end fine-tuning at a lower LR.
+  Enable with ``second_stage_lr`` (e.g. 1e-5) and ``second_stage_epochs`` (e.g. 50).
+  Stage 2 always runs in ``full`` aug mode (shift + RC via the encoder).
+  Set ``second_stage_lr: null`` to skip Stage 2 entirely.
+
 Yeast-specific details:
 * 150bp core sequences padded to 384bp using plasmid flanks (54bp 5' + 89bp 3').
 * Objective: 18-bin cross-entropy (KL) on discretised expression levels.
@@ -218,11 +225,20 @@ def main(cfg: DictConfig) -> None:
     early_stop_patience = int(cfg.get("early_stop_patience", 15))
     _use_plateau = lr_schedule_type == "plateau"
 
+    # Two-stage config
+    _s2_lr_raw = cfg.get("second_stage_lr", None)
+    second_stage_lr = float(_s2_lr_raw) if _s2_lr_raw is not None else None
+    second_stage_epochs = int(cfg.get("second_stage_epochs", 50))
+    second_stage_early_stop = int(cfg.get("second_stage_early_stop_patience", 10))
+
+    _tags = ["oracle", "alphagenome", "yeast", str(cfg.head_arch), aug_mode]
+    if second_stage_lr is not None:
+        _tags.append("two_stage")
     wandb.init(
         project="albench-s2f",
         name=f"ag_yeast_{cfg.head_arch}_do{dropout_rate}_{aug_mode}_seed{used_seed}",
         config=OmegaConf.to_container(cfg, resolve=True),
-        tags=["oracle", "alphagenome", "yeast", str(cfg.head_arch), aug_mode],
+        tags=_tags,
         mode=str(cfg.wandb_mode),
         job_type="oracle_training",
     )
@@ -589,6 +605,143 @@ def main(cfg: DictConfig) -> None:
                 f"Early stopping at epoch {epoch + 1} (no improvement for {early_stop_patience} epochs)"
             )
             break
+
+    # ── Stage 2: unfreeze encoder, end-to-end fine-tuning ────────────────────
+    if second_stage_lr is not None:
+        print(
+            f"\n=== Stage 2: unfreezing encoder, lr={second_stage_lr:.1e}, "
+            f"epochs={second_stage_epochs} ==="
+        )
+        # Load best Stage-1 checkpoint before unfreezing
+        best_s1 = output_dir / "best_model"
+        if best_s1.exists():
+            model.load_checkpoint(str(best_s1))
+            print("  Loaded best Stage-1 checkpoint.")
+
+        # Save full model (encoder + head) so Stage 2 can load it later if needed
+        model.save_checkpoint(str(output_dir / "stage1_best"), save_full_model=True)
+
+        # Unfreeze everything
+        model.unfreeze()
+        n_params_s2 = sum(x.size for x in jax.tree_util.tree_leaves(model._params))
+        print(f"  Stage-2 trainable parameters: {n_params_s2:,}")
+
+        s2_optimizer = optax.adamw(
+            learning_rate=second_stage_lr,
+            weight_decay=float(cfg.get("second_stage_weight_decay", float(cfg.weight_decay))),
+        )
+        s2_opt_state = s2_optimizer.init(model._params)
+
+        @jax.jit
+        def s2_train_step(params, opt_s, batch):
+            def loss_func(p):
+                preds = model._predict(
+                    p,
+                    model._state,
+                    batch["sequences"],
+                    batch["organism_index"],
+                    negative_strand_mask=jnp.zeros(len(batch["sequences"]), dtype=bool),
+                    strand_reindexing=None,
+                )[unique_head_name]
+                return loss_fn(preds, batch)["loss"]
+
+            loss, grads = jax.value_and_grad(loss_func)(params)
+            updates, nxt = s2_optimizer.update(grads, opt_s, params)
+            return optax.apply_updates(params, updates), nxt, loss
+
+        # Stage 2 always uses full augmentation (encoder runs every step)
+        def collate_s2_train(b):
+            return collate_yeast(b, max_seq_len, augment=True)
+
+        def collate_s2_eval(b):
+            return collate_yeast(b, max_seq_len, augment=False)
+
+        s2_train_loader = DataLoader(
+            train_dataset,
+            batch_size=int(cfg.batch_size),
+            shuffle=True,
+            num_workers=n_workers,
+            collate_fn=collate_s2_train,
+            pin_memory=True,
+            persistent_workers=n_workers > 0,
+        )
+        s2_val_loader = DataLoader(
+            val_dataset,
+            batch_size=int(cfg.batch_size),
+            shuffle=False,
+            num_workers=n_workers,
+            collate_fn=collate_s2_eval,
+            pin_memory=True,
+            persistent_workers=n_workers > 0,
+        )
+
+        best_s2_pearson = best_val_pearson
+        s2_no_improve = 0
+
+        for s2_epoch in range(second_stage_epochs):
+            s2_losses: list[float] = []
+            pbar2 = tqdm(
+                s2_train_loader,
+                desc=f"S2 Epoch {s2_epoch + 1}/{second_stage_epochs}",
+            )
+            for batch in pbar2:
+                batch_jax = {k: jnp.array(v) for k, v in batch.items()}
+                model._params, s2_opt_state, loss = s2_train_step(
+                    model._params, s2_opt_state, batch_jax
+                )
+                s2_losses.append(float(loss))
+                pbar2.set_postfix({"loss": f"{float(loss):.4f}"})
+
+            s2_y_true_all: list[np.ndarray] = []
+            s2_y_pred_all: list[np.ndarray] = []
+            for batch in s2_val_loader:
+                batch_jax = {k: jnp.array(v) for k, v in batch.items()}
+                preds = eval_step(model._params, batch_jax)
+                probs = np.array(jax.nn.softmax(preds, axis=-1))
+                pred_expr = np.sum(probs * np.arange(num_tracks, dtype=np.float32), axis=-1)
+                s2_y_pred_all.append(pred_expr)
+                s2_y_true_all.append(np.array(batch["targets"]).reshape(-1))
+
+            s2_y_true = np.concatenate(s2_y_true_all) if s2_y_true_all else np.array([])
+            s2_y_pred = np.concatenate(s2_y_pred_all) if s2_y_pred_all else np.array([])
+            s2_pear = _safe_corr(s2_y_true, s2_y_pred, pearsonr)
+            s2_spear = _safe_corr(s2_y_true, s2_y_pred, spearmanr)
+            s2_avg_train = float(np.mean(s2_losses)) if s2_losses else float("nan")
+
+            global_epoch = int(cfg.epochs) + s2_epoch + 1
+            print(
+                f"S2 Epoch {s2_epoch + 1}  val/pearson_r={s2_pear:.4f}  "
+                f"val/spearman_r={s2_spear:.4f}"
+            )
+            wandb.log(
+                {
+                    "epoch": global_epoch,
+                    "stage": 2,
+                    "train/loss": s2_avg_train,
+                    "val/pearson_r": s2_pear,
+                    "val/spearman_r": s2_spear,
+                    "lr": second_stage_lr,
+                }
+            )
+
+            if s2_pear > best_s2_pearson:
+                best_s2_pearson = s2_pear
+                s2_no_improve = 0
+                model.save_checkpoint(str(output_dir / "best_model"), save_full_model=True)
+                print(f"  New best (Stage 2): {best_s2_pearson:.4f}")
+            else:
+                s2_no_improve += 1
+
+            model.save_checkpoint(str(output_dir / "last_model_s2"), save_full_model=True)
+
+            if s2_no_improve >= second_stage_early_stop:
+                print(
+                    f"Stage-2 early stopping at epoch {s2_epoch + 1} "
+                    f"(no improvement for {second_stage_early_stop} epochs)"
+                )
+                break
+
+        print(f"\nFinal best val Pearson: {best_s2_pearson:.4f} (Stage 2)")
 
     wandb.finish()
 
