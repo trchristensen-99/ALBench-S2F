@@ -19,10 +19,12 @@ from eval_ag import evaluate_chrom_test
 
 # 4-tuple: (label, ckpt_dir, head_name, cache_dir_override)
 # cache_dir_override=None  → fall back to --cache_dir CLI arg (standard 600bp cache).
-# cache_dir_override=False → explicitly skip cache (full_aug models trained via live encoder).
-# cache_dir_override=<str> → use that specific cache dir (e.g. compact heads).
+# cache_dir_override=<str> → use that specific cache dir (e.g. compact or float32 heads).
 _COMPACT_CACHE = "outputs/ag_compact/embedding_cache_compact"
-_NO_CACHE = False  # sentinel: bypass test-embedding cache for full_aug models
+# float32 cache for full_aug models — avoids float16 clipping artefact (bfloat16 encoder
+# output can exceed ±65504; clipping corrupts embeddings for heads trained on live encoder).
+# Build with: uv run python scripts/analysis/build_test_embedding_cache.py --dtype float32
+_F32_CACHE = "outputs/ag_flatten/embedding_cache_f32"
 
 CONFIGS = [
     # no_shift heads (precomputed 600bp embedding cache, canonical + RC)
@@ -148,30 +150,30 @@ CONFIGS = [
         None,
     ),
     # Full-aug variants: novel arch + augmentation combos
-    # Use _NO_CACHE: trained via live encoder (model._predict()), incompatible with head-only cache path.
+    # Use _F32_CACHE: trained via live bfloat16 encoder; float16 cache clips values outside ±65504.
     (
         "boda_flatten_ref_full_aug",
         "outputs/ag_flatten_ref_full_aug/best_model",
         "alphagenome_k562_head_boda_flatten_1024_dropout_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     (
         "boda_pool_flatten_full_aug",
         "outputs/ag_pool_flatten_full_aug/best_model",
         "alphagenome_k562_head_pool_flatten_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     (
         "boda_mean_full_aug",
         "outputs/ag_mean_full_aug/best_model",
         "alphagenome_k562_head_boda_mean_512_512_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     (
         "boda_flatten_full_aug_shift25",
         "outputs/ag_flatten_full_aug_shift25/best_model",
         "alphagenome_k562_head_boda_flatten_512_512_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     # MLP-512-512 and pool-flatten heads with dropout=0.1
     (
@@ -199,44 +201,44 @@ CONFIGS = [
         None,
     ),
     # Full shift augmentation heads (aug_mode=full, encoder on every batch)
-    # Use _NO_CACHE: incompatible with head-only cache path.
+    # Use _F32_CACHE: float32 test cache avoids float16 clipping for bfloat16-trained heads.
     (
         "boda_flatten_full_aug",
         "outputs/ag_flatten_full_aug/best_model",
         "alphagenome_k562_head_boda_flatten_512_512_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     (
         "boda_flatten_full_aug_plateau",
         "outputs/ag_flatten_full_aug_plateau/best_model",
         "alphagenome_k562_head_boda_flatten_512_512_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     # Cosine LR variants: same full-aug training but with cosine annealing schedule
     (
         "boda_flatten_full_aug_cosine",
         "outputs/ag_flatten_full_aug_cosine/best_model",
         "alphagenome_k562_head_boda_flatten_512_512_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     (
         "boda_pool_flatten_full_aug_cosine",
         "outputs/ag_pool_flatten_full_aug_cosine/best_model",
         "alphagenome_k562_head_pool_flatten_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     # Sum head variants with full augmentation
     (
         "boda_sum_full_aug",
         "outputs/ag_sum_full_aug/best_model",
         "alphagenome_k562_head_boda_sum_512_512_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     (
         "boda_sum_1024_full_aug",
         "outputs/ag_sum_1024_full_aug/best_model",
         "alphagenome_k562_head_boda_sum_1024_dropout_v4",
-        _NO_CACHE,
+        _F32_CACHE,
     ),
     # 384bp compact-window heads (T=3 tokens; separate embedding cache)
     (
@@ -305,10 +307,7 @@ def main():
             )
             continue
         # Per-config cache_dir takes priority; fall back to --cache_dir CLI arg.
-        # per_cfg_cache=False (_NO_CACHE) means skip cache even if --cache_dir is set.
-        if per_cfg_cache is False:
-            cache = None
-        elif per_cfg_cache is not None:
+        if per_cfg_cache is not None:
             cache = per_cfg_cache
         else:
             cache = args.cache_dir
