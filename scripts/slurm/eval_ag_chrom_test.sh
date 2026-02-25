@@ -22,4 +22,5 @@ export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer="
 
 uv run python scripts/analysis/eval_ag_chrom_test.py \
     --data_path data/k562 \
-    --output outputs/ag_chrom_test_results.json
+    --output outputs/ag_chrom_test_results.json \
+    --cache_dir outputs/ag_flatten/embedding_cache
