@@ -252,8 +252,21 @@ def main():
     )
     args = p.parse_args()
 
+    # Load existing results so we can skip already-evaluated models.
+    out_path = Path(args.output)
     out: dict[str, dict] = {}
+    if out_path.exists():
+        with open(out_path) as f:
+            out = json.load(f)
+        print(
+            f"[eval_ag_chrom_test] Loaded {len(out)} existing results from {out_path}",
+            file=sys.stderr,
+        )
+
     for label, ckpt_dir, head_name, per_cfg_cache in CONFIGS:
+        if label in out:
+            print(f"[eval_ag_chrom_test] Skip {label}: already in results", file=sys.stderr)
+            continue
         ckpt_path = Path(ckpt_dir).resolve()
         if not (ckpt_path / "checkpoint").exists():
             print(
