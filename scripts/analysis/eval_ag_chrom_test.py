@@ -240,6 +240,59 @@ CONFIGS = [
         "alphagenome_k562_head_boda_sum_1024_dropout_v4",
         _F32_CACHE,
     ),
+    # Architecture search: flatten-mlp with varying depth (1/2/3 layers) and width (512/256/128).
+    # Head names: alphagenome_k562_head_flatten_mlp_{dims}_v4
+    # 1-layer heads
+    (
+        "boda_flatten_1x512",
+        "outputs/ag_flatten_1x512/best_model",
+        "alphagenome_k562_head_flatten_mlp_512_v4",
+        None,
+    ),
+    (
+        "boda_flatten_1x256",
+        "outputs/ag_flatten_1x256/best_model",
+        "alphagenome_k562_head_flatten_mlp_256_v4",
+        None,
+    ),
+    (
+        "boda_flatten_1x128",
+        "outputs/ag_flatten_1x128/best_model",
+        "alphagenome_k562_head_flatten_mlp_128_v4",
+        None,
+    ),
+    # 2-layer heads (512x512 already tested as boda_flatten; add 256x256 and 128x128)
+    (
+        "boda_flatten_2x256",
+        "outputs/ag_flatten_2x256/best_model",
+        "alphagenome_k562_head_flatten_mlp_256x256_v4",
+        None,
+    ),
+    (
+        "boda_flatten_2x128",
+        "outputs/ag_flatten_2x128/best_model",
+        "alphagenome_k562_head_flatten_mlp_128x128_v4",
+        None,
+    ),
+    # 3-layer heads
+    (
+        "boda_flatten_3x512",
+        "outputs/ag_flatten_3x512/best_model",
+        "alphagenome_k562_head_flatten_mlp_512x512x512_v4",
+        None,
+    ),
+    (
+        "boda_flatten_3x256",
+        "outputs/ag_flatten_3x256/best_model",
+        "alphagenome_k562_head_flatten_mlp_256x256x256_v4",
+        None,
+    ),
+    (
+        "boda_flatten_3x128",
+        "outputs/ag_flatten_3x128/best_model",
+        "alphagenome_k562_head_flatten_mlp_128x128x128_v4",
+        None,
+    ),
     # 384bp compact-window heads (T=3 tokens; separate embedding cache)
     (
         "boda_sum_compact",

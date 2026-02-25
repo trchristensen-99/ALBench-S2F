@@ -35,6 +35,7 @@ HeadArch = Literal[
     "boda-center-512-512",
     "encoder-1024-dropout",
     "boda-flatten-1024-dropout",
+    "flatten-mlp",  # Generic N-layer MLP with flatten pooling; hidden_dims from metadata.
 ]
 TaskMode = Literal["yeast", "human"]
 
@@ -423,6 +424,40 @@ class BodaFlatten1024DropoutHead(_BaseLossHead):
         return self._task_loss(predictions, batch)
 
 
+class FlattenMLPHead(_BaseLossHead):
+    """Generic N-layer flatten MLP head — architecture driven by metadata.
+
+    Applies LayerNorm → Flatten → [Linear(D) → Dropout → ReLU] × N → Linear(num_tracks).
+
+    The hidden layer dimensions are read from the ``hidden_dims`` metadata key, e.g.
+    ``[512, 256]`` for a two-layer 512→256 head.  Dropout rate is read from the
+    ``dropout_rate`` metadata key (default 0.1).
+
+    This replaces the proliferation of hard-coded two-layer subclasses and supports
+    arbitrary depth via the ``++hidden_dims=[D1,D2,...]`` Hydra override.
+    """
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.1))
+        hidden_dims = list(self._metadata.get("hidden_dims", [512, 512]))
+
+        x = embeddings.encoder_output  # (B, T, 1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = jnp.reshape(x, (x.shape[0], -1))  # flatten: (B, T*D)
+
+        for i, dim in enumerate(hidden_dims):
+            x = hk.Linear(dim, name=f"hidden_{i}")(x)
+            if is_training and dropout_rate > 0.0:
+                x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
+            x = jax.nn.relu(x)
+
+        return hk.Linear(self._num_tracks, name="output")(x)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
 def get_head_class(arch: HeadArch) -> type[CustomHead]:
     """Return a head class for the requested architecture.
 
@@ -461,6 +496,8 @@ def get_head_class(arch: HeadArch) -> type[CustomHead]:
         return Encoder1024DropoutHead
     if arch == "boda-flatten-1024-dropout":
         return BodaFlatten1024DropoutHead
+    if arch == "flatten-mlp":
+        return FlattenMLPHead
     raise ValueError(f"Unsupported AlphaGenome head architecture: {arch}")
 
 
@@ -472,6 +509,7 @@ def register_s2f_head(
     num_tracks: int,
     output_type: dna_output.OutputType = dna_output.OutputType.RNA_SEQ,
     dropout_rate: float = 0.0,
+    hidden_dims: list[int] | None = None,
 ) -> None:
     """Register an ALBench S2F AlphaGenome head with frozen-encoder training.
 
@@ -483,12 +521,18 @@ def register_s2f_head(
         output_type: AlphaGenome output type enum.
         dropout_rate: Dropout probability applied after each hidden layer during
             training (when the caller passes ``is_training=True``). 0.0 = no dropout.
+        hidden_dims: Hidden layer sizes for the ``flatten-mlp`` arch
+            (e.g. ``[512, 256]`` for a two-layer 512→256 head). Ignored by
+            hard-coded arch variants. Defaults to ``[512, 512]`` inside the head.
     """
     head_class = get_head_class(arch)
+    metadata: dict = {"task_mode": task_mode, "dropout_rate": dropout_rate}
+    if hidden_dims is not None:
+        metadata["hidden_dims"] = hidden_dims
     head_config = CustomHeadConfig(
         type=CustomHeadType.GENOME_TRACKS,
         output_type=output_type,
         num_tracks=num_tracks,
-        metadata={"task_mode": task_mode, "dropout_rate": dropout_rate},
+        metadata=metadata,
     )
     register_custom_head(head_name, head_class, head_config)

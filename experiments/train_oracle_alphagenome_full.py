@@ -311,9 +311,15 @@ def main(cfg: DictConfig) -> None:
         job_type="oracle_training",
     )
 
-    # Include arch in head name to avoid shape collisions from old checkpoints
-    # that may have stored head params under the same name with a different context mode.
+    # Include arch (and hidden_dims if set) in head name to avoid shape collisions
+    # from old checkpoints that stored head params under the same name.
+    hidden_dims_raw = cfg.get("hidden_dims", None)
+    hidden_dims: list[int] | None = (
+        [int(d) for d in hidden_dims_raw] if hidden_dims_raw is not None else None
+    )
     arch_slug = str(cfg.head_arch).replace("-", "_")
+    if hidden_dims:
+        arch_slug = f"{arch_slug}_{'x'.join(str(d) for d in hidden_dims)}"
     unique_head_name = f"{cfg.head_name}_{arch_slug}_v4"
 
     dropout_rate = float(cfg.get("dropout_rate", 0.0))
@@ -324,6 +330,7 @@ def main(cfg: DictConfig) -> None:
         task_mode=str(cfg.task_mode),
         num_tracks=num_tracks,
         dropout_rate=dropout_rate,
+        hidden_dims=hidden_dims,
     )
 
     weights_path = str(Path(str(cfg.weights_path)).expanduser().resolve())
