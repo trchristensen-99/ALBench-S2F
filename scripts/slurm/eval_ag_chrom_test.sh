@@ -17,6 +17,9 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD:$PYTHONPATH"
 source scripts/slurm/setup_hpc_deps.sh
 
+# Disable XLA CUDA command buffers to prevent OOM when accumulating too many live CUDA graphs.
+export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer="
+
 uv run python scripts/analysis/eval_ag_chrom_test.py \
     --data_path data/k562 \
     --output outputs/ag_chrom_test_results.json
