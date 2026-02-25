@@ -541,9 +541,12 @@ def main(cfg: DictConfig) -> None:
                     batch, effective_max_seq_len, flank_bp=flank_bp, augment=False
                 )
         else:
+            _max_shift = int(cfg.get("max_shift", 15))
 
             def collate_fn_train(batch):
-                return collate_k562_full(batch, effective_max_seq_len, augment=True)
+                return collate_k562_full(
+                    batch, effective_max_seq_len, augment=True, max_shift=_max_shift
+                )
 
             def collate_fn_eval(batch):
                 return collate_k562_full(batch, effective_max_seq_len, augment=False)

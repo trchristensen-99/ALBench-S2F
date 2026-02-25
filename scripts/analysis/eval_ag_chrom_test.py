@@ -137,6 +137,38 @@ CONFIGS = [
         "alphagenome_k562_head_boda_sum_1024_dropout_v4",
         None,
     ),
+    # mean-1024 no_shift
+    (
+        "boda_mean_1024_ref",
+        "outputs/ag_mean_1024_ref/best_model",
+        "alphagenome_k562_head_boda_mean_1024_dropout_v4",
+        None,
+    ),
+    # Full-aug variants: novel arch + augmentation combos
+    (
+        "boda_flatten_ref_full_aug",
+        "outputs/ag_flatten_ref_full_aug/best_model",
+        "alphagenome_k562_head_boda_flatten_1024_dropout_v4",
+        None,
+    ),
+    (
+        "boda_pool_flatten_full_aug",
+        "outputs/ag_pool_flatten_full_aug/best_model",
+        "alphagenome_k562_head_pool_flatten_v4",
+        None,
+    ),
+    (
+        "boda_mean_full_aug",
+        "outputs/ag_mean_full_aug/best_model",
+        "alphagenome_k562_head_boda_mean_512_512_v4",
+        None,
+    ),
+    (
+        "boda_flatten_full_aug_shift25",
+        "outputs/ag_flatten_full_aug_shift25/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+        None,
+    ),
     # MLP-512-512 and pool-flatten heads with dropout=0.1
     (
         "mlp_ref",

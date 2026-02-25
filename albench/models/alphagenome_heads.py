@@ -29,6 +29,7 @@ HeadArch = Literal[
     "boda-flatten-1024-512",
     "boda-sum-512-512",
     "boda-sum-1024-dropout",
+    "boda-mean-1024-dropout",
     "boda-mean-512-512",
     "boda-max-512-512",
     "boda-center-512-512",
@@ -374,6 +375,29 @@ class BodaSum1024DropoutHead(_BaseLossHead):
         return self._task_loss(predictions, batch)
 
 
+class BodaMean1024DropoutHead(_BaseLossHead):
+    """Mean pool → LayerNorm → Linear(1024) → Dropout → ReLU → Linear(1).
+
+    Like flatten_ref but with mean pooling instead of flattening.
+    """
+
+    def predict(self, embeddings, organism_index, **kwargs):  # type: ignore[override]
+        is_training = kwargs.get("is_training", False)
+        dropout_rate = float(self._metadata.get("dropout_rate", 0.1))
+
+        x = embeddings.encoder_output  # (B, T, 1536)
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
+        x = jnp.mean(x, axis=1)  # mean pool → (B, 1536)
+        x = hk.Linear(1024, name="hidden_0")(x)
+        if is_training and dropout_rate > 0.0:
+            x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
+        x = jax.nn.relu(x)
+        return hk.Linear(self._num_tracks, name="output")(x)
+
+    def loss(self, predictions, batch):  # type: ignore[override]
+        return self._task_loss(predictions, batch)
+
+
 class BodaFlatten1024DropoutHead(_BaseLossHead):
     """Reference K562-optimal: LayerNorm → Flatten → Linear(1024) → Dropout → ReLU → Linear(1).
 
@@ -425,6 +449,8 @@ def get_head_class(arch: HeadArch) -> type[CustomHead]:
         return BodaSumHead
     if arch == "boda-sum-1024-dropout":
         return BodaSum1024DropoutHead
+    if arch == "boda-mean-1024-dropout":
+        return BodaMean1024DropoutHead
     if arch == "boda-mean-512-512":
         return BodaMeanHead
     if arch == "boda-max-512-512":

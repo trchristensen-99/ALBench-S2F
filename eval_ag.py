@@ -43,6 +43,8 @@ def _arch_from_head_name(head_name: str) -> str:
         return "boda-sum-1024-dropout"
     if "boda_sum" in h or "boda-sum" in h:
         return "boda-sum-512-512"
+    if "boda_mean_1024" in h or "boda-mean-1024" in h:
+        return "boda-mean-1024-dropout"
     if "boda_mean" in h or "boda-mean" in h:
         return "boda-mean-512-512"
     if "boda_max" in h or "boda-max" in h:
