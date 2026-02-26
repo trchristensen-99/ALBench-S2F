@@ -9,8 +9,8 @@
 #SBATCH --job-name=ag_hf_oracle_full
 #SBATCH --output=logs/%x-%A-%a.out
 #SBATCH --error=logs/%x-%A-%a.err
-#SBATCH --partition=kooq
-#SBATCH --qos=koolab
+#SBATCH --partition=gpuq
+#SBATCH --qos=slow_nice
 #SBATCH --time=48:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
