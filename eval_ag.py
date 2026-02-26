@@ -202,12 +202,9 @@ def evaluate(ckpt_dir: str, head_name: str, arch: str | None = None) -> dict:
     ref_pred = _predict(snv_df["sequence_ref"].astype(str).tolist())
     alt_pred = _predict(snv_df["sequence_alt"].astype(str).tolist())
 
-    # Absolute metric (Primary)
-    snv_abs_pred = np.concatenate([ref_pred, alt_pred])
-    ref_true = snv_df["K562_log2FC_ref"].to_numpy(dtype=np.float32)
+    # Absolute metric (Primary) — alt allele only; ref overlaps in_distribution set
     alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
-    snv_abs_true = np.concatenate([ref_true, alt_true])
-    metrics["snv_abs"] = {"pearson_r": _safe_corr(snv_abs_pred, snv_abs_true, pearsonr)}
+    metrics["snv_abs"] = {"pearson_r": _safe_corr(alt_pred, alt_true, pearsonr)}
 
     # Delta metric (Secondary)
     delta_pred = alt_pred - ref_pred
@@ -484,15 +481,15 @@ def evaluate_hashfrag_test_sets_600bp(
     snv_df = pd.read_csv(test_set_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
     ref_pred = _predict(snv_df["sequence_ref"].astype(str).tolist())
     alt_pred = _predict(snv_df["sequence_alt"].astype(str).tolist())
-    ref_true = snv_df["K562_log2FC_ref"].to_numpy(dtype=np.float32)
     alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
-    snv_abs_pred = np.concatenate([ref_pred, alt_pred])
-    snv_abs_true = np.concatenate([ref_true, alt_true])
+    # snv_abs: predict absolute activity of the alternate (mutant) allele only.
+    # Ref sequences largely overlap the in-distribution test set; including them
+    # would inflate this metric redundantly.
     metrics["snv_abs"] = {
-        "pearson_r": _safe_corr(snv_abs_pred, snv_abs_true, pearsonr),
-        "spearman_r": _safe_corr(snv_abs_pred, snv_abs_true, spearmanr),
-        "mse": float(np.mean((snv_abs_pred - snv_abs_true) ** 2)),
-        "n": int(len(snv_abs_true)),
+        "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
+        "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
+        "mse": float(np.mean((alt_pred - alt_true) ** 2)),
+        "n": int(len(alt_true)),
     }
     delta_pred = alt_pred - ref_pred
     delta_true = snv_df["delta_log2FC"].to_numpy(dtype=np.float32)
