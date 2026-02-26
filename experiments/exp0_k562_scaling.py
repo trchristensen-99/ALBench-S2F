@@ -137,15 +137,13 @@ def _evaluate_k562_test_sets(
         ref_pred = _predict_sequences(model, snv_df["sequence_ref"].astype(str).tolist(), device)
         alt_pred = _predict_sequences(model, snv_df["sequence_alt"].astype(str).tolist(), device)
 
-        # SNV raw-expression metric across both alleles.
-        snv_abs_pred = np.concatenate([ref_pred, alt_pred], axis=0)
-        ref_true = snv_df["K562_log2FC_ref"].to_numpy(dtype=np.float32)
+        # SNV absolute expression: alt-allele predictions vs alt truth only.
+        # Ref sequences overlap the in-distribution test set; using alt-only avoids inflation.
         alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
-        snv_abs_true = np.concatenate([ref_true, alt_true], axis=0)
         metrics["snv_abs"] = {
-            "pearson_r": _safe_corr(snv_abs_pred, snv_abs_true, pearsonr),
-            "spearman_r": _safe_corr(snv_abs_pred, snv_abs_true, spearmanr),
-            "mse": float(np.mean((snv_abs_pred - snv_abs_true) ** 2)),
+            "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
+            "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
+            "mse": float(np.mean((alt_pred - alt_true) ** 2)),
         }
 
         # SNV variant-effect metric (delta alt-ref), retained for compatibility.

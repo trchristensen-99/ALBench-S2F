@@ -1,0 +1,34 @@
+# Exp 0: AlphaGenome head scaling curve on K562 hashFrag train+pool.
+# Best architecture from oracle arch search: boda-flatten-512-512, dropout=0.1.
+# One fraction per SLURM array task; pass ++fraction=0.10 to override.
+task_mode: human
+head_arch: boda-flatten-512-512
+head_name: alphagenome_k562_head_hashfrag
+num_tracks: 1
+
+k562_data_path: data/k562
+output_dir: outputs/exp0_k562_scaling_alphagenome
+weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+gpu: 0
+
+# Training
+fraction: 1.0  # override via ++fraction=$FRACTION in SLURM array
+epochs: 100
+early_stop_patience: 5
+seed: null  # null → random seed from os.urandom
+wandb_mode: offline
+
+# Optimizer (same as best oracle config)
+lr: 0.001
+weight_decay: 0.000001
+gradients_clip: null
+
+# Head
+dropout_rate: 0.1
+
+# Augmentation
+max_shift: 15
+
+# Data loading
+batch_size: 128
+num_workers: 4
