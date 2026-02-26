@@ -618,8 +618,29 @@ def main(cfg: DictConfig) -> None:
         # Load best Stage-1 checkpoint before unfreezing
         best_s1 = output_dir / "best_model"
         if best_s1.exists():
-            model.load_checkpoint(str(best_s1))
-            print("  Loaded best Stage-1 checkpoint.")
+            from collections.abc import Mapping
+
+            import orbax.checkpoint as ocp
+
+            def _merge(base, override):
+                if not isinstance(override, Mapping) or not isinstance(base, Mapping):
+                    return override
+                merged = dict(base)
+                for k, v in override.items():
+                    if k in merged and isinstance(merged[k], Mapping) and isinstance(v, Mapping):
+                        merged[k] = _merge(merged[k], v)
+                    else:
+                        merged[k] = v
+                return merged
+
+            ckpt_path = (best_s1 / "checkpoint").resolve()
+            if ckpt_path.exists():
+                checkpointer = ocp.StandardCheckpointer()
+                loaded_params, _ = checkpointer.restore(ckpt_path)
+                model._params = jax.device_put(_merge(model._params, loaded_params))
+                print("  Loaded best Stage-1 checkpoint.")
+            else:
+                print(f"  WARNING: checkpoint directory not found at {ckpt_path}")
 
         # Save full model (encoder + head) so Stage 2 can load it later if needed
         model.save_checkpoint(str(output_dir / "stage1_best"), save_full_model=True)
