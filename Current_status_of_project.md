@@ -417,3 +417,26 @@ Missing checkpoints are automatically skipped with a stderr message.
 3. **Monitor hybrid jobs** (~12h): check logs at `logs/ag_*_hybrid-655165*.{out,err}`
 4. After hybrid runs: eval them on chr 7,13 (add `outputs/ag_*_hybrid/best_model` to `eval_ag_chrom_test.py`)
 
+---
+
+## 6. Yeast AlphaGenome Run (Feb 25-26, 2026)
+
+### 6.1 Initial Sweep & Flank Discovery
+- Initial validation scores for the head sweep plateaued around 0.54 Pearson R.
+- Identified that the 100GB sequence cache was built using generic plasmid flanks rather than the specific `pTpT/TEF1` reference flanks, leading to poor model interpretation of the core 80bp sequence.
+- The winning architecture was identified as a 1-layer, 512-unit MLP (`flatten_1x512`).
+
+### 6.2 Cache Rebuilding & Bug Fixes
+- **Job 685314** (24 hours on H100) was submitted to rebuild the 100GB cache using the exact `pTpT/TEF1` flanking nucleotides and the `flatten_1x512` head.
+- **Stage 2 Bug Fix:** Discovered that Stage 2 (unfrozen encoder end-to-end fine-tuning) would crash because `AlphaGenomeModel` didn't implement `.load_checkpoint()`. Fixed `experiments/train_oracle_alphagenome_yeast.py` to manually merge the Orbax `._params` dictionary so Stage 1 head parameters correctly transfer to Stage 2.
+
+### 6.3 Stage 2 Fine-Tuning Preparation
+- Investigated the reference `alphagenome_FT_MPRA` repository for K562 Stage 2 best practices:
+  - **Batch Size:** 32 (frozen encoder uses 4096, but back-propping through the transformer requires small batches to avoid OOM).
+  - **Learning Rate:** 1e-5.
+  - **Epochs:** 50.
+- Upgraded the python training script to support a separate `second_stage_batch_size` and a `pretrained_head_dir` argument to bypass Stage 1 entirely pointing directly to orbax checkpoints.
+
+Created two ready-to-run Stage 2 SLURM scripts for when Job 685314 finishes:
+1. `scripts/slurm/train_ag_yeast_stage2_1x512_k562.sh`: Runs the exact K562 best practices (LR 1e-5, Batch 32, static validation padding).
+2. `scripts/slurm/train_ag_yeast_stage2_1x512_full_aug.sh`: Applies stringent `aug_mode="full"` (live sequence padding shifts) and uses a slightly lower `5e-6` LR for maximum generalization.
