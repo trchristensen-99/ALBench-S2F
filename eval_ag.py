@@ -30,6 +30,9 @@ def _arch_from_head_name(head_name: str) -> str:
     h = head_name.lower()
     if "pool" in h and "flatten" in h:
         return "pool-flatten"
+    # flatten-mlp (generic N-layer; must come before boda_flatten checks)
+    if "flatten_mlp" in h or "flatten-mlp" in h:
+        return "flatten-mlp"
     # More specific patterns must come before generic ones
     if "boda_flatten_1024_512" in h or "boda-flatten-1024-512" in h:
         return "boda-flatten-1024-512"
@@ -54,6 +57,22 @@ def _arch_from_head_name(head_name: str) -> str:
     if "encoder_1024" in h or "encoder-1024" in h:
         return "encoder-1024-dropout"
     return "mlp-512-512"
+
+
+def _hidden_dims_from_head_name(head_name: str) -> list[int] | None:
+    """Parse hidden_dims from flatten_mlp head names.
+
+    e.g. 'alphagenome_k562_head_flatten_mlp_512_v4'       → [512]
+         'alphagenome_k562_head_flatten_mlp_256x256_v4'   → [256, 256]
+         'alphagenome_k562_head_flatten_mlp_512x512x512_v4' → [512, 512, 512]
+    Returns None if the pattern is not found.
+    """
+    import re
+
+    m = re.search(r"flatten[_-]mlp[_-]([0-9]+(?:x[0-9]+)*)[_-]v\d", head_name.lower())
+    if m is None:
+        return None
+    return [int(d) for d in m.group(1).split("x")]
 
 
 def _safe_corr(pred, target, fn):
@@ -94,7 +113,10 @@ def evaluate(ckpt_dir: str, head_name: str, arch: str | None = None) -> dict:
 
     from models.alphagenome_heads import register_s2f_head
 
-    register_s2f_head(head_name=head_name, arch=arch, task_mode="human", num_tracks=1)
+    hidden_dims = _hidden_dims_from_head_name(head_name) if arch == "flatten-mlp" else None
+    register_s2f_head(
+        head_name=head_name, arch=arch, task_mode="human", num_tracks=1, hidden_dims=hidden_dims
+    )
 
     model = create_model_with_heads(
         "all_folds",
@@ -227,7 +249,10 @@ def evaluate_chrom_test(
 
     from models.alphagenome_heads import register_s2f_head
 
-    register_s2f_head(head_name=head_name, arch=arch, task_mode="human", num_tracks=1)
+    hidden_dims = _hidden_dims_from_head_name(head_name) if arch == "flatten-mlp" else None
+    register_s2f_head(
+        head_name=head_name, arch=arch, task_mode="human", num_tracks=1, hidden_dims=hidden_dims
+    )
 
     model = create_model_with_heads(
         "all_folds",
