@@ -616,7 +616,12 @@ def main(cfg: DictConfig) -> None:
             f"epochs={second_stage_epochs} ==="
         )
         # Load best Stage-1 checkpoint before unfreezing
-        best_s1 = output_dir / "best_model"
+        _pretrained_head_dir = cfg.get("pretrained_head_dir", None)
+        if _pretrained_head_dir:
+            best_s1 = Path(str(_pretrained_head_dir)).expanduser().resolve()
+        else:
+            best_s1 = output_dir / "best_model"
+
         if best_s1.exists():
             from collections.abc import Mapping
 
@@ -680,9 +685,10 @@ def main(cfg: DictConfig) -> None:
         def collate_s2_eval(b):
             return collate_yeast(b, max_seq_len, augment=False)
 
+        s2_batch_size = int(cfg.get("second_stage_batch_size", cfg.batch_size))
         s2_train_loader = DataLoader(
             train_dataset,
-            batch_size=int(cfg.batch_size),
+            batch_size=s2_batch_size,
             shuffle=True,
             num_workers=n_workers,
             collate_fn=collate_s2_train,
@@ -691,7 +697,7 @@ def main(cfg: DictConfig) -> None:
         )
         s2_val_loader = DataLoader(
             val_dataset,
-            batch_size=int(cfg.batch_size),
+            batch_size=s2_batch_size,
             shuffle=False,
             num_workers=n_workers,
             collate_fn=collate_s2_eval,
