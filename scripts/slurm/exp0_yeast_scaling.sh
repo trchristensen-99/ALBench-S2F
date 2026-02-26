@@ -17,7 +17,7 @@ module load EB5
 
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 
-export PYTHONPATH="$PWD:$PYTHONPATH"
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p logs
 
 # Map array index to fraction
