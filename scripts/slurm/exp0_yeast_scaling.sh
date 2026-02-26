@@ -8,8 +8,6 @@
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
 #SBATCH --array=0-9
-#SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=christen@cshl.edu
 
 set -euo pipefail
 
