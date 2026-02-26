@@ -88,10 +88,14 @@ def main():
 
     ckpt_dir = sys.argv[1]
     head_name = sys.argv[2]
+    arch = (
+        sys.argv[3]
+        if len(sys.argv) > 3
+        else ("pool-flatten" if "pool" in head_name else "mlp-512-512")
+    )
 
     from models.alphagenome_heads import register_s2f_head
 
-    arch = "pool-flatten" if "pool" in head_name else "mlp-512-512"
     register_s2f_head(head_name=head_name, arch=arch, task_mode="yeast", num_tracks=18)
 
     # Resolve checkpoint path safely assuming we're on the HPC or locally
