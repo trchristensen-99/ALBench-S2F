@@ -293,6 +293,29 @@ CONFIGS = [
         "alphagenome_k562_head_flatten_mlp_128x128x128_v4",
         None,
     ),
+    # Full-aug v2: detach_backbone=True fix — encoder properly frozen during augmented training.
+    # Expected to generalize like no_shift models (~0.90+ test Pearson) unlike broken v1 (~0.66).
+    (
+        "boda_flatten_full_aug_v2",
+        "outputs/ag_flatten_full_aug_v2/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+        _F32_CACHE,
+    ),
+    # RC-only augmentation (max_shift=0): live encoder path but shift disabled.
+    # Baseline: does RC augmentation via live encoder add anything over cached RC in no_shift?
+    (
+        "boda_flatten_rc_aug",
+        "outputs/ag_flatten_rc_aug/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+        _F32_CACHE,
+    ),
+    # Full aug shift25 v2: wider shift window (±25 bp) with detach_backbone fix.
+    (
+        "boda_flatten_full_aug_shift25_v2",
+        "outputs/ag_flatten_full_aug_shift25_v2/best_model",
+        "alphagenome_k562_head_boda_flatten_512_512_v4",
+        _F32_CACHE,
+    ),
     # 384bp compact-window heads (T=3 tokens; separate embedding cache)
     (
         "boda_sum_compact",

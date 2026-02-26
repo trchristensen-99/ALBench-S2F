@@ -344,6 +344,7 @@ def main(cfg: DictConfig) -> None:
         heads=[unique_head_name],
         checkpoint_path=weights_path,
         use_encoder_output=True,
+        detach_backbone=True,
     )
     # Re-init head so checkpoint head params (e.g. from T=128 run) don't cause shape mismatch.
     reinit_head_params(model, unique_head_name, num_tokens=5, dim=1536)
