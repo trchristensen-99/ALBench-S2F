@@ -246,12 +246,17 @@ def main(cfg: DictConfig) -> None:
     arch_slug = str(cfg.head_arch).replace("-", "_")
     unique_head_name = f"ag_yeast_{arch_slug}_v1"
 
+    _hidden_dims_raw = cfg.get("hidden_dims", None)
+    _hidden_dims: list[int] | None = (
+        [int(d) for d in _hidden_dims_raw] if _hidden_dims_raw is not None else None
+    )
     register_s2f_head(
         head_name=unique_head_name,
         arch=str(cfg.head_arch),
         task_mode="yeast",
         num_tracks=num_tracks,
         dropout_rate=dropout_rate,
+        hidden_dims=_hidden_dims,
     )
 
     weights_path = Path(str(cfg.weights_path)).expanduser().resolve()
