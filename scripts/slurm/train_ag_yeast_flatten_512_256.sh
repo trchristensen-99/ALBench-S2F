@@ -14,7 +14,6 @@ source /etc/profile.d/modules.sh
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD:$PYTHONPATH"
-export WANDB_API_KEY=$(cat ~/.wandb_key)
 mkdir -p logs
 
 # boda-flatten-512-256 + DO=0.1 + plateau LR (fewer params, matches flatten-512-512 in K562)
