@@ -1,0 +1,33 @@
+# Best configuration from architecture search on the full Malinois dataset:
+# boda-flatten-512-512, dropout=0.1, full RC+shift augmentation, detach_backbone=True.
+# Trained on hashFrag K562 train split (~100 K sequences) for use as oracle in AL experiments.
+task_mode: human
+head_arch: boda-flatten-512-512
+head_name: alphagenome_k562_head_hashfrag
+num_tracks: 1
+
+k562_data_path: data/k562
+output_dir: outputs/ag_hashfrag_oracle/seed_42
+weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+gpu: 0
+
+# Training
+epochs: 100
+early_stop_patience: 5
+seed: 42
+wandb_mode: offline
+
+# Optimizer (matched to best config: boda_flatten_full_aug_v2)
+lr: 0.001
+weight_decay: 0.000001
+gradients_clip: null
+
+# Head
+dropout_rate: 0.1
+
+# Augmentation: full RC + shift±15bp (encoder frozen via detach_backbone=True)
+max_shift: 15
+
+# Data loading
+batch_size: 128
+num_workers: 4
