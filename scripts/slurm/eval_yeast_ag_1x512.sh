@@ -6,7 +6,7 @@
 #SBATCH --gpus=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --constraint=a100|h100
+#SBATCH --constraint=h100
 #SBATCH --time=2:00:00
 
 source /etc/profile.d/modules.sh
