@@ -93,10 +93,15 @@ def main():
         if len(sys.argv) > 3
         else ("pool-flatten" if "pool" in head_name else "mlp-512-512")
     )
+    hidden_dims_str = sys.argv[4] if len(sys.argv) > 4 else None
 
     from models.alphagenome_heads import register_s2f_head
 
-    register_s2f_head(head_name=head_name, arch=arch, task_mode="yeast", num_tracks=18)
+    hidden_dims = [int(x.strip()) for x in hidden_dims_str.split(",")] if hidden_dims_str else None
+
+    register_s2f_head(
+        head_name=head_name, arch=arch, task_mode="yeast", num_tracks=18, hidden_dims=hidden_dims
+    )
 
     # Resolve checkpoint path safely assuming we're on the HPC or locally
     base_weights = (

@@ -15,4 +15,4 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
 # We evaluate the flatten_1x512 model 
-uv run python scripts/analysis/eval_yeast_ag.py outputs/ag_yeast_sweep/flatten_1x512/best_model ag_yeast_flatten_mlp_v1 flatten-mlp-512
+uv run python scripts/analysis/eval_yeast_ag.py outputs/ag_yeast_sweep/flatten_1x512/best_model ag_yeast_flatten_mlp_v1 flatten-mlp 512
