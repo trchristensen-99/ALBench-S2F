@@ -31,3 +31,7 @@ max_shift: 15
 # Data loading
 batch_size: 128
 num_workers: 4
+
+# Set to true to train on all K562 data (train + pool + val + test + synthetic).
+# Uses a 5% random holdout for early-stopping monitoring.
+use_all_data: false

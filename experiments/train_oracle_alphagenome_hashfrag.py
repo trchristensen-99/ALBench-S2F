@@ -39,7 +39,7 @@ from alphagenome_ft import create_model_with_heads
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 from scipy.stats import pearsonr, spearmanr
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from data.k562 import K562Dataset
@@ -65,6 +65,41 @@ _FLANK_3_ENC: np.ndarray = np.zeros((200, 4), dtype=np.float32)
 for _i, _c in enumerate(_FLANK_3_STR):
     if _c in _MAPPING:
         _FLANK_3_ENC[_i, _MAPPING[_c]] = 1.0
+
+
+# ── Simple dataset for raw sequence strings ───────────────────────────────────
+
+
+class RawStringDataset(Dataset):
+    """Minimal dataset wrapping raw 200 bp sequence strings and float32 labels.
+
+    Returns ``(tensor(5, 200), tensor(scalar))`` tuples that are fully
+    compatible with the existing ``collate_train`` / ``collate_eval`` functions
+    (which only use the first 4 channels of the 5-channel tensor).
+    """
+
+    def __init__(self, sequences: np.ndarray, labels: np.ndarray) -> None:
+        self.sequences = sequences
+        self.labels = labels.astype(np.float32)
+
+    def __len__(self) -> int:
+        return len(self.sequences)
+
+    def __getitem__(self, idx: int) -> tuple:
+        seq_str = str(self.sequences[idx]).upper()
+        # Ensure exactly 200 bp (mirrors K562Dataset._standardize_to_200bp)
+        if len(seq_str) < 200:
+            pad = 200 - len(seq_str)
+            seq_str = "N" * (pad // 2) + seq_str + "N" * (pad - pad // 2)
+        elif len(seq_str) > 200:
+            start = (len(seq_str) - 200) // 2
+            seq_str = seq_str[start : start + 200]
+        # One-hot encode to (4, 200); append zero RC channel → (5, 200)
+        enc = np.zeros((5, 200), dtype=np.float32)
+        for j, c in enumerate(seq_str):
+            if c in _MAPPING:
+                enc[_MAPPING[c], j] = 1.0
+        return torch.tensor(enc, dtype=torch.float32), torch.tensor(self.labels[idx])
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -211,15 +246,14 @@ def evaluate_all_test_sets(
         alt_pred = _predict_sequences(
             predict_step_fn, params, state, snv_df["sequence_alt"].tolist()
         )
-        ref_true = snv_df["K562_log2FC_ref"].to_numpy(dtype=np.float32)
+        # snv_abs: alt-allele predictions vs alt-allele truth only.
+        # Ref sequences largely overlap in-distribution data; excluding them avoids inflating this metric.
         alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
-        snv_abs_pred = np.concatenate([ref_pred, alt_pred])
-        snv_abs_true = np.concatenate([ref_true, alt_true])
         metrics["snv_abs"] = {
-            "pearson_r": _safe_corr(snv_abs_pred, snv_abs_true, pearsonr),
-            "spearman_r": _safe_corr(snv_abs_pred, snv_abs_true, spearmanr),
-            "mse": float(np.mean((snv_abs_pred - snv_abs_true) ** 2)),
-            "n": int(len(snv_abs_true)),
+            "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
+            "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
+            "mse": float(np.mean((alt_pred - alt_true) ** 2)),
+            "n": int(len(alt_true)),
         }
         delta_pred = alt_pred - ref_pred
         delta_true = snv_df["delta_log2FC"].to_numpy(dtype=np.float32)
@@ -322,9 +356,49 @@ def main(cfg: DictConfig) -> None:
     opt_state = optimizer.init(model._params)
 
     # ── Datasets ──────────────────────────────────────────────────────────────
-    ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
-    ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
-    print(f"Train: {len(ds_train):,} | Val: {len(ds_val):,}", flush=True)
+    use_all_data = bool(cfg.get("use_all_data", False))
+
+    if use_all_data:
+        # Combine ALL K562 hashfrag splits (train + pool + val + test) + synthetic sequences
+        # so the oracle learns from every available labeled MPRA sequence.
+        all_seqs_list: list[np.ndarray] = []
+        all_labs_list: list[np.ndarray] = []
+        for split_name in ["train", "pool", "val", "test"]:
+            ds_split = K562Dataset(data_path=str(cfg.k562_data_path), split=split_name)
+            all_seqs_list.append(ds_split.sequences)
+            all_labs_list.append(ds_split.labels)
+            print(f"  Loaded {split_name}: {len(ds_split.sequences):,}", flush=True)
+
+        # Add synthetic sequences (designed sequences with measured K562_log2FC labels).
+        # cre_sequences.tsv is excluded — it is the OOD test set (preserve for honest eval).
+        synth_path = Path(str(cfg.k562_data_path)) / "test_sets" / "synthetic_sequences.tsv"
+        if synth_path.exists():
+            synth_df = pd.read_csv(synth_path, sep="\t")
+            all_seqs_list.append(synth_df["sequence"].to_numpy())
+            all_labs_list.append(synth_df["K562_log2FC"].to_numpy(dtype=np.float32))
+            print(f"  Loaded synthetic: {len(synth_df):,}", flush=True)
+
+        all_seqs = np.concatenate(all_seqs_list)
+        all_labs = np.concatenate(all_labs_list)
+
+        # Random 5% holdout for early-stopping / val monitoring.
+        # Seed fixed so the split is reproducible across restarts.
+        rng_split = np.random.default_rng(seed=42)
+        n_total = len(all_seqs)
+        val_idx = rng_split.choice(n_total, size=int(n_total * 0.05), replace=False)
+        train_mask = np.ones(n_total, dtype=bool)
+        train_mask[val_idx] = False
+
+        ds_train = RawStringDataset(all_seqs[train_mask], all_labs[train_mask])
+        ds_val = RawStringDataset(all_seqs[val_idx], all_labs[val_idx])
+        print(
+            f"Full-data oracle — Train: {len(ds_train):,} | Val (5% holdout): {len(ds_val):,}",
+            flush=True,
+        )
+    else:
+        ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
+        ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
+        print(f"Train: {len(ds_train):,} | Val: {len(ds_val):,}", flush=True)
 
     n_workers = int(cfg.num_workers)
 
