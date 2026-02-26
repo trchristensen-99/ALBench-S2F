@@ -381,18 +381,25 @@ def main(cfg: DictConfig) -> None:
         all_seqs = np.concatenate(all_seqs_list)
         all_labs = np.concatenate(all_labs_list)
 
-        # Random 5% holdout for early-stopping / val monitoring.
-        # Seed fixed so the split is reproducible across restarts.
-        rng_split = np.random.default_rng(seed=42)
+        # 10-fold CV: oracle k uses fold k as its validation set.
+        # With 10 oracles (array IDs 0-9) every sequence is in training
+        # for 9 out of 10 runs, so the ensemble effectively trains on all data.
         n_total = len(all_seqs)
-        val_idx = rng_split.choice(n_total, size=int(n_total * 0.05), replace=False)
-        train_mask = np.ones(n_total, dtype=bool)
-        train_mask[val_idx] = False
+        n_folds = 10
+        fold_id = int(cfg.get("fold_id", 0))
+        # Deterministic shuffle before fold assignment (same permutation for all folds).
+        perm = np.random.default_rng(seed=42).permutation(n_total)
+        fold_size = n_total // n_folds
+        val_start = fold_id * fold_size
+        val_end = val_start + fold_size if fold_id < n_folds - 1 else n_total
+        val_perm_idx = perm[val_start:val_end]
+        train_perm_idx = np.concatenate([perm[:val_start], perm[val_end:]])
 
-        ds_train = RawStringDataset(all_seqs[train_mask], all_labs[train_mask])
-        ds_val = RawStringDataset(all_seqs[val_idx], all_labs[val_idx])
+        ds_train = RawStringDataset(all_seqs[train_perm_idx], all_labs[train_perm_idx])
+        ds_val = RawStringDataset(all_seqs[val_perm_idx], all_labs[val_perm_idx])
         print(
-            f"Full-data oracle — Train: {len(ds_train):,} | Val (5% holdout): {len(ds_val):,}",
+            f"Full-data oracle (fold {fold_id}/{n_folds}) — "
+            f"Train: {len(ds_train):,} | Val: {len(ds_val):,}",
             flush=True,
         )
     else:

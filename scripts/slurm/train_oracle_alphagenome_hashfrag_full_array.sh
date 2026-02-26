@@ -26,10 +26,11 @@ source scripts/slurm/setup_hpc_deps.sh
 # Prevent XLA command buffer compilation issue on H100
 export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer="
 
-echo "Starting full-data oracle ${SLURM_ARRAY_TASK_ID} (random seed, no fixed init)"
+echo "Starting full-data oracle ${SLURM_ARRAY_TASK_ID} (fold ${SLURM_ARRAY_TASK_ID}/10, random seed)"
 
 uv run python experiments/train_oracle_alphagenome_hashfrag.py \
     ++seed=null \
     ++use_all_data=true \
+    ++fold_id=${SLURM_ARRAY_TASK_ID} \
     ++output_dir=outputs/ag_hashfrag_oracle_full/oracle_${SLURM_ARRAY_TASK_ID} \
     ++wandb_mode=offline

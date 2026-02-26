@@ -33,5 +33,7 @@ batch_size: 128
 num_workers: 4
 
 # Set to true to train on all K562 data (train + pool + val + test + synthetic).
-# Uses a 5% random holdout for early-stopping monitoring.
+# Uses 10-fold CV for early-stopping monitoring: oracle k uses fold k as its val set,
+# so across all 10 oracles every sequence is in training for 9/10 runs.
 use_all_data: false
+fold_id: 0  # which fold to use as validation (0-9); set via ++fold_id=$SLURM_ARRAY_TASK_ID
