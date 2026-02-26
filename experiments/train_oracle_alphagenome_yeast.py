@@ -458,17 +458,15 @@ def main(cfg: DictConfig) -> None:
             pin_memory=True,
             persistent_workers=n_workers > 0,
         )
-    else:
-
-        def collate_train_idx(b):
-            return collate_yeast_indexed(b, max_seq_len, augment=True)
-
+    elif aug_mode == "no_shift":
+        # Cached mode: only need indices + targets for training (embedding looked up by index).
+        # No need to reconstruct sequences — avoids dependency on hardcoded flanks.
         train_loader = DataLoader(
             IndexedDataset(train_dataset),
             batch_size=int(cfg.batch_size),
             shuffle=True,
             num_workers=n_workers,
-            collate_fn=collate_train_idx,
+            collate_fn=collate_val_indexed,
             pin_memory=True,
             persistent_workers=n_workers > 0,
         )
