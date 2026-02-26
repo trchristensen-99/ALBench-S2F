@@ -20,26 +20,26 @@ from pathlib import Path
 
 import numpy as np
 
-SEEDS = [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
+N_ORACLES = 10
 HEAD_NAME = "alphagenome_k562_head_hashfrag_boda_flatten_512_512_v4"
 TEST_SETS = ["in_distribution", "snv_abs", "snv_delta", "ood"]
 METRICS = ["pearson_r", "spearman_r", "mse"]
 
 
-def _load_or_eval(seed_dir: Path, data_path: str) -> dict | None:
+def _load_or_eval(oracle_dir: Path, data_path: str) -> dict | None:
     """Load cached test_metrics.json or run eval from checkpoint."""
-    json_path = seed_dir / "test_metrics.json"
+    json_path = oracle_dir / "test_metrics.json"
     if json_path.exists():
         with open(json_path) as f:
             data = json.load(f)
         return data.get("test_metrics", data)
 
-    ckpt_path = seed_dir / "best_model"
+    ckpt_path = oracle_dir / "best_model"
     if not (ckpt_path / "checkpoint").exists():
-        print(f"[eval] Skip {seed_dir.name}: no checkpoint found", file=sys.stderr)
+        print(f"[eval] Skip {oracle_dir.name}: no checkpoint found", file=sys.stderr)
         return None
 
-    print(f"[eval] Running eval for {seed_dir.name} …", file=sys.stderr)
+    print(f"[eval] Running eval for {oracle_dir.name} …", file=sys.stderr)
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from eval_ag import evaluate_hashfrag_test_sets_600bp
 
@@ -60,13 +60,13 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     all_results: dict[str, dict] = {}
 
-    for seed in SEEDS:
-        seed_dir = output_dir / f"seed_{seed}"
-        metrics = _load_or_eval(seed_dir, args.data_path)
+    for i in range(N_ORACLES):
+        oracle_dir = output_dir / f"oracle_{i}"
+        metrics = _load_or_eval(oracle_dir, args.data_path)
         if metrics is not None:
-            all_results[str(seed)] = metrics
+            all_results[str(i)] = metrics
         else:
-            print(f"[eval] No results for seed {seed}", file=sys.stderr)
+            print(f"[eval] No results for oracle_{i}", file=sys.stderr)
 
     if not all_results:
         print("[eval] No seed results found.", file=sys.stderr)

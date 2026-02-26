@@ -14,7 +14,7 @@ gpu: 0
 # Training
 epochs: 100
 early_stop_patience: 5
-seed: 42
+seed: null  # null → random seed from os.urandom; each run gets a distinct initialization
 wandb_mode: offline
 
 # Optimizer (matched to best config: boda_flatten_full_aug_v2)

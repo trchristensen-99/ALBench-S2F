@@ -18,9 +18,6 @@
 #SBATCH --mem=200G
 #SBATCH --array=0-9
 
-SEEDS=(42 43 44 45 46 47 48 49 50 51)
-SEED=${SEEDS[$SLURM_ARRAY_TASK_ID]}
-
 source /etc/profile.d/modules.sh
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
@@ -30,9 +27,11 @@ source scripts/slurm/setup_hpc_deps.sh
 # Prevent XLA command buffer compilation issue on H100
 export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer="
 
-echo "Starting seed ${SEED} (array task ${SLURM_ARRAY_TASK_ID})"
+# seed=null → random from os.urandom; each array task gets a distinct random init.
+# The actual seed used is logged by the training script and saved in test_metrics.json.
+echo "Starting oracle ${SLURM_ARRAY_TASK_ID} (random seed, no fixed init)"
 
 uv run python experiments/train_oracle_alphagenome_hashfrag.py \
-    ++seed=${SEED} \
-    ++output_dir=outputs/ag_hashfrag_oracle/seed_${SEED} \
+    ++seed=null \
+    ++output_dir=outputs/ag_hashfrag_oracle/oracle_${SLURM_ARRAY_TASK_ID} \
     ++wandb_mode=offline

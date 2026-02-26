@@ -302,8 +302,9 @@ def main(cfg: DictConfig) -> None:
         use_encoder_output=True,
         detach_backbone=True,  # critical: keeps encoder frozen during full_aug training
     )
-    # Re-init head params to avoid stale weight loading (e.g. from compact-window runs).
-    reinit_head_params(model, unique_head_name, num_tokens=5, dim=1536)
+    # Re-init head params with a seed-derived JAX PRNG key so each oracle
+    # run starts from a distinct random initialization.
+    reinit_head_params(model, unique_head_name, num_tokens=5, dim=1536, rng=used_seed)
     model.freeze_except_head(unique_head_name)
 
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(model._params))
