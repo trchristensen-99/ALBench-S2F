@@ -355,10 +355,10 @@ def main(cfg: DictConfig) -> None:
             batch_size=int(cfg.batch_size),
             num_workers=int(cfg.num_workers),
         )
-        # Load all into memory (yeast cache ~4 GB canonical + ~4 GB RC)
-        train_can_raw, train_rc_raw = load_embedding_cache(cache_dir, "train")
+        # Load all into memory (yeast train+pool cache = ~104 GB total)
+        train_can_raw, train_rc_raw = load_embedding_cache(cache_dir, "train", mmap_mode=None)
         if include_pool:
-            pool_can_raw, pool_rc_raw = load_embedding_cache(cache_dir, "pool")
+            pool_can_raw, pool_rc_raw = load_embedding_cache(cache_dir, "pool", mmap_mode=None)
             # Concatenate along seq axis so index 0..N_train-1 = train, N_train.. = pool
             train_canonical = np.concatenate([train_can_raw, pool_can_raw], axis=0)
             train_rc = np.concatenate([train_rc_raw, pool_rc_raw], axis=0)

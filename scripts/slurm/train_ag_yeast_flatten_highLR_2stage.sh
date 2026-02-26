@@ -5,7 +5,8 @@
 #SBATCH --partition=gpuq
 #SBATCH --gpus=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
+#SBATCH --mem=256G
+#SBATCH --constraint=h100
 #SBATCH --time=12:00:00
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=christen@cshl.edu
@@ -34,4 +35,5 @@ uv run python experiments/train_oracle_alphagenome_yeast.py \
     ++output_dir=outputs/ag_yeast_sweep/flatten_512_512_2stage \
     ++cache_dir=outputs/ag_yeast_sweep/embedding_cache \
     ++seed=42 \
-    ++wandb_mode=online
+    ++wandb_mode=online \
+    ++batch_size=4096

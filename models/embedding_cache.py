@@ -183,15 +183,17 @@ def build_embedding_cache(
     print(f"[EmbeddingCache] {split} cache saved → {cache_dir}")
 
 
-def load_embedding_cache(cache_dir: Path, split: str) -> tuple[np.ndarray, np.ndarray]:
+def load_embedding_cache(
+    cache_dir: Path, split: str, mmap_mode: str | None = "r"
+) -> tuple[np.ndarray, np.ndarray]:
     """Load a pre-built cache as memory-mapped arrays (zero RAM until accessed).
 
     Returns:
         canonical: (N, T, D) float16 memmap
         rc:        (N, T, D) float16 memmap
     """
-    canonical = np.load(cache_dir / f"{split}_canonical.npy", mmap_mode="r")
-    rc = np.load(cache_dir / f"{split}_rc.npy", mmap_mode="r")
+    canonical = np.load(cache_dir / f"{split}_canonical.npy", mmap_mode=mmap_mode)
+    rc = np.load(cache_dir / f"{split}_rc.npy", mmap_mode=mmap_mode)
     return canonical, rc
 
 
