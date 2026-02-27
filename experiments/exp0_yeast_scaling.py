@@ -15,7 +15,7 @@ import torch
 import wandb
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
 
 from data.yeast import YeastDataset
 from evaluation.yeast_testsets import (
@@ -54,15 +54,16 @@ def create_subset_indices(dataset_size: int, fraction: float, seed: int | None) 
 
 def run_fraction(
     fraction: float,
-    train_dataset: YeastDataset,
+    train_dataset: Dataset,
     val_loader: DataLoader,
     device: torch.device,
     output_root: Path,
+    seq_len: int,
     test_loader: DataLoader | None = None,
     test_labels: np.ndarray | None = None,
     test_subsets: dict[str, np.ndarray] | None = None,
 ) -> dict:
-    """Train DREAM-RNN on a random subset at a given fraction."""
+    """Train DREAM-RNN on a random subset at a given fraction of the full 6M pool."""
     n_total = len(train_dataset)
     n_samples = max(1, int(n_total * fraction))
 
@@ -80,7 +81,7 @@ def run_fraction(
 
     model = create_dream_rnn(
         input_channels=6,
-        sequence_length=train_dataset.get_sequence_length(),
+        sequence_length=seq_len,
         task_mode="yeast",
         hidden_dim=int(CONFIG["hidden_dim"]),
         cnn_filters=int(CONFIG["cnn_filters"]),
@@ -199,11 +200,21 @@ def main(cfg: DictConfig) -> None:
         mode=str(cfg.wandb_mode),
     )
 
-    train_dataset = YeastDataset(
+    # Use train+pool (the full ~6M random sequences) as the base scaling pool.
+    # The train split alone is only 100K sequences (FIXED_TRAIN_SIZE), which
+    # would give inflated-looking fractions and depressed performance.
+    ds_train = YeastDataset(
         data_path=str(cfg.data_path),
         split="train",
         context_mode=str(cfg.context_mode),
     )
+    ds_pool = YeastDataset(
+        data_path=str(cfg.data_path),
+        split="pool",
+        context_mode=str(cfg.context_mode),
+    )
+    train_dataset: Dataset = ConcatDataset([ds_train, ds_pool])
+    seq_len = ds_train.get_sequence_length()
     val_dataset = YeastDataset(
         data_path=str(cfg.data_path),
         split="val",
@@ -262,6 +273,7 @@ def main(cfg: DictConfig) -> None:
             val_loader,
             device,
             output_root,
+            seq_len=seq_len,
             test_loader=test_loader,
             test_labels=test_labels,
             test_subsets=test_subsets,

@@ -5,8 +5,8 @@
 #SBATCH --partition=gpuq
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --time=12:00:00
+#SBATCH --mem=128G
+#SBATCH --time=24:00:00
 #SBATCH --array=0-9
 
 set -euo pipefail
@@ -20,11 +20,11 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p logs
 
-# Map array index to fraction
+# Map array index to fraction (of the full 6M train+pool base)
 FRACTIONS=(0.001 0.002 0.005 0.01 0.02 0.05 0.1 0.2 0.5 1.0)
 FRACTION=${FRACTIONS[$SLURM_ARRAY_TASK_ID]}
 
-echo "=== Exp 0 Yeast Scaling: fraction=${FRACTION} (task ${SLURM_ARRAY_TASK_ID}) ==="
+echo "=== Exp 0 Yeast Scaling (6M pool): fraction=${FRACTION} (task ${SLURM_ARRAY_TASK_ID}) ==="
 
 # W&B auth
 if [[ -f ~/.wandb_key ]]; then
@@ -35,4 +35,7 @@ fi
 
 uv run python experiments/exp0_yeast_scaling.py \
     fraction="${FRACTION}" \
+    output_dir=outputs/exp0_yeast_scaling_6m \
+    seed=42 \
     wandb_mode=offline
+
