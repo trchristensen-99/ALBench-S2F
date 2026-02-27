@@ -29,7 +29,7 @@ export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer= --xla_gpu_autotu
 
 echo "Starting full-data oracle ${SLURM_ARRAY_TASK_ID} (fold ${SLURM_ARRAY_TASK_ID}/10, random seed)"
 
-uv run python experiments/train_oracle_alphagenome_hashfrag.py \
+uv run --no-sync python experiments/train_oracle_alphagenome_hashfrag.py \
     ++seed=null \
     ++use_all_data=true \
     ++fold_id=${SLURM_ARRAY_TASK_ID} \

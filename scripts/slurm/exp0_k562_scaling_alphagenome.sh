@@ -29,7 +29,7 @@ FRACTION=${FRACTIONS[$SLURM_ARRAY_TASK_ID]}
 echo "Starting AG scaling: fraction=${FRACTION} (task ${SLURM_ARRAY_TASK_ID}/6)"
 echo "Node: $SLURMD_NODENAME  Date: $(date)"
 
-uv run python experiments/exp0_k562_scaling_alphagenome.py \
+uv run --no-sync python experiments/exp0_k562_scaling_alphagenome.py \
     ++fraction="${FRACTION}" \
     ++seed=null \
     ++wandb_mode=offline
