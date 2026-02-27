@@ -20,5 +20,5 @@ pct_start: 0.3
 use_amp: true
 use_compile: false
 use_reverse_complement: true
-early_stopping_patience: null
+early_stopping_patience: 10
 metric_for_best: pearson_r
