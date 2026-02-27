@@ -232,7 +232,11 @@ def main(cfg: DictConfig) -> None:
     fraction = float(cfg.fraction)
     used_seed = set_seed(int(cfg.seed) if cfg.seed is not None else None)
 
-    output_dir = Path(str(cfg.output_dir)) / f"fraction_{fraction:.4f}" / f"seed_{used_seed}"
+    output_dir = (
+        Path(str(cfg.output_dir)).expanduser().resolve()
+        / f"fraction_{fraction:.4f}"
+        / f"seed_{used_seed}"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     max_shift = int(cfg.get("max_shift", 15))
