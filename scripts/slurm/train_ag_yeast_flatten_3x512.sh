@@ -15,6 +15,10 @@ source /etc/profile.d/modules.sh
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD:$PYTHONPATH"
+
+# Ensure CUDA-enabled JAX and HPC-specific AlphaGenome dependencies are loaded
+source scripts/slurm/setup_hpc_deps.sh
+
 mkdir -p logs
 
 uv run python experiments/train_oracle_alphagenome_yeast.py \
