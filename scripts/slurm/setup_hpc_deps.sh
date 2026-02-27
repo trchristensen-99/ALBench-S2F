@@ -14,12 +14,21 @@
 AG_FT_PATH="${HOME}/alphagenome_ft-main"
 AG_RES_REV="35ea7aa5"
 
-_check() { uv run python -c "import $1" 2>/dev/null; }
+# Use .venv/bin/python directly to avoid uv's metadata resolution overhead,
+# which fails when any installed package has a corrupted dist-info (e.g. tensorflow).
+_venv_python() { .venv/bin/python "$@" 2>/dev/null; }
+_check() { _venv_python -c "import $1"; }
+
+# Serialise concurrent installs across SLURM array tasks using a per-job lockfile.
+# All installs run inside a flock block so tasks don't race on the shared .venv.
+LOCK_FILE="/tmp/hpc_deps_lock_${USER}_${SLURM_ARRAY_JOB_ID:-$$}"
+(
+flock -x 200
 
 # On GPU SLURM nodes (CUDA 12.4), upgrade jax to GPU-capable build.
 # pyproject.toml installs CPU-only jax; this upgrades it when a GPU is present.
 if [ -n "$SLURM_JOB_ID" ] && [ -n "$CUDA_VISIBLE_DEVICES" ]; then
-  if ! uv run python -c "import jax; jax.devices('gpu')" 2>/dev/null; then
+  if ! _venv_python -c "import jax; jax.devices('gpu')"; then
     echo "[setup_hpc_deps] Installing GPU-capable JAX (CUDA 12) ..."
     uv pip install "jax[cuda12]" || echo "[setup_hpc_deps] WARNING: GPU jax install failed"
   fi
@@ -82,3 +91,5 @@ if ! _check orbax.checkpoint; then
   echo "[setup_hpc_deps] Installing orbax-checkpoint ..."
   uv pip install "orbax-checkpoint" || echo "[setup_hpc_deps] WARNING: orbax-checkpoint install failed"
 fi
+
+) 200>"$LOCK_FILE"
