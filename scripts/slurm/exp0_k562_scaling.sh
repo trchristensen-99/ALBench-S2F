@@ -21,8 +21,11 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD:$PYTHONPATH"
 export PATH=$PWD/external/hashFrag/src:$PWD/external/hashFrag:$PATH
 
-# Serialise uv sync across concurrent array tasks to prevent venv corruption.
-LOCK_FILE="/tmp/uv_sync_lock_${USER}_${SLURM_ARRAY_JOB_ID:-$$}"
+# Force uv to copy files instead of hardlinking (avoids cross-filesystem failures).
+export UV_LINK_MODE=copy
+
+# Serialise uv sync across concurrent array tasks using a global venv-side lock.
+LOCK_FILE="${PWD}/.venv/.hpc_setup_lock"
 (
   flock -x 200
   ~/.local/bin/uv sync --extra dev

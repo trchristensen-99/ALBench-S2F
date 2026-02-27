@@ -19,9 +19,14 @@ AG_RES_REV="35ea7aa5"
 _venv_python() { .venv/bin/python "$@" 2>/dev/null; }
 _check() { _venv_python -c "import $1"; }
 
-# Serialise concurrent installs across SLURM array tasks using a per-job lockfile.
-# All installs run inside a flock block so tasks don't race on the shared .venv.
-LOCK_FILE="/tmp/hpc_deps_lock_${USER}_${SLURM_ARRAY_JOB_ID:-$$}"
+# Force uv to copy files instead of hardlinking to avoid cross-filesystem
+# failures when .venv (network FS) and uv cache are on different filesystems.
+export UV_LINK_MODE=copy
+
+# Use a GLOBAL lock on the shared filesystem so concurrent array tasks from
+# DIFFERENT jobs also serialise. /tmp is per-node but the venv is shared, so
+# we put the lockfile next to the venv itself.
+LOCK_FILE="${PWD}/.venv/.hpc_setup_lock"
 (
 flock -x 200
 
