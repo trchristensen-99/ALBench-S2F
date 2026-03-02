@@ -196,6 +196,38 @@ def _safe_corr(y_true: np.ndarray, y_pred: np.ndarray, fn: object) -> float:
     return float(fn(y_true, y_pred)[0])
 
 
+def _merge_mappings(base, override):
+    from collections.abc import Mapping
+
+    if not isinstance(override, Mapping) or not isinstance(base, Mapping):
+        return override
+    merged = dict(base)
+    for k, v in override.items():
+        if k in merged and isinstance(merged[k], Mapping) and isinstance(v, Mapping):
+            merged[k] = _merge_mappings(merged[k], v)
+        else:
+            merged[k] = v
+    return merged
+
+
+def _create_model(
+    *,
+    weights_path: Path,
+    head_name: str,
+    detach_backbone: bool,
+) -> object:
+    model = create_model_with_heads(
+        "all_folds",
+        heads=[head_name],
+        checkpoint_path=str(weights_path),
+        use_encoder_output=True,
+        detach_backbone=detach_backbone,
+    )
+    reinit_head_params(model, head_name, num_tokens=3, dim=1536)
+    model.freeze_except_head(head_name)
+    return model
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
@@ -230,6 +262,11 @@ def main(cfg: DictConfig) -> None:
     second_stage_lr = float(_s2_lr_raw) if _s2_lr_raw is not None else None
     second_stage_epochs = int(cfg.get("second_stage_epochs", 50))
     second_stage_early_stop = int(cfg.get("second_stage_early_stop_patience", 10))
+    second_stage_unfreeze_mode = str(cfg.get("second_stage_unfreeze_mode", "encoder"))
+    second_stage_full_unfreeze_epoch = cfg.get("second_stage_full_unfreeze_epoch", None)
+    if second_stage_full_unfreeze_epoch is not None:
+        second_stage_full_unfreeze_epoch = int(second_stage_full_unfreeze_epoch)
+    detach_backbone = bool(cfg.get("detach_backbone", True))
 
     _tags = ["oracle", "alphagenome", "yeast", str(cfg.head_arch), aug_mode]
     if second_stage_lr is not None:
@@ -244,7 +281,7 @@ def main(cfg: DictConfig) -> None:
     )
 
     arch_slug = str(cfg.head_arch).replace("-", "_")
-    unique_head_name = f"ag_yeast_{arch_slug}_v1"
+    unique_head_name = f"ag_yeast_{arch_slug}_v4"
 
     _hidden_dims_raw = cfg.get("hidden_dims", None)
     _hidden_dims: list[int] | None = (
@@ -262,15 +299,11 @@ def main(cfg: DictConfig) -> None:
     weights_path = Path(str(cfg.weights_path)).expanduser().resolve()
     if not weights_path.exists():
         raise FileNotFoundError(f"AlphaGenome weights not found: {weights_path}")
-    model = create_model_with_heads(
-        "all_folds",
-        heads=[unique_head_name],
-        checkpoint_path=str(weights_path),
-        use_encoder_output=True,
+    model = _create_model(
+        weights_path=weights_path,
+        head_name=unique_head_name,
+        detach_backbone=detach_backbone,
     )
-    # num_tokens=3 for T=3 (384bp / 128bp stride).
-    reinit_head_params(model, unique_head_name, num_tokens=3, dim=1536)
-    model.freeze_except_head(unique_head_name)
 
     n_params = sum(x.size for x in jax.tree_util.tree_leaves(model._params))
     print(f"Total parameters: {n_params:,}")
@@ -623,26 +656,13 @@ def main(cfg: DictConfig) -> None:
             best_s1 = output_dir / "best_model"
 
         if best_s1.exists():
-            from collections.abc import Mapping
-
             import orbax.checkpoint as ocp
-
-            def _merge(base, override):
-                if not isinstance(override, Mapping) or not isinstance(base, Mapping):
-                    return override
-                merged = dict(base)
-                for k, v in override.items():
-                    if k in merged and isinstance(merged[k], Mapping) and isinstance(v, Mapping):
-                        merged[k] = _merge(merged[k], v)
-                    else:
-                        merged[k] = v
-                return merged
 
             ckpt_path = (best_s1 / "checkpoint").resolve()
             if ckpt_path.exists():
                 checkpointer = ocp.StandardCheckpointer()
                 loaded_params, _ = checkpointer.restore(ckpt_path)
-                model._params = jax.device_put(_merge(model._params, loaded_params))
+                model._params = jax.device_put(_merge_mappings(model._params, loaded_params))
                 print("  Loaded best Stage-1 checkpoint.")
             else:
                 print(f"  WARNING: checkpoint directory not found at {ckpt_path}")
@@ -650,8 +670,33 @@ def main(cfg: DictConfig) -> None:
         # Save full model (encoder + head) so Stage 2 can load it later if needed
         model.save_checkpoint(str(output_dir / "stage1_best"), save_full_model=True)
 
-        # Unfreeze everything
-        model.unfreeze()
+        if detach_backbone:
+            model_s2 = _create_model(
+                weights_path=weights_path,
+                head_name=unique_head_name,
+                detach_backbone=False,
+            )
+            model_s2._params = jax.device_put(_merge_mappings(model_s2._params, model._params))
+            model_s2._state = model._state
+            model = model_s2
+            print("  Recreated model with detach_backbone=False for Stage 2.")
+
+        if second_stage_unfreeze_mode not in ("encoder", "backbone", "gradual"):
+            raise ValueError(
+                "second_stage_unfreeze_mode must be one of: encoder, backbone, gradual"
+            )
+
+        model.freeze_except_head(unique_head_name)
+        if second_stage_unfreeze_mode == "encoder":
+            model.unfreeze_parameters(unfreeze_prefixes=["sequence_encoder"])
+        elif second_stage_unfreeze_mode == "backbone":
+            model.unfreeze_parameters(
+                unfreeze_prefixes=["sequence_encoder", "transformer_tower", "sequence_decoder"]
+            )
+        else:
+            model.unfreeze_parameters(unfreeze_prefixes=["sequence_encoder"])
+            if second_stage_full_unfreeze_epoch is None:
+                second_stage_full_unfreeze_epoch = max(1, second_stage_epochs // 3)
         n_params_s2 = sum(x.size for x in jax.tree_util.tree_leaves(model._params))
         print(f"  Stage-2 trainable parameters: {n_params_s2:,}")
 
@@ -709,6 +754,15 @@ def main(cfg: DictConfig) -> None:
         s2_no_improve = 0
 
         for s2_epoch in range(second_stage_epochs):
+            if (
+                second_stage_unfreeze_mode == "gradual"
+                and second_stage_full_unfreeze_epoch is not None
+                and s2_epoch + 1 == second_stage_full_unfreeze_epoch
+            ):
+                model.unfreeze_parameters(
+                    unfreeze_prefixes=["transformer_tower", "sequence_decoder"]
+                )
+                print(f"  Gradual Stage-2: unfreezing transformer/decoder at epoch {s2_epoch + 1}")
             s2_losses: list[float] = []
             pbar2 = tqdm(
                 s2_train_loader,
