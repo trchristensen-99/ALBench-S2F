@@ -5,6 +5,10 @@ gpu: 0
 epochs: 80
 seed: null
 wandb_mode: offline
+kfold_enabled: true
+n_folds: 10
+fold_id: 0
+fold_split_seed: 42
 batch_size: 1024
 num_workers: 4
 pin_memory: true
@@ -22,3 +26,6 @@ use_reverse_complement: true
 early_stopping_patience: null
 metric_for_best: pearson_r
 include_pool: true
+test_subset_dir: null
+public_leaderboard_dir: null
+private_only_test: false

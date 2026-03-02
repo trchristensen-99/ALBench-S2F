@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Oracle training: DREAM-RNN on full yeast training split."""
+"""Oracle training: DREAM-RNN on yeast with k-fold CV over train+pool."""
 
 from __future__ import annotations
 
@@ -14,9 +14,13 @@ import torch
 import wandb
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data import ConcatDataset, DataLoader, Subset
 
 from data.yeast import YeastDataset
+from evaluation.yeast_testsets import (
+    evaluate_yeast_test_subsets,
+    load_yeast_test_subsets,
+)
 from models.dream_rnn import create_dream_rnn
 from models.loss_utils import YeastKLLoss
 from models.training import train_model_optimized
@@ -33,6 +37,38 @@ def set_seed(seed: int | None) -> int:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
     return seed
+
+
+def _kfold_indices(n: int, n_folds: int, fold_id: int, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    if n_folds < 2:
+        raise ValueError(f"n_folds must be >= 2, got {n_folds}")
+    if not (0 <= fold_id < n_folds):
+        raise ValueError(f"fold_id must be in [0, {n_folds - 1}], got {fold_id}")
+
+    perm = np.random.RandomState(seed).permutation(n)
+    fold_sizes = np.full(n_folds, n // n_folds, dtype=np.int64)
+    fold_sizes[: n % n_folds] += 1
+    start = int(np.sum(fold_sizes[:fold_id]))
+    end = start + int(fold_sizes[fold_id])
+    val_idx = perm[start:end]
+    train_idx = np.concatenate([perm[:start], perm[end:]])
+    return train_idx, val_idx
+
+
+def _predict_test(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    use_reverse_complement: bool,
+) -> np.ndarray:
+    model.eval()
+    preds: list[np.ndarray] = []
+    with torch.no_grad():
+        for xb, _ in loader:
+            xb = xb.to(device, non_blocking=True)
+            yhat = model.predict(xb, use_reverse_complement=use_reverse_complement)
+            preds.append(yhat.detach().cpu().numpy().reshape(-1))
+    return np.concatenate(preds, axis=0)
 
 
 @hydra.main(
@@ -65,24 +101,28 @@ def main(cfg: DictConfig) -> None:
         subset_size=None,
         context_mode=str(cfg.context_mode),
     )
-    if bool(cfg.include_pool):
-        ds_pool = YeastDataset(
-            data_path=str(cfg.data_path),
-            split="pool",
-            subset_size=None,
-            context_mode=str(cfg.context_mode),
-        )
-        train_dataset = ConcatDataset([ds_train, ds_pool])
-    else:
-        train_dataset = ds_train
-    val_dataset = YeastDataset(
+    if not bool(cfg.include_pool):
+        raise ValueError("Oracle k-fold must include pool data. Set include_pool=true.")
+    ds_pool = YeastDataset(
         data_path=str(cfg.data_path),
-        split="val",
+        split="pool",
+        subset_size=None,
         context_mode=str(cfg.context_mode),
     )
+    full_dataset = ConcatDataset([ds_train, ds_pool])
 
-    print(f"Training set:   {len(train_dataset):,} sequences")
-    print(f"Validation set: {len(val_dataset):,} sequences")
+    n_folds = int(cfg.n_folds)
+    fold_id = int(cfg.fold_id)
+    fold_split_seed = int(cfg.fold_split_seed)
+    train_idx, val_idx = _kfold_indices(len(full_dataset), n_folds, fold_id, fold_split_seed)
+    train_dataset = Subset(full_dataset, train_idx)
+    val_dataset = Subset(full_dataset, val_idx)
+
+    print(
+        f"Oracle k-fold split: fold {fold_id}/{n_folds} | "
+        f"train={len(train_dataset):,} val={len(val_dataset):,} "
+        f"(from train+pool={len(full_dataset):,})"
+    )
 
     train_loader = DataLoader(
         train_dataset,
@@ -141,12 +181,65 @@ def main(cfg: DictConfig) -> None:
     elapsed = time.time() - start
 
     summary = {
+        "fold_id": fold_id,
+        "n_folds": n_folds,
+        "fold_split_seed": fold_split_seed,
+        "n_train_samples": len(train_dataset),
+        "n_val_samples": len(val_dataset),
+        "n_total_train_pool": len(full_dataset),
         "best_val_pearson_r": max(history["val_pearson_r"]) if history["val_pearson_r"] else 0.0,
         "best_val_spearman_r": max(history["val_spearman_r"]) if history["val_spearman_r"] else 0.0,
         "best_val_loss": min(history["val_loss"]) if history["val_loss"] else float("inf"),
         "training_time_seconds": elapsed,
         "epochs_run": len(history["val_loss"]),
     }
+
+    # Evaluate best checkpoint on fixed yeast test subsets (random/genomic/snv/snv_abs).
+    best_ckpt = output_root / "best_model.pt"
+    if best_ckpt.exists():
+        ckpt = torch.load(best_ckpt, map_location="cpu")
+        model.load_state_dict(ckpt["model_state_dict"], strict=True)
+        model.to(device)
+
+        test_dataset = YeastDataset(
+            data_path=str(cfg.data_path),
+            split="test",
+            context_mode=str(cfg.context_mode),
+        )
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=int(cfg.batch_size),
+            shuffle=False,
+            num_workers=int(cfg.num_workers),
+            pin_memory=bool(cfg.pin_memory),
+        )
+
+        default_subset_dir = Path(str(cfg.data_path)) / "test_subset_ids"
+        subset_dir = (
+            Path(str(cfg.test_subset_dir))
+            if cfg.test_subset_dir is not None
+            else default_subset_dir
+        )
+        if subset_dir.exists():
+            public_dir = (
+                str(cfg.public_leaderboard_dir) if cfg.public_leaderboard_dir is not None else None
+            )
+            subsets = load_yeast_test_subsets(
+                subset_dir=subset_dir,
+                public_dir=public_dir,
+                use_private_only=bool(cfg.private_only_test),
+            )
+            preds = _predict_test(
+                model,
+                test_loader,
+                device,
+                use_reverse_complement=bool(cfg.use_reverse_complement),
+            )
+            summary["test_metrics"] = evaluate_yeast_test_subsets(
+                predictions=preds,
+                labels=test_dataset.labels.astype(np.float32),
+                subsets=subsets,
+            )
 
     with (output_root / "summary.json").open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
