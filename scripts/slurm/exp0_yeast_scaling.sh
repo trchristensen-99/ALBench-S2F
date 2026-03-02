@@ -13,7 +13,9 @@
 set -euo pipefail
 
 # Source system profiles for modules and tmpdir
+set +u
 source /etc/profile.d/modules.sh
+set -u
 module load EB5
 
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1

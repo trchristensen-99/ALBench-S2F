@@ -18,7 +18,9 @@
 
 set -euo pipefail
 
+set +u
 source /etc/profile.d/modules.sh
+set -u
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD:$PYTHONPATH"
