@@ -218,12 +218,20 @@ def main(cfg: DictConfig) -> None:
     if not Path(weights_path).exists():
         raise FileNotFoundError(f"AlphaGenome weights not found: {weights_path}")
 
+    # Use explicit CPU device if no GPU is available (e.g. on Citra with old driver).
+    try:
+        _jax_device = jax.devices("gpu")[0]
+    except RuntimeError:
+        _jax_device = jax.devices("cpu")[0]
+        print(f"No GPU detected — using CPU device: {_jax_device}", flush=True)
+
     model = create_model_with_heads(
         "all_folds",
         heads=[unique_head_name],
         checkpoint_path=weights_path,
         use_encoder_output=True,
         detach_backbone=True,
+        device=_jax_device,
     )
     reinit_head_params(model, unique_head_name, num_tokens=5, dim=1536, rng=rng_int)
     model.freeze_except_head(unique_head_name)
