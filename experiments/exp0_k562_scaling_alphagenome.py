@@ -59,13 +59,6 @@ for _i, _c in enumerate(_FLANK_3_STR):
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def set_seed(seed: int | None) -> int:
-    if seed is None:
-        seed = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
-    np.random.seed(seed)
-    return seed
-
-
 def _safe_corr(y_true: np.ndarray, y_pred: np.ndarray, fn: object) -> float:
     if y_true.size < 2 or np.std(y_true) == 0.0 or np.std(y_pred) == 0.0:
         return 0.0
@@ -230,12 +223,13 @@ def main(cfg: DictConfig) -> None:
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(cfg.gpu))
 
     fraction = float(cfg.fraction)
-    used_seed = set_seed(int(cfg.seed) if cfg.seed is not None else None)
+    rng_int = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
+    run_id = int.from_bytes(os.urandom(4), byteorder="big") % (10**9)
 
     output_dir = (
         Path(str(cfg.output_dir)).expanduser().resolve()
         / f"fraction_{fraction:.4f}"
-        / f"seed_{used_seed}"
+        / f"run_{run_id}"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -244,7 +238,7 @@ def main(cfg: DictConfig) -> None:
 
     wandb.init(
         project="albench-s2f",
-        name=f"exp0_ag_k562_frac{fraction:.3f}_seed{used_seed}",
+        name=f"exp0_ag_k562_frac{fraction:.3f}_run{run_id}",
         config={**OmegaConf.to_container(cfg, resolve=True), "fraction": fraction},
         tags=["exp0", "k562", "scaling", "alphagenome"],
         mode=str(cfg.wandb_mode),
@@ -270,7 +264,7 @@ def main(cfg: DictConfig) -> None:
         use_encoder_output=True,
         detach_backbone=True,
     )
-    reinit_head_params(model, unique_head_name, num_tokens=5, dim=1536, rng=used_seed)
+    reinit_head_params(model, unique_head_name, num_tokens=5, dim=1536, rng=rng_int)
     model.freeze_except_head(unique_head_name)
 
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(model._params))
@@ -286,7 +280,7 @@ def main(cfg: DictConfig) -> None:
 
     n_total = len(full_train)
     n_samples = max(1, int(n_total * fraction))
-    rng_subset = np.random.RandomState(used_seed)
+    rng_subset = np.random.default_rng(rng_int)
     subset_idx = rng_subset.choice(n_total, size=n_samples, replace=False)
     train_subset = Subset(full_train, subset_idx.tolist())
 
@@ -445,7 +439,8 @@ def main(cfg: DictConfig) -> None:
         "fraction": fraction,
         "n_samples": n_samples,
         "n_total": n_total,
-        "seed": used_seed,
+        "run_id": run_id,
+        "rng_int": rng_int,
         "best_val_pearson": best_val_pearson,
         "head_arch": str(cfg.head_arch),
         "test_metrics": test_metrics,

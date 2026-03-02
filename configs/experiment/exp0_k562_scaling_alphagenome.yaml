@@ -15,7 +15,6 @@ gpu: 0
 fraction: 1.0  # override via ++fraction=$FRACTION in SLURM array
 epochs: 100
 early_stop_patience: 5
-seed: null  # null → random seed from os.urandom
 wandb_mode: offline
 
 # Optimizer (same as best oracle config)
