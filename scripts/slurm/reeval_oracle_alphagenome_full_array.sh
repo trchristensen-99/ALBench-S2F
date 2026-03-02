@@ -25,8 +25,8 @@ source scripts/slurm/setup_hpc_deps.sh
 
 export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
 
-ORACLE_DIR="outputs/ag_hashfrag_oracle_full/oracle_${SLURM_ARRAY_TASK_ID}"
-HEAD_NAME="alphagenome_k562_head_hashfrag_boda_flatten_512_512_v4"
+export ORACLE_DIR="outputs/ag_hashfrag_oracle_full/oracle_${SLURM_ARRAY_TASK_ID}"
+export HEAD_NAME="alphagenome_k562_head_hashfrag_boda_flatten_512_512_v4"
 
 echo "Re-evaluating ${ORACLE_DIR} (task ${SLURM_ARRAY_TASK_ID}) on $(date)"
 echo "Node: ${SLURMD_NODENAME}"
