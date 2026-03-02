@@ -25,12 +25,14 @@ echo "Array task: $SLURM_ARRAY_TASK_ID"
 echo "Node: $SLURMD_NODENAME"
 echo "Date: $(date)"
 
+FOLD_SPLIT_SEED="${FOLD_SPLIT_SEED:-$SLURM_ARRAY_JOB_ID}"
+
 uv run --no-sync python experiments/train_oracle_dream_rnn.py \
   ++data_path=data/yeast \
   ++include_pool=true \
   ++n_folds=10 \
   ++fold_id="${SLURM_ARRAY_TASK_ID}" \
-  ++fold_split_seed=42 \
-  ++seed="${SLURM_ARRAY_TASK_ID}" \
+  ++fold_split_seed="${FOLD_SPLIT_SEED}" \
+  ++seed=null \
   ++output_dir="outputs/oracle_dream_rnn_yeast_kfold/oracle_${SLURM_ARRAY_TASK_ID}" \
   ++wandb_mode=offline

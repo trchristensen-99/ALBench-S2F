@@ -24,16 +24,25 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p logs
 source scripts/slurm/setup_hpc_deps.sh
 
-# Map array index to (seed, fraction)
+# Map array index to (replicate_slot, fraction).
+# Replicates use random seeds at runtime (seed=null), not fixed seed IDs.
 FRACTIONS=(0.001 0.002 0.005 0.01 0.02 0.05 0.1 0.2 0.5 1.0)
-SEEDS=(42 43 44)
+REPLICATES=(0 1 2)
 N_FRAC=${#FRACTIONS[@]}
 FRAC_IDX=$((SLURM_ARRAY_TASK_ID % N_FRAC))
-SEED_IDX=$((SLURM_ARRAY_TASK_ID / N_FRAC))
+REP_IDX=$((SLURM_ARRAY_TASK_ID / N_FRAC))
 FRACTION=${FRACTIONS[$FRAC_IDX]}
-SEED=${SEEDS[$SEED_IDX]}
+REPLICATE_SLOT=${REPLICATES[$REP_IDX]}
+FRAC_FMT=$(printf "%.4f" "${FRACTION}")
 
-echo "=== Exp 0 Yeast Scaling: seed=${SEED} fraction=${FRACTION} task=${SLURM_ARRAY_TASK_ID} ==="
+echo "=== Exp 0 Yeast Scaling: replicate_slot=${REPLICATE_SLOT} fraction=${FRACTION} task=${SLURM_ARRAY_TASK_ID} ==="
+
+# Reuse existing completed runs for this fraction to avoid reruns.
+EXISTING_COUNT=$(find outputs/exp0_yeast_scaling -path "*/fraction_${FRAC_FMT}/result.json" | wc -l)
+if (( EXISTING_COUNT > REPLICATE_SLOT )); then
+    echo "Skipping fraction=${FRACTION}: already have ${EXISTING_COUNT} completed run(s), slot=${REPLICATE_SLOT}"
+    exit 0
+fi
 
 # W&B auth
 if [[ -f ~/.wandb_key ]]; then
@@ -45,6 +54,6 @@ fi
 uv run --no-sync python experiments/exp0_yeast_scaling.py \
     fraction="${FRACTION}" \
     output_dir=outputs/exp0_yeast_scaling \
-    seed="${SEED}" \
+    seed=null \
     test_subset_dir=data/yeast/test_subset_ids \
     wandb_mode=offline
