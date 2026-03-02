@@ -36,8 +36,9 @@ class K562Dataset(SequenceDataset):
     - Expression values (log2 fold change)
 
     Data splits (following the paper):
-    - train: 100,000 sequences (for active learning experiments)
-    - pool: 193,890 sequences (remaining training data for selection)
+    - train: 100,000 sequences (initial labeled set for active learning)
+    - pool: ~220,000 sequences (unlabeled candidate pool for AL selection)
+    - train_pool: ~320,000 sequences (train + pool combined; use for oracle training)
     - val: 36,737 sequences (hashFrag-based validation set)
     - test: 36,737 sequences (hashFrag-based test set)
     """
@@ -62,7 +63,7 @@ class K562Dataset(SequenceDataset):
 
         Args:
             data_path: Path to data directory containing the main data file
-            split: One of 'train', 'pool', 'val', 'test'
+            split: One of 'train', 'pool', 'train_pool', 'val', 'test'
             transform: Optional transform to apply to sequences
             target_transform: Optional transform to apply to labels
             subset_size: Optional number of samples to use (for downsampling experiments)
@@ -243,6 +244,15 @@ class K562Dataset(SequenceDataset):
             labels = all_labels[indices]
             splits[split_name] = (sequences, labels, indices)
             logger.info(f"  {split_name}: {len(indices):,} sequences")
+
+        # Derived combined split for oracle training (train + pool)
+        combined_idx = np.concatenate([splits["train"][2], splits["pool"][2]])
+        splits["train_pool"] = (
+            np.concatenate([splits["train"][0], splits["pool"][0]]),
+            np.concatenate([splits["train"][1], splits["pool"][1]]),
+            combined_idx,
+        )
+        logger.info(f"  train_pool: {len(combined_idx):,} sequences (train + pool combined)")
 
         return splits
 

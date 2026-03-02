@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Train AlphaGenome oracle on hashFrag K562 splits (10-seed ensemble for AL experiments).
 
-Trains a frozen-encoder AlphaGenome head on the hashFrag train split (~100 K sequences)
-and evaluates on:
+Trains a frozen-encoder AlphaGenome head on the combined hashFrag train+pool split
+(~320 K sequences) and evaluates on:
   - In-distribution hashFrag test set
   - SNV pairs hashFrag test set (absolute expression + delta variant effect)
   - OOD CRE test set
@@ -403,7 +403,7 @@ def main(cfg: DictConfig) -> None:
             flush=True,
         )
     else:
-        ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
+        ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train_pool")
         ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
         print(f"Train: {len(ds_train):,} | Val: {len(ds_val):,}", flush=True)
 

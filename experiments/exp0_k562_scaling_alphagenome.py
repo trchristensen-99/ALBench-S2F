@@ -33,7 +33,7 @@ from alphagenome_ft import create_model_with_heads
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 from scipy.stats import pearsonr, spearmanr
-from torch.utils.data import ConcatDataset, DataLoader, Subset
+from torch.utils.data import DataLoader, Subset
 
 from data.k562 import K562Dataset
 from data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM
@@ -281,10 +281,8 @@ def main(cfg: DictConfig) -> None:
     opt_state = optimizer.init(model._params)
 
     # ── Datasets: train+pool subset ──────────────────────────────────────────
-    ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
-    ds_pool = K562Dataset(data_path=str(cfg.k562_data_path), split="pool")
+    full_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train_pool")
     ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
-    full_train = ConcatDataset([ds_train, ds_pool])
 
     n_total = len(full_train)
     n_samples = max(1, int(n_total * fraction))

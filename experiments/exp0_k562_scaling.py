@@ -23,7 +23,7 @@ import wandb
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 from scipy.stats import pearsonr, spearmanr
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 from data.k562 import K562Dataset
 from data.utils import one_hot_encode
@@ -201,7 +201,7 @@ def create_subset_indices(n_total: int, fraction: float, seed: int | None) -> np
 
 def run_fraction(
     fraction: float,
-    full_train: ConcatDataset,
+    full_train: Dataset,
     val_loader: DataLoader,
     device: torch.device,
     output_root: Path,
@@ -317,11 +317,8 @@ def main(cfg: DictConfig) -> None:
         mode=str(cfg.wandb_mode),
     )
 
-    ds_train = K562Dataset(data_path=str(cfg.data_path), split="train")
-    ds_pool = K562Dataset(data_path=str(cfg.data_path), split="pool")
+    full_train = K562Dataset(data_path=str(cfg.data_path), split="train_pool")
     ds_val = K562Dataset(data_path=str(cfg.data_path), split="val")
-
-    full_train = ConcatDataset([ds_train, ds_pool])
     val_loader = DataLoader(
         ds_val,
         batch_size=int(cfg.batch_size),
