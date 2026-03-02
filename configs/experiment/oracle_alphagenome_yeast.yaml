@@ -1,16 +1,14 @@
 task_mode: yeast
-head_arch: mlp-512-512
-head_name: alphagenome_yeast_head
+head_arch: boda-flatten-512-512
+head_name: ag_yeast_head
 num_tracks: 18
 
 yeast_data_path: data/yeast
-k562_data_path: data/k562
 context_mode: alphagenome384
-
-output_dir: outputs/oracle_alphagenome_yeast
-weights_path: checkpoints/alphagenome-jax-all_folds-v1
+weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
 gpu: 0
-epochs: 30
+
+epochs: 100
 seed: null
 wandb_mode: offline
 
@@ -19,7 +17,20 @@ num_workers: 4
 max_seq_len: 384
 lr: 0.0001
 weight_decay: 0.0001
-gradients_clip: 1.0
 save_full_model: false
 include_pool: true
-subset_fraction: null
+
+aug_mode: no_shift
+cache_dir: outputs/ag_yeast/embedding_cache
+dropout_rate: 0.1
+
+lr_schedule: plateau
+lr_plateau_patience: 5
+lr_plateau_factor: 0.5
+early_stop_patience: 15
+
+second_stage_lr: null
+second_stage_epochs: 50
+second_stage_early_stop_patience: 10
+
+output_dir: outputs/ag_yeast_oracle_cached

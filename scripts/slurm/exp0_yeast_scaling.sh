@@ -3,11 +3,12 @@
 #SBATCH --output=logs/exp0_yeast_%a.out
 #SBATCH --error=logs/exp0_yeast_%a.err
 #SBATCH --partition=gpuq
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=128G
-#SBATCH --time=12:00:00
-#SBATCH --array=0-9
+#SBATCH --qos=slow_nice
+#SBATCH --gres=gpu:h100:1
+#SBATCH --cpus-per-task=14
+#SBATCH --mem=200G
+#SBATCH --time=48:00:00
+#SBATCH --array=0-29
 
 set -euo pipefail
 
@@ -19,12 +20,18 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p logs
+source scripts/slurm/setup_hpc_deps.sh
 
-# Map array index to fraction (of the full 6M train+pool base)
+# Map array index to (seed, fraction)
 FRACTIONS=(0.001 0.002 0.005 0.01 0.02 0.05 0.1 0.2 0.5 1.0)
-FRACTION=${FRACTIONS[$SLURM_ARRAY_TASK_ID]}
+SEEDS=(42 43 44)
+N_FRAC=${#FRACTIONS[@]}
+FRAC_IDX=$((SLURM_ARRAY_TASK_ID % N_FRAC))
+SEED_IDX=$((SLURM_ARRAY_TASK_ID / N_FRAC))
+FRACTION=${FRACTIONS[$FRAC_IDX]}
+SEED=${SEEDS[$SEED_IDX]}
 
-echo "=== Exp 0 Yeast Scaling (6M pool): fraction=${FRACTION} (task ${SLURM_ARRAY_TASK_ID}) ==="
+echo "=== Exp 0 Yeast Scaling: seed=${SEED} fraction=${FRACTION} task=${SLURM_ARRAY_TASK_ID} ==="
 
 # W&B auth
 if [[ -f ~/.wandb_key ]]; then
@@ -33,9 +40,9 @@ elif [[ -f .env ]]; then
     export $(grep WANDB_API_KEY .env | xargs)
 fi
 
-uv run python experiments/exp0_yeast_scaling.py \
+uv run --no-sync python experiments/exp0_yeast_scaling.py \
     fraction="${FRACTION}" \
-    output_dir=outputs/exp0_yeast_scaling_6m \
-    seed=42 \
+    output_dir=outputs/exp0_yeast_scaling \
+    seed="${SEED}" \
+    test_subset_dir=data/yeast/test_subset_ids \
     wandb_mode=offline
-
