@@ -97,7 +97,7 @@ def _evaluate_test_sets(
 ) -> dict[str, dict[str, float]]:
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
     snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
-    ood_path = test_set_dir / "test_ood_cre.tsv"
+    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
     missing = [str(p) for p in [in_path, snv_path, ood_path] if not p.exists()]
     if missing:
         raise FileNotFoundError(f"Missing K562 test-set files: {missing}")

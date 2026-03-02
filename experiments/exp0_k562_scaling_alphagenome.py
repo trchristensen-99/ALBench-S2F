@@ -200,7 +200,7 @@ def evaluate_test_sets(
             "n": int(len(delta_true)),
         }
 
-    ood_path = test_set_dir / "test_ood_cre.tsv"
+    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
     if ood_path.exists():
         ood_df = pd.read_csv(ood_path, sep="\t")
         ood_pred = _predict_sequences(
