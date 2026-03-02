@@ -214,8 +214,8 @@ def evaluate(ckpt_dir: str, head_name: str, arch: str | None = None) -> dict:
         )
     }
 
-    # OOD
-    ood_df = pd.read_csv(test_set_dir / "test_ood_cre.tsv", sep="\t")
+    # OOD (designed K562-targeting sequences: FastSeqProp / SimulatedAnnealing / AdaLead)
+    ood_df = pd.read_csv(test_set_dir / "test_ood_designed_k562.tsv", sep="\t")
     ood_pred = _predict(ood_df["sequence"].astype(str).tolist())
     metrics["ood"] = {
         "pearson_r": _safe_corr(
@@ -500,7 +500,8 @@ def evaluate_hashfrag_test_sets_600bp(
         "n": int(len(delta_true)),
     }
 
-    ood_df = pd.read_csv(test_set_dir / "test_ood_cre.tsv", sep="\t")
+    # OOD (designed K562-targeting sequences: FastSeqProp / SimulatedAnnealing / AdaLead)
+    ood_df = pd.read_csv(test_set_dir / "test_ood_designed_k562.tsv", sep="\t")
     ood_pred = _predict(ood_df["sequence"].astype(str).tolist())
     ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
     metrics["ood"] = {

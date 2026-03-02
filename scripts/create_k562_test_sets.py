@@ -4,12 +4,21 @@
 Outputs under ``data/k562/test_sets``:
 - ``test_in_distribution_hashfrag.tsv``: HashFrag test split (expression prediction).
 - ``test_snv_pairs_hashfrag.tsv``: ref/alt SNV pairs aligned to HashFrag test loci.
-- ``test_ood_cre.tsv``: out-of-domain proxy set from the CRE library.
 - ``manifest.json``: criteria and counts used to build each file.
 
-Notes:
-- The public Gosai K562 file in this repo may not include ``target_cell`` / ``origin``
-  columns. In that case, OOD is built from ``data_project == 'CRE'`` as proxy.
+NOTE on OOD test set:
+  The correct OOD set (designed K562-targeting sequences from the CODA paper,
+  Gosai et al. 2024 Nature) must be built separately using::
+
+      python scripts/build_k562_ood_designed.py
+
+  That script processes OL46 validation data from Zenodo 10698014
+  (DATA-MPRA_Datasets.zip) and writes ``test_ood_designed_k562.tsv``.
+
+  The ``_build_ood_set()`` function below builds a proxy from
+  ``data_project == 'CRE'`` (all CRE genomic sequences) since the main
+  Table_S2 file does not include ``target_cell`` / ``origin`` columns.
+  This proxy is kept for backward compatibility but is NOT used by eval_ag.py.
 """
 
 from __future__ import annotations
