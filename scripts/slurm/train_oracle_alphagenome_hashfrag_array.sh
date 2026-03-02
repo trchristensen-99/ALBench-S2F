@@ -31,7 +31,8 @@ export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer="
 # The actual seed used is logged by the training script and saved in test_metrics.json.
 echo "Starting oracle ${SLURM_ARRAY_TASK_ID} (random seed, no fixed init)"
 
-uv run python experiments/train_oracle_alphagenome_hashfrag.py \
+uv run --no-sync python experiments/train_oracle_alphagenome_hashfrag.py \
     ++seed=null \
+    ++fold_id=${SLURM_ARRAY_TASK_ID} \
     ++output_dir=outputs/ag_hashfrag_oracle/oracle_${SLURM_ARRAY_TASK_ID} \
     ++wandb_mode=offline

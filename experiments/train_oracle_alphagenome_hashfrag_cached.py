@@ -244,27 +244,41 @@ def main(cfg: DictConfig) -> None:
     param_count = sum(x.size for x in jax.tree_util.tree_leaves(model._params))
     print(f"Total parameters: {param_count:,}", flush=True)
 
-    # ── Load datasets (labels only; sequences are in the cache) ───────────────
-    ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
-    ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
-    train_labels = ds_train.labels.astype(np.float32)
-    val_labels = ds_val.labels.astype(np.float32)
-    N_train = len(ds_train)
-    N_val = len(ds_val)
-    print(f"Train: {N_train:,} | Val: {N_val:,}", flush=True)
+    # ── Load labels and embedding cache ──────────────────────────────────────
+    # split="train" contains all ~320K hashFrag training sequences.
+    ds_all_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
+    all_labels = ds_all_train.labels.astype(np.float32)
+    print(f"  Total training labels: {len(all_labels):,}", flush=True)
 
-    # ── Load embedding cache ──────────────────────────────────────────────────
     cache_dir = Path(str(cfg.cache_dir)).expanduser().resolve()
     print(f"Loading embedding cache from {cache_dir} …", flush=True)
-    train_canonical, train_rc = load_embedding_cache(cache_dir, "train")
-    pool_can, pool_rc_part = load_embedding_cache(cache_dir, "pool")
-    # Legacy cache has separate train (100K) + pool (220K) files; merge to match
-    # the consolidated K562Dataset "train" split (~320K).
-    train_canonical = np.concatenate([train_canonical, pool_can], axis=0)
-    train_rc = np.concatenate([train_rc, pool_rc_part], axis=0)
-    val_canonical, _ = load_embedding_cache(cache_dir, "val")
+    # Legacy caches have separate train (100K) + pool (220K) files; merge both.
+    can_train, rc_train = load_embedding_cache(cache_dir, "train")
+    can_pool, rc_pool = load_embedding_cache(cache_dir, "pool")
+    all_canonical = np.concatenate([can_train, can_pool], axis=0)
+    all_rc = np.concatenate([rc_train, rc_pool], axis=0)
+    print(f"  All embeddings: {all_canonical.shape}", flush=True)
+
+    # ── 10-fold CV split ──────────────────────────────────────────────────────
+    n_folds = int(cfg.get("n_folds", 10))
+    fold_id = int(cfg.get("fold_id", 0))
+    n_total = len(all_labels)
+    perm = np.random.default_rng(seed=42).permutation(n_total)
+    fold_size = n_total // n_folds
+    val_start = fold_id * fold_size
+    val_end = val_start + fold_size if fold_id < n_folds - 1 else n_total
+    val_idx = perm[val_start:val_end]
+    train_idx = np.concatenate([perm[:val_start], perm[val_end:]])
+
+    train_labels = all_labels[train_idx]
+    val_labels = all_labels[val_idx]
+    train_canonical = all_canonical[train_idx]
+    train_rc = all_rc[train_idx]
+    val_canonical = all_canonical[val_idx]
+    N_train = len(train_idx)
+    N_val = len(val_idx)
     print(
-        f"Cache loaded: train {train_canonical.shape}, val {val_canonical.shape}",
+        f"K-fold oracle (fold {fold_id}/{n_folds}) — Train: {N_train:,} | Val: {N_val:,}",
         flush=True,
     )
 

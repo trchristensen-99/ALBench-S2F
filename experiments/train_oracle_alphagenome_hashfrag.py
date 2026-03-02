@@ -355,57 +355,31 @@ def main(cfg: DictConfig) -> None:
         optimizer = optax.adamw(learning_rate=float(cfg.lr), weight_decay=float(cfg.weight_decay))
     opt_state = optimizer.init(model._params)
 
-    # ── Datasets ──────────────────────────────────────────────────────────────
-    use_all_data = bool(cfg.get("use_all_data", False))
+    # ── Datasets: 10-fold CV over the full training set (~320K) ───────────────
+    # split="train" now contains all hashFrag training data (train+pool merged).
+    # Val and test splits are kept as held-out evaluation sets.
+    ds_all_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
+    all_seqs = ds_all_train.sequences
+    all_labs = ds_all_train.labels
+    print(f"  Loaded train: {len(all_seqs):,}", flush=True)
 
-    if use_all_data:
-        # Combine ALL K562 hashfrag splits (train + pool + val + test) + synthetic sequences
-        # so the oracle learns from every available labeled MPRA sequence.
-        all_seqs_list: list[np.ndarray] = []
-        all_labs_list: list[np.ndarray] = []
-        for split_name in ["train", "pool", "val", "test"]:
-            ds_split = K562Dataset(data_path=str(cfg.k562_data_path), split=split_name)
-            all_seqs_list.append(ds_split.sequences)
-            all_labs_list.append(ds_split.labels)
-            print(f"  Loaded {split_name}: {len(ds_split.sequences):,}", flush=True)
+    n_folds = int(cfg.get("n_folds", 10))
+    fold_id = int(cfg.get("fold_id", 0))
+    # Deterministic permutation shared across all folds so splits are consistent.
+    perm = np.random.default_rng(seed=42).permutation(len(all_seqs))
+    fold_size = len(all_seqs) // n_folds
+    val_start = fold_id * fold_size
+    val_end = val_start + fold_size if fold_id < n_folds - 1 else len(all_seqs)
+    val_perm_idx = perm[val_start:val_end]
+    train_perm_idx = np.concatenate([perm[:val_start], perm[val_end:]])
 
-        # Add synthetic sequences (designed sequences with measured K562_log2FC labels).
-        # cre_sequences.tsv is excluded — it is the OOD test set (preserve for honest eval).
-        synth_path = Path(str(cfg.k562_data_path)) / "test_sets" / "synthetic_sequences.tsv"
-        if synth_path.exists():
-            synth_df = pd.read_csv(synth_path, sep="\t")
-            all_seqs_list.append(synth_df["sequence"].to_numpy())
-            all_labs_list.append(synth_df["K562_log2FC"].to_numpy(dtype=np.float32))
-            print(f"  Loaded synthetic: {len(synth_df):,}", flush=True)
-
-        all_seqs = np.concatenate(all_seqs_list)
-        all_labs = np.concatenate(all_labs_list)
-
-        # 10-fold CV: oracle k uses fold k as its validation set.
-        # With 10 oracles (array IDs 0-9) every sequence is in training
-        # for 9 out of 10 runs, so the ensemble effectively trains on all data.
-        n_total = len(all_seqs)
-        n_folds = 10
-        fold_id = int(cfg.get("fold_id", 0))
-        # Deterministic shuffle before fold assignment (same permutation for all folds).
-        perm = np.random.default_rng(seed=42).permutation(n_total)
-        fold_size = n_total // n_folds
-        val_start = fold_id * fold_size
-        val_end = val_start + fold_size if fold_id < n_folds - 1 else n_total
-        val_perm_idx = perm[val_start:val_end]
-        train_perm_idx = np.concatenate([perm[:val_start], perm[val_end:]])
-
-        ds_train = RawStringDataset(all_seqs[train_perm_idx], all_labs[train_perm_idx])
-        ds_val = RawStringDataset(all_seqs[val_perm_idx], all_labs[val_perm_idx])
-        print(
-            f"Full-data oracle (fold {fold_id}/{n_folds}) — "
-            f"Train: {len(ds_train):,} | Val: {len(ds_val):,}",
-            flush=True,
-        )
-    else:
-        ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
-        ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
-        print(f"Train: {len(ds_train):,} | Val: {len(ds_val):,}", flush=True)
+    ds_train = RawStringDataset(all_seqs[train_perm_idx], all_labs[train_perm_idx])
+    ds_val = RawStringDataset(all_seqs[val_perm_idx], all_labs[val_perm_idx])
+    print(
+        f"K-fold oracle (fold {fold_id}/{n_folds}) — "
+        f"Train: {len(ds_train):,} | Val: {len(ds_val):,}",
+        flush=True,
+    )
 
     n_workers = int(cfg.num_workers)
 
