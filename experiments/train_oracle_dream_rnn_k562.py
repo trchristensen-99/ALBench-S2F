@@ -15,7 +15,7 @@ import torch.nn as nn
 import wandb
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data import DataLoader
 
 from data.k562 import K562Dataset
 from models.dream_rnn import create_dream_rnn
@@ -57,13 +57,10 @@ def main(cfg: DictConfig) -> None:
     )
 
     ds_train = K562Dataset(data_path=str(cfg.data_path), split="train")
-    ds_pool = K562Dataset(data_path=str(cfg.data_path), split="pool")
     ds_val = K562Dataset(data_path=str(cfg.data_path), split="val")
 
-    full_train = ConcatDataset([ds_train, ds_pool])
-
     train_loader = DataLoader(
-        full_train,
+        ds_train,
         batch_size=int(cfg.batch_size),
         shuffle=True,
         num_workers=int(cfg.num_workers),
@@ -123,7 +120,7 @@ def main(cfg: DictConfig) -> None:
         "best_val_loss": min(history["val_loss"]) if history["val_loss"] else float("inf"),
         "training_time_seconds": elapsed,
         "epochs_run": len(history["val_loss"]),
-        "n_train_total": len(full_train),
+        "n_train_total": len(ds_train),
         "n_val": len(ds_val),
     }
     (output_root / "summary.json").write_text(json.dumps(summary, indent=2))

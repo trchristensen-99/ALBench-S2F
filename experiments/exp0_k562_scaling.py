@@ -317,7 +317,7 @@ def main(cfg: DictConfig) -> None:
         mode=str(cfg.wandb_mode),
     )
 
-    full_train = K562Dataset(data_path=str(cfg.data_path), split="train_pool")
+    full_train = K562Dataset(data_path=str(cfg.data_path), split="train")
     ds_val = K562Dataset(data_path=str(cfg.data_path), split="val")
     val_loader = DataLoader(
         ds_val,

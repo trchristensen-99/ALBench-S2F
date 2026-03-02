@@ -403,7 +403,7 @@ def main(cfg: DictConfig) -> None:
             flush=True,
         )
     else:
-        ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train_pool")
+        ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
         ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
         print(f"Train: {len(ds_train):,} | Val: {len(ds_val):,}", flush=True)
 

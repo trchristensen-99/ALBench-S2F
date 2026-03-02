@@ -281,7 +281,7 @@ def main(cfg: DictConfig) -> None:
     opt_state = optimizer.init(model._params)
 
     # ── Datasets: train+pool subset ──────────────────────────────────────────
-    full_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train_pool")
+    full_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
     ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
 
     n_total = len(full_train)

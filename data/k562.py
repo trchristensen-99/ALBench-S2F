@@ -36,11 +36,13 @@ class K562Dataset(SequenceDataset):
     - Expression values (log2 fold change)
 
     Data splits (following the paper):
-    - train: 100,000 sequences (initial labeled set for active learning)
-    - pool: ~220,000 sequences (unlabeled candidate pool for AL selection)
-    - train_pool: ~320,000 sequences (train + pool combined; use for oracle training)
+    - train: ~320,000 sequences (all hashFrag training data; train+pool combined)
     - val: 36,737 sequences (hashFrag-based validation set)
     - test: 36,737 sequences (hashFrag-based test set)
+
+    Note: the historical 100K "train" / 220K "pool" subdivision is no longer
+    exposed.  Existing cache files with separate train_indices.npy and
+    pool_indices.npy are merged transparently on load.
     """
 
     SEQUENCE_LENGTH = 200  # Target sequence length (as per paper)
@@ -63,7 +65,7 @@ class K562Dataset(SequenceDataset):
 
         Args:
             data_path: Path to data directory containing the main data file
-            split: One of 'train', 'pool', 'train_pool', 'val', 'test'
+            split: One of 'train', 'val', 'test'
             transform: Optional transform to apply to sequences
             target_transform: Optional transform to apply to labels
             subset_size: Optional number of samples to use (for downsampling experiments)
@@ -203,7 +205,7 @@ class K562Dataset(SequenceDataset):
         Get cached HashFrag splits or create new ones.
 
         Returns:
-            Dict with 'train', 'pool', 'val', 'test' keys.
+            Dict with 'train', 'val', 'test' keys.
             Each value: (sequences, labels, indices)
         """
         # Set cache directory
@@ -212,17 +214,20 @@ class K562Dataset(SequenceDataset):
         else:
             cache_dir = data_dir / "hashfrag_splits"
 
-        cache_files = {
+        required_cache_files = {
             "train": cache_dir / "train_indices.npy",
-            "pool": cache_dir / "pool_indices.npy",
             "val": cache_dir / "val_indices.npy",
             "test": cache_dir / "test_indices.npy",
         }
+        # Legacy: old caches have a separate pool_indices.npy that gets merged into train
+        legacy_pool_file = cache_dir / "pool_indices.npy"
 
         # Check if cache exists
-        if all(f.exists() for f in cache_files.values()):
+        if all(f.exists() for f in required_cache_files.values()):
             logger.info(f"Loading cached HashFrag splits from {cache_dir}")
-            return self._load_cached_splits(all_sequences, all_labels, cache_files)
+            return self._load_cached_splits(
+                all_sequences, all_labels, required_cache_files, legacy_pool_file
+            )
 
         # Create new splits
         logger.info("=" * 70)
@@ -233,26 +238,35 @@ class K562Dataset(SequenceDataset):
         return self._create_new_hashfrag_splits(all_sequences, all_labels, cache_dir)
 
     def _load_cached_splits(
-        self, all_sequences: np.ndarray, all_labels: np.ndarray, cache_files: Dict[str, Path]
+        self,
+        all_sequences: np.ndarray,
+        all_labels: np.ndarray,
+        cache_files: Dict[str, Path],
+        legacy_pool_file: Optional[Path] = None,
     ) -> Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Load splits from cached indices."""
-        splits = {}
+        """Load splits from cached indices.
 
+        If a legacy pool_indices.npy exists alongside train_indices.npy, the two
+        are merged so that 'train' contains all hashFrag training sequences (~320K).
+        """
+        splits = {}
         for split_name, cache_file in cache_files.items():
             indices = np.load(cache_file)
-            sequences = all_sequences[indices]
-            labels = all_labels[indices]
-            splits[split_name] = (sequences, labels, indices)
+            splits[split_name] = (all_sequences[indices], all_labels[indices], indices)
             logger.info(f"  {split_name}: {len(indices):,} sequences")
 
-        # Derived combined split for oracle training (train + pool)
-        combined_idx = np.concatenate([splits["train"][2], splits["pool"][2]])
-        splits["train_pool"] = (
-            np.concatenate([splits["train"][0], splits["pool"][0]]),
-            np.concatenate([splits["train"][1], splits["pool"][1]]),
-            combined_idx,
-        )
-        logger.info(f"  train_pool: {len(combined_idx):,} sequences (train + pool combined)")
+        # Merge legacy pool into train (backward-compat with old cache layout)
+        if legacy_pool_file is not None and legacy_pool_file.exists():
+            pool_idx = np.load(legacy_pool_file)
+            logger.info(f"  pool (legacy): {len(pool_idx):,} sequences — merging into train")
+            train_idx = splits["train"][2]
+            combined_idx = np.concatenate([train_idx, pool_idx])
+            splits["train"] = (
+                np.concatenate([splits["train"][0], all_sequences[pool_idx]]),
+                np.concatenate([splits["train"][1], all_labels[pool_idx]]),
+                combined_idx,
+            )
+            logger.info(f"  train (merged): {len(combined_idx):,} sequences")
 
         return splits
 
@@ -265,44 +279,18 @@ class K562Dataset(SequenceDataset):
             work_dir=str(cache_dir / "hashfrag_work"), threshold=self.hashfrag_threshold
         )
 
-        # Create 80/10/10 splits
-        # Note: HashFrag will create train/val/test
-        # We'll further split train into train (100K) + pool (rest)
+        # Create 80/10/10 splits — 'train' gets the full 80%, no pool subdivision
         raw_splits = splitter.create_splits_from_dataset(
             sequences=all_sequences,
             labels=all_labels,
             train_ratio=0.8,
             val_ratio=0.1,
             test_ratio=0.1,
-            skip_revcomp=False,  # Consider reverse complements as different
+            skip_revcomp=False,
         )
 
-        # Get the 80% training data
-        train_pool_seqs, train_pool_labels, train_pool_indices = raw_splits["train"]
-
-        # Split into train (first 100K) and pool (remainder ~194K)
-        # Per migration plan: 100K train + rest as unlabeled pool for AL selection
-        n_train = min(100_000, len(train_pool_indices))
-
-        # Deterministic shuffle so the same split is reproducible across Citra and HPC
-        rng = np.random.default_rng(seed=42)
-        shuffle_idx = rng.permutation(len(train_pool_indices))
-
-        train_shuffle = shuffle_idx[:n_train]
-        pool_shuffle = shuffle_idx[n_train:]
-
-        # Create final splits
         splits = {
-            "train": (
-                train_pool_seqs[train_shuffle],
-                train_pool_labels[train_shuffle],
-                train_pool_indices[train_shuffle],
-            ),
-            "pool": (
-                train_pool_seqs[pool_shuffle],
-                train_pool_labels[pool_shuffle],
-                train_pool_indices[pool_shuffle],
-            ),
+            "train": raw_splits["train"],  # full 80% (~320K)
             "val": raw_splits["val"],
             "test": raw_splits["test"],
         }
@@ -312,7 +300,7 @@ class K562Dataset(SequenceDataset):
         for split_name, (_, _, indices) in splits.items():
             cache_file = cache_dir / f"{split_name}_indices.npy"
             np.save(cache_file, indices)
-            logger.info(f"Cached {split_name} indices: {len(indices):,} sequences")
+            logger.info(f"Cached {split_name}: {len(indices):,} sequences")
 
         logger.info("✓ HashFrag splits created and cached!")
         return splits
@@ -343,28 +331,19 @@ class K562Dataset(SequenceDataset):
         val_indices = np.where(val_mask)[0]
         test_indices = np.where(test_mask)[0]
 
-        # Splitting train matching original HashFrag constraints (100K Train, rest to Pool)
-        rng = np.random.default_rng(seed=42)
-        shuffle_idx = rng.permutation(len(train_pool_indices))
-        n_train = min(100_000, len(train_pool_indices))
-
-        train_shuffle = shuffle_idx[:n_train]
-        pool_shuffle = shuffle_idx[n_train:]
-
-        train_idx = train_pool_indices[train_shuffle]
-        pool_idx = train_pool_indices[pool_shuffle]
-
         splits = {
-            "train": (all_sequences[train_idx], all_labels[train_idx], train_idx),
-            "pool": (all_sequences[pool_idx], all_labels[pool_idx], pool_idx),
+            "train": (
+                all_sequences[train_pool_indices],
+                all_labels[train_pool_indices],
+                train_pool_indices,
+            ),
             "val": (all_sequences[val_indices], all_labels[val_indices], val_indices),
             "test": (all_sequences[test_indices], all_labels[test_indices], test_indices),
         }
 
-        logger.info(f"Generated Test  {len(test_indices)} seqs (chr7, chr13)")
-        logger.info(f"Generated Val   {len(val_indices)} seqs (chr19, chr21, chrX)")
-        logger.info(f"Generated Train {len(train_idx)} seqs")
-        logger.info(f"Generated Pool  {len(pool_idx)} seqs")
+        logger.info(f"Generated test  {len(test_indices):,} seqs (chr7, chr13)")
+        logger.info(f"Generated val   {len(val_indices):,} seqs (chr19, chr21, chrX)")
+        logger.info(f"Generated train {len(train_pool_indices):,} seqs (all non-val/test)")
 
         return splits
 

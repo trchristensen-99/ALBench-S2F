@@ -327,11 +327,7 @@ def main(cfg: DictConfig) -> None:
             return collate_yeast(batch, int(cfg.max_seq_len), augment=False)
     else:
         ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
-        if bool(cfg.include_pool):
-            ds_pool = K562Dataset(data_path=str(cfg.k562_data_path), split="pool")
-            train_dataset = torch.utils.data.ConcatDataset([ds_train, ds_pool])
-        else:
-            train_dataset = ds_train
+        train_dataset = ds_train
         ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
         val_dataset = ds_val
 

@@ -403,21 +403,7 @@ def main(cfg: DictConfig) -> None:
         val_dataset = K562FullDataset(data_path=str(cfg.k562_data_path), split="val")
         effective_max_seq_len = int(cfg.max_seq_len)
 
-    include_pool = bool(cfg.get("include_pool", False))
-    if include_pool:
-        if aug_mode != "full":
-            raise ValueError(
-                "include_pool=True is not supported with cached aug_mode. "
-                "Set aug_mode='full' or include_pool=False."
-            )
-        if use_compact_window:
-            raise ValueError("include_pool=True is not supported with use_compact_window.")
-        ds_pool = K562FullDataset(data_path=str(cfg.k562_data_path), split="pool")
-        train_dataset: torch.utils.data.Dataset = torch.utils.data.ConcatDataset(
-            [ds_train, ds_pool]
-        )
-    else:
-        train_dataset = ds_train
+    train_dataset = ds_train
 
     subset_fraction = cfg.get("subset_fraction", None)
     if subset_fraction is not None:

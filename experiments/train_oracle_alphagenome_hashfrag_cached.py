@@ -245,9 +245,7 @@ def main(cfg: DictConfig) -> None:
     print(f"Total parameters: {param_count:,}", flush=True)
 
     # ── Load datasets (labels only; sequences are in the cache) ───────────────
-    # Use train_pool (train + pool combined, ~320K) so the oracle trains on all
-    # available labeled data, not just the 100K initial AL split.
-    ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train_pool")
+    ds_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
     ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
     train_labels = ds_train.labels.astype(np.float32)
     val_labels = ds_val.labels.astype(np.float32)
@@ -258,14 +256,15 @@ def main(cfg: DictConfig) -> None:
     # ── Load embedding cache ──────────────────────────────────────────────────
     cache_dir = Path(str(cfg.cache_dir)).expanduser().resolve()
     print(f"Loading embedding cache from {cache_dir} …", flush=True)
-    train_can, train_rc_part = load_embedding_cache(cache_dir, "train")
+    train_canonical, train_rc = load_embedding_cache(cache_dir, "train")
     pool_can, pool_rc_part = load_embedding_cache(cache_dir, "pool")
-    # Concatenate in the same order as K562Dataset's train_pool split (train then pool)
-    train_canonical = np.concatenate([train_can, pool_can], axis=0)
-    train_rc = np.concatenate([train_rc_part, pool_rc_part], axis=0)
+    # Legacy cache has separate train (100K) + pool (220K) files; merge to match
+    # the consolidated K562Dataset "train" split (~320K).
+    train_canonical = np.concatenate([train_canonical, pool_can], axis=0)
+    train_rc = np.concatenate([train_rc, pool_rc_part], axis=0)
     val_canonical, _ = load_embedding_cache(cache_dir, "val")
     print(
-        f"Cache loaded: train_pool {train_canonical.shape}, val {val_canonical.shape}",
+        f"Cache loaded: train {train_canonical.shape}, val {val_canonical.shape}",
         flush=True,
     )
 

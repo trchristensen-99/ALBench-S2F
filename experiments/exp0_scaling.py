@@ -117,25 +117,29 @@ def run_exp0_scaling(cfg: DictConfig) -> ExpRunArtifacts:
         pool_sequences = sequences[64:]
     else:
         # --- Real data: load K562 or Yeast dataset ---
+        # "train" now contains all training sequences (~320K for K562).
+        # For the AL loop we split it into an initial labeled set (first 100K by
+        # legacy convention) and an unlabeled candidate pool (the rest).
+        _INITIAL_TRAIN_SIZE = 100_000
         if cfg.task.task_mode == "k562":
             from data.k562 import K562Dataset
 
-            ds_train = K562Dataset(data_path=cfg.task.data_root, split="train")
-            ds_pool = K562Dataset(data_path=cfg.task.data_root, split="pool")
+            ds_all_train = K562Dataset(data_path=cfg.task.data_root, split="train")
             ds_test = K562Dataset(data_path=cfg.task.data_root, split="test")
         elif cfg.task.task_mode == "yeast":
             from data.yeast import YeastDataset
 
-            ds_train = YeastDataset(data_path=cfg.task.data_root, split="train")
-            ds_pool = YeastDataset(data_path=cfg.task.data_root, split="pool")
+            ds_all_train = YeastDataset(data_path=cfg.task.data_root, split="train")
             ds_test = YeastDataset(data_path=cfg.task.data_root, split="test")
         else:
             raise ValueError(f"Unknown task_mode: {cfg.task.task_mode}")
 
-        sequences = list(ds_train.sequences)
-        labels = ds_train.labels.astype(np.float32)
-        pool_sequences = list(ds_pool.sequences)
-        pool_metadata = _metadata_rows(ds_pool)
+        # Deterministic split of train into initial set + AL pool
+        n_initial = min(_INITIAL_TRAIN_SIZE, len(ds_all_train))
+        sequences = list(ds_all_train.sequences[:n_initial])
+        labels = ds_all_train.labels[:n_initial].astype(np.float32)
+        pool_sequences = list(ds_all_train.sequences[n_initial:])
+        pool_metadata = None  # K562/Yeast datasets have no per-example metadata
 
         task.test_set = {
             "test": {
@@ -144,13 +148,12 @@ def run_exp0_scaling(cfg: DictConfig) -> ExpRunArtifacts:
             }
         }
 
-    # Build oracle: lookup mapping from sequence → label
+    # Build oracle: lookup mapping from sequence → label (all training data)
     if cfg.experiment.dry_run:
         label_map = dict(zip(sequences, labels.tolist(), strict=False))
     else:
-        # For real data, build oracle from all labeled splits
-        all_seqs = sequences + pool_sequences
-        all_labels = np.concatenate([labels, ds_pool.labels.astype(np.float32)]).tolist()
+        all_seqs = list(ds_all_train.sequences)
+        all_labels = ds_all_train.labels.astype(np.float32).tolist()
         label_map = dict(zip(all_seqs, all_labels, strict=False))
 
     oracle = PerfectOracle(label_map)
