@@ -167,3 +167,124 @@ Based on K562 data and the AlphaGenome paper, we expect:
 - Yeast is harder than K562 (smaller effect sizes, noisy labels) but the relative advantage of AG should still be large
 
 If the yeast oracle achieves <0.70, consider whether the architecture/hyperparameters need tuning (check `experiments/train_oracle_alphagenome_yeast.py` for available options).
+
+---
+
+## About the user and working style
+
+### Personal details
+- **Name**: Trevor Christensen (GitHub: `trchristensen-99`; HPC username: `christen`; Citra username: `trevor`)
+- **Institution**: Cold Spring Harbor Laboratory (CSHL) — Koo Lab & de Boer Lab
+- **Role**: Researcher (PhD student or postdoc) in computational genomics / machine learning for genomics
+- **Project goal**: ALBench-S2F is a registered-report benchmark comparing active learning strategies and sequence models for MPRA data; the 6 experiments are described in `~/Downloads/ALBench_plan_v2.md`
+
+### Response style preferences
+- **Concise and direct** — keep responses short; avoid padding or filler text
+- **No emojis** unless explicitly requested
+- **Markdown** is rendered; use it for tables, code blocks, and headers where appropriate
+- Reference specific file paths and line numbers when discussing code (e.g., `file.py:42`)
+- Don't add docstrings, type annotations, comments, or error handling to code that wasn't explicitly asked for
+- Don't refactor or clean up code beyond what the task requires
+- Don't create new files unless strictly necessary — prefer editing existing ones
+
+### Workflow preferences
+- **Always read a file before editing it**
+- **Prefer editing over creating** new files
+- When making function calls with tools that accept arrays/objects, use JSON format
+- **Run independent operations in parallel** (multiple tool calls in one message)
+- Commit and push before submitting jobs to HPC, so the HPC can `git pull` the latest code
+- Ask before taking risky or irreversible actions (force-push, deleting files, etc.)
+- Don't auto-commit — only commit when explicitly asked
+- When the user says "sign off for the night", get as many jobs queued as possible before confirming
+
+### Explicit instructions given by the user
+- **Never use `--qos=koolab`** — christen does not have access to that QoS; the available QoS options are `cpu_fill`, `cpu_snice`, `cpuq_base`, `default`, `fast`, `slow_nice`
+- For long GPU jobs: `--partition=gpuq --qos=slow_nice --time=48:00:00`
+- For short eval/debug: `--partition=gpuq --qos=fast --time=4:00:00`
+- Always use `uv run --no-sync python` in SLURM scripts (not `uv run python`)
+- Never run `uv pip install` from concurrent SLURM jobs — corrupts the shared NFS `.venv`
+- `scripts/slurm/setup_hpc_deps.sh` is CHECK-ONLY; never treats it as an installer
+- Pre-commit hooks use ruff (format + import sort I001); if a hook auto-fixes and the commit fails, re-stage the reformatted file and commit again (never use `--no-verify`)
+- Import order: stdlib → blank line → third-party; ruff enforces this
+- Variables exported to Python heredocs in bash MUST use `export VAR=...`, not just `VAR=...`
+
+### Tools, languages, and frameworks in use
+- **Python** (primary), **Bash** (SLURM scripts)
+- **JAX / Haiku / Optax** — AlphaGenome training (HPC only; not on Citra)
+- **PyTorch** — DREAM-RNN training (HPC + Citra)
+- **uv** — package manager; all runs use `uv run --no-sync`
+- **Hydra** — configuration management for experiments
+- **wandb** — experiment tracking (offline mode on HPC: `wandb_mode=offline`)
+- **SLURM** — HPC job scheduler
+- **orbax** — JAX checkpoint saving/loading (requires absolute paths)
+- **ruff** — linting and formatting (pre-commit hooks)
+- **git / GitHub** — version control; push from Mac, pull on HPC/Citra
+
+### Key recurring pitfalls (from debugging history)
+- **orbax requires absolute paths**: always use `Path(...).expanduser().resolve()` for `output_dir` before passing to `model.save_checkpoint()`
+- **`detach_backbone=True` is critical**: without it, `jax.value_and_grad` propagates through the frozen encoder and fine-tunes it, causing poor generalisation in full-aug mode
+- **Stale head checkpoint parameters**: head layer names must be `hidden_0`/`hidden_1` (not `hidden1`/`hidden2`) and the head name must include `_v4`; always call `reinit_head_params()` after `create_model_with_heads()`
+- **`setup_hpc_deps.sh` is not an installer**: it only checks imports and `exit 1` on failure; run `scripts/install_hpc_packages.sh` once from the login node for setup
+- **Citra uses `scripts/run_with_runtime.sh`**: never run bare `uv run` on Citra — the GPU driver is too old for the default PyTorch wheel
+- **NFS flock**: concurrent `uv pip install` across SLURM array tasks corrupts the shared `.venv`; avoid entirely
+- **HPC hostname not IP**: always use `bamdev4.cshl.edu`, not an IP address (IP changes/times out)
+- **sbatch not in PATH on login node**: full path is `/cm/shared/apps/slurm/current/bin/sbatch`
+- **ssh key must be added first**: `ssh-add ~/.ssh/id_ed25519_citra` before connecting
+
+### Stored project memory (verbatim from MEMORY.md)
+
+```
+# ALBench-S2F Project Memory
+
+## Key facts
+- HPC SSH: ssh -i ~/.ssh/id_ed25519_citra christen@bamdev4.cshl.edu (use HOSTNAME not IP)
+  - Add key first: ssh-add ~/.ssh/id_ed25519_citra
+- Repo root on HPC: /grid/wsbs/home_norepl/christen/ALBench-S2F; push as trchristensen-99, pull on HPC
+  - Cheatsheet mentions /grid/koo/data/christen/ALBench-S2F as future intended path — verify before new setups
+- sbatch on login node: /cm/shared/apps/slurm/current/bin/sbatch (not in default PATH)
+- AlphaGenome weights: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+- alphagenome_ft source: /grid/wsbs/home_norepl/christen/alphagenome_ft-main/
+- Head version: _v4; layer names hidden_0/hidden_1 (not hidden1/hidden2)
+- Embedding caches: outputs/ag_flatten/embedding_cache/ (600bp T=5); outputs/ag_compact/embedding_cache_compact/ (384bp T=3)
+- Pre-commit hooks: ruff (format + import sort I001); stdlib → blank line → third-party required
+- GPU nodes: Tesla V100 + H100 NVL, CUDA 12.4, partition=gpuq (12h)
+- kooq + --qos=koolab = dedicated H100 NVL node bamgpu101, 30-day limit — NOT AVAILABLE to christen
+- setup_hpc_deps.sh: CHECK-ONLY — verifies imports, exits job on failure (no installs).
+  Run scripts/install_hpc_packages.sh once from login node to set up venv.
+- scripts/install_hpc_packages.sh: one-time venv setup from login node:
+  uv sync + GPU JAX + alphagenome + alphagenome_ft + alphagenome_research + anndata + h5py + pytz + jmp + dm-haiku + chex + orbax
+- All SLURM scripts use uv run --no-sync python to avoid venv re-sync during jobs
+- NFS flock is unreliable: NEVER do uv pip install from concurrent SLURM jobs (corrupts shared .venv)
+- evaluate_chrom_test() in eval_ag.py: use full 600bp sequences (target_len=600), NOT the default 384bp
+- eval_ag_chrom_test.py CONFIGS: 4-tuples (label, ckpt_dir, head_name, cache_dir_override) — compact heads auto-use compact cache
+
+## HPC Partitions
+- gpuq default QoS: 12h, 4 GPUs, H100+V100 pool
+- kooq --qos=koolab: 30 days, 4 GPUs max, dedicated bamgpu101 (4× H100 NVL 96GB), high priority — NOT AVAILABLE
+- kooq --qos=koolab_shared: prefers dedicated node but can overflow to gpuq — NOT AVAILABLE
+- gpuq --qos=fast: 4h, 2 GPUs, high priority (good for eval/debug)
+- Template for long jobs: --partition=gpuq --qos=slow_nice --time=48:00:00 --cpus-per-task=14 --mem=200G --gres=gpu:h100:1
+
+## Best config from architecture search (K562, Feb 26, 2026)
+- Best model: boda_flatten_full_aug_v2 (Pearson=0.9070, Spearman=0.8240, MSE=0.2333 on chr7/13)
+- Config: boda-flatten-512-512, dropout=0.1, lr=0.001, wd=1e-6, aug_mode=full, max_shift=15, detach_backbone=True
+
+## Full_aug models: ROOT CAUSE of earlier failures
+- Previous poor test Pearson (0.46–0.76) was caused by encoder being trained by accident
+- create_model_with_heads was called WITHOUT detach_backbone=True (default=False)
+- Without stop_gradient at encoder output, jax.value_and_grad computed real gradients for encoder params
+- FIX: detach_backbone=True is now used in all training scripts
+
+## christen's QoS access
+- Available: cpu_fill, cpu_snice, cpuq_base, default, fast, slow_nice
+- NOT available: koolab
+
+## hashFrag embedding cache (K562)
+- COMPLETE: outputs/ag_hashfrag/embedding_cache/ (train/pool/val canonical+rc, float16)
+- Shape: (N, T=5, D=1536) float16
+
+## Yeast oracle script
+- experiments/train_oracle_alphagenome_yeast.py supports full/no_shift/hybrid modes + 2-stage training
+- Yeast input: 384bp, T=3 tokens, task_mode="yeast"
+- Plasmid flanks defined at top of that file
+```

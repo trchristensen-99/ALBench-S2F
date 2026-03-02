@@ -30,7 +30,6 @@ echo "Starting cached oracle (task ${SLURM_ARRAY_TASK_ID}/9) on $(date)"
 echo "Node: ${SLURMD_NODENAME}"
 
 uv run --no-sync python experiments/train_oracle_alphagenome_hashfrag_cached.py \
-    ++seed=null \
     ++fold_id=${SLURM_ARRAY_TASK_ID} \
     ++output_dir="outputs/ag_hashfrag_oracle_cached/oracle_${SLURM_ARRAY_TASK_ID}" \
     ++wandb_mode=offline

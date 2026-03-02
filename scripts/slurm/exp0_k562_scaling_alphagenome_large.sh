@@ -31,5 +31,4 @@ echo "Node: $SLURMD_NODENAME  Date: $(date)"
 
 uv run --no-sync python experiments/exp0_k562_scaling_alphagenome.py \
     ++fraction="${FRACTION}" \
-    ++seed=null \
     ++wandb_mode=offline

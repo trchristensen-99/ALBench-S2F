@@ -28,14 +28,11 @@ source scripts/slurm/setup_hpc_deps.sh
 
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
 
-SEED=${SLURM_ARRAY_TASK_ID}
-
-echo "Starting yeast AG oracle seed=${SEED} task=${SLURM_ARRAY_TASK_ID}"
+echo "Starting yeast AG oracle task=${SLURM_ARRAY_TASK_ID}"
 echo "Node: ${SLURMD_NODENAME}  Date: $(date)"
 
 uv run --no-sync python experiments/train_oracle_alphagenome_yeast.py \
     --config-name oracle_alphagenome_yeast \
-    ++seed="${SEED}" \
     ++cache_dir=outputs/ag_yeast/embedding_cache \
     ++output_dir="outputs/ag_yeast_oracle_cached/oracle_${SLURM_ARRAY_TASK_ID}" \
     ++wandb_mode=offline

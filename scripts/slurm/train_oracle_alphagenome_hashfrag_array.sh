@@ -32,7 +32,6 @@ export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer="
 echo "Starting oracle ${SLURM_ARRAY_TASK_ID} (random seed, no fixed init)"
 
 uv run --no-sync python experiments/train_oracle_alphagenome_hashfrag.py \
-    ++seed=null \
     ++fold_id=${SLURM_ARRAY_TASK_ID} \
     ++output_dir=outputs/ag_hashfrag_oracle/oracle_${SLURM_ARRAY_TASK_ID} \
     ++wandb_mode=offline
