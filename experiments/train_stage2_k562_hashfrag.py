@@ -310,14 +310,30 @@ def main(cfg: DictConfig) -> None:
     print(f"Total parameters: {param_count:,}", flush=True)
 
     # ── Per-group optimizer (multi_transform) ──────────────────────────────────
-    # Labels: 'head' (Stage 2 head), 'encoder' (sequence_encoder), 'frozen' (rest)
+    # Labels: 'head', 'encoder' (trainable encoder layers), 'frozen' (rest)
+    # Selective layer freezing: only unfreeze the top N downres blocks of the encoder.
+    # downres_block_5 (1408→1536, ~22.6M) is closest to the output and most task-relevant.
+    unfreeze_blocks = cfg.get("unfreeze_encoder_blocks", None)
+    if unfreeze_blocks is not None:
+        # e.g., [4, 5] → unfreeze downres_block_4 and downres_block_5 only
+        unfreeze_set = {f"downres_block_{b}" for b in unfreeze_blocks}
+        print(f"Selective encoder freezing: only unfreezing {sorted(unfreeze_set)}", flush=True)
+    else:
+        unfreeze_set = None  # unfreeze entire sequence_encoder
+
     def _label_fn(path, _leaf):
         key_strs = [p.key if hasattr(p, "key") else str(p) for p in path]
         s = "/".join(str(k) for k in key_strs)
         if unique_head_name in s:
             return "head"
         elif "sequence_encoder" in s:
-            return "encoder"
+            if unfreeze_set is None:
+                return "encoder"  # full encoder unfreezing
+            # Selective: only unfreeze specific blocks
+            for block_name in unfreeze_set:
+                if block_name in s:
+                    return "encoder"
+            return "frozen"  # encoder layer not in unfreeze set
         return "frozen"
 
     param_labels = jax.tree_util.tree_map_with_path(_label_fn, model._params)
@@ -331,20 +347,16 @@ def main(cfg: DictConfig) -> None:
     )
     opt_state = optimizer.init(model._params)
 
-    # Print per-group param counts for sanity check
+    # Print per-group param counts using actual optimizer labels for accuracy
     label_counts: dict[str, int] = {"head": 0, "encoder": 0, "frozen": 0}
-    for path, leaf in jax.tree_util.tree_leaves_with_path(model._params):
-        key_strs = [p.key if hasattr(p, "key") else str(p) for p in path]
-        s = "/".join(str(k) for k in key_strs)
-        if unique_head_name in s:
-            label_counts["head"] += leaf.size
-        elif "sequence_encoder" in s:
-            label_counts["encoder"] += leaf.size
-        else:
-            label_counts["frozen"] += leaf.size
+    for label, leaf in zip(
+        jax.tree_util.tree_leaves(param_labels),
+        jax.tree_util.tree_leaves(model._params),
+    ):
+        label_counts[label] = label_counts.get(label, 0) + leaf.size
     print(
         f"Param groups — head: {label_counts['head']:,}  "
-        f"encoder: {label_counts['encoder']:,}  "
+        f"encoder (trainable): {label_counts['encoder']:,}  "
         f"frozen: {label_counts['frozen']:,}",
         flush=True,
     )

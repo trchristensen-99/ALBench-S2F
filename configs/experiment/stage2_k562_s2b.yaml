@@ -36,8 +36,12 @@ dropout_rate: 0.1
 # Augmentation
 max_shift: 15  # RC + ±15 bp shift (50 % probability each)
 
-# Data
-batch_size: 64
+# Selective encoder unfreezing — only top 2 downres blocks (~41.5M of 90M encoder params)
+# Reduces backward pass compute by ~55 %, speeds up training ~2×
+unfreeze_encoder_blocks: [4, 5]
+
+# Data — batch_size=128 feasible with selective freezing (fewer gradient tensors)
+batch_size: 128
 num_workers: 8
 
 # K-fold (fold_0 = same 90/10 split as oracle_0 for fair val comparison)
