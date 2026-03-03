@@ -4,10 +4,10 @@
 # Produces ensemble mean/std and out-of-fold predictions for train+pool, val,
 # and all three test sets (in-dist, SNV pairs, OOD).
 #
-# Runtime estimate: ~30-45 min on H100 NVL.
+# Runtime estimate: ~5-7 hours on H100 (JIT compilation ~2h + 10 folds × ~30 min).
 #   - train+pool (320K): head-only from embedding cache, very fast
 #   - val (36K): head-only from embedding cache, very fast
-#   - test sets (~60K each, 3 sets): full encoder × 10 oracles, ~20-30 min
+#   - test sets (~100K total, 3 sets): full encoder × 10 oracles, ~20-30 min/fold
 #
 # Prerequisites:
 #   1. 10 oracle checkpoints: outputs/ag_hashfrag_oracle_cached/oracle_{0-9}/best_model/
@@ -18,8 +18,8 @@
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --partition=gpuq
-#SBATCH --qos=fast
-#SBATCH --time=04:00:00
+#SBATCH --qos=slow_nice
+#SBATCH --time=12:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=100G

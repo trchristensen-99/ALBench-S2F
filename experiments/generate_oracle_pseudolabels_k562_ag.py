@@ -273,6 +273,13 @@ def main(cfg: DictConfig) -> None:
             strand_reindexing=None,
         )[unique_head_name]
 
+    # Warm-up compile for full-encoder predict (avoids long JIT delay in main loop)
+    print("Compiling full-encoder predict_step (may take several minutes) …", flush=True)
+    _dummy_seq = jnp.zeros((batch_size_encoder, 600, 4), dtype=jnp.float32)
+    _ = predict_step(model._params, model._state, _dummy_seq)
+    _.block_until_ready()
+    print("Full-encoder predict compiled OK.", flush=True)
+
     # ── Load embedding cache (train + pool + val) ──────────────────────────────
     print(f"Loading embedding cache from {cache_dir} …", flush=True)
     can_train, rc_train = load_embedding_cache(cache_dir, "train")
