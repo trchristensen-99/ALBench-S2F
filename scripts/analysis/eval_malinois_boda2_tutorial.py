@@ -279,7 +279,7 @@ def _eval_hashfrag(
         "n": len(ref_pred),
     }
 
-    ood_df = pd.read_csv(d / "test_ood_cre.tsv", sep="\t")
+    ood_df = pd.read_csv(d / "test_ood_designed_k562.tsv", sep="\t")
     ood_pred = _predict_k562_batched(
         model, flank_builder, ood_df["sequence"].astype(str).tolist(), batch_size, device, boda_dir
     )

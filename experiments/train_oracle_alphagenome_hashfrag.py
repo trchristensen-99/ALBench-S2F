@@ -5,7 +5,7 @@ Trains a frozen-encoder AlphaGenome head on the combined hashFrag train+pool spl
 (~320 K sequences) and evaluates on:
   - In-distribution hashFrag test set
   - SNV pairs hashFrag test set (absolute expression + delta variant effect)
-  - OOD CRE test set
+  - OOD designed K562 test set
 
 Uses full RC + shift augmentation (aug_mode=full) with detach_backbone=True so the
 encoder is properly frozen throughout. Best configuration from architecture search:

@@ -2,7 +2,7 @@
 # Train AlphaGenome hashFrag oracle on ALL K562 data — 10 independent seeds.
 # Trains on the full dataset (train + pool + val + test + synthetic = ~382K sequences)
 # with a 5% random holdout for early-stopping monitoring.
-# OOD CRE test set is excluded from training and preserved for honest evaluation.
+# OOD designed test set is excluded from training and preserved for honest evaluation.
 #
 # Submit: sbatch train_oracle_alphagenome_hashfrag_full_array.sh
 

@@ -4,7 +4,7 @@
 Trains DREAM-RNN at the requested fractions and evaluates each run on:
 - in-domain hashfrag test set
 - SNV delta test set and raw SNV expression set
-- OOD CRE test set
+- OOD designed K562-targeting sequences (test_ood_designed_k562.tsv)
 """
 
 from __future__ import annotations

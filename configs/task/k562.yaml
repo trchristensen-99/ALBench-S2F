@@ -16,6 +16,6 @@ test_set:
     alt_sequence_column: sequence_alt
     delta_column: delta_log2FC
   ood:
-    file: data/k562/test_sets/test_ood_cre.tsv
+    file: data/k562/test_sets/test_ood_designed_k562.tsv
     target_column: K562_log2FC
     sequence_column: sequence

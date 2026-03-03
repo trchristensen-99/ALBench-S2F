@@ -1,0 +1,48 @@
+# Stage 2: 10-fold oracle ensemble with encoder fine-tuning on K562 hashFrag
+# Uses s2c hyperparameters (encoder_lr=1e-4, head_lr=1e-3) — best from sweep.
+#
+# fold_id and stage1_dir are overridden per-fold by the SLURM array script:
+#   sbatch scripts/slurm/train_stage2_k562_oracle_array.sh
+#
+# Each fold loads the corresponding Stage 1 oracle checkpoint and fine-tunes
+# the sequence_encoder (top 2 downres blocks) jointly with the head.
+
+variant: s2c
+task_mode: human
+head_arch: boda-flatten-512-512
+head_name: alphagenome_k562_head_hashfrag  # same as Stage 1 → _merge loads trained head
+num_tracks: 1
+
+k562_data_path: data/k562
+output_dir: outputs/stage2_k562_oracle/fold_0  # overridden by SLURM script
+stage1_dir: outputs/ag_hashfrag_oracle_cached/oracle_0  # overridden by SLURM script
+weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+gpu: 0
+
+# Training
+epochs: 50
+early_stop_patience: 10
+seed: null
+wandb_mode: offline
+
+# Optimizer — per-group learning rates (s2c config, best from sweep)
+encoder_lr: 0.0001    # 1e-4: aggressive encoder fine-tuning
+head_lr: 0.001        # 1e-3: head continues at Stage-1 speed
+weight_decay: 0.000001
+
+# Head
+dropout_rate: 0.1
+
+# Augmentation
+max_shift: 15  # RC + ±15 bp shift (50 % probability each)
+
+# Selective encoder unfreezing — only top 2 downres blocks (~41.5M of 90M encoder params)
+unfreeze_encoder_blocks: [4, 5]
+
+# Data
+batch_size: 128
+num_workers: 8
+
+# K-fold — overridden per task by SLURM script
+fold_id: 0
+n_folds: 10

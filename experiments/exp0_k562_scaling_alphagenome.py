@@ -7,7 +7,7 @@ each run on the four K562 test sets:
   - In-distribution hashFrag test set
   - SNV absolute expression (alt-allele only)
   - SNV delta variant effect (alt-ref)
-  - OOD CRE enhancer set
+  - OOD designed K562-targeting sequences
 
 Run via SLURM array (one task per fraction):
   sbatch scripts/slurm/exp0_k562_scaling_alphagenome.sh

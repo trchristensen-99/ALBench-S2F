@@ -7,18 +7,13 @@ Outputs under ``data/k562/test_sets``:
 - ``manifest.json``: criteria and counts used to build each file.
 
 NOTE on OOD test set:
-  The correct OOD set (designed K562-targeting sequences from the CODA paper,
+  The OOD set (designed K562-targeting sequences from the CODA paper,
   Gosai et al. 2024 Nature) must be built separately using::
 
       python scripts/build_k562_ood_designed.py
 
   That script processes OL46 validation data from Zenodo 10698014
   (DATA-MPRA_Datasets.zip) and writes ``test_ood_designed_k562.tsv``.
-
-  The ``_build_ood_set()`` function below builds a proxy from
-  ``data_project == 'CRE'`` (all CRE genomic sequences) since the main
-  Table_S2 file does not include ``target_cell`` / ``origin`` columns.
-  This proxy is kept for backward compatibility but is NOT used by eval_ag.py.
 """
 
 from __future__ import annotations
@@ -26,7 +21,6 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -124,30 +118,6 @@ def _build_snv_pairs_from_hashfrag_test(
     return out_path
 
 
-def _build_ood_set(raw_df: pd.DataFrame, out_dir: Path) -> tuple[Path, dict[str, Any]]:
-    if "target_cell" in raw_df.columns and "origin" in raw_df.columns:
-        ood_mask = raw_df["target_cell"].astype(str).str.lower().eq("k562") & raw_df[
-            "origin"
-        ].astype(str).isin(["AdaLead", "FastSeqProp", "Simulated_Annealing"])
-        criteria = {
-            "mode": "target_cell_origin",
-            "target_cell": "k562",
-            "origin": ["AdaLead", "FastSeqProp", "Simulated_Annealing"],
-        }
-    else:
-        ood_mask = raw_df["data_project"].astype(str).eq("CRE")
-        criteria = {
-            "mode": "data_project_proxy",
-            "data_project": "CRE",
-            "note": "target_cell/origin columns unavailable in this dataset file",
-        }
-
-    ood_df = raw_df[ood_mask].copy()
-    out_path = out_dir / "test_ood_cre.tsv"
-    ood_df.to_csv(out_path, sep="\t", index=False)
-    return out_path, criteria
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", type=Path, default=Path("data/k562"))
@@ -173,27 +143,23 @@ def main() -> None:
     snv_path = _build_snv_pairs_from_hashfrag_test(
         raw_df=raw_df, in_dist_df=in_dist_df, out_dir=out_dir
     )
-    ood_path, ood_criteria = _build_ood_set(raw_df=raw_df, out_dir=out_dir)
 
     manifest = {
         "raw_file": str(raw_file),
         "hashfrag_indices": str(hashfrag_dir / "test_indices.npy"),
         "in_distribution_file": str(in_dist_path),
         "snv_pairs_file": str(snv_path),
-        "ood_file": str(ood_path),
         "counts": {
             "in_distribution": int(len(pd.read_csv(in_dist_path, sep="\t"))),
             "snv_pairs": int(len(pd.read_csv(snv_path, sep="\t"))),
-            "ood": int(len(pd.read_csv(ood_path, sep="\t"))),
         },
-        "ood_criteria": ood_criteria,
+        "note": "OOD test set (test_ood_designed_k562.tsv) built by scripts/build_k562_ood_designed.py",
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
     print("Created K562 test sets:")
     print(f"- {in_dist_path}")
     print(f"- {snv_path}")
-    print(f"- {ood_path}")
     print(f"- {out_dir / 'manifest.json'}")
     print("Counts:", manifest["counts"])
 

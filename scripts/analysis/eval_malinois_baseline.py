@@ -217,7 +217,7 @@ def eval_on_hashfrag(
     }
 
     # OOD
-    ood_df = pd.read_csv(d / "test_ood_cre.tsv", sep="\t")
+    ood_df = pd.read_csv(d / "test_ood_designed_k562.tsv", sep="\t")
     ood_pred = _predict_malinois(
         model, ood_df["sequence"].astype(str).tolist(), batch_size, device, target_len
     )

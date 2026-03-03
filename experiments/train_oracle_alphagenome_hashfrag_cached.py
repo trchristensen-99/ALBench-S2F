@@ -12,7 +12,7 @@ Cache must be pre-built (train / pool / val canonical + RC) before running this 
     sbatch scripts/slurm/build_hashfrag_embedding_cache.sh
 
 After training the best checkpoint is loaded and the model is evaluated on the
-three hashFrag test sets (in_distribution, SNV pairs, OOD CRE) using the full
+three hashFrag test sets (in_distribution, SNV pairs, OOD designed) using the full
 encoder, matching the evaluation protocol in ``train_oracle_alphagenome_hashfrag.py``.
 
 Run 10 seeds for oracle ensemble::
