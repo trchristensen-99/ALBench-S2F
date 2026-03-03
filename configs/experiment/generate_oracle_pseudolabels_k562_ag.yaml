@@ -1,0 +1,24 @@
+# Generate AlphaGenome oracle ensemble pseudo-labels for K562 hashFrag.
+# Produces ensemble mean/std and out-of-fold (OOF) predictions for all splits.
+#
+# Run via: sbatch scripts/slurm/generate_oracle_pseudolabels_k562_ag.sh
+
+oracle_dir: outputs/ag_hashfrag_oracle_cached
+output_dir: outputs/oracle_pseudolabels_k562_ag
+cache_dir: outputs/ag_hashfrag/embedding_cache
+k562_data_path: data/k562
+weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+gpu: 0
+
+# Head (must match oracle training config)
+head_arch: boda-flatten-512-512
+head_name: alphagenome_k562_head_hashfrag
+num_tracks: 1
+dropout_rate: 0.1
+
+# K-fold (must match oracle training: seed=42, 10 folds)
+n_folds: 10
+
+# Batch sizes
+batch_size_cache: 512    # head-only inference from precomputed embeddings
+batch_size_encoder: 256  # full encoder inference for test set strings
