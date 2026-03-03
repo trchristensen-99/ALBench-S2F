@@ -7,4 +7,4 @@ weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-ja
 head_name: alphagenome_k562_head_hashfrag_boda_flatten_512_512_v4
 head_arch: boda-flatten-512-512
 gpu: 0
-batch_size: 128
+batch_size: 512
