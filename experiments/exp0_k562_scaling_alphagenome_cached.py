@@ -245,10 +245,12 @@ def main(cfg: DictConfig) -> None:
     print(f"Loading embedding cache from {cache_dir} …", flush=True)
 
     # Combine train + pool splits for training
-    can_train, _ = load_embedding_cache(cache_dir, "train")
-    can_pool, _ = load_embedding_cache(cache_dir, "pool")
+    rc_aug: bool = bool(cfg.get("rc_aug", False))
+    can_train, rc_train = load_embedding_cache(cache_dir, "train")
+    can_pool, rc_pool = load_embedding_cache(cache_dir, "pool")
     all_canonical = np.concatenate([can_train, can_pool], axis=0)
-    print(f"  Combined train+pool embeddings: {all_canonical.shape}", flush=True)
+    all_rc = np.concatenate([rc_train, rc_pool], axis=0) if rc_aug else None
+    print(f"  Combined train+pool embeddings: {all_canonical.shape}  rc_aug={rc_aug}", flush=True)
 
     # Val embeddings (canonical only for validation)
     val_canonical, _ = load_embedding_cache(cache_dir, "val")
@@ -273,6 +275,7 @@ def main(cfg: DictConfig) -> None:
     subset_idx = rng_subset.choice(n_total, size=n_samples, replace=False)
 
     train_canonical = all_canonical[subset_idx]
+    train_rc = all_rc[subset_idx] if rc_aug else None
     train_labels = all_labels[subset_idx]
     N_train = n_samples
 
@@ -332,7 +335,8 @@ def main(cfg: DictConfig) -> None:
             strand_reindexing=None,
         )[unique_head_name]
 
-    # ── Training loop (canonical only, no RC pass) ────────────────────────────
+    # ── Training loop ─────────────────────────────────────────────────────────
+    _aug_rng = np.random.default_rng(rng_int ^ 0xDEADBEEF)
     best_val_pearson = -1.0
     best_val_spearman = 0.0
     best_val_loss = float("inf")
@@ -355,7 +359,16 @@ def main(cfg: DictConfig) -> None:
             indices = perm[start : start + batch_size]
             targets_jax = jnp.array(train_labels[indices])
             org_idx = jnp.zeros(len(indices), dtype=jnp.int32)
-            emb_can = jnp.array(train_canonical[indices].astype(np.float32))
+            if rc_aug:
+                use_rc = _aug_rng.random(len(indices)) > 0.5
+                emb_np = np.where(
+                    use_rc[:, None, None],
+                    train_rc[indices].astype(np.float32),
+                    train_canonical[indices].astype(np.float32),
+                )
+                emb_can = jnp.array(emb_np)
+            else:
+                emb_can = jnp.array(train_canonical[indices].astype(np.float32))
 
             jax_rng, step_rng = jax.random.split(jax_rng)
             model._params, opt_state, loss = cached_train_step(

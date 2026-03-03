@@ -1,0 +1,34 @@
+# Exp 0: AlphaGenome cached-head scaling curve on K562 hashFrag train+pool.
+# Uses RC augmentation (50% chance canonical vs reverse-complement per sample).
+# ~50x faster per epoch than full-encoder training.
+#
+# Prereq: build cache first with scripts/slurm/build_hashfrag_embedding_cache.sh
+task_mode: human
+head_arch: boda-flatten-512-512
+head_name: alphagenome_k562_head_hashfrag_scaling_cached_rcaug
+num_tracks: 1
+
+k562_data_path: data/k562
+cache_dir: outputs/ag_hashfrag/embedding_cache
+output_dir: outputs/exp0_k562_scaling_alphagenome_cached_rcaug
+weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+gpu: 0
+
+# Training
+fraction: 1.0  # override via ++fraction=$FRACTION in SLURM array
+epochs: 100
+early_stop_patience: 5
+wandb_mode: offline
+
+# RC augmentation
+rc_aug: true
+
+# Optimizer (matched to best oracle config)
+lr: 0.001
+weight_decay: 0.000001
+
+# Head
+dropout_rate: 0.1
+
+# Data loading
+batch_size: 512
