@@ -140,22 +140,37 @@ def _predict_strings(
     seqs_str: list[str],
     batch_size: int = 256,
 ) -> np.ndarray:
-    """RC-averaged predictions on raw 200 bp strings via 600 bp context."""
+    """RC-averaged predictions on raw 200 bp strings via 600 bp context.
+
+    Pads every batch to exactly ``batch_size`` so JAX JIT only ever sees one
+    static shape, avoiding repeated costly recompilations for the last batch.
+    """
     if not seqs_str:
         return np.array([], dtype=np.float32)
+    n = len(seqs_str)
     x_fwd = np.stack([_seq_str_to_600bp(s) for s in seqs_str])
     x_rev = x_fwd[:, ::-1, ::-1]
     preds_fwd, preds_rev = [], []
-    for i in range(0, len(x_fwd), batch_size):
+    for i in range(0, n, batch_size):
+        end = min(i + batch_size, n)
+        actual = end - i
+        # Pad to batch_size so JIT sees a single static shape every call.
+        if actual < batch_size:
+            pad = batch_size - actual
+            b_fwd = np.concatenate([x_fwd[i:end], np.zeros((pad, 600, 4), dtype=np.float32)])
+            b_rev = np.concatenate([x_rev[i:end], np.zeros((pad, 600, 4), dtype=np.float32)])
+        else:
+            b_fwd = x_fwd[i:end]
+            b_rev = x_rev[i:end]
         preds_fwd.append(
-            np.array(
-                predict_step_fn(model_params, model_state, jnp.array(x_fwd[i : i + batch_size]))
-            ).reshape(-1)
+            np.array(predict_step_fn(model_params, model_state, jnp.array(b_fwd))).reshape(-1)[
+                :actual
+            ]
         )
         preds_rev.append(
-            np.array(
-                predict_step_fn(model_params, model_state, jnp.array(x_rev[i : i + batch_size]))
-            ).reshape(-1)
+            np.array(predict_step_fn(model_params, model_state, jnp.array(b_rev))).reshape(-1)[
+                :actual
+            ]
         )
     return (np.concatenate(preds_fwd) + np.concatenate(preds_rev)) / 2.0
 
