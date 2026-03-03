@@ -2,8 +2,8 @@
 # Exp 0: AlphaGenome cached-head scaling curve on K562 with RC augmentation.
 # Trains boda-flatten-512-512 on 7 random downsamples of hashFrag train+pool
 # using pre-computed encoder embeddings with 50% RC aug per sample.
-# Submit this script 3 times to get 3 independent runs per fraction:
-#   for i in 1 2 3; do sbatch scripts/slurm/exp0_k562_scaling_alphagenome_cached_rcaug.sh; done
+# Each submission creates one independent run per fraction (random seed).
+# Submit once for a single run; resubmit for additional seeds if needed.
 #
 #SBATCH --job-name=exp0_ag_k562_cached_rcaug
 #SBATCH --output=logs/%x-%A-%a.out
@@ -26,7 +26,7 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 source scripts/slurm/setup_hpc_deps.sh
 
-export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
+export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer="
 
 FRACTIONS=(0.01 0.02 0.05 0.10 0.20 0.50 1.00)
 FRACTION=${FRACTIONS[$SLURM_ARRAY_TASK_ID]}

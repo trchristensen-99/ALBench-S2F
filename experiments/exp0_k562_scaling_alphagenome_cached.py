@@ -441,7 +441,7 @@ def main(cfg: DictConfig) -> None:
 
     training_time_seconds = time.time() - t_train_start
 
-    # ── Post-training evaluation on test sets (full encoder) ──────────────────
+    # ── Post-training evaluation on test sets ────────────────────────────────
     print("\n[eval] Loading best checkpoint for test evaluation …", flush=True)
 
     def _merge(base, override):
@@ -466,7 +466,81 @@ def main(cfg: DictConfig) -> None:
         print("[eval] No best_model checkpoint — using final weights.", flush=True)
 
     test_set_dir = Path(str(cfg.k562_data_path)) / "test_sets"
-    test_metrics = evaluate_all_test_sets(model, predict_step, test_set_dir)
+
+    # Try cached test evaluation first (seconds vs ~2-3h for full encoder JIT).
+    _test_cache_names = ["test_in_dist", "test_snv_ref", "test_snv_alt", "test_ood"]
+    _test_caches: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    try:
+        for name in _test_cache_names:
+            can, rc = load_embedding_cache(cache_dir, name)
+            _test_caches[name] = (can, rc)
+        print("[eval] Using cached test embeddings (head-only inference).", flush=True)
+    except FileNotFoundError:
+        _test_caches = {}
+        print("[eval] No test cache found — using full encoder (slow).", flush=True)
+
+    if _test_caches:
+        # ── Cached test evaluation (RC-averaged, head-only) ───────────────
+        def _predict_cached(cache_can, cache_rc):
+            n = len(cache_can)
+            preds = []
+            for i in range(0, n, batch_size):
+                end = min(i + batch_size, n)
+                org_idx = jnp.zeros(end - i, dtype=jnp.int32)
+                emb_can = jnp.array(cache_can[i:end].astype(np.float32))
+                emb_rc = jnp.array(cache_rc[i:end].astype(np.float32))
+                p_can = cached_eval_step(model._params, emb_can, org_idx)
+                p_rc = cached_eval_step(model._params, emb_rc, org_idx)
+                preds.append((np.array(p_can).reshape(-1) + np.array(p_rc).reshape(-1)) / 2.0)
+            return np.concatenate(preds)
+
+        test_metrics: dict[str, dict[str, float]] = {}
+
+        in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
+        if in_path.exists():
+            in_true = pd.read_csv(in_path, sep="\t")["K562_log2FC"].to_numpy(dtype=np.float32)
+            in_pred = _predict_cached(*_test_caches["test_in_dist"])
+            test_metrics["in_distribution"] = {
+                "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
+                "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
+                "mse": float(np.mean((in_pred - in_true) ** 2)),
+                "n": int(len(in_true)),
+            }
+
+        snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+        if snv_path.exists():
+            snv_df = pd.read_csv(snv_path, sep="\t")
+            ref_pred = _predict_cached(*_test_caches["test_snv_ref"])
+            alt_pred = _predict_cached(*_test_caches["test_snv_alt"])
+            alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+            test_metrics["snv_abs"] = {
+                "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
+                "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
+                "mse": float(np.mean((alt_pred - alt_true) ** 2)),
+                "n": int(len(alt_true)),
+            }
+            delta_pred = alt_pred - ref_pred
+            delta_true = snv_df["delta_log2FC"].to_numpy(dtype=np.float32)
+            test_metrics["snv_delta"] = {
+                "pearson_r": _safe_corr(delta_pred, delta_true, pearsonr),
+                "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
+                "mse": float(np.mean((delta_pred - delta_true) ** 2)),
+                "n": int(len(delta_true)),
+            }
+
+        ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+        if ood_path.exists():
+            ood_true = pd.read_csv(ood_path, sep="\t")["K562_log2FC"].to_numpy(dtype=np.float32)
+            ood_pred = _predict_cached(*_test_caches["test_ood"])
+            test_metrics["ood"] = {
+                "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
+                "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
+                "mse": float(np.mean((ood_pred - ood_true) ** 2)),
+                "n": int(len(ood_true)),
+            }
+    else:
+        # ── Full-encoder test evaluation (fallback) ───────────────────────
+        test_metrics = evaluate_all_test_sets(model, predict_step, test_set_dir)
 
     results = {
         "fraction": fraction,
