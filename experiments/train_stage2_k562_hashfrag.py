@@ -388,6 +388,7 @@ def main(cfg: DictConfig) -> None:
         collate_fn=_collate_train,
         pin_memory=True,
         persistent_workers=n_workers > 0,
+        drop_last=True,  # avoid JIT recompilation on last batch
     )
     val_loader = DataLoader(
         val_subset,

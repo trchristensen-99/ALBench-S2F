@@ -33,7 +33,9 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD:$PYTHONPATH"
 source scripts/slurm/setup_hpc_deps.sh
 
-export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
+# Keep command_buffer workaround but allow XLA autotuning for faster kernels.
+# Level 0 was disabling autotuning entirely, resulting in ~10s/batch.
+export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer="
 
 echo "Starting Stage 2 sweep (task ${SLURM_ARRAY_TASK_ID}/2, config=${CONFIG}) on $(date)"
 echo "Node: ${SLURMD_NODENAME}"
