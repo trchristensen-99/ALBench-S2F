@@ -142,7 +142,7 @@ def evaluate_ood(
     device,
 ) -> dict:
     """Load checkpoint in run_dir and evaluate on OOD test set."""
-    ckpt_path = run_dir / "best_model" / "checkpoint"
+    ckpt_path = (run_dir / "best_model" / "checkpoint").resolve()
     if not ckpt_path.exists():
         raise FileNotFoundError(f"No checkpoint at {ckpt_path}")
 
@@ -262,14 +262,16 @@ def main():
     weights_path = str(Path(args.weights_path).expanduser().resolve())
 
     if args.run_dir:
-        process_run(args.run_dir, ood_path, weights_path, device, args.head_name, args.head_arch)
+        process_run(
+            args.run_dir.resolve(), ood_path, weights_path, device, args.head_name, args.head_arch
+        )
     elif args.scan_dir:
         # Find all result.json under scan_dir
-        results = sorted(args.scan_dir.glob("**/result.json"))
+        results = sorted(args.scan_dir.resolve().glob("**/result.json"))
         print(f"Found {len(results)} result.json files in {args.scan_dir}")
         n_reeval = 0
         for result_path in results:
-            run_dir = result_path.parent
+            run_dir = result_path.parent.resolve()
             if process_run(run_dir, ood_path, weights_path, device):
                 n_reeval += 1
         print(f"\nDone. Re-evaluated {n_reeval} run(s).")
