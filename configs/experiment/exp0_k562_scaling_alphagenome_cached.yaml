@@ -1,5 +1,5 @@
 # Exp 0: AlphaGenome cached-head scaling curve on K562 hashFrag train+pool.
-# Trains canonical-only (no RC aug) on pre-computed encoder embeddings.
+# Uses RC augmentation (50% canonical / 50% RC per sample) on pre-computed embeddings.
 # ~50x faster per epoch than full-encoder training.
 #
 # Prereq: build cache first with scripts/slurm/build_hashfrag_embedding_cache.sh
@@ -23,6 +23,9 @@ wandb_mode: offline
 # Optimizer (matched to best oracle config)
 lr: 0.001
 weight_decay: 0.000001
+
+# RC augmentation (always on)
+rc_aug: true
 
 # Head
 dropout_rate: 0.1

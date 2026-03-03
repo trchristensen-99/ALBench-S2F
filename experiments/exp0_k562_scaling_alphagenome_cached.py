@@ -245,7 +245,7 @@ def main(cfg: DictConfig) -> None:
     print(f"Loading embedding cache from {cache_dir} …", flush=True)
 
     # Combine train + pool splits for training
-    rc_aug: bool = bool(cfg.get("rc_aug", False))
+    rc_aug: bool = bool(cfg.get("rc_aug", True))
     can_train, rc_train = load_embedding_cache(cache_dir, "train")
     can_pool, rc_pool = load_embedding_cache(cache_dir, "pool")
     all_canonical = np.concatenate([can_train, can_pool], axis=0)
