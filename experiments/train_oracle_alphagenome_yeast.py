@@ -99,6 +99,19 @@ def _build_yeast_window(core_4ch: np.ndarray, max_len: int, shift: int = 0) -> n
     return buf[start : start + max_len]
 
 
+def _shift_existing_window(seq_4ch: np.ndarray, shift: int) -> np.ndarray:
+    """Shift a fixed-length window with zero-fill (no wrap-around)."""
+    out = np.zeros_like(seq_4ch)
+    if shift == 0:
+        return seq_4ch
+    if shift > 0:
+        out[shift:] = seq_4ch[:-shift]
+    else:
+        s = -shift
+        out[:-s] = seq_4ch[s:]
+    return out
+
+
 def collate_yeast(
     batch: list[tuple],
     max_len: int = 384,
@@ -110,9 +123,21 @@ def collate_yeast(
     x = np.zeros((B, max_len, 4), dtype=np.float32)
     y = np.zeros(B, dtype=np.float32)
     for i, (seq, label) in enumerate(batch):
-        core = seq.numpy()[:4, :].T  # (150, 4)
+        seq_4ch = seq.numpy()[:4, :].T
         shift = int(np.random.randint(-max_shift, max_shift + 1)) if augment else 0
-        w = _build_yeast_window(core, max_len, shift)
+        if seq_4ch.shape[0] == max_len:
+            w = _shift_existing_window(seq_4ch, shift) if augment else seq_4ch
+        else:
+            core = seq_4ch
+            if core.shape[0] != 150:
+                center = core.shape[0] // 2
+                start = max(0, center - 75)
+                core = core[start : start + 150]
+                if core.shape[0] < 150:
+                    pad = np.zeros((150, 4), dtype=np.float32)
+                    pad[: core.shape[0], :] = core
+                    core = pad
+            w = _build_yeast_window(core, max_len, shift)
         if augment and np.random.rand() > 0.5:
             w = w[::-1, ::-1]
         x[i] = w
@@ -137,9 +162,21 @@ def collate_yeast_indexed(
     y = np.zeros(B, dtype=np.float32)
     for i, (orig_idx, seq, label) in enumerate(batch_items):
         indices[i] = orig_idx
-        core = seq.numpy()[:4, :].T
+        seq_4ch = seq.numpy()[:4, :].T
         shift = int(np.random.randint(-max_shift, max_shift + 1)) if augment else 0
-        w = _build_yeast_window(core, max_len, shift)
+        if seq_4ch.shape[0] == max_len:
+            w = _shift_existing_window(seq_4ch, shift) if augment else seq_4ch
+        else:
+            core = seq_4ch
+            if core.shape[0] != 150:
+                center = core.shape[0] // 2
+                start = max(0, center - 75)
+                core = core[start : start + 150]
+                if core.shape[0] < 150:
+                    pad = np.zeros((150, 4), dtype=np.float32)
+                    pad[: core.shape[0], :] = core
+                    core = pad
+            w = _build_yeast_window(core, max_len, shift)
         if augment and np.random.rand() > 0.5:
             w = w[::-1, ::-1]
         x[i] = w

@@ -1,0 +1,18 @@
+data_path: data/yeast
+oracle_dir: outputs/oracle_dream_rnn_yeast_kfold
+output_dir: outputs/oracle_pseudolabels/yeast_dream_oracle
+
+context_mode: dream150
+use_reverse_complement: true
+batch_size: 512
+num_workers: 8
+gpu: 0
+
+# Must match oracle training architecture.
+hidden_dim: 256
+cnn_filters: 256
+dropout_cnn: 0.2
+dropout_lstm: 0.5
+
+n_folds: 10
+fold_split_seed: 42
