@@ -4,15 +4,16 @@
 # Produces ensemble mean/std and out-of-fold predictions for train+pool, val,
 # and all three test sets (in-dist, SNV pairs, OOD).
 #
-# Runtime estimate: ~5-7 hours on H100 (JIT compilation ~2h + 10 folds × ~30 min).
-#   - train+pool (320K): head-only from embedding cache, very fast
-#   - val (36K): head-only from embedding cache, very fast
-#   - test sets (~100K total, 3 sets): full encoder × 10 oracles, ~20-30 min/fold
+# Runtime estimate:
+#   - WITH test caches: ~10-20 min (all head-only, no encoder JIT needed)
+#   - WITHOUT test caches: ~5-7 hours (JIT ~2h + 10 folds × ~30 min full encoder)
 #
 # Prerequisites:
 #   1. 10 oracle checkpoints: outputs/ag_hashfrag_oracle_cached/oracle_{0-9}/best_model/
 #   2. Embedding cache:       outputs/ag_hashfrag/embedding_cache/
 #   3. Test set TSVs:         data/k562/test_sets/
+#   4. (Optional) Test set caches: outputs/ag_hashfrag/embedding_cache/test_*.npy
+#      Build with: sbatch scripts/slurm/build_hashfrag_test_embedding_cache.sh
 #
 #SBATCH --job-name=oracle_pseudolabels_k562_ag
 #SBATCH --output=logs/%x-%j.out

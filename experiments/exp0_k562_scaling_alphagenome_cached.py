@@ -267,8 +267,8 @@ def main(cfg: DictConfig) -> None:
     all_rc = np.concatenate([rc_train, rc_pool], axis=0) if rc_aug else None
     print(f"  Combined train+pool embeddings: {all_canonical.shape}  rc_aug={rc_aug}", flush=True)
 
-    # Val embeddings (canonical only for validation)
-    val_canonical, _ = load_embedding_cache(cache_dir, "val")
+    # Val embeddings (canonical + RC for RC-averaged validation)
+    val_canonical, val_rc = load_embedding_cache(cache_dir, "val")
     print(f"  Val embeddings: {val_canonical.shape}", flush=True)
 
     # ── Load labels ───────────────────────────────────────────────────────────
@@ -395,15 +395,19 @@ def main(cfg: DictConfig) -> None:
 
         num_epochs_run = epoch + 1
 
-        # ── Validation ────────────────────────────────────────────────────────
+        # ── Validation (RC-averaged for accurate early stopping) ────────────
         y_pred_all: list[np.ndarray] = []
         for start in range(0, N_val, batch_size):
             end = min(start + batch_size, N_val)
             indices = np.arange(start, end, dtype=np.int64)
-            emb = jnp.array(val_canonical[indices].astype(np.float32))
             org_idx = jnp.zeros(len(indices), dtype=jnp.int32)
-            preds = cached_eval_step(model._params, emb, org_idx)
-            y_pred_all.append(np.array(preds).reshape(-1))
+            emb_can = jnp.array(val_canonical[indices].astype(np.float32))
+            emb_rc = jnp.array(val_rc[indices].astype(np.float32))
+            preds_can = cached_eval_step(model._params, emb_can, org_idx)
+            preds_rc = cached_eval_step(model._params, emb_rc, org_idx)
+            y_pred_all.append(
+                (np.array(preds_can).reshape(-1) + np.array(preds_rc).reshape(-1)) / 2.0
+            )
 
         y_pred = np.concatenate(y_pred_all)
         avg_train = float(np.mean(train_losses)) if train_losses else float("nan")

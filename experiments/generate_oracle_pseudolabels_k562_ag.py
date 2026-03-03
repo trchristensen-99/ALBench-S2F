@@ -273,12 +273,8 @@ def main(cfg: DictConfig) -> None:
             strand_reindexing=None,
         )[unique_head_name]
 
-    # Warm-up compile for full-encoder predict (avoids long JIT delay in main loop)
-    print("Compiling full-encoder predict_step (may take several minutes) …", flush=True)
-    _dummy_seq = jnp.zeros((batch_size_encoder, 600, 4), dtype=jnp.float32)
-    _ = predict_step(model._params, model._state, _dummy_seq)
-    _.block_until_ready()
-    print("Full-encoder predict compiled OK.", flush=True)
+    # NOTE: Full-encoder warm-up is deferred until after checking for test caches.
+    # If test caches exist, the encoder is never called → skip the 2h JIT compilation.
 
     # ── Load embedding cache (train + pool + val) ──────────────────────────────
     print(f"Loading embedding cache from {cache_dir} …", flush=True)
@@ -304,7 +300,7 @@ def main(cfg: DictConfig) -> None:
     # ── Fold split (matches oracle training exactly) ───────────────────────────
     fold_val_idx = _oracle_fold_val_indices(n_train, n_folds)
 
-    # ── Test sets (raw TSV files) ──────────────────────────────────────────────
+    # ── Test sets ─────────────────────────────────────────────────────────────
     test_dir = Path(k562_data_path) / "test_sets"
 
     in_dist_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
@@ -327,6 +323,37 @@ def main(cfg: DictConfig) -> None:
         f"test_ood: {len(ood_seqs):,}",
         flush=True,
     )
+
+    # ── Try loading test set embedding caches (built by build_test_embedding_cache.py)
+    # If available, use head-only inference for test sets too (eliminates encoder JIT).
+    _test_cache_available = False
+    _test_caches: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    _test_cache_names = ["test_in_dist", "test_snv_ref", "test_snv_alt", "test_ood"]
+    try:
+        for name in _test_cache_names:
+            can, rc = load_embedding_cache(cache_dir, name)
+            _test_caches[name] = (can, rc)
+        _test_cache_available = True
+        print(
+            f"  Test set embedding caches found! Using head-only inference for test sets.",
+            flush=True,
+        )
+    except FileNotFoundError:
+        print(
+            f"  No test set embedding caches — using full encoder for test sets.",
+            flush=True,
+        )
+
+    # Warm-up compile for full encoder (only needed when test caches are missing)
+    if not _test_cache_available:
+        print(
+            "Compiling full-encoder predict_step (may take several minutes) …",
+            flush=True,
+        )
+        _dummy_seq = jnp.zeros((batch_size_encoder, 600, 4), dtype=jnp.float32)
+        _ = predict_step(model._params, model._state, _dummy_seq)
+        _.block_until_ready()
+        print("Full-encoder predict compiled OK.", flush=True)
 
     # ── Accumulators ──────────────────────────────────────────────────────────
     def _init(n: int) -> tuple[np.ndarray, np.ndarray]:
@@ -367,27 +394,42 @@ def main(cfg: DictConfig) -> None:
         val_sum += val_preds
         val_sumsq += val_preds.astype(np.float64) ** 2
 
-        # ── test set predictions (full encoder + RC avg) ──────────────────────
-        in_dist_preds = _predict_strings(
-            predict_step, model._params, model._state, in_dist_seqs, batch_size_encoder
-        )
+        # ── test set predictions ──────────────────────────────────────────────
+        if _test_cache_available:
+            # Head-only inference from cached embeddings (fast path)
+            in_dist_preds = _predict_cache(
+                head_predict_fn, model._params, *_test_caches["test_in_dist"], batch_size_cache
+            )
+            snv_ref_preds = _predict_cache(
+                head_predict_fn, model._params, *_test_caches["test_snv_ref"], batch_size_cache
+            )
+            snv_alt_preds = _predict_cache(
+                head_predict_fn, model._params, *_test_caches["test_snv_alt"], batch_size_cache
+            )
+            ood_preds = _predict_cache(
+                head_predict_fn, model._params, *_test_caches["test_ood"], batch_size_cache
+            )
+        else:
+            # Full encoder inference (slow path — ~30 min/fold)
+            in_dist_preds = _predict_strings(
+                predict_step, model._params, model._state, in_dist_seqs, batch_size_encoder
+            )
+            snv_ref_preds = _predict_strings(
+                predict_step, model._params, model._state, snv_ref_seqs, batch_size_encoder
+            )
+            snv_alt_preds = _predict_strings(
+                predict_step, model._params, model._state, snv_alt_seqs, batch_size_encoder
+            )
+            ood_preds = _predict_strings(
+                predict_step, model._params, model._state, ood_seqs, batch_size_encoder
+            )
+
         in_dist_sum += in_dist_preds
         in_dist_sumsq += in_dist_preds.astype(np.float64) ** 2
-
-        snv_ref_preds = _predict_strings(
-            predict_step, model._params, model._state, snv_ref_seqs, batch_size_encoder
-        )
-        snv_alt_preds = _predict_strings(
-            predict_step, model._params, model._state, snv_alt_seqs, batch_size_encoder
-        )
         snv_ref_sum += snv_ref_preds
         snv_ref_sumsq += snv_ref_preds.astype(np.float64) ** 2
         snv_alt_sum += snv_alt_preds
         snv_alt_sumsq += snv_alt_preds.astype(np.float64) ** 2
-
-        ood_preds = _predict_strings(
-            predict_step, model._params, model._state, ood_seqs, batch_size_encoder
-        )
         ood_sum += ood_preds
         ood_sumsq += ood_preds.astype(np.float64) ** 2
 

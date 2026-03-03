@@ -275,6 +275,7 @@ def main(cfg: DictConfig) -> None:
     train_canonical = all_canonical[train_idx]
     train_rc = all_rc[train_idx]
     val_canonical = all_canonical[val_idx]
+    val_rc = all_rc[val_idx]
     N_train = len(train_idx)
     N_val = len(val_idx)
     print(
@@ -369,15 +370,19 @@ def main(cfg: DictConfig) -> None:
             train_losses.append(loss_v)
             pbar.set_postfix({"loss": f"{loss_v:.4f}"})
 
-        # ── Validation ────────────────────────────────────────────────────────
+        # ── Validation (RC-averaged for accurate early stopping) ────────────
         y_pred_all: list[np.ndarray] = []
         for start in range(0, N_val, batch_size):
             end = min(start + batch_size, N_val)
             indices = np.arange(start, end, dtype=np.int64)
-            emb = jnp.array(val_canonical[indices].astype(np.float32))
             org_idx = jnp.zeros(len(indices), dtype=jnp.int32)
-            preds = cached_eval_step(model._params, emb, org_idx)
-            y_pred_all.append(np.array(preds).reshape(-1))
+            emb_can = jnp.array(val_canonical[indices].astype(np.float32))
+            emb_rc = jnp.array(val_rc[indices].astype(np.float32))
+            preds_can = cached_eval_step(model._params, emb_can, org_idx)
+            preds_rc = cached_eval_step(model._params, emb_rc, org_idx)
+            y_pred_all.append(
+                (np.array(preds_can).reshape(-1) + np.array(preds_rc).reshape(-1)) / 2.0
+            )
 
         y_pred = np.concatenate(y_pred_all)
         avg_train = float(np.mean(train_losses)) if train_losses else float("nan")
