@@ -98,6 +98,49 @@ MARKERS = {
     "AlphaGenome": "s",
 }
 
+# Oracle ensemble and Stage 2 baselines (computed from test_metrics.json)
+ORACLE_BASELINES: dict[str, float] = {}
+STAGE2_BASELINES: dict[str, float] = {}
+
+
+def _load_baselines():
+    """Load oracle ensemble mean and Stage 2 s2c test metrics."""
+    global ORACLE_BASELINES, STAGE2_BASELINES
+    # Oracle ensemble mean across 10 folds
+    oracle_dir = REPO_ROOT / "outputs" / "ag_hashfrag_oracle_cached"
+    vals: dict[str, list[float]] = {}
+    for i in range(10):
+        tm_path = oracle_dir / f"oracle_{i}" / "test_metrics.json"
+        if not tm_path.exists():
+            continue
+        with open(tm_path) as f:
+            tm = json.load(f).get("test_metrics", {})
+        for key, metric in [
+            ("in_dist_pearson", "in_distribution"),
+            ("ood_pearson", "ood"),
+            ("snv_abs_pearson", "snv_abs"),
+            ("snv_delta_pearson", "snv_delta"),
+        ]:
+            v = tm.get(metric, {}).get("pearson_r")
+            if v is not None:
+                vals.setdefault(key, []).append(v)
+    ORACLE_BASELINES = {k: float(np.mean(v)) for k, v in vals.items()}
+
+    # Stage 2 best config (s2c)
+    s2c_path = REPO_ROOT / "outputs" / "stage2_k562_s2c" / "test_metrics.json"
+    if s2c_path.exists():
+        with open(s2c_path) as f:
+            tm = json.load(f).get("test_metrics", {})
+        for key, metric in [
+            ("in_dist_pearson", "in_distribution"),
+            ("ood_pearson", "ood"),
+            ("snv_abs_pearson", "snv_abs"),
+            ("snv_delta_pearson", "snv_delta"),
+        ]:
+            v = tm.get(metric, {}).get("pearson_r")
+            if v is not None:
+                STAGE2_BASELINES[key] = v
+
 
 def plot_metric(
     dream_df: pd.DataFrame,
@@ -130,11 +173,35 @@ def plot_metric(
             zorder=3,
         )
 
+    # Oracle ensemble baseline
+    if metric in ORACLE_BASELINES:
+        ax.axhline(
+            ORACLE_BASELINES[metric],
+            color="#2CA02C",
+            linestyle="--",
+            linewidth=1.5,
+            alpha=0.8,
+            label=f"Oracle ensemble (10-fold)",
+            zorder=2,
+        )
+
+    # Stage 2 baseline
+    if metric in STAGE2_BASELINES:
+        ax.axhline(
+            STAGE2_BASELINES[metric],
+            color="#9467BD",
+            linestyle=":",
+            linewidth=1.5,
+            alpha=0.8,
+            label=f"Stage 2 (s2c, encoder FT)",
+            zorder=2,
+        )
+
     ax.set_xscale("log")
     ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:g}%"))
     ax.set_xlabel("Training data (% of total)", fontsize=11)
     ax.set_ylabel(ylabel, fontsize=11)
-    ax.legend(fontsize=10, loc="lower right")
+    ax.legend(fontsize=9, loc="lower right")
     ax.grid(True, which="both", ls="--", alpha=0.4, zorder=0)
     ax.tick_params(axis="both", labelsize=9)
 
@@ -254,6 +321,7 @@ def print_summary(dream_df: pd.DataFrame, ag_df: pd.DataFrame):
 
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _load_baselines()
 
     print(f"Loading DREAM-RNN results from: {DREAM_DIR}")
     dream_df = load_records(DREAM_DIR, "DREAM-RNN")
