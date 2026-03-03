@@ -3,8 +3,10 @@
 Plot K562 MPRA scaling curve: DREAM-RNN vs AlphaGenome.
 
 Reads result.json files from:
-  outputs/exp0_k562_scaling/              (DREAM-RNN)
-  outputs/exp0_k562_scaling_alphagenome/  (AlphaGenome)
+  outputs/exp0_k562_scaling/                          (DREAM-RNN, hashFrag test sets)
+  outputs/exp0_k562_scaling_alphagenome_cached_rcaug/ (AlphaGenome cached, hashFrag test sets)
+
+Both use the same hashFrag test splits (in_dist, SNV, OOD) and are directly comparable.
 
 Outputs PNG(s) to outputs/analysis/plots/.
 Run from repo root:
@@ -23,7 +25,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DREAM_DIR = REPO_ROOT / "outputs" / "exp0_k562_scaling"
-AG_DIR = REPO_ROOT / "outputs" / "exp0_k562_scaling_alphagenome"
+AG_DIR = REPO_ROOT / "outputs" / "exp0_k562_scaling_alphagenome_cached_rcaug"
 OUT_DIR = REPO_ROOT / "outputs" / "analysis" / "plots"
 
 # Standard experiment fractions (log-spaced design)
@@ -43,6 +45,8 @@ def load_records(results_dir: Path, model_name: str) -> pd.DataFrame:
         tm = d.get("test_metrics", {})
         in_dist = tm.get("in_distribution", {})
         ood = tm.get("ood", {})
+        snv_abs = tm.get("snv_abs", {})
+        snv_delta = tm.get("snv_delta", {})
         records.append(
             {
                 "model": model_name,
@@ -51,6 +55,8 @@ def load_records(results_dir: Path, model_name: str) -> pd.DataFrame:
                 "val_pearson": d.get("best_val_pearson_r") or d.get("best_val_pearson"),
                 "in_dist_pearson": in_dist.get("pearson_r"),
                 "ood_pearson": ood.get("pearson_r"),
+                "snv_abs_pearson": snv_abs.get("pearson_r"),
+                "snv_delta_pearson": snv_delta.get("pearson_r"),
                 "path": str(path),
             }
         )
@@ -70,6 +76,8 @@ def load_records(results_dir: Path, model_name: str) -> pd.DataFrame:
 
 
 def aggregate(df: pd.DataFrame, metric: str) -> pd.DataFrame:
+    if df.empty or metric not in df.columns:
+        return pd.DataFrame(columns=["fraction", "mean", "std", "n", "pct"])
     valid = df.dropna(subset=[metric])
     agg = valid.groupby("fraction")[metric].agg(mean="mean", std="std", n="count").reset_index()
     agg["pct"] = agg["fraction"] * 100
@@ -154,6 +162,31 @@ def make_figure(dream_df: pd.DataFrame, ag_df: pd.DataFrame, out_path: Path):
     print(f"Saved: {out_path}")
 
 
+def make_four_panel_figure(dream_df: pd.DataFrame, ag_df: pd.DataFrame, out_path: Path):
+    """Four-panel figure: in-dist, OOD, SNV abs, SNV delta Pearson R."""
+    fig, axes = plt.subplots(2, 2, figsize=(13, 10), sharey=False)
+    axes = axes.flatten()
+
+    n_ag_fracs = ag_df["fraction"].nunique() if not ag_df.empty else 0
+    ag_label = "AlphaGenome" if n_ag_fracs == 7 else f"AlphaGenome (partial, {n_ag_fracs}/7 fracs)"
+
+    panels = [
+        ("in_dist_pearson", "Test Pearson R (in-distribution)", "In-distribution test"),
+        ("ood_pearson", "Test Pearson R (OOD)", "Out-of-distribution test"),
+        ("snv_abs_pearson", "Test Pearson R (SNV abs)", "SNV absolute expression"),
+        ("snv_delta_pearson", "Test Pearson R (SNV Δ)", "SNV effect (Δlog2FC)"),
+    ]
+    for ax, (metric, ylabel, title) in zip(axes, panels):
+        plot_metric(dream_df, ag_df, metric, ylabel, ax, ag_label)
+        ax.set_title(title, fontsize=11)
+
+    fig.suptitle("K562 MPRA: Data efficiency — DREAM-RNN vs AlphaGenome", fontsize=13)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {out_path}")
+
+
 def make_single_panel(
     dream_df: pd.DataFrame, ag_df: pd.DataFrame, metric: str, ylabel: str, out_path: Path
 ):
@@ -174,28 +207,44 @@ def make_single_panel(
 # ---------------------------------------------------------------------------
 
 
-def print_summary(dream_df: pd.DataFrame, ag_df: pd.DataFrame):
-    print("\n=== DREAM-RNN K562 scaling (in-dist Pearson R) ===")
-    d_agg = aggregate(dream_df, "in_dist_pearson")
-    for _, row in d_agg.iterrows():
-        std_str = f" ± {row['std']:.4f}" if not np.isnan(row["std"]) else ""
-        print(
-            f"  {row['fraction'] * 100:5.1f}%  ({row['pct']:5.1f}%)  "
-            f"mean={row['mean']:.4f}{std_str}  seeds={int(row['n'])}"
-        )
-
-    print("\n=== AlphaGenome K562 scaling (in-dist Pearson R) ===")
-    if ag_df.empty:
+def _print_model_summary(df: pd.DataFrame, name: str):
+    metrics = [
+        ("in_dist_pearson", "in-dist"),
+        ("ood_pearson", "OOD"),
+        ("snv_abs_pearson", "SNV-abs"),
+        ("snv_delta_pearson", "SNV-delta"),
+    ]
+    print(f"\n=== {name} K562 scaling ===")
+    if df.empty:
         print("  (no data)")
         return
-    a_agg = aggregate(ag_df, "in_dist_pearson")
-    for _, row in a_agg.iterrows():
-        std_str = f" ± {row['std']:.4f}" if not np.isnan(row["std"]) else ""
-        print(
-            f"  {row['fraction'] * 100:5.1f}%  ({row['pct']:5.1f}%)  "
-            f"mean={row['mean']:.4f}{std_str}  seeds={int(row['n'])}"
-        )
+    # Print in-dist as primary; show other metrics on same line if available
+    agg_all = {m: aggregate(df, m) for m, _ in metrics}
+    fracs = sorted(df["fraction"].dropna().unique())
+    header = f"  {'frac':>7}  {'n':>2}  " + "  ".join(f"{lbl:>10}" for _, lbl in metrics)
+    print(header)
+    for frac in fracs:
+        row_parts = [f"  {frac * 100:6.1f}%"]
+        n_seeds = None
+        for m, _ in metrics:
+            agg = agg_all[m]
+            row_frac = agg[agg["fraction"] == frac]
+            if row_frac.empty or np.isnan(row_frac["mean"].values[0]):
+                row_parts.append(f"{'—':>10}")
+            else:
+                mean = row_frac["mean"].values[0]
+                std = row_frac["std"].values[0]
+                n_seeds = int(row_frac["n"].values[0])
+                std_str = f"±{std:.3f}" if not np.isnan(std) else "      "
+                row_parts.append(f"{mean:.4f}{std_str:>7}")
+        row_parts.insert(1, f"  {n_seeds or 0:>2}")
+        print("".join(row_parts))
     print()
+
+
+def print_summary(dream_df: pd.DataFrame, ag_df: pd.DataFrame):
+    _print_model_summary(dream_df, "DREAM-RNN")
+    _print_model_summary(ag_df, "AlphaGenome (cached, rcaug)")
 
 
 # ---------------------------------------------------------------------------
@@ -220,8 +269,16 @@ def main():
 
     print_summary(dream_df, ag_df)
 
+    # Save combined records CSV for downstream analysis
+    all_df = pd.concat([dream_df, ag_df], ignore_index=True) if not ag_df.empty else dream_df
+    all_df.to_csv(OUT_DIR / "k562_scaling_records.csv", index=False)
+    print(f"Saved: {OUT_DIR / 'k562_scaling_records.csv'}")
+
     # Two-panel figure (in-dist + OOD)
     make_figure(dream_df, ag_df, OUT_DIR / "k562_scaling_comparison.png")
+
+    # Four-panel figure (in-dist + OOD + SNV abs + SNV delta)
+    make_four_panel_figure(dream_df, ag_df, OUT_DIR / "k562_scaling_comparison_4panel.png")
 
     # Single-panel in-distribution only (cleaner for presentations)
     make_single_panel(
