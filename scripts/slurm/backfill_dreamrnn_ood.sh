@@ -35,6 +35,11 @@ for seed_dir in outputs/exp0_k562_scaling/seed_*; do
     if [ ! -d "$seed_dir" ]; then
         continue
     fi
+    # Skip seeds with no result.json (incomplete or failed runs)
+    if ! ls "$seed_dir"/fraction_*/result.json &>/dev/null; then
+        echo "=== Skipping $seed_dir (no result.json) ==="
+        continue
+    fi
     echo "=== Processing $seed_dir ==="
     uv run --no-sync python scripts/analysis/backfill_exp0_k562_test_metrics.py \
         --output-root "$seed_dir" \
