@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build AlphaGenome embedding cache for yeast train/pool/val splits.
+# Build AlphaGenome embedding cache for yeast train/val splits.
 #
 # Submit:
 #   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/build_yeast_embedding_cache.sh
@@ -9,7 +9,7 @@
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --partition=gpuq
 #SBATCH --qos=slow_nice
-#SBATCH --time=03:00:00
+#SBATCH --time=06:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
@@ -27,12 +27,12 @@ source scripts/slurm/setup_hpc_deps.sh
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
 
 echo "Building yeast embedding cache on ${SLURMD_NODENAME} at $(date)"
-echo "Splits: train pool val | Cache: outputs/ag_yeast/embedding_cache/"
+echo "Splits: train val | Cache: outputs/ag_yeast/embedding_cache/"
 
 uv run --no-sync python scripts/analysis/build_yeast_embedding_cache.py \
     --data_path data/yeast \
     --cache_dir outputs/ag_yeast/embedding_cache \
-    --splits train pool val \
+    --splits train val \
     --batch_size 128 \
     --num_workers 8
 

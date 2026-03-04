@@ -1,9 +1,9 @@
 #!/bin/bash
 # Exp 0: AlphaGenome cached-head scaling curve on yeast.
-# One array task per fraction.
+# Multi-seed support: array index = seed_idx * N_FRACTIONS + fraction_idx.
 #
-# Submit:
-#   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/exp0_yeast_scaling_alphagenome.sh
+# Submit 1 seed  (10 tasks):  sbatch --array=0-9  scripts/slurm/exp0_yeast_scaling_alphagenome.sh
+# Submit 3 seeds (30 tasks):  NUM_SEEDS=3 sbatch --array=0-29 scripts/slurm/exp0_yeast_scaling_alphagenome.sh
 #
 #SBATCH --job-name=exp0_ag_yeast
 #SBATCH --output=logs/%x-%A-%a.out
@@ -14,7 +14,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
-#SBATCH --array=0-9
+#SBATCH --array=0-29
 
 set -euo pipefail
 
@@ -29,9 +29,15 @@ source scripts/slurm/setup_hpc_deps.sh
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
 
 FRACTIONS=(0.001 0.002 0.005 0.01 0.02 0.05 0.10 0.20 0.50 1.00)
-FRACTION=${FRACTIONS[$SLURM_ARRAY_TASK_ID]}
+N_FRACTIONS=${#FRACTIONS[@]}
+NUM_SEEDS="${NUM_SEEDS:-3}"
 
-echo "Starting yeast AG scaling: fraction=${FRACTION} task=${SLURM_ARRAY_TASK_ID}"
+# Decompose array task: seed_idx * N_FRACTIONS + fraction_idx
+SEED_IDX=$(( SLURM_ARRAY_TASK_ID / N_FRACTIONS ))
+FRAC_IDX=$(( SLURM_ARRAY_TASK_ID % N_FRACTIONS ))
+FRACTION=${FRACTIONS[$FRAC_IDX]}
+
+echo "Starting yeast AG scaling: fraction=${FRACTION} seed_idx=${SEED_IDX} task=${SLURM_ARRAY_TASK_ID}"
 echo "Node: ${SLURMD_NODENAME}  Date: $(date)"
 
 uv run --no-sync python experiments/exp0_yeast_scaling_alphagenome.py \
