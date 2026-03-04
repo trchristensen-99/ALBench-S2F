@@ -31,8 +31,11 @@ source scripts/slurm/setup_hpc_deps.sh
 
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
 
-# Ensure JAX sees only the SLURM-assigned GPU (prevents multi-process deadlock)
-echo "SLURM GPU assignment: CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset} SLURM_JOB_GPUS=${SLURM_JOB_GPUS:-unset} GPU_DEVICE_ORDINAL=${GPU_DEVICE_ORDINAL:-unset}"
+# Re-set CUDA_VISIBLE_DEVICES from SLURM assignment (module loads reset it to "0")
+if [ -n "${SLURM_JOB_GPUS:-}" ]; then
+    export CUDA_VISIBLE_DEVICES="${SLURM_JOB_GPUS}"
+fi
+echo "GPU: CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset} SLURM_JOB_GPUS=${SLURM_JOB_GPUS:-unset}"
 
 COMMON_ARGS=(
   "--config-name" "oracle_alphagenome_yeast_finetune_sweep"
