@@ -63,7 +63,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
       "++second_stage_lr=1e-5"
       "++second_stage_epochs=50"
       "++second_stage_unfreeze_mode=encoder"
-      "++second_stage_batch_size=32"
+      "++second_stage_batch_size=64"
       "++second_stage_weight_decay=1e-6"
     )
     ;;
@@ -74,7 +74,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
       "++second_stage_lr=5e-6"
       "++second_stage_epochs=50"
       "++second_stage_unfreeze_mode=encoder"
-      "++second_stage_batch_size=32"
+      "++second_stage_batch_size=64"
       "++second_stage_weight_decay=1e-6"
     )
     ;;
@@ -86,7 +86,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
       "++second_stage_epochs=50"
       "++second_stage_unfreeze_mode=gradual"
       "++second_stage_full_unfreeze_epoch=10"
-      "++second_stage_batch_size=32"
+      "++second_stage_batch_size=64"
       "++second_stage_weight_decay=1e-6"
     )
     ;;
@@ -97,7 +97,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
       "++second_stage_lr=5e-6"
       "++second_stage_epochs=50"
       "++second_stage_unfreeze_mode=backbone"
-      "++second_stage_batch_size=32"
+      "++second_stage_batch_size=64"
       "++second_stage_weight_decay=1e-6"
     )
     ;;
@@ -109,7 +109,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
       "++second_stage_epochs=50"
       "++second_stage_unfreeze_mode=encoder"
       "++second_stage_max_shift=0"
-      "++second_stage_batch_size=32"
+      "++second_stage_batch_size=64"
       "++second_stage_weight_decay=1e-6"
     )
     ;;
@@ -121,7 +121,7 @@ case "${SLURM_ARRAY_TASK_ID}" in
       "++second_stage_epochs=50"
       "++second_stage_unfreeze_mode=encoder"
       "++second_stage_max_shift=43"
-      "++second_stage_batch_size=32"
+      "++second_stage_batch_size=64"
       "++second_stage_weight_decay=1e-6"
     )
     ;;

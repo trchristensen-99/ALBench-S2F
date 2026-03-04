@@ -800,8 +800,15 @@ def main(cfg: DictConfig) -> None:
             return collate_yeast(b, max_seq_len, augment=False)
 
         s2_batch_size = int(cfg.get("second_stage_batch_size", cfg.batch_size))
+        s2_include_pool = bool(cfg.get("second_stage_include_pool", False))
+        s2_train_data = train_dataset if s2_include_pool else ds_train
+        n_s2_train = len(s2_train_data)
+        print(
+            f"  Stage-2 training data: {n_s2_train:,} sequences"
+            f" ({'train+pool' if s2_include_pool else 'train only'})"
+        )
         s2_train_loader = DataLoader(
-            train_dataset,
+            s2_train_data,
             batch_size=s2_batch_size,
             shuffle=True,
             num_workers=n_workers,
