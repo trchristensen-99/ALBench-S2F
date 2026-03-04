@@ -12,7 +12,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
-#SBATCH --time=06:00:00
+#SBATCH --time=12:00:00
 
 source /etc/profile.d/modules.sh
 module load EB5
@@ -31,6 +31,6 @@ uv run --no-sync python scripts/analysis/build_hashfrag_embedding_cache.py \
     --cache_dir outputs/ag_hashfrag/embedding_cache \
     --splits train val \
     --batch_size 128 \
-    --num_workers 0
+    --num_workers 8
 
 echo "Done ($(date))"
