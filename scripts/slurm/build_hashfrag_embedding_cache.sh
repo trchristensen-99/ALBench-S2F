@@ -12,7 +12,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
-#SBATCH --time=02:00:00
+#SBATCH --time=06:00:00
 
 source /etc/profile.d/modules.sh
 module load EB5

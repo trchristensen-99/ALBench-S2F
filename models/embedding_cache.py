@@ -178,9 +178,19 @@ def build_embedding_cache(
             rc_buf[ptr : ptr + B_actual] = emb_rc.astype(dtype)
         ptr += B_actual
 
+    # Verify all rows were written (detect truncated builds)
+    if ptr != N:
+        del canonical_buf, rc_buf
+        out_canonical.unlink(missing_ok=True)
+        out_rc.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"[EmbeddingCache] {split} cache build incomplete: wrote {ptr}/{N} rows. "
+            f"Deleted partial files. Re-run to rebuild."
+        )
+
     # Flush to disk
     del canonical_buf, rc_buf
-    print(f"[EmbeddingCache] {split} cache saved → {cache_dir}")
+    print(f"[EmbeddingCache] {split} cache saved → {cache_dir} ({ptr:,} rows)")
 
 
 def load_embedding_cache(
