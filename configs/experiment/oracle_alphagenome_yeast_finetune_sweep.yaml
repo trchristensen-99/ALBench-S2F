@@ -1,8 +1,9 @@
 task_mode: yeast
 head_arch: flatten-mlp
 head_name: ag_yeast_head
-hidden_dims: [512, 512, 512]
+hidden_dims: [1024]
 num_tracks: 18
+activation: relu
 
 yeast_data_path: data/yeast
 context_mode: alphagenome384
@@ -13,11 +14,11 @@ epochs: 100
 seed: null
 wandb_mode: offline
 
-batch_size: 128
+batch_size: 512
 num_workers: 4
 max_seq_len: 384
-lr: 0.0001
-weight_decay: 0.0001
+lr: 0.001
+weight_decay: 0.000001
 save_full_model: false
 detach_backbone: true
 
@@ -26,10 +27,8 @@ cache_dir: outputs/ag_yeast/embedding_cache
 dropout_rate: 0.1
 eval_use_reverse_complement: true
 
-lr_schedule: plateau
-lr_plateau_patience: 5
-lr_plateau_factor: 0.5
-early_stop_patience: 15
+lr_schedule: constant
+early_stop_patience: 5
 
 second_stage_lr: null
 second_stage_epochs: 50

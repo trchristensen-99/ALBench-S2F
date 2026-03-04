@@ -301,6 +301,7 @@ def main(cfg: DictConfig) -> None:
     lr_plateau_factor = float(cfg.get("lr_plateau_factor", 0.5))
     early_stop_patience = int(cfg.get("early_stop_patience", 15))
     _use_plateau = lr_schedule_type == "plateau"
+    _use_cosine = lr_schedule_type == "cosine"
 
     # Two-stage config
     _s2_lr_raw = cfg.get("second_stage_lr", None)
@@ -335,6 +336,7 @@ def main(cfg: DictConfig) -> None:
     _hidden_dims: list[int] | None = (
         [int(d) for d in _hidden_dims_raw] if _hidden_dims_raw is not None else None
     )
+    _activation = str(cfg.get("activation", "relu"))
     register_s2f_head(
         head_name=unique_head_name,
         arch=str(cfg.head_arch),
@@ -342,6 +344,7 @@ def main(cfg: DictConfig) -> None:
         num_tracks=num_tracks,
         dropout_rate=dropout_rate,
         hidden_dims=_hidden_dims,
+        activation=_activation,
     )
 
     weights_path = Path(str(cfg.weights_path)).expanduser().resolve()
@@ -359,7 +362,7 @@ def main(cfg: DictConfig) -> None:
     loss_fn = model.create_loss_fn_for_head(unique_head_name)
 
     # ── Optimizer ─────────────────────────────────────────────────────────────
-    if _use_plateau:
+    if _use_plateau or _use_cosine:
         optimizer = optax.inject_hyperparams(optax.adamw)(
             learning_rate=float(cfg.lr), weight_decay=float(cfg.weight_decay)
         )
@@ -539,6 +542,14 @@ def main(cfg: DictConfig) -> None:
     _min_lr = float(cfg.lr) * 0.01
 
     for epoch in range(int(cfg.epochs)):
+        # ── Cosine LR update (applied before each epoch) ──────────────────────
+        if _use_cosine:
+            max_epochs = max(int(cfg.epochs) - 1, 1)
+            progress = epoch / max_epochs
+            cosine_factor = 0.5 * (1.0 + np.cos(np.pi * progress))
+            current_lr = float(cfg.lr) * (0.01 + 0.99 * cosine_factor)
+            opt_state.hyperparams["learning_rate"] = np.float32(current_lr)
+
         train_losses: list[float] = []
         pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{int(cfg.epochs)}")
 

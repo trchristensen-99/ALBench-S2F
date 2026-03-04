@@ -441,6 +441,8 @@ class FlattenMLPHead(_BaseLossHead):
         is_training = kwargs.get("is_training", False)
         dropout_rate = float(self._metadata.get("dropout_rate", 0.1))
         hidden_dims = list(self._metadata.get("hidden_dims", [512, 512]))
+        activation_name = str(self._metadata.get("activation", "relu"))
+        act_fn = jax.nn.gelu if activation_name == "gelu" else jax.nn.relu
 
         x = embeddings.encoder_output  # (B, T, 1536)
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="norm")(x)
@@ -450,7 +452,7 @@ class FlattenMLPHead(_BaseLossHead):
             x = hk.Linear(dim, name=f"hidden_{i}")(x)
             if is_training and dropout_rate > 0.0:
                 x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
-            x = jax.nn.relu(x)
+            x = act_fn(x)
 
         return hk.Linear(self._num_tracks, name="output")(x)
 
@@ -510,6 +512,7 @@ def register_s2f_head(
     output_type: dna_output.OutputType = dna_output.OutputType.RNA_SEQ,
     dropout_rate: float = 0.0,
     hidden_dims: list[int] | None = None,
+    activation: str = "relu",
 ) -> None:
     """Register an ALBench S2F AlphaGenome head with frozen-encoder training.
 
@@ -524,9 +527,15 @@ def register_s2f_head(
         hidden_dims: Hidden layer sizes for the ``flatten-mlp`` arch
             (e.g. ``[512, 256]`` for a two-layer 512→256 head). Ignored by
             hard-coded arch variants. Defaults to ``[512, 512]`` inside the head.
+        activation: Activation function name (``"relu"`` or ``"gelu"``). Only
+            used by the ``flatten-mlp`` arch. Defaults to ``"relu"``.
     """
     head_class = get_head_class(arch)
-    metadata: dict = {"task_mode": task_mode, "dropout_rate": dropout_rate}
+    metadata: dict = {
+        "task_mode": task_mode,
+        "dropout_rate": dropout_rate,
+        "activation": activation,
+    }
     if hidden_dims is not None:
         metadata["hidden_dims"] = hidden_dims
     head_config = CustomHeadConfig(
