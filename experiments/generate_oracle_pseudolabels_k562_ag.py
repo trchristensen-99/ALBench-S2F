@@ -276,15 +276,12 @@ def main(cfg: DictConfig) -> None:
     # NOTE: Full-encoder warm-up is deferred until after checking for test caches.
     # If test caches exist, the encoder is never called → skip the 2h JIT compilation.
 
-    # ── Load embedding cache (train + pool + val) ──────────────────────────────
+    # ── Load embedding cache (train + val) ──────────────────────────────────────
     print(f"Loading embedding cache from {cache_dir} …", flush=True)
-    can_train, rc_train = load_embedding_cache(cache_dir, "train")
-    can_pool, rc_pool = load_embedding_cache(cache_dir, "pool")
+    all_canonical, all_rc = load_embedding_cache(cache_dir, "train")
     can_val, rc_val = load_embedding_cache(cache_dir, "val")
-    all_canonical = np.concatenate([can_train, can_pool], axis=0)
-    all_rc = np.concatenate([rc_train, rc_pool], axis=0)
     print(
-        f"  train+pool: {all_canonical.shape}  val: {can_val.shape}",
+        f"  train: {all_canonical.shape}  val: {can_val.shape}",
         flush=True,
     )
 
@@ -295,7 +292,7 @@ def main(cfg: DictConfig) -> None:
     val_labels = ds_val.labels.astype(np.float32)
     n_train = len(train_labels)
     n_val = len(val_labels)
-    print(f"  train+pool labels: {n_train:,}  val labels: {n_val:,}", flush=True)
+    print(f"  train labels: {n_train:,}  val labels: {n_val:,}", flush=True)
 
     # ── Fold split (matches oracle training exactly) ───────────────────────────
     fold_val_idx = _oracle_fold_val_indices(n_train, n_folds)

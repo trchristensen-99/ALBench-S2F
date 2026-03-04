@@ -180,10 +180,8 @@ def main(cfg: DictConfig) -> None:
     pseudolabel_dir = Path(str(cfg.pseudolabel_dir)).expanduser().resolve()
     rc_aug: bool = bool(cfg.get("rc_aug", True))
 
-    can_train, rc_train = load_embedding_cache(cache_dir, "train")
-    can_pool, rc_pool = load_embedding_cache(cache_dir, "pool")
-    all_canonical = np.concatenate([can_train, can_pool], axis=0)
-    all_rc = np.concatenate([rc_train, rc_pool], axis=0) if rc_aug else None
+    all_canonical, all_rc_raw = load_embedding_cache(cache_dir, "train")
+    all_rc = all_rc_raw if rc_aug else None
 
     val_canonical, val_rc = load_embedding_cache(cache_dir, "val")
 
@@ -200,7 +198,7 @@ def main(cfg: DictConfig) -> None:
     val_true_labels = ds_val_true.labels.astype(np.float32)
 
     print(
-        f"  train+pool oracle labels: {len(all_oracle_labels):,}  "
+        f"  train oracle labels: {len(all_oracle_labels):,}  "
         f"val oracle labels: {N_val:,}  rc_aug={rc_aug}",
         flush=True,
     )

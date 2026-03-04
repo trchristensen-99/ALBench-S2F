@@ -259,24 +259,19 @@ def main(cfg: DictConfig) -> None:
     cache_dir = Path(str(cfg.cache_dir)).expanduser().resolve()
     print(f"Loading embedding cache from {cache_dir} …", flush=True)
 
-    # Combine train + pool splits for training
     rc_aug: bool = bool(cfg.get("rc_aug", True))
-    can_train, rc_train = load_embedding_cache(cache_dir, "train")
-    can_pool, rc_pool = load_embedding_cache(cache_dir, "pool")
-    all_canonical = np.concatenate([can_train, can_pool], axis=0)
-    all_rc = np.concatenate([rc_train, rc_pool], axis=0) if rc_aug else None
-    print(f"  Combined train+pool embeddings: {all_canonical.shape}  rc_aug={rc_aug}", flush=True)
+    all_canonical, all_rc_raw = load_embedding_cache(cache_dir, "train")
+    all_rc = all_rc_raw if rc_aug else None
+    print(f"  Train embeddings: {all_canonical.shape}  rc_aug={rc_aug}", flush=True)
 
     # Val embeddings (canonical + RC for RC-averaged validation)
     val_canonical, val_rc = load_embedding_cache(cache_dir, "val")
     print(f"  Val embeddings: {val_canonical.shape}", flush=True)
 
     # ── Load labels ───────────────────────────────────────────────────────────
-    # K562Dataset(split="train") transparently merges legacy train + pool indices
-    # in the same [train, pool] order as can_train / can_pool above.
     ds_all = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
     all_labels = ds_all.labels.astype(np.float32)
-    print(f"  Combined train+pool labels: {len(all_labels):,}", flush=True)
+    print(f"  Train labels: {len(all_labels):,}", flush=True)
 
     ds_val = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
     val_labels = ds_val.labels.astype(np.float32)

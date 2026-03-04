@@ -3,11 +3,11 @@
 
 Trains only the small head network on pre-computed encoder embeddings so the
 expensive encoder forward pass is never called during training.  Uses the combined
-train+pool split (~320K sequences).  RC augmentation is preserved (canonical and RC
+train split (~320K sequences).  RC augmentation is preserved (canonical and RC
 embeddings are both included in every epoch).  No shift augmentation.  Typical
 speed-up over full-encoder training: 20–50×.
 
-Cache must be pre-built (train / pool / val canonical + RC) before running this script::
+Cache must be pre-built (train / val canonical + RC) before running this script::
 
     sbatch scripts/slurm/build_hashfrag_embedding_cache.sh
 
@@ -252,11 +252,7 @@ def main(cfg: DictConfig) -> None:
 
     cache_dir = Path(str(cfg.cache_dir)).expanduser().resolve()
     print(f"Loading embedding cache from {cache_dir} …", flush=True)
-    # Legacy caches have separate train (100K) + pool (220K) files; merge both.
-    can_train, rc_train = load_embedding_cache(cache_dir, "train")
-    can_pool, rc_pool = load_embedding_cache(cache_dir, "pool")
-    all_canonical = np.concatenate([can_train, can_pool], axis=0)
-    all_rc = np.concatenate([rc_train, rc_pool], axis=0)
+    all_canonical, all_rc = load_embedding_cache(cache_dir, "train")
     print(f"  All embeddings: {all_canonical.shape}", flush=True)
 
     # ── 10-fold CV split ──────────────────────────────────────────────────────

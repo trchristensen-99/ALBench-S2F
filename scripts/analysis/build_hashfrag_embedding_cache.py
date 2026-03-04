@@ -2,22 +2,20 @@
 """Build AlphaGenome encoder embedding cache for K562 hashFrag splits.
 
 Runs the AlphaGenome encoder once over the requested hashFrag splits
-(train / pool / val) and writes canonical + RC embedding caches.
+(train / val) and writes canonical + RC embedding caches.
 This eliminates the dominant encoder cost in subsequent training runs,
 enabling ~20–50× faster per-epoch training when aug_mode=no_shift.
 
 Cache layout::
 
     outputs/ag_hashfrag/embedding_cache/
-        train_canonical.npy   shape (N_train, T=5, D=1536)  float16
+        train_canonical.npy   shape (N_train, T=5, D=1536)  float16  (~320K)
         train_rc.npy
-        pool_canonical.npy    shape (N_pool,  T=5, D=1536)  float16
-        pool_rc.npy
         val_canonical.npy     shape (N_val,   T=5, D=1536)  float16
         val_rc.npy
 
 Each split takes roughly 10–30 minutes on an H100 NVL (batch_size=128).
-Total for train+pool+val (~330K seqs): ~45–75 minutes.
+Total for train+val (~360K seqs): ~30–60 minutes.
 
 Usage::
 
@@ -105,8 +103,8 @@ def main() -> None:
     p.add_argument(
         "--splits",
         nargs="+",
-        default=["train", "pool", "val"],
-        help="Which K562Dataset splits to cache. Default: train pool val.",
+        default=["train", "val"],
+        help="Which K562Dataset splits to cache. Default: train val.",
     )
     p.add_argument(
         "--dtype",

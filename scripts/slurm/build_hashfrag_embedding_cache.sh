@@ -24,13 +24,13 @@ source scripts/slurm/setup_hpc_deps.sh
 export XLA_FLAGS="${XLA_FLAGS} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
 
 echo "Building hashFrag embedding cache on $SLURMD_NODENAME ($(date))"
-echo "Splits: train pool val  |  Output: outputs/ag_hashfrag/embedding_cache/"
+echo "Splits: train val  |  Output: outputs/ag_hashfrag/embedding_cache/"
 
 uv run --no-sync python scripts/analysis/build_hashfrag_embedding_cache.py \
     --data_path data/k562 \
     --cache_dir outputs/ag_hashfrag/embedding_cache \
-    --splits train pool val \
+    --splits train val \
     --batch_size 128 \
-    --num_workers 8
+    --num_workers 0
 
 echo "Done ($(date))"
