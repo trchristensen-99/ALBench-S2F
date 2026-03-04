@@ -15,7 +15,7 @@ import torch
 import wandb
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 from data.yeast import YeastDataset
 from evaluation.yeast_testsets import (
@@ -60,7 +60,7 @@ def run_fraction(
     test_labels: np.ndarray | None = None,
     test_subsets: dict[str, np.ndarray] | None = None,
 ) -> dict:
-    """Train DREAM-RNN on a random subset at a given fraction of the full 6M pool."""
+    """Train DREAM-RNN on a random subset at a given fraction of the full training set."""
     n_total = len(train_dataset)
     n_samples = max(1, int(n_total * fraction))
 
@@ -196,21 +196,13 @@ def main(cfg: DictConfig) -> None:
         mode=str(cfg.wandb_mode),
     )
 
-    ds_train = YeastDataset(
+    train_dataset = YeastDataset(
         data_path=str(cfg.data_path),
         split="train",
         context_mode=str(cfg.context_mode),
     )
-    seq_len = ds_train.get_sequence_length()
-
-    # Combine train + pool to get the full 6M training set.
-    ds_pool = YeastDataset(
-        data_path=str(cfg.data_path),
-        split="pool",
-        context_mode=str(cfg.context_mode),
-    )
-    train_dataset: Dataset = ConcatDataset([ds_train, ds_pool])
-    print(f"Combined train+pool: {len(train_dataset):,} sequences")
+    seq_len = train_dataset.get_sequence_length()
+    print(f"Training set: {len(train_dataset):,} sequences")
     val_dataset = YeastDataset(
         data_path=str(cfg.data_path),
         split="val",

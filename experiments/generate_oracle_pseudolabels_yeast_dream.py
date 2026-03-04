@@ -1,5 +1,11 @@
 #!/usr/bin/env python
-"""Generate DREAM-RNN yeast oracle pseudo-labels for train/val/test."""
+"""Generate DREAM-RNN yeast oracle pseudo-labels for train/val/test.
+
+The full train.txt (~6M sequences) is loaded as split="train". Oracle models
+were trained on a 100K k-fold subset — for those indices, out-of-fold (OOF)
+predictions are recorded; the remaining ~5.9M sequences are OOF by
+construction (never seen during training).
+"""
 
 from __future__ import annotations
 
@@ -96,11 +102,6 @@ def main(cfg: DictConfig) -> None:
         split="train",
         context_mode=str(cfg.context_mode),
     )
-    ds_pool = YeastDataset(
-        data_path=str(cfg.data_path),
-        split="pool",
-        context_mode=str(cfg.context_mode),
-    )
     ds_val = YeastDataset(
         data_path=str(cfg.data_path),
         split="val",
@@ -133,7 +134,6 @@ def main(cfg: DictConfig) -> None:
         return np.zeros(n, dtype=np.float64), np.zeros(n, dtype=np.float64)
 
     train_sum, train_sumsq = init_accum(n_train)
-    pool_sum, pool_sumsq = init_accum(len(ds_pool))
     val_sum, val_sumsq = init_accum(len(ds_val))
     test_sum, test_sumsq = init_accum(len(ds_test))
     train_oof = np.full(n_train, np.nan, dtype=np.float32)
@@ -146,14 +146,6 @@ def main(cfg: DictConfig) -> None:
         train_preds = _predict_dataset(
             model,
             ds_train,
-            device,
-            batch_size=int(cfg.batch_size),
-            num_workers=int(cfg.num_workers),
-            use_reverse_complement=bool(cfg.use_reverse_complement),
-        ).astype(np.float32)
-        pool_preds = _predict_dataset(
-            model,
-            ds_pool,
             device,
             batch_size=int(cfg.batch_size),
             num_workers=int(cfg.num_workers),
@@ -178,8 +170,6 @@ def main(cfg: DictConfig) -> None:
 
         train_sum += train_preds
         train_sumsq += train_preds.astype(np.float64) ** 2
-        pool_sum += pool_preds
-        pool_sumsq += pool_preds.astype(np.float64) ** 2
         val_sum += val_preds
         val_sumsq += val_preds.astype(np.float64) ** 2
         test_sum += test_preds
@@ -198,12 +188,10 @@ def main(cfg: DictConfig) -> None:
         return mean, std
 
     train_mean, train_std = finalize(train_sum, train_sumsq)
-    pool_mean, pool_std = finalize(pool_sum, pool_sumsq)
     val_mean, val_std = finalize(val_sum, val_sumsq)
     test_mean, test_std = finalize(test_sum, test_sumsq)
 
     train_labels = ds_train.labels.astype(np.float32)
-    pool_labels = ds_pool.labels.astype(np.float32)
     val_labels = ds_val.labels.astype(np.float32)
     test_labels = ds_test.labels.astype(np.float32)
 
@@ -213,12 +201,6 @@ def main(cfg: DictConfig) -> None:
         oracle_std=train_std,
         oof_oracle=train_oof,
         true_label=train_labels,
-    )
-    np.savez_compressed(
-        output_dir / "pool_oracle_labels.npz",
-        oracle_mean=pool_mean,
-        oracle_std=pool_std,
-        true_label=pool_labels,
     )
     np.savez_compressed(
         output_dir / "val_oracle_labels.npz",
@@ -254,11 +236,6 @@ def main(cfg: DictConfig) -> None:
             "oof_covered": int(np.sum(oof_mask)),
             "oof_pearson_r": _safe_corr(train_labels[oof_mask], train_oof[oof_mask], pearsonr),
             "oof_spearman_r": _safe_corr(train_labels[oof_mask], train_oof[oof_mask], spearmanr),
-        },
-        "pool": {
-            "n": int(len(pool_labels)),
-            "ensemble_pearson_r": _safe_corr(pool_labels, pool_mean, pearsonr),
-            "ensemble_spearman_r": _safe_corr(pool_labels, pool_mean, spearmanr),
         },
         "val": {
             "n": int(len(val_labels)),

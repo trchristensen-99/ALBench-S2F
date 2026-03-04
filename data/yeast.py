@@ -31,7 +31,6 @@ class YeastDataset(SequenceDataset):
     ALPHAGENOME_SEQUENCE_LENGTH = 384
     RANDOM_REGION_LENGTH = 80
     NUM_CHANNELS = 6
-    FIXED_TRAIN_SIZE = 100_000
     FIXED_VAL_SIZE = 20_000
     ALPHAGENOME_FLANK_5_PRIME = "GCTAGCAGGAATGATGCAAAAGGTTCCCGATTCGAACTGCATTTTTTTCACATC"  # 54bp
     ALPHAGENOME_FLANK_3_PRIME = "GGTTACGGCTGTTTCTTAATTAAAAAAAGATAGAAAACATTAGGAGTGTAACACAAGACTTTCGGATCCTGAGCAGGCAAGATAAACGA"  # 89bp
@@ -58,24 +57,14 @@ class YeastDataset(SequenceDataset):
         return rng.permutation(n)
 
     def load_data(self) -> None:
-        """Load yeast MPRA data with fixed train/pool/val/test splits."""
+        """Load yeast MPRA data with train/val/test splits."""
         data_dir = Path(self.data_path)
 
-        if self.split in ["train", "pool"]:
+        if self.split == "train":
             file_path = data_dir / "train.txt"
             print(f"Loading Yeast train data from {file_path}")
             df = pd.read_csv(file_path, sep="\t", header=None, names=["sequence", "expression"])
-
-            order = self._deterministic_order(len(df), seed=42)
-            train_idx = order[: self.FIXED_TRAIN_SIZE]
-            pool_idx = order[self.FIXED_TRAIN_SIZE :]
-
-            if self.split == "train":
-                df = df.iloc[train_idx].reset_index(drop=True)
-                print(f"Using fixed train split: {len(df):,} sequences")
-            else:
-                df = df.iloc[pool_idx].reset_index(drop=True)
-                print(f"Using fixed pool split: {len(df):,} sequences")
+            print(f"Loaded {len(df):,} training sequences")
 
             is_singleton = (df["expression"] % 1 == 0).values.astype(np.float32)
 
@@ -98,9 +87,7 @@ class YeastDataset(SequenceDataset):
             df = pd.read_csv(file_path, sep="\t", header=None, names=["sequence", "expression"])
             is_singleton = (df["expression"] % 1 == 0).values.astype(np.float32)
         else:
-            raise ValueError(
-                f"Invalid split: {self.split}. Expected one of: train, pool, val, test"
-            )
+            raise ValueError(f"Invalid split: {self.split}. Expected one of: train, val, test")
 
         self.sequences = df["sequence"].values
         self.labels = df["expression"].values.astype(np.float32)

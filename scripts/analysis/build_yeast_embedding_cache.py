@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Build AlphaGenome encoder embedding cache for yeast splits (train/pool/val)."""
+"""Build AlphaGenome encoder embedding cache for yeast splits (train/val)."""
 
 from __future__ import annotations
 
@@ -29,8 +29,8 @@ def main() -> None:
     p.add_argument(
         "--splits",
         nargs="+",
-        default=["train", "pool", "val"],
-        help="Which splits to cache. Default: train pool val.",
+        default=["train", "val"],
+        help="Which splits to cache. Default: train val.",
     )
     p.add_argument(
         "--dtype",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Oracle training: DREAM-RNN on yeast with k-fold CV over train+pool."""
+"""Oracle training: DREAM-RNN on yeast with k-fold CV."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import torch
 import wandb
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import ConcatDataset, DataLoader, Subset
+from torch.utils.data import DataLoader, Subset
 
 from data.yeast import YeastDataset
 from evaluation.yeast_testsets import (
@@ -101,27 +101,18 @@ def main(cfg: DictConfig) -> None:
         subset_size=None,
         context_mode=str(cfg.context_mode),
     )
-    if not bool(cfg.include_pool):
-        raise ValueError("Oracle k-fold must include pool data. Set include_pool=true.")
-    ds_pool = YeastDataset(
-        data_path=str(cfg.data_path),
-        split="pool",
-        subset_size=None,
-        context_mode=str(cfg.context_mode),
-    )
-    full_dataset = ConcatDataset([ds_train, ds_pool])
 
     n_folds = int(cfg.n_folds)
     fold_id = int(cfg.fold_id)
     fold_split_seed = int(cfg.fold_split_seed)
-    train_idx, val_idx = _kfold_indices(len(full_dataset), n_folds, fold_id, fold_split_seed)
-    train_dataset = Subset(full_dataset, train_idx)
-    val_dataset = Subset(full_dataset, val_idx)
+    train_idx, val_idx = _kfold_indices(len(ds_train), n_folds, fold_id, fold_split_seed)
+    train_dataset = Subset(ds_train, train_idx)
+    val_dataset = Subset(ds_train, val_idx)
 
     print(
         f"Oracle k-fold split: fold {fold_id}/{n_folds} | "
         f"train={len(train_dataset):,} val={len(val_dataset):,} "
-        f"(from train+pool={len(full_dataset):,})"
+        f"(from {len(ds_train):,} total)"
     )
 
     train_loader = DataLoader(
@@ -186,7 +177,7 @@ def main(cfg: DictConfig) -> None:
         "fold_split_seed": fold_split_seed,
         "n_train_samples": len(train_dataset),
         "n_val_samples": len(val_dataset),
-        "n_total_train_pool": len(full_dataset),
+        "n_total_train": len(ds_train),
         "best_val_pearson_r": max(history["val_pearson_r"]) if history["val_pearson_r"] else 0.0,
         "best_val_spearman_r": max(history["val_spearman_r"]) if history["val_spearman_r"] else 0.0,
         "best_val_loss": min(history["val_loss"]) if history["val_loss"] else float("inf"),

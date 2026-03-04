@@ -22,6 +22,15 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
+def _reverse_complement_batch(sequences: torch.Tensor) -> torch.Tensor:
+    x_rc = sequences.flip(dims=[2])
+    x_rc_swapped = x_rc.clone()
+    x_rc_swapped[:, [0, 1, 2, 3], :] = x_rc[:, [3, 2, 1, 0], :]
+    if sequences.shape[1] >= 5:
+        x_rc_swapped[:, 4, :] = 1.0
+    return x_rc_swapped
+
+
 def compute_metrics(predictions: np.ndarray, targets: np.ndarray) -> Dict[str, float]:
     """
     Compute regression metrics.
@@ -86,15 +95,20 @@ def train_epoch(
     for batch_idx, (sequences, targets) in enumerate(pbar):
         sequences = sequences.to(device)
         targets = targets.to(device)
+        rc_sequences = _reverse_complement_batch(sequences) if use_reverse_complement else None
 
         # Zero gradients
         optimizer.zero_grad()
 
         # Forward pass (don't use predict() during training as it may disable gradients)
-        predictions = model(sequences)
-
-        # Compute loss
-        loss = criterion(predictions, targets)
+        predictions_fwd = model(sequences)
+        if rc_sequences is not None:
+            predictions_rc = model(rc_sequences)
+            loss = 0.5 * (criterion(predictions_fwd, targets) + criterion(predictions_rc, targets))
+            predictions = 0.5 * (predictions_fwd + predictions_rc)
+        else:
+            predictions = predictions_fwd
+            loss = criterion(predictions, targets)
 
         # Backward pass
         loss.backward()

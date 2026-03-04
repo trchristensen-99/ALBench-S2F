@@ -1,0 +1,24 @@
+# Generate Stage 2 AlphaGenome oracle ensemble pseudo-labels for K562 hashFrag.
+# Stage 2 uses fine-tuned encoders (per fold), so full-encoder inference is
+# required for every split — no embedding cache.
+#
+# Run via: sbatch scripts/slurm/generate_oracle_pseudolabels_stage2_k562_ag.sh
+
+oracle_dir: outputs/stage2_k562_oracle
+output_dir: outputs/oracle_pseudolabels_stage2_k562_ag
+k562_data_path: data/k562
+weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+gpu: 0
+
+# Head (must match Stage 2 oracle training config)
+head_arch: boda-flatten-512-512
+head_name: alphagenome_k562_head_hashfrag
+num_tracks: 1
+dropout_rate: 0.1
+
+# K-fold (must match oracle training: seed=42, 10 folds)
+n_folds: 10
+
+# Batch size for full-encoder inference
+batch_size: 256
+num_workers: 8

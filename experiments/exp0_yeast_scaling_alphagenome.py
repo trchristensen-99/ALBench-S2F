@@ -55,18 +55,9 @@ def _subset_indices(n_total: int, fraction: float, seed: int) -> np.ndarray:
 
 def _gather_cached(
     indices: np.ndarray,
-    train_arr: np.ndarray,
-    pool_arr: np.ndarray,
-    n_train: int,
+    arr: np.ndarray,
 ) -> jnp.ndarray:
-    out = np.empty((len(indices), train_arr.shape[1], train_arr.shape[2]), dtype=np.float32)
-    train_mask = indices < n_train
-    if np.any(train_mask):
-        out[train_mask] = train_arr[indices[train_mask]].astype(np.float32)
-    if np.any(~train_mask):
-        pool_idx = indices[~train_mask] - n_train
-        out[~train_mask] = pool_arr[pool_idx].astype(np.float32)
-    return jnp.array(out)
+    return jnp.array(arr[indices].astype(np.float32))
 
 
 @hydra.main(
@@ -119,17 +110,11 @@ def main(cfg: DictConfig) -> None:
 
     cache_dir = Path(str(cfg.cache_dir)).expanduser().resolve()
     train_can, train_rc = load_embedding_cache(cache_dir, "train")
-    pool_can, pool_rc = load_embedding_cache(cache_dir, "pool")
-    val_can, _ = load_embedding_cache(cache_dir, "val")
+    val_can, val_rc = load_embedding_cache(cache_dir, "val")
 
     ds_train = YeastDataset(
         data_path=str(cfg.yeast_data_path),
         split="train",
-        context_mode=str(cfg.context_mode),
-    )
-    ds_pool = YeastDataset(
-        data_path=str(cfg.yeast_data_path),
-        split="pool",
         context_mode=str(cfg.context_mode),
     )
     ds_val = YeastDataset(
@@ -139,9 +124,7 @@ def main(cfg: DictConfig) -> None:
     )
     val_labels = ds_val.labels.astype(np.float32)
 
-    n_train = len(ds_train)
-    n_pool = len(ds_pool)
-    n_total = n_train + n_pool
+    n_total = len(ds_train)
     subset_seed = used_seed + int(fraction * 100_000)
     subset_idx = _subset_indices(n_total, fraction, subset_seed)
 
@@ -190,6 +173,7 @@ def main(cfg: DictConfig) -> None:
     best_val_pearson = -1.0
     best_val_spearman = -1.0
     epochs_no_improve = 0
+    eval_use_reverse_complement = bool(cfg.get("eval_use_reverse_complement", True))
 
     batch_size = int(cfg.batch_size)
     for epoch in range(int(cfg.epochs)):
@@ -198,24 +182,18 @@ def main(cfg: DictConfig) -> None:
 
         for start in range(0, len(perm), batch_size):
             idx = perm[start : start + batch_size]
-            y = np.empty((len(idx),), dtype=np.float32)
-            train_mask = idx < n_train
-            if np.any(train_mask):
-                y[train_mask] = ds_train.labels[idx[train_mask]]
-            if np.any(~train_mask):
-                y[~train_mask] = ds_pool.labels[idx[~train_mask] - n_train]
-            tgt = jnp.array(y)
+            tgt = jnp.array(ds_train.labels[idx])
             org = jnp.zeros(len(idx), dtype=jnp.int32)
 
             rng, step_rng = jax.random.split(rng)
-            emb_can = _gather_cached(idx, train_can, pool_can, n_train)
+            emb_can = _gather_cached(idx, train_can)
             model._params, opt_state, loss = cached_train_step(
                 model._params, opt_state, step_rng, emb_can, tgt, org
             )
             losses.append(float(loss))
 
             rng, step_rng = jax.random.split(rng)
-            emb_rc = _gather_cached(idx, train_rc, pool_rc, n_train)
+            emb_rc = _gather_cached(idx, train_rc)
             model._params, opt_state, loss = cached_train_step(
                 model._params, opt_state, step_rng, emb_rc, tgt, org
             )
@@ -225,8 +203,15 @@ def main(cfg: DictConfig) -> None:
         for start in range(0, len(val_labels), batch_size):
             emb = jnp.array(val_can[start : start + batch_size].astype(np.float32))
             org = jnp.zeros(len(emb), dtype=jnp.int32)
-            logits = np.array(cached_eval_step(model._params, emb, org))
-            probs = np.array(jax.nn.softmax(logits, axis=-1))
+            logits_fwd = np.array(cached_eval_step(model._params, emb, org))
+            probs_fwd = np.array(jax.nn.softmax(logits_fwd, axis=-1))
+            if eval_use_reverse_complement:
+                emb_rc = jnp.array(val_rc[start : start + batch_size].astype(np.float32))
+                logits_rc = np.array(cached_eval_step(model._params, emb_rc, org))
+                probs_rc = np.array(jax.nn.softmax(logits_rc, axis=-1))
+                probs = (probs_fwd + probs_rc) / 2.0
+            else:
+                probs = probs_fwd
             pred = np.sum(probs * np.arange(int(cfg.num_tracks), dtype=np.float32), axis=-1)
             val_preds.append(pred)
 
@@ -304,6 +289,7 @@ def main(cfg: DictConfig) -> None:
         "n_samples": int(len(subset_idx)),
         "n_total": int(n_total),
         "seed": int(used_seed),
+        "eval_use_reverse_complement": bool(eval_use_reverse_complement),
         "best_val_pearson_r": float(best_val_pearson),
         "best_val_spearman_r": float(best_val_spearman),
         "test_metrics": test_metrics,

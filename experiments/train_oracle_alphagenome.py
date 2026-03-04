@@ -304,16 +304,7 @@ def main(cfg: DictConfig) -> None:
             subset_size=None,
             context_mode=str(cfg.context_mode),
         )
-        if bool(cfg.include_pool):
-            ds_pool = YeastDataset(
-                data_path=str(cfg.yeast_data_path),
-                split="pool",
-                subset_size=None,
-                context_mode=str(cfg.context_mode),
-            )
-            train_dataset = torch.utils.data.ConcatDataset([ds_train, ds_pool])
-        else:
-            train_dataset = ds_train
+        train_dataset = ds_train
         val_dataset = YeastDataset(
             data_path=str(cfg.yeast_data_path),
             split="val",

@@ -13,9 +13,9 @@ batch_size: 1024
 num_workers: 4
 pin_memory: true
 hidden_dim: 320
-cnn_filters: 160
-dropout_cnn: 0.1
-dropout_lstm: 0.1
+cnn_filters: 256
+dropout_cnn: 0.2
+dropout_lstm: 0.5
 lr: 0.005
 lr_lstm: 0.005
 weight_decay: 0.01
@@ -25,7 +25,6 @@ use_compile: false
 use_reverse_complement: true
 early_stopping_patience: null
 metric_for_best: pearson_r
-include_pool: true
 test_subset_dir: null
 public_leaderboard_dir: null
 private_only_test: false

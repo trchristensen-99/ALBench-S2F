@@ -25,7 +25,6 @@ lr: 0.001
 weight_decay: 1e-6
 gradients_clip: null
 save_full_model: false
-include_pool: false
 subset_fraction: null
 early_stop_patience: 5
 val_eval_interval: 1

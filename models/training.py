@@ -24,6 +24,15 @@ from .loss_utils import YeastKLLoss
 from .training_base import compute_metrics, evaluate
 
 
+def _reverse_complement_batch(sequences: torch.Tensor) -> torch.Tensor:
+    x_rc = sequences.flip(dims=[2])
+    x_rc_swapped = x_rc.clone()
+    x_rc_swapped[:, [0, 1, 2, 3], :] = x_rc[:, [3, 2, 1, 0], :]
+    if sequences.shape[1] >= 5:
+        x_rc_swapped[:, 4, :] = 1.0
+    return x_rc_swapped
+
+
 def train_epoch_optimized(
     model: nn.Module,
     dataloader: DataLoader,
@@ -64,6 +73,7 @@ def train_epoch_optimized(
     for batch_idx, (sequences, targets) in enumerate(pbar):
         sequences = sequences.to(device)
         targets = targets.to(device)
+        rc_sequences = _reverse_complement_batch(sequences) if use_reverse_complement else None
 
         # Zero gradients
         optimizer.zero_grad()
@@ -74,12 +84,29 @@ def train_epoch_optimized(
                 # For yeast: get logits and use KL divergence
                 # For K562: get predictions and use MSE
                 if hasattr(model, "task_mode") and model.task_mode == "yeast":
-                    logits = model.get_logits(sequences)
-                    predictions = model(sequences)  # Weighted average for metrics
-                    loss = criterion(logits, targets)
+                    logits_fwd = model.get_logits(sequences)
+                    predictions_fwd = model(sequences)
+                    if rc_sequences is not None:
+                        logits_rc = model.get_logits(rc_sequences)
+                        predictions_rc = model(rc_sequences)
+                        loss = 0.5 * (
+                            criterion(logits_fwd, targets) + criterion(logits_rc, targets)
+                        )
+                        predictions = 0.5 * (predictions_fwd + predictions_rc)
+                    else:
+                        loss = criterion(logits_fwd, targets)
+                        predictions = predictions_fwd
                 else:
-                    predictions = model(sequences)
-                    loss = criterion(predictions, targets)
+                    predictions_fwd = model(sequences)
+                    if rc_sequences is not None:
+                        predictions_rc = model(rc_sequences)
+                        loss = 0.5 * (
+                            criterion(predictions_fwd, targets) + criterion(predictions_rc, targets)
+                        )
+                        predictions = 0.5 * (predictions_fwd + predictions_rc)
+                    else:
+                        predictions = predictions_fwd
+                        loss = criterion(predictions, targets)
 
             scale_before = scaler.get_scale()
             scaler.scale(loss).backward()
@@ -90,12 +117,27 @@ def train_epoch_optimized(
             # For yeast: get logits and use KL divergence
             # For K562: get predictions and use MSE
             if hasattr(model, "task_mode") and model.task_mode == "yeast":
-                logits = model.get_logits(sequences)
-                predictions = model(sequences)  # Weighted average for metrics
-                loss = criterion(logits, targets)
+                logits_fwd = model.get_logits(sequences)
+                predictions_fwd = model(sequences)
+                if rc_sequences is not None:
+                    logits_rc = model.get_logits(rc_sequences)
+                    predictions_rc = model(rc_sequences)
+                    loss = 0.5 * (criterion(logits_fwd, targets) + criterion(logits_rc, targets))
+                    predictions = 0.5 * (predictions_fwd + predictions_rc)
+                else:
+                    loss = criterion(logits_fwd, targets)
+                    predictions = predictions_fwd
             else:
-                predictions = model(sequences)
-                loss = criterion(predictions, targets)
+                predictions_fwd = model(sequences)
+                if rc_sequences is not None:
+                    predictions_rc = model(rc_sequences)
+                    loss = 0.5 * (
+                        criterion(predictions_fwd, targets) + criterion(predictions_rc, targets)
+                    )
+                    predictions = 0.5 * (predictions_fwd + predictions_rc)
+                else:
+                    predictions = predictions_fwd
+                    loss = criterion(predictions, targets)
             loss.backward()
             optimizer.step()
             optimizer_step_ran = True

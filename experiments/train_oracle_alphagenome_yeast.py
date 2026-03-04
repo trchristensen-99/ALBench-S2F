@@ -24,8 +24,8 @@ Yeast-specific details:
 * Metric: Pearson r between predicted expected bin and ground-truth label.
 * T=3 encoder tokens (384bp / 128bp stride).
 
-Embedding cache size (yeast ~960k train+pool seqs, T=3, D=1536, float16):
-    ≈ 8.4 GB  — comfortably fits in HPC scratch storage / H100 VRAM.
+Embedding cache size (yeast ~6M train seqs, T=3, D=1536, float16):
+    ≈ 53 GB  — fits in HPC node memory but not GPU VRAM.
 """
 
 from __future__ import annotations
@@ -379,24 +379,12 @@ def main(cfg: DictConfig) -> None:
         split="train",
         context_mode=context_mode,
     )
-    ds_pool = YeastDataset(
-        data_path=str(cfg.yeast_data_path),
-        split="pool",
-        context_mode=context_mode,
-    )
     val_dataset = YeastDataset(
         data_path=str(cfg.yeast_data_path),
         split="val",
         context_mode=context_mode,
     )
-
-    include_pool = bool(cfg.get("include_pool", True))
-    if include_pool:
-        train_dataset: torch.utils.data.Dataset = torch.utils.data.ConcatDataset(
-            [ds_train, ds_pool]
-        )
-    else:
-        train_dataset = ds_train
+    train_dataset: torch.utils.data.Dataset = ds_train
 
     # ── Embedding cache (no_shift / hybrid) ───────────────────────────────────
     train_canonical = train_rc = val_canonical = val_rc = None
@@ -416,17 +404,6 @@ def main(cfg: DictConfig) -> None:
             batch_size=int(cfg.batch_size),
             num_workers=int(cfg.num_workers),
         )
-        # Pool cache (separate split; indexed separately)
-        if include_pool:
-            build_embedding_cache(
-                model,
-                ds_pool,
-                cache_dir,
-                "pool",
-                max_seq_len=max_seq_len,
-                batch_size=int(cfg.batch_size),
-                num_workers=int(cfg.num_workers),
-            )
         build_embedding_cache(
             model,
             val_dataset,
@@ -436,16 +413,7 @@ def main(cfg: DictConfig) -> None:
             batch_size=int(cfg.batch_size),
             num_workers=int(cfg.num_workers),
         )
-        # Load all into memory (yeast train+pool cache = ~104 GB total)
-        train_can_raw, train_rc_raw = load_embedding_cache(cache_dir, "train", mmap_mode=None)
-        if include_pool:
-            pool_can_raw, pool_rc_raw = load_embedding_cache(cache_dir, "pool", mmap_mode=None)
-            # Concatenate along seq axis so index 0..N_train-1 = train, N_train.. = pool
-            train_canonical = np.concatenate([train_can_raw, pool_can_raw], axis=0)
-            train_rc = np.concatenate([train_rc_raw, pool_rc_raw], axis=0)
-        else:
-            train_canonical = train_can_raw
-            train_rc = train_rc_raw
+        train_canonical, train_rc = load_embedding_cache(cache_dir, "train", mmap_mode=None)
         val_canonical, val_rc = load_embedding_cache(cache_dir, "val")
 
         head_predict_fn = build_head_only_predict_fn(model, unique_head_name)
@@ -800,15 +768,10 @@ def main(cfg: DictConfig) -> None:
             return collate_yeast(b, max_seq_len, augment=False)
 
         s2_batch_size = int(cfg.get("second_stage_batch_size", cfg.batch_size))
-        s2_include_pool = bool(cfg.get("second_stage_include_pool", False))
-        s2_train_data = train_dataset if s2_include_pool else ds_train
-        n_s2_train = len(s2_train_data)
-        print(
-            f"  Stage-2 training data: {n_s2_train:,} sequences"
-            f" ({'train+pool' if s2_include_pool else 'train only'})"
-        )
+        n_s2_train = len(ds_train)
+        print(f"  Stage-2 training data: {n_s2_train:,} sequences")
         s2_train_loader = DataLoader(
-            s2_train_data,
+            ds_train,
             batch_size=s2_batch_size,
             shuffle=True,
             num_workers=n_workers,
