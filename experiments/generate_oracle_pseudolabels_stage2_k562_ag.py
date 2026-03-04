@@ -181,11 +181,12 @@ def _predict_k562_dataset(
     Uses the same padding-to-batch_size trick as ``_predict_strings`` to avoid
     JIT recompilation on the last batch.
     """
+    # num_workers=0 to avoid os.fork() deadlock with JAX multithreading
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers,
+        num_workers=0,
         collate_fn=_collate_to_600bp,
         pin_memory=False,
     )
