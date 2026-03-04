@@ -410,6 +410,9 @@ def main() -> None:
         return dict(np.load(p))
 
     train_pl = _load("train_oracle_labels.npz")
+    if train_pl is None:
+        # Fall back to combined train+pool format.
+        train_pl = _load("train_pool_oracle_labels.npz")
     val_pl = _load("val_oracle_labels.npz")
     test_pl = _load("test_oracle_labels.npz")
 
