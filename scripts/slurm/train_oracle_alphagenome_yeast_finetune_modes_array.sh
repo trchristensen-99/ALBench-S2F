@@ -16,7 +16,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
-#SBATCH --array=0-5
+#SBATCH --array=0-7
 
 set -euo pipefail
 
@@ -97,6 +97,30 @@ case "${SLURM_ARRAY_TASK_ID}" in
       "++second_stage_lr=5e-6"
       "++second_stage_epochs=50"
       "++second_stage_unfreeze_mode=backbone"
+      "++second_stage_batch_size=32"
+      "++second_stage_weight_decay=1e-6"
+    )
+    ;;
+  6)
+    EXTRA_ARGS=(
+      "++output_dir=outputs/ag_yeast_oracle_finetune/stage2_encoder_s1ep5_lr1e5_shift0"
+      "++epochs=5"
+      "++second_stage_lr=1e-5"
+      "++second_stage_epochs=50"
+      "++second_stage_unfreeze_mode=encoder"
+      "++second_stage_max_shift=0"
+      "++second_stage_batch_size=32"
+      "++second_stage_weight_decay=1e-6"
+    )
+    ;;
+  7)
+    EXTRA_ARGS=(
+      "++output_dir=outputs/ag_yeast_oracle_finetune/stage2_encoder_s1ep5_lr1e5_shift110"
+      "++epochs=5"
+      "++second_stage_lr=1e-5"
+      "++second_stage_epochs=50"
+      "++second_stage_unfreeze_mode=encoder"
+      "++second_stage_max_shift=43"
       "++second_stage_batch_size=32"
       "++second_stage_weight_decay=1e-6"
     )

@@ -25,6 +25,7 @@ detach_backbone: true
 aug_mode: no_shift
 cache_dir: outputs/ag_yeast/embedding_cache
 dropout_rate: 0.1
+eval_use_reverse_complement: true
 
 lr_schedule: plateau
 lr_plateau_patience: 5
@@ -37,6 +38,7 @@ second_stage_batch_size: 32
 second_stage_weight_decay: 0.000001
 second_stage_early_stop_patience: 10
 second_stage_unfreeze_mode: encoder
+second_stage_max_shift: 43
 second_stage_full_unfreeze_epoch: null
 
 output_dir: outputs/ag_yeast_oracle_finetune/default

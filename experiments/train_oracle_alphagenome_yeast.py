@@ -14,7 +14,8 @@ Two-stage training (optional):
   Stage 1 — frozen encoder, head only (all modes above supported).
   Stage 2 — full encoder unfrozen, end-to-end fine-tuning at a lower LR.
   Enable with ``second_stage_lr`` (e.g. 1e-5) and ``second_stage_epochs`` (e.g. 50).
-  Stage 2 always runs in ``full`` aug mode (shift + RC via the encoder).
+  Stage 2 always runs through the encoder with RC; shift magnitude is controlled
+  by ``second_stage_max_shift`` (set to 0 to disable shift augmentation).
   Set ``second_stage_lr: null`` to skip Stage 2 entirely.
 
 Yeast-specific details:
@@ -29,6 +30,7 @@ Embedding cache size (yeast ~960k train+pool seqs, T=3, D=1536, float16):
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -47,6 +49,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from data.yeast import YeastDataset
+from evaluation.yeast_testsets import evaluate_yeast_test_subsets, load_yeast_test_subsets
 from models.alphagenome_heads import register_s2f_head
 from models.embedding_cache import (
     build_embedding_cache,
@@ -63,7 +66,7 @@ _YEAST_FLANK_5 = "GCTAGCGCCGATATCCTAACGAAGTCACTACTACGTACTGCCCTGCACGATAGC"  # 54b
 _YEAST_FLANK_3 = (
     "CCTGCAGCAGACGTCGACACGCGTCGTAAAGTGACGTTGTCCGAAACCCTT"
     "GCATTCGACACCAAACATTCTCTCAGTGCGTGCCCATGAAC"
-)  # 89bp
+)  # 92bp
 
 _MAPPING = {"A": 0, "C": 1, "G": 2, "T": 3}
 
@@ -79,7 +82,7 @@ def _encode_str(s: str) -> np.ndarray:
 _FLANK5_ENC = _encode_str(_YEAST_FLANK_5)  # (54, 4)
 _FLANK3_ENC = _encode_str(_YEAST_FLANK_3)  # (89, 4)
 
-_CANONICAL_TOTAL = _FLANK5_ENC.shape[0] + 150 + _FLANK3_ENC.shape[0]  # 293
+_CANONICAL_TOTAL = _FLANK5_ENC.shape[0] + 150 + _FLANK3_ENC.shape[0]  # 296
 
 
 # ── Collation helpers ──────────────────────────────────────────────────────────
@@ -87,13 +90,14 @@ _CANONICAL_TOTAL = _FLANK5_ENC.shape[0] + 150 + _FLANK3_ENC.shape[0]  # 293
 
 def _build_yeast_window(core_4ch: np.ndarray, max_len: int, shift: int = 0) -> np.ndarray:
     """Concatenate flanks + core and slice the 384bp window with optional shift."""
-    full = np.concatenate([_FLANK5_ENC, core_4ch, _FLANK3_ENC], axis=0)  # (293, 4)
+    full = np.concatenate([_FLANK5_ENC, core_4ch, _FLANK3_ENC], axis=0)
+    full_len = full.shape[0]
     # Buffer large enough to accommodate shift without clipping
     max_shift = max(110, abs(shift) + 10)
     buf_len = max_len + 2 * max_shift
     buf = np.zeros((buf_len, 4), dtype=np.float32)
-    base = (buf_len - _CANONICAL_TOTAL) // 2
-    buf[base : base + _CANONICAL_TOTAL, :] = full
+    base = (buf_len - full_len) // 2
+    buf[base : base + full_len, :] = full
     win_base = (buf_len - max_len) // 2
     start = np.clip(win_base + shift, 0, buf_len - max_len)
     return buf[start : start + max_len]
@@ -233,6 +237,10 @@ def _safe_corr(y_true: np.ndarray, y_pred: np.ndarray, fn: object) -> float:
     return float(fn(y_true, y_pred)[0])
 
 
+def _reverse_complement_batch(sequences: np.ndarray) -> np.ndarray:
+    return sequences[:, ::-1, ::-1].copy()
+
+
 def _merge_mappings(base, override):
     from collections.abc import Mapping
 
@@ -300,6 +308,9 @@ def main(cfg: DictConfig) -> None:
     second_stage_epochs = int(cfg.get("second_stage_epochs", 50))
     second_stage_early_stop = int(cfg.get("second_stage_early_stop_patience", 10))
     second_stage_unfreeze_mode = str(cfg.get("second_stage_unfreeze_mode", "encoder"))
+    second_stage_max_shift = int(cfg.get("second_stage_max_shift", 43))
+    if second_stage_max_shift < 0:
+        raise ValueError("second_stage_max_shift must be >= 0")
     second_stage_full_unfreeze_epoch = cfg.get("second_stage_full_unfreeze_epoch", None)
     if second_stage_full_unfreeze_epoch is not None:
         second_stage_full_unfreeze_epoch = int(second_stage_full_unfreeze_epoch)
@@ -388,7 +399,7 @@ def main(cfg: DictConfig) -> None:
         train_dataset = ds_train
 
     # ── Embedding cache (no_shift / hybrid) ───────────────────────────────────
-    train_canonical = train_rc = val_canonical = None
+    train_canonical = train_rc = val_canonical = val_rc = None
     head_predict_fn = head_train_fn = None
     max_seq_len = int(cfg.max_seq_len)  # 384
 
@@ -435,7 +446,7 @@ def main(cfg: DictConfig) -> None:
         else:
             train_canonical = train_can_raw
             train_rc = train_rc_raw
-        val_canonical, _ = load_embedding_cache(cache_dir, "val")
+        val_canonical, val_rc = load_embedding_cache(cache_dir, "val")
 
         head_predict_fn = build_head_only_predict_fn(model, unique_head_name)
         # Verify head shape
@@ -550,9 +561,11 @@ def main(cfg: DictConfig) -> None:
 
     # ── Training loop ─────────────────────────────────────────────────────────
     best_val_pearson = -1.0
+    best_val_spearman = -1.0
     epochs_no_improve = 0
     rng = jax.random.PRNGKey(used_seed)
     current_lr = float(cfg.lr)
+    eval_use_reverse_complement = bool(cfg.get("eval_use_reverse_complement", True))
     lr_plateau_best = -float("inf")
     lr_plateau_counter = 0
     _min_lr = float(cfg.lr) * 0.01
@@ -619,8 +632,19 @@ def main(cfg: DictConfig) -> None:
         if aug_mode == "full":
             for batch in val_loader:
                 batch_jax = {k: jnp.array(v) for k, v in batch.items()}
-                preds = eval_step(model._params, batch_jax)
-                probs = np.array(jax.nn.softmax(preds, axis=-1))
+                logits_fwd = eval_step(model._params, batch_jax)
+                probs_fwd = np.array(jax.nn.softmax(logits_fwd, axis=-1))
+                if eval_use_reverse_complement:
+                    batch_rc = dict(batch)
+                    batch_rc["sequences"] = _reverse_complement_batch(
+                        np.asarray(batch["sequences"])
+                    )
+                    batch_rc_jax = {k: jnp.array(v) for k, v in batch_rc.items()}
+                    logits_rev = eval_step(model._params, batch_rc_jax)
+                    probs_rev = np.array(jax.nn.softmax(logits_rev, axis=-1))
+                    probs = (probs_fwd + probs_rev) / 2.0
+                else:
+                    probs = probs_fwd
                 pred_expr = np.sum(probs * np.arange(num_tracks, dtype=np.float32), axis=-1)
                 y_pred_all.append(pred_expr)
                 y_true_all.append(np.array(batch["targets"]).reshape(-1))
@@ -629,8 +653,15 @@ def main(cfg: DictConfig) -> None:
                 idx = batch["indices"]
                 emb = jnp.array(val_canonical[idx].astype(np.float32))
                 org = jnp.zeros(len(idx), dtype=jnp.int32)
-                preds = cached_eval_step(model._params, emb, org)
-                probs = np.array(jax.nn.softmax(preds, axis=-1))
+                logits_fwd = cached_eval_step(model._params, emb, org)
+                probs_fwd = np.array(jax.nn.softmax(logits_fwd, axis=-1))
+                if eval_use_reverse_complement and val_rc is not None:
+                    emb_rev = jnp.array(val_rc[idx].astype(np.float32))
+                    logits_rev = cached_eval_step(model._params, emb_rev, org)
+                    probs_rev = np.array(jax.nn.softmax(logits_rev, axis=-1))
+                    probs = (probs_fwd + probs_rev) / 2.0
+                else:
+                    probs = probs_fwd
                 pred_expr = np.sum(probs * np.arange(num_tracks, dtype=np.float32), axis=-1)
                 y_pred_all.append(pred_expr)
                 y_true_all.append(np.array(batch["targets"]).reshape(-1))
@@ -666,6 +697,7 @@ def main(cfg: DictConfig) -> None:
 
         if pear > best_val_pearson:
             best_val_pearson = pear
+            best_val_spearman = spear
             epochs_no_improve = 0
             model.save_checkpoint(str(output_dir / "best_model"), save_full_model=False)
         else:
@@ -760,9 +792,9 @@ def main(cfg: DictConfig) -> None:
             updates, nxt = s2_optimizer.update(grads, opt_s, params)
             return optax.apply_updates(params, updates), nxt, loss
 
-        # Stage 2 always uses full augmentation (encoder runs every step)
+        # Stage 2 always runs through the encoder; shift can be disabled via max_shift=0.
         def collate_s2_train(b):
-            return collate_yeast(b, max_seq_len, augment=True)
+            return collate_yeast(b, max_seq_len, augment=True, max_shift=second_stage_max_shift)
 
         def collate_s2_eval(b):
             return collate_yeast(b, max_seq_len, augment=False)
@@ -788,6 +820,7 @@ def main(cfg: DictConfig) -> None:
         )
 
         best_s2_pearson = best_val_pearson
+        best_s2_spearman = best_val_spearman
         s2_no_improve = 0
 
         for s2_epoch in range(second_stage_epochs):
@@ -817,8 +850,19 @@ def main(cfg: DictConfig) -> None:
             s2_y_pred_all: list[np.ndarray] = []
             for batch in s2_val_loader:
                 batch_jax = {k: jnp.array(v) for k, v in batch.items()}
-                preds = eval_step(model._params, batch_jax)
-                probs = np.array(jax.nn.softmax(preds, axis=-1))
+                logits_fwd = eval_step(model._params, batch_jax)
+                probs_fwd = np.array(jax.nn.softmax(logits_fwd, axis=-1))
+                if eval_use_reverse_complement:
+                    batch_rc = dict(batch)
+                    batch_rc["sequences"] = _reverse_complement_batch(
+                        np.asarray(batch["sequences"])
+                    )
+                    batch_rc_jax = {k: jnp.array(v) for k, v in batch_rc.items()}
+                    logits_rev = eval_step(model._params, batch_rc_jax)
+                    probs_rev = np.array(jax.nn.softmax(logits_rev, axis=-1))
+                    probs = (probs_fwd + probs_rev) / 2.0
+                else:
+                    probs = probs_fwd
                 pred_expr = np.sum(probs * np.arange(num_tracks, dtype=np.float32), axis=-1)
                 s2_y_pred_all.append(pred_expr)
                 s2_y_true_all.append(np.array(batch["targets"]).reshape(-1))
@@ -847,6 +891,7 @@ def main(cfg: DictConfig) -> None:
 
             if s2_pear > best_s2_pearson:
                 best_s2_pearson = s2_pear
+                best_s2_spearman = s2_spear
                 s2_no_improve = 0
                 model.save_checkpoint(str(output_dir / "best_model"), save_full_model=True)
                 print(f"  New best (Stage 2): {best_s2_pearson:.4f}")
@@ -864,6 +909,91 @@ def main(cfg: DictConfig) -> None:
 
         print(f"\nFinal best val Pearson: {best_s2_pearson:.4f} (Stage 2)")
 
+    final_best_val_pearson = float(
+        best_s2_pearson if second_stage_lr is not None else best_val_pearson
+    )
+    final_best_val_spearman = float(
+        best_val_spearman if second_stage_lr is None else best_s2_spearman
+    )
+
+    test_metrics: dict[str, dict[str, float]] = {}
+    subset_dir = (
+        Path(str(cfg.test_subset_dir))
+        if cfg.get("test_subset_dir") is not None
+        else Path(str(cfg.yeast_data_path)) / "test_subset_ids"
+    )
+    if subset_dir.exists():
+        test_dataset = YeastDataset(
+            data_path=str(cfg.yeast_data_path),
+            split="test",
+            context_mode=str(cfg.context_mode),
+        )
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=int(cfg.get("test_batch_size", cfg.batch_size)),
+            shuffle=False,
+            num_workers=n_workers,
+            pin_memory=True,
+        )
+
+        @jax.jit
+        def predict_step(params, x):
+            org = jnp.zeros((x.shape[0],), dtype=jnp.int32)
+            return model._predict(
+                params,
+                model._state,
+                x,
+                org,
+                negative_strand_mask=jnp.zeros((x.shape[0],), dtype=bool),
+                strand_reindexing=None,
+            )[unique_head_name]
+
+        preds_all: list[np.ndarray] = []
+        for xb, _ in test_loader:
+            x_fwd = xb[:, :4, :].permute(0, 2, 1).cpu().numpy().astype(np.float32)
+            x_rev = x_fwd[:, ::-1, ::-1].copy()
+            logits_fwd = np.array(predict_step(model._params, jnp.array(x_fwd)))
+            logits_rev = np.array(predict_step(model._params, jnp.array(x_rev)))
+            probs_fwd = np.array(jax.nn.softmax(logits_fwd, axis=-1))
+            probs_rev = np.array(jax.nn.softmax(logits_rev, axis=-1))
+            pred_fwd = np.sum(probs_fwd * np.arange(num_tracks, dtype=np.float32), axis=-1)
+            pred_rev = np.sum(probs_rev * np.arange(num_tracks, dtype=np.float32), axis=-1)
+            preds_all.append((pred_fwd + pred_rev) / 2.0)
+
+        test_preds = np.concatenate(preds_all, axis=0)
+        test_subsets = load_yeast_test_subsets(
+            subset_dir=subset_dir,
+            public_dir=(
+                str(cfg.public_leaderboard_dir) if cfg.get("public_leaderboard_dir") else None
+            ),
+            use_private_only=bool(cfg.get("private_only_test", False)),
+        )
+        test_metrics = evaluate_yeast_test_subsets(
+            predictions=test_preds,
+            labels=test_dataset.labels.astype(np.float32),
+            subsets=test_subsets,
+        )
+
+    summary = {
+        "seed": int(used_seed),
+        "aug_mode": str(aug_mode),
+        "second_stage_enabled": bool(second_stage_lr is not None),
+        "eval_use_reverse_complement": bool(eval_use_reverse_complement),
+        "second_stage_unfreeze_mode": str(second_stage_unfreeze_mode),
+        "second_stage_max_shift": int(second_stage_max_shift),
+        "best_val_pearson_r": final_best_val_pearson,
+        "best_val_spearman_r": final_best_val_spearman,
+        "test_metrics": test_metrics,
+    }
+    with (output_dir / "summary.json").open("w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    wandb.log(
+        {
+            "final/best_val_pearson_r": final_best_val_pearson,
+            "final/best_val_spearman_r": final_best_val_spearman,
+        }
+    )
     wandb.finish()
 
 
