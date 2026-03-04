@@ -217,10 +217,6 @@ def main(cfg: DictConfig) -> None:
 
     pseudolabel_dir = Path(str(cfg.pseudolabel_dir)).expanduser().resolve()
 
-    # Load oracle pseudolabels for train and pool.
-    train_pl = np.load(pseudolabel_dir / "train_oracle_labels.npz")
-    pool_pl = np.load(pseudolabel_dir / "pool_oracle_labels.npz")
-
     # Load datasets.
     ds_train = YeastDataset(
         data_path=str(cfg.data_path),
@@ -235,9 +231,23 @@ def main(cfg: DictConfig) -> None:
         context_mode=str(cfg.context_mode),
     )
 
+    # Load oracle pseudolabels (combined train+pool or separate files).
+    combined_path = pseudolabel_dir / "train_pool_oracle_labels.npz"
+    if combined_path.exists():
+        combined_pl = np.load(combined_path)
+        oracle_mean_all = combined_pl["oracle_mean"]
+        n_train = len(ds_train)
+        train_oracle_mean = oracle_mean_all[:n_train]
+        pool_oracle_mean = oracle_mean_all[n_train:]
+    else:
+        train_pl = np.load(pseudolabel_dir / "train_oracle_labels.npz")
+        pool_pl = np.load(pseudolabel_dir / "pool_oracle_labels.npz")
+        train_oracle_mean = train_pl["oracle_mean"]
+        pool_oracle_mean = pool_pl["oracle_mean"]
+
     # Replace labels with oracle pseudolabels.
-    train_oracle = OracleLabelDataset(ds_train, train_pl["oracle_mean"])
-    pool_oracle = OracleLabelDataset(ds_pool, pool_pl["oracle_mean"])
+    train_oracle = OracleLabelDataset(ds_train, train_oracle_mean)
+    pool_oracle = OracleLabelDataset(ds_pool, pool_oracle_mean)
     train_dataset = ConcatOracleDataset(train_oracle, pool_oracle)
     print(f"Oracle-labeled train+pool: {len(train_dataset):,} sequences")
 
