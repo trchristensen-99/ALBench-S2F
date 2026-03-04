@@ -31,11 +31,10 @@ source scripts/slurm/setup_hpc_deps.sh
 
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
 
-# Re-set CUDA_VISIBLE_DEVICES from SLURM assignment (module loads reset it to "0")
-if [ -n "${SLURM_JOB_GPUS:-}" ]; then
-    export CUDA_VISIBLE_DEVICES="${SLURM_JOB_GPUS}"
-fi
-echo "GPU: CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset} SLURM_JOB_GPUS=${SLURM_JOB_GPUS:-unset}"
+# SLURM cgroups handle GPU isolation: each job sees only its assigned GPU as
+# CUDA device 0. Do NOT override CUDA_VISIBLE_DEVICES from SLURM_JOB_GPUS.
+# JIT compilation of AlphaGenome (16384bp forward pass) takes 5-10 minutes —
+# do not cancel tasks that appear stuck during initialization.
 
 COMMON_ARGS=(
   "--config-name" "oracle_alphagenome_yeast_finetune_sweep"
