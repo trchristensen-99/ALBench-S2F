@@ -43,13 +43,10 @@ def set_seed(seed: int | None) -> int:
     return seed
 
 
-def create_subset_indices(dataset_size: int, fraction: float, seed: int | None) -> np.ndarray:
-    """Create subset indices (deterministic only when seed is provided)."""
+def create_subset_indices(dataset_size: int, fraction: float) -> np.ndarray:
+    """Create subset indices using fresh system entropy."""
     num_samples = max(1, int(dataset_size * fraction))
-    if seed is None:
-        return np.random.choice(dataset_size, size=num_samples, replace=False)
-    rng = np.random.RandomState(seed)
-    return rng.choice(dataset_size, size=num_samples, replace=False)
+    return np.random.choice(dataset_size, size=num_samples, replace=False)
 
 
 def run_fraction(
@@ -67,8 +64,7 @@ def run_fraction(
     n_total = len(train_dataset)
     n_samples = max(1, int(n_total * fraction))
 
-    subset_seed = None if CONFIG["seed"] is None else int(CONFIG["seed"]) + int(fraction * 100_000)
-    indices = create_subset_indices(n_total, fraction, subset_seed)
+    indices = create_subset_indices(n_total, fraction)
     train_subset = Subset(train_dataset, indices)
 
     train_loader = DataLoader(
@@ -200,21 +196,21 @@ def main(cfg: DictConfig) -> None:
         mode=str(cfg.wandb_mode),
     )
 
-    # Use train+pool (the full ~6M random sequences) as the base scaling pool.
-    # The train split alone is only 100K sequences (FIXED_TRAIN_SIZE), which
-    # would give inflated-looking fractions and depressed performance.
     ds_train = YeastDataset(
         data_path=str(cfg.data_path),
         split="train",
         context_mode=str(cfg.context_mode),
     )
+    seq_len = ds_train.get_sequence_length()
+
+    # Combine train + pool to get the full 6M training set.
     ds_pool = YeastDataset(
         data_path=str(cfg.data_path),
         split="pool",
         context_mode=str(cfg.context_mode),
     )
     train_dataset: Dataset = ConcatDataset([ds_train, ds_pool])
-    seq_len = ds_train.get_sequence_length()
+    print(f"Combined train+pool: {len(train_dataset):,} sequences")
     val_dataset = YeastDataset(
         data_path=str(cfg.data_path),
         split="val",
