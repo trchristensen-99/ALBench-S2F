@@ -1,6 +1,6 @@
 #!/bin/bash
 # Quick batch size test for yeast AG Stage 2 (full encoder) training.
-# Tests batch_size = 128, 256, 512, 1024 on 10K sequences for 5 S2 epochs.
+# Tests batch_size = 128, 256, 512, 1024 on 20K sequences for 3 S2 epochs.
 # Measures: time/iteration, time/epoch, val Pearson R, val loss.
 #
 # Submit:
@@ -44,11 +44,11 @@ uv run --no-sync python experiments/train_oracle_alphagenome_yeast.py \
   "++epochs=1" \
   "++early_stop_patience=100" \
   "++second_stage_lr=1e-5" \
-  "++second_stage_epochs=5" \
+  "++second_stage_epochs=3" \
   "++second_stage_early_stop_patience=100" \
   "++second_stage_batch_size=${BS}" \
   "++second_stage_weight_decay=1e-6" \
-  "++second_stage_max_sequences=10000" \
+  "++second_stage_max_sequences=20000" \
   "++second_stage_unfreeze_mode=encoder" \
   "++output_dir=${OUT_BASE}/bs_${BS}"
 
