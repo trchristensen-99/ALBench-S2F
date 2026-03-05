@@ -7,26 +7,17 @@
 # Run scripts/install_hpc_packages.sh once from the login node to set things up.
 
 # ── Disk space reservation ────────────────────────────────────────────────────
-# Release the placeholder file at job start to free space for outputs.
-# Recreate it on job exit if no other user jobs are still running.
+# Keep the placeholder file permanently to prevent others from consuming
+# shared disk space. Only release manually via scripts/slurm/disk_reserve.sh
+# if extra space is truly needed.
 _PLACEHOLDER="/grid/wsbs/home_norepl/christen/.disk_placeholder.dat"
 _PLACEHOLDER_SIZE="20G"
 
 if [ -f "$_PLACEHOLDER" ]; then
-    rm -f "$_PLACEHOLDER"
-    echo "[setup_hpc_deps] Released ${_PLACEHOLDER_SIZE} disk reservation"
+    echo "[setup_hpc_deps] Disk reservation active (${_PLACEHOLDER_SIZE})"
+else
+    echo "[setup_hpc_deps] WARNING: No disk reservation found — run: scripts/slurm/disk_reserve.sh claim"
 fi
-
-_recreate_placeholder() {
-    # Only recreate if no other SLURM jobs are running/pending for this user
-    local active
-    active=$(/cm/shared/apps/slurm/current/bin/squeue -u "$(whoami)" -h -t R,PD 2>/dev/null | wc -l)
-    if [ "${active:-0}" -le 1 ]; then
-        fallocate -l "$_PLACEHOLDER_SIZE" "$_PLACEHOLDER" 2>/dev/null && \
-            echo "[setup_hpc_deps] Recreated ${_PLACEHOLDER_SIZE} disk reservation" || true
-    fi
-}
-trap _recreate_placeholder EXIT
 
 # ── Package checks ────────────────────────────────────────────────────────────
 _check() { .venv/bin/python -c "import $1" 2>/dev/null; }

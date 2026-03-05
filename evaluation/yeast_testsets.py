@@ -138,6 +138,7 @@ def evaluate_yeast_test_subsets(
         out[name] = {
             "pearson_r": _safe_corr(true, pred, pearsonr),
             "spearman_r": _safe_corr(true, pred, spearmanr),
+            "mse": float(np.mean((pred - true) ** 2)) if len(idx) > 0 else float("nan"),
             "n": int(len(idx)),
         }
 
@@ -151,6 +152,7 @@ def evaluate_yeast_test_subsets(
         out["snv_abs"] = {
             "pearson_r": _safe_corr(true_abs, pred_abs, pearsonr),
             "spearman_r": _safe_corr(true_abs, pred_abs, spearmanr),
+            "mse": float(np.mean((pred_abs - true_abs) ** 2)),
             "n": int(2 * len(snv_pairs)),
         }
 
@@ -160,10 +162,11 @@ def evaluate_yeast_test_subsets(
         out["snv"] = {
             "pearson_r": _safe_corr(true_delta, pred_delta, pearsonr),
             "spearman_r": _safe_corr(true_delta, pred_delta, spearmanr),
+            "mse": float(np.mean((pred_delta - true_delta) ** 2)),
             "n": int(len(snv_pairs)),
         }
     else:
-        out["snv_abs"] = {"pearson_r": 0.0, "spearman_r": 0.0, "n": 0}
-        out["snv"] = {"pearson_r": 0.0, "spearman_r": 0.0, "n": 0}
+        out["snv_abs"] = {"pearson_r": 0.0, "spearman_r": 0.0, "mse": float("nan"), "n": 0}
+        out["snv"] = {"pearson_r": 0.0, "spearman_r": 0.0, "mse": float("nan"), "n": 0}
 
     return out
