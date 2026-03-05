@@ -262,8 +262,7 @@ def main(cfg: DictConfig) -> None:
             test_dataset,
             batch_size=int(cfg.test_batch_size),
             shuffle=False,
-            num_workers=int(cfg.num_workers),
-            pin_memory=True,
+            num_workers=0,
         )
         preds_all: list[np.ndarray] = []
         for xb, _ in test_loader:
