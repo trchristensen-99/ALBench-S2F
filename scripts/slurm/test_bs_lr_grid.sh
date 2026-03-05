@@ -1,10 +1,8 @@
 #!/bin/bash
 # Comprehensive batch size × learning rate grid for cached head training.
 # Tests BS ∈ {32, 128, 512, 1024, 4096} × LR ∈ {3e-4, 1e-3, 3e-3, 8e-3, 1.5e-2}
-# = 25 configs. Measures speed (s/epoch) and full test performance.
-#
-# Note: test eval takes ~49 min per task (AlphaGenome JIT compilation + 71K inference).
-# Training itself is 1-15 min depending on batch size.
+# = 25 configs. Skips test eval (val Pearson only) for speed (~5-15 min/task).
+# Run full test eval on winning configs separately.
 #
 # Submit:
 #   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/test_bs_lr_grid.sh
@@ -14,7 +12,7 @@
 #SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
 #SBATCH --qos=slow_nice
-#SBATCH --time=4:00:00
+#SBATCH --time=1:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
@@ -58,6 +56,7 @@ uv run --no-sync python experiments/train_oracle_alphagenome_yeast.py \
   "++early_stop_patience=20" \
   "++second_stage_lr=null" \
   "++seed=42" \
+  "++test_subset_dir=/nonexistent" \
   "++output_dir=${OUT_BASE}/${TAG}"
 
 echo "=== ${TAG} DONE at $(date) ==="
