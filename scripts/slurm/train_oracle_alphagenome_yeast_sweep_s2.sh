@@ -1,6 +1,7 @@
 #!/bin/bash
 # Yeast AG Stage 2 encoder fine-tuning sweep (8 tasks).
-# Requires full encoder forward pass (no cache), smaller batch size, longer runtime.
+# Stage 1: cached head-only training (uses 1M embedding cache, auto-detected).
+# Stage 2: encoder fine-tuning on 200K sequence subset (~1.2h/epoch on H100).
 #
 # Submit:
 #   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/train_oracle_alphagenome_yeast_sweep_s2.sh
@@ -30,15 +31,16 @@ source scripts/slurm/setup_hpc_deps.sh
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
 
 # Stage 2 common args: use the MPRA baseline head config, enable 2-stage training.
-# Stage 1 trains head-only (cached), then Stage 2 unfreezes encoder for end-to-end FT.
+# Stage 1 trains head-only using cached embeddings (auto-detected 1M cache).
+# Stage 2 unfreezes encoder for end-to-end FT on a 200K subset (full encoder is ~20x slower).
+# 200K @ batch_size=128 @ ~2.65 s/it ≈ 1.2h/epoch → 50 epochs ≈ 60h max (early-stop at ~10).
 COMMON_ARGS=(
   "--config-name" "oracle_alphagenome_yeast_finetune_sweep"
-  "++aug_mode=full"
-  "++batch_size=128"
   "++wandb_mode=offline"
   "++second_stage_epochs=50"
-  "++second_stage_batch_size=64"
+  "++second_stage_batch_size=128"
   "++second_stage_weight_decay=1e-6"
+  "++second_stage_max_sequences=200000"
 )
 
 OUT_BASE="outputs/ag_yeast_sweep_s2"

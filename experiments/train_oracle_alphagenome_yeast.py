@@ -315,6 +315,8 @@ def main(cfg: DictConfig) -> None:
     second_stage_full_unfreeze_epoch = cfg.get("second_stage_full_unfreeze_epoch", None)
     if second_stage_full_unfreeze_epoch is not None:
         second_stage_full_unfreeze_epoch = int(second_stage_full_unfreeze_epoch)
+    _s2_max_seq_raw = cfg.get("second_stage_max_sequences", None)
+    second_stage_max_sequences = int(_s2_max_seq_raw) if _s2_max_seq_raw is not None else None
     detach_backbone = bool(cfg.get("detach_backbone", True))
 
     _tags = ["oracle", "alphagenome", "yeast", str(cfg.head_arch), aug_mode]
@@ -790,10 +792,26 @@ def main(cfg: DictConfig) -> None:
             return collate_yeast(b, max_seq_len, augment=False)
 
         s2_batch_size = int(cfg.get("second_stage_batch_size", cfg.batch_size))
-        n_s2_train = len(ds_train)
-        print(f"  Stage-2 training data: {n_s2_train:,} sequences")
+
+        # Optionally subsample for Stage 2 (full encoder is ~20x slower than cached)
+        s2_ds = ds_train
+        if second_stage_max_sequences is not None and second_stage_max_sequences < len(ds_train):
+            rng_sub = torch.Generator().manual_seed(used_seed)
+            s2_indices = (
+                torch.randperm(len(ds_train), generator=rng_sub)[:second_stage_max_sequences]
+                .sort()
+                .values.tolist()
+            )
+            s2_ds = torch.utils.data.Subset(ds_train, s2_indices)
+            print(
+                f"  Stage-2 training data: {len(s2_ds):,} of {len(ds_train):,} sequences"
+                f" (limited by second_stage_max_sequences)"
+            )
+        else:
+            print(f"  Stage-2 training data: {len(ds_train):,} sequences")
+
         s2_train_loader = DataLoader(
-            ds_train,
+            s2_ds,
             batch_size=s2_batch_size,
             shuffle=True,
             num_workers=n_workers,
