@@ -33,7 +33,8 @@ export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_auto
 # Stage 1 trains head-only (cached), then Stage 2 unfreezes encoder for end-to-end FT.
 COMMON_ARGS=(
   "--config-name" "oracle_alphagenome_yeast_finetune_sweep"
-  "++cache_dir=outputs/ag_yeast/embedding_cache"
+  "++aug_mode=full"
+  "++batch_size=128"
   "++wandb_mode=offline"
   "++second_stage_epochs=50"
   "++second_stage_batch_size=64"

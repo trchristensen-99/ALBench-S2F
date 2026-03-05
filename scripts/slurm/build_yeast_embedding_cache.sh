@@ -34,6 +34,7 @@ uv run --no-sync python scripts/analysis/build_yeast_embedding_cache.py \
     --cache_dir outputs/ag_yeast/embedding_cache \
     --splits train val \
     --batch_size 128 \
-    --num_workers 8
+    --num_workers 8 \
+    --max_sequences 1000000
 
 echo "Done at $(date)"

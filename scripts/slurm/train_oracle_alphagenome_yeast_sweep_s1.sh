@@ -31,7 +31,6 @@ export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_auto
 
 COMMON_ARGS=(
   "--config-name" "oracle_alphagenome_yeast_finetune_sweep"
-  "++cache_dir=outputs/ag_yeast/embedding_cache"
   "++wandb_mode=offline"
   "++second_stage_lr=null"
 )

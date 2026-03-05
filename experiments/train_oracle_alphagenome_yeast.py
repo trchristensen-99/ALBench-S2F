@@ -419,6 +419,17 @@ def main(cfg: DictConfig) -> None:
         train_canonical, train_rc = load_embedding_cache(cache_dir, "train", mmap_mode=None)
         val_canonical, val_rc = load_embedding_cache(cache_dir, "val")
 
+        # Auto-detect limited cache: if cache has fewer entries than dataset,
+        # truncate dataset to match (assumes cache covers first N sequences).
+        cache_size = len(train_canonical)
+        if cache_size < len(ds_train):
+            print(
+                f"[cache] Cache has {cache_size:,} entries but dataset has {len(ds_train):,}."
+                f" Limiting training to first {cache_size:,} sequences."
+            )
+            ds_train = torch.utils.data.Subset(ds_train, range(cache_size))
+            train_dataset = ds_train
+
         head_predict_fn = build_head_only_predict_fn(model, unique_head_name)
         # Verify head shape
         _dummy = jnp.zeros((2, 3, 1536), dtype=jnp.float32)  # T=3 for yeast

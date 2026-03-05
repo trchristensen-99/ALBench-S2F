@@ -13,8 +13,10 @@ def continuous_to_bin_probabilities(
     """
     Convert continuous expression values to bin probability distributions.
 
-    For yeast: expression values are integers 0-17, so we use one-hot encoding.
-    For non-integer values, we use soft assignment to nearest bins.
+    Uses soft assignment: probability is split between the two adjacent bins
+    proportional to proximity. For exact integer values this reduces to one-hot.
+    For non-integer values (e.g. oracle pseudolabels), this preserves inter-bin
+    information that hard rounding would destroy.
 
     Args:
         continuous_values: Continuous expression values of shape (batch_size,)
@@ -31,13 +33,13 @@ def continuous_to_bin_probabilities(
     # Clamp values to valid range
     continuous_values = torch.clamp(continuous_values, min_val, max_val)
 
-    # For integer values (yeast case), use one-hot encoding
-    # Round to nearest integer
-    integer_values = torch.round(continuous_values).long()
+    floor_vals = torch.floor(continuous_values).long()
+    ceil_vals = torch.clamp(floor_vals + 1, max=num_bins - 1)
+    frac = (continuous_values - floor_vals.float()).unsqueeze(1)
 
-    # Create one-hot encoding
     bin_probs = torch.zeros(batch_size, num_bins, device=device)
-    bin_probs.scatter_(1, integer_values.unsqueeze(1), 1.0)
+    bin_probs.scatter_add_(1, floor_vals.unsqueeze(1), 1.0 - frac)
+    bin_probs.scatter_add_(1, ceil_vals.unsqueeze(1), frac)
 
     return bin_probs
 

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from alphagenome_ft import create_model_with_heads
+from torch.utils.data import Subset
 
 from data.yeast import YeastDataset
 from models.alphagenome_heads import register_s2f_head
@@ -40,6 +41,12 @@ def main() -> None:
     )
     p.add_argument("--batch_size", type=int, default=128)
     p.add_argument("--num_workers", type=int, default=8)
+    p.add_argument(
+        "--max_sequences",
+        type=int,
+        default=None,
+        help="Only cache the first N sequences (for limited cache when disk is tight).",
+    )
     args = p.parse_args()
 
     cache_dir = Path(args.cache_dir)
@@ -74,12 +81,20 @@ def main() -> None:
             print(f"[build_yeast_cache] {split_name}: exists, skipping.")
             continue
 
-        ds = YeastDataset(
+        ds_full = YeastDataset(
             data_path=args.data_path,
             split=split_name,
             context_mode="alphagenome384",
         )
-        print(f"[build_yeast_cache] {split_name}: {len(ds):,} sequences")
+        if args.max_sequences and split_name == "train" and args.max_sequences < len(ds_full):
+            ds = Subset(ds_full, range(args.max_sequences))
+            print(
+                f"[build_yeast_cache] {split_name}: {len(ds):,} of {len(ds_full):,} sequences"
+                f" (limited by --max_sequences)"
+            )
+        else:
+            ds = ds_full
+            print(f"[build_yeast_cache] {split_name}: {len(ds):,} sequences")
         build_embedding_cache(
             model,
             ds,
