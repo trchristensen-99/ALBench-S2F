@@ -942,8 +942,7 @@ def main(cfg: DictConfig) -> None:
             test_dataset,
             batch_size=int(cfg.get("test_batch_size", 256)),
             shuffle=False,
-            num_workers=n_workers,
-            pin_memory=True,
+            num_workers=0,
         )
 
         @jax.jit
