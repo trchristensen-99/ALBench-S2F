@@ -940,7 +940,7 @@ def main(cfg: DictConfig) -> None:
         )
         test_loader = DataLoader(
             test_dataset,
-            batch_size=int(cfg.get("test_batch_size", cfg.batch_size)),
+            batch_size=int(cfg.get("test_batch_size", 256)),
             shuffle=False,
             num_workers=n_workers,
             pin_memory=True,
