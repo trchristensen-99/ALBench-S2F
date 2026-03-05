@@ -124,7 +124,14 @@ def main(cfg: DictConfig) -> None:
     )
     val_labels = ds_val.labels.astype(np.float32)
 
-    n_total = len(ds_train)
+    # Limit to cache size (cache may cover a subset of the full dataset)
+    cache_size = len(train_can)
+    n_total = min(len(ds_train), cache_size)
+    if cache_size < len(ds_train):
+        print(
+            f"  Cache covers {cache_size:,} of {len(ds_train):,} sequences;"
+            f" scaling fractions applied to {cache_size:,}"
+        )
     subset_seed = used_seed + int(fraction * 100_000)
     subset_idx = _subset_indices(n_total, fraction, subset_seed)
 
