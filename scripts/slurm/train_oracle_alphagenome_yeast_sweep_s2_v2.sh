@@ -2,7 +2,7 @@
 # Yeast AG Stage 2 encoder fine-tuning sweep v2 (8 tasks).
 # Updated: S1 uses BS=4096 lr=3e-3 (optimal from BS×LR grid).
 # Stage 1: cached head-only training (~2-5 min with BS=4096).
-# Stage 2: encoder fine-tuning on 200K sequence subset (~1.2h/epoch on H100).
+# Stage 2: encoder fine-tuning on 100K sequence subset (~2.7h/epoch on H100).
 #
 # Submit:
 #   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/train_oracle_alphagenome_yeast_sweep_s2_v2.sh
@@ -41,7 +41,7 @@ COMMON_ARGS=(
   "++second_stage_epochs=50"
   "++second_stage_batch_size=128"
   "++second_stage_weight_decay=1e-6"
-  "++second_stage_max_sequences=200000"
+  "++second_stage_max_sequences=100000"
 )
 
 OUT_BASE="outputs/ag_yeast_sweep_s2_v2"
