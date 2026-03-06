@@ -164,10 +164,13 @@ def build_embedding_cache(
     ptr = 0
     for x_can, x_rc in tqdm(loader, desc=f"[EmbeddingCache] {split}"):
         B_actual = x_can.shape[0]
-        org_idx = jnp.zeros((B_actual,), dtype=jnp.int32)
 
-        emb_can = np.array(encoder_fn(jnp.array(x_can), org_idx))
-        emb_rc = np.array(encoder_fn(jnp.array(x_rc), org_idx))
+        # Combine canonical + RC into a single forward pass (2× fewer GPU calls)
+        x_both = np.concatenate([x_can, x_rc], axis=0)
+        org_idx = jnp.zeros((2 * B_actual,), dtype=jnp.int32)
+        emb_both = np.array(encoder_fn(jnp.array(x_both), org_idx))
+        emb_can = emb_both[:B_actual]
+        emb_rc = emb_both[B_actual:]
 
         if dtype == np.float16:
             # Clip to float16 range before casting (bfloat16 → float16 can overflow)

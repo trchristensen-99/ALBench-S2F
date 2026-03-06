@@ -2,7 +2,9 @@
 # Build FULL AlphaGenome embedding cache for yeast (all 6M+ train sequences).
 # Replaces the 200K-limited cache used previously.
 # Outputs ~126GB to outputs/ag_yeast/embedding_cache_full/.
-# Estimated runtime: ~2-3h on H100.
+#
+# Optimized: BS=512 + concatenated canonical/RC forward passes (effective GPU BS=1024).
+# Estimated runtime: ~15-25h on H100.
 #
 # After this completes, submit AG yeast scaling:
 #   /cm/shared/apps/slurm/current/bin/sbatch --dependency=afterok:$JOBID scripts/slurm/exp0_yeast_scaling_alphagenome_full.sh
@@ -15,7 +17,7 @@
 #SBATCH --error=logs/%x-%j.err
 #SBATCH --partition=gpuq
 #SBATCH --qos=slow_nice
-#SBATCH --time=06:00:00
+#SBATCH --time=48:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
@@ -41,8 +43,8 @@ uv run --no-sync python scripts/analysis/build_yeast_embedding_cache.py \
     --data_path data/yeast \
     --cache_dir outputs/ag_yeast/embedding_cache_full \
     --splits train val test \
-    --batch_size 128 \
-    --num_workers 8
+    --batch_size 512 \
+    --num_workers 12
 
 echo "Disk free after:"
 df -h /grid/wsbs/home_norepl/christen | tail -1
