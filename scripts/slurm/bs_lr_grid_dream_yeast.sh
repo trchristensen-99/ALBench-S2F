@@ -1,7 +1,8 @@
 #!/bin/bash
 # BS×LR grid for DREAM-RNN on yeast.
 # Tests BS ∈ {128, 512, 1024, 4096, 16384} × LR ∈ {1e-3, 3e-3, 5e-3, 1e-2, 2e-2}
-# = 25 configs. Uses fraction=1.0, 20 epochs, seed=42 for reproducibility.
+# = 25 configs. Uses fraction=0.1 (600K samples — same val Pearson as f=1.0
+# per scaling curve plateau), 20 epochs, seed=42 for reproducibility.
 # Default: BS=1024, lr=0.005. Test eval included (fast for DREAM-RNN).
 #
 # Submit:
@@ -12,7 +13,7 @@
 #SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
 #SBATCH --qos=slow_nice
-#SBATCH --time=2:00:00
+#SBATCH --time=4:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
@@ -45,7 +46,7 @@ echo "Node: ${SLURMD_NODENAME}  Date: $(date)"
 START_TIME=$(date +%s)
 
 uv run --no-sync python experiments/exp0_yeast_scaling.py \
-    fraction=1.0 \
+    fraction=0.1 \
     output_dir="outputs/bs_lr_grid_dream_yeast/${TAG}" \
     batch_size="${BS}" \
     lr="${LR}" \
