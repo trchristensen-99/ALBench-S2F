@@ -47,6 +47,18 @@ def main() -> None:
         default=None,
         help="Only cache the first N sequences (for limited cache when disk is tight).",
     )
+    p.add_argument(
+        "--chunk_id",
+        type=int,
+        default=None,
+        help="Chunk index for parallel cache building (0-based).",
+    )
+    p.add_argument(
+        "--num_chunks",
+        type=int,
+        default=None,
+        help="Total number of chunks for parallel cache building.",
+    )
     args = p.parse_args()
 
     cache_dir = Path(args.cache_dir)
@@ -74,9 +86,18 @@ def main() -> None:
         detach_backbone=True,
     )
 
+    chunked = args.chunk_id is not None and args.num_chunks is not None
+
     for split_name in args.splits:
-        out_can = cache_dir / f"{split_name}_canonical.npy"
-        out_rc = cache_dir / f"{split_name}_rc.npy"
+        # In chunked mode, only chunk the train split; val/test are small enough to do in full.
+        if chunked and split_name == "train":
+            chunk_dir = cache_dir / f"chunk_{args.chunk_id}"
+            out_can = chunk_dir / f"{split_name}_canonical.npy"
+            out_rc = chunk_dir / f"{split_name}_rc.npy"
+        else:
+            out_can = cache_dir / f"{split_name}_canonical.npy"
+            out_rc = cache_dir / f"{split_name}_rc.npy"
+
         if out_can.exists() and out_rc.exists():
             print(f"[build_yeast_cache] {split_name}: exists, skipping.")
             continue
@@ -86,25 +107,56 @@ def main() -> None:
             split=split_name,
             context_mode="alphagenome384",
         )
-        if args.max_sequences and split_name == "train" and args.max_sequences < len(ds_full):
+
+        if chunked and split_name == "train":
+            n = len(ds_full)
+            chunk_size = (n + args.num_chunks - 1) // args.num_chunks
+            start = args.chunk_id * chunk_size
+            end = min(start + chunk_size, n)
+            ds = Subset(ds_full, range(start, end))
+            print(
+                f"[build_yeast_cache] {split_name} chunk {args.chunk_id}/{args.num_chunks}: "
+                f"rows [{start:,}, {end:,}) = {len(ds):,} of {len(ds_full):,} sequences"
+            )
+            build_embedding_cache(
+                model,
+                ds,
+                chunk_dir,
+                split_name,
+                max_seq_len=384,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+                dtype=dtype,
+            )
+        elif args.max_sequences and split_name == "train" and args.max_sequences < len(ds_full):
             ds = Subset(ds_full, range(args.max_sequences))
             print(
                 f"[build_yeast_cache] {split_name}: {len(ds):,} of {len(ds_full):,} sequences"
                 f" (limited by --max_sequences)"
             )
+            build_embedding_cache(
+                model,
+                ds,
+                cache_dir,
+                split_name,
+                max_seq_len=384,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+                dtype=dtype,
+            )
         else:
             ds = ds_full
             print(f"[build_yeast_cache] {split_name}: {len(ds):,} sequences")
-        build_embedding_cache(
-            model,
-            ds,
-            cache_dir,
-            split_name,
-            max_seq_len=384,
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            dtype=dtype,
-        )
+            build_embedding_cache(
+                model,
+                ds,
+                cache_dir,
+                split_name,
+                max_seq_len=384,
+                batch_size=args.batch_size,
+                num_workers=args.num_workers,
+                dtype=dtype,
+            )
 
     print(f"[build_yeast_cache] Done. Cache at {cache_dir} (dtype={args.dtype}).")
 
