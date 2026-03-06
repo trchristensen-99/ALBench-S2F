@@ -145,12 +145,11 @@ def plot_scaling_panel(
         yerr = agg["std"].fillna(0)
         # Clamp error bars so they don't extend below 0
         means = agg["mean"]
-        yerr_lo = np.minimum(yerr, means)
-        yerr_hi = yerr
+        yerr_lo = np.clip(yerr, 0, np.maximum(means, 0))
         ax.errorbar(
             x,
             means,
-            yerr=[yerr_lo, yerr_hi],
+            yerr=[yerr_lo, yerr],
             fmt=f"{style['ls']}{style['marker']}",
             color=style["color"],
             label=label,
@@ -534,7 +533,7 @@ def generate_yeast_plots():
         x = agg["n_samples_mean"]
         yerr = agg["std"].fillna(0)
         means = agg["mean"]
-        yerr_lo = np.minimum(yerr, means)
+        yerr_lo = np.clip(yerr, 0, np.maximum(means, 0))
         ax.errorbar(
             x,
             means,
