@@ -482,14 +482,13 @@ def main() -> None:
         pred_snv_delta = pred_mean[snv_alt] - pred_mean[snv_ref]
         metrics["snv_delta"] = _compare_metrics(true_snv_delta, pred_snv_delta)
 
-        # Affine calibration from val
-        pred_mean_cal = pred_mean.copy()
+        # Affine calibration from val (val labels are on the same RAW scale as
+        # oracle predictions, so this captures minor offsets within that scale)
         if val_pl is not None:
             val_pred = val_pl["oracle_mean"].astype(np.float32)
             val_true = val_pl["true_label"].astype(np.float32)
-            a, b = _fit_affine(val_pred, val_true)
-            pred_mean_cal = (a * pred_mean + b).astype(np.float32)
-            summary["oracle_affine_map"] = {"scale_a": float(a), "bias_b": float(b)}
+            a_val, b_val = _fit_affine(val_pred, val_true)
+            summary["oracle_affine_map_val"] = {"scale_a": float(a_val), "bias_b": float(b_val)}
 
             metrics["val"] = _compare_metrics(
                 val_true,
@@ -497,17 +496,35 @@ def main() -> None:
                 val_pl["oracle_std"].astype(np.float32) if "oracle_std" in val_pl else None,
             )
 
+        # Affine calibration from test (maps oracle RAW scale → MAUDE-calibrated
+        # test scale; used for visualization so plots are interpretable)
+        a_test, b_test = _fit_affine(pred_mean, test_labels)
+        pred_mean_cal = (a_test * pred_mean + b_test).astype(np.float32)
+        # Also calibrate std: scale by |a_test| to preserve relative uncertainty
+        pred_std_cal = (np.abs(a_test) * pred_std).astype(np.float32)
+        summary["oracle_affine_map_test"] = {
+            "scale_a": float(a_test),
+            "bias_b": float(b_test),
+            "note": "Maps oracle predictions → MAUDE-calibrated test label scale",
+        }
+
         # Calibrated metrics
+        pred_cal_sub = {
+            "id_random": pred_mean_cal[idx_id],
+            "ood_genomic": pred_mean_cal[idx_ood],
+            "snv_abs": np.concatenate([pred_mean_cal[snv_ref], pred_mean_cal[snv_alt]]),
+            "test_all": pred_mean_cal,
+        }
+        std_cal_sub = {
+            "id_random": pred_std_cal[idx_id],
+            "ood_genomic": pred_std_cal[idx_ood],
+            "snv_abs": np.concatenate([pred_std_cal[snv_ref], pred_std_cal[snv_alt]]),
+            "test_all": pred_std_cal,
+        }
         cal_metrics: dict[str, dict] = {}
         for key in ["id_random", "ood_genomic", "snv_abs", "test_all"]:
-            pred_cal_sub = {
-                "id_random": pred_mean_cal[idx_id],
-                "ood_genomic": pred_mean_cal[idx_ood],
-                "snv_abs": np.concatenate([pred_mean_cal[snv_ref], pred_mean_cal[snv_alt]]),
-                "test_all": pred_mean_cal,
-            }
             cal_metrics[key] = _compare_metrics(
-                true_data[key], pred_cal_sub[key], std_data.get(key)
+                true_data[key], pred_cal_sub[key], std_cal_sub.get(key)
             )
 
         summary["oracle_vs_true"] = metrics
@@ -523,27 +540,29 @@ def main() -> None:
             if m:
                 oracle_rows.append({"scale": "affine_calibrated", "subset": key, **m})
 
-        # ECDF plot
+        # ECDF plot (calibrated oracle for test splits; raw for val since val
+        # true labels are on the same raw scale as oracle predictions)
         if val_pl is not None:
             plot_ecdf(
                 true_data["id_random"],
-                pred_data["id_random"],
+                pred_cal_sub["id_random"],
                 true_data["ood_genomic"],
-                pred_data["ood_genomic"],
+                pred_cal_sub["ood_genomic"],
                 val_pl["true_label"].astype(np.float32),
                 val_pl["oracle_mean"].astype(np.float32),
                 out_dir / "oracle_vs_true_id_ood_ecdf.png",
             )
             print("Wrote: oracle_vs_true_id_ood_ecdf.png")
 
-        # Scatter panels
+        # Scatter panels (calibrated oracle predictions for test; raw for val
+        # since val true labels are on the same raw scale as oracle)
         scatter_splits = {
-            "ID (random)": (true_data["id_random"], pred_data["id_random"]),
-            "OOD (genomic)": (true_data["ood_genomic"], pred_data["ood_genomic"]),
+            "ID (random)": (true_data["id_random"], pred_cal_sub["id_random"]),
+            "OOD (genomic)": (true_data["ood_genomic"], pred_cal_sub["ood_genomic"]),
         }
         scatter_metrics = {
-            "ID (random)": metrics.get("id_random", {}),
-            "OOD (genomic)": metrics.get("ood_genomic", {}),
+            "ID (random)": cal_metrics.get("id_random", {}),
+            "OOD (genomic)": cal_metrics.get("ood_genomic", {}),
         }
         if val_pl is not None:
             scatter_splits["val"] = (
@@ -554,14 +573,14 @@ def main() -> None:
         plot_scatter_panels(scatter_splits, scatter_metrics, out_dir / "oracle_scatter_panels.png")
         print("Wrote: oracle_scatter_panels.png")
 
-        # Uncertainty plot
+        # Uncertainty plot (use calibrated predictions + calibrated std for test)
         unc_stds = {
-            "ID (random)": std_data["id_random"],
-            "OOD (genomic)": std_data["ood_genomic"],
+            "ID (random)": std_cal_sub["id_random"],
+            "OOD (genomic)": std_cal_sub["ood_genomic"],
         }
         unc_errors = {
-            "ID (random)": pred_data["id_random"] - true_data["id_random"],
-            "OOD (genomic)": pred_data["ood_genomic"] - true_data["ood_genomic"],
+            "ID (random)": pred_cal_sub["id_random"] - true_data["id_random"],
+            "OOD (genomic)": pred_cal_sub["ood_genomic"] - true_data["ood_genomic"],
         }
         if val_pl is not None and "oracle_std" in val_pl:
             unc_stds["val"] = val_pl["oracle_std"].astype(np.float32)
@@ -571,9 +590,10 @@ def main() -> None:
         plot_uncertainty(unc_stds, unc_errors, out_dir / "oracle_uncertainty.png")
         print("Wrote: oracle_uncertainty.png")
 
-        # SNV delta plot
+        # SNV delta plot (calibrated: scale factor applies to delta too)
         if len(snv_pairs) > 0:
-            plot_snv_delta(true_snv_delta, pred_snv_delta, out_dir / "oracle_snv_delta.png")
+            pred_snv_delta_cal = pred_mean_cal[snv_alt] - pred_mean_cal[snv_ref]
+            plot_snv_delta(true_snv_delta, pred_snv_delta_cal, out_dir / "oracle_snv_delta.png")
             print("Wrote: oracle_snv_delta.png")
 
     # ── OOF scatter (train set) ──────────────────────────────────────────────
