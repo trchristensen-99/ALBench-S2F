@@ -1,0 +1,30 @@
+task_mode: yeast
+head_arch: boda-flatten-512-512
+head_name: alphagenome_yeast_head_oracle_scaling
+num_tracks: 18
+
+yeast_data_path: data/yeast
+context_mode: alphagenome384
+cache_dir: outputs/ag_yeast/embedding_cache_full
+pseudolabel_dir: outputs/oracle_pseudolabels/yeast_dream_oracle
+output_dir: outputs/exp0_yeast_scaling_oracle_labels_ag
+weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+gpu: 0
+
+fraction: 1.0
+epochs: 100
+early_stop_patience: 10
+seed: null
+wandb_mode: offline
+
+lr: 0.001
+weight_decay: 0.000001
+dropout_rate: 0.1
+eval_use_reverse_complement: true
+
+batch_size: 512
+test_batch_size: 256
+
+test_subset_dir: null
+public_leaderboard_dir: null
+private_only_test: false

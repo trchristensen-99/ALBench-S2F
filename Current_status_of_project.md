@@ -1,70 +1,7 @@
 # ALBench-S2F — Current Project Status
 
-**Last updated:** 2026-03-04 ~22:00 EST (Wed)
+**Last updated:** 2026-03-06 ~12:30 EST (Fri)
 **Scope:** Experiment 0 status for both K562 and Yeast, active HPC jobs, and remaining work
-
----
-
-## Quick Reference — Where to Find Everything
-
-| What | Location (on HPC: `/grid/wsbs/home_norepl/christen/ALBench-S2F/`) |
-|------|----------|
-| **This document** | `Current_status_of_project.md` (repo root) |
-| **Architecture & design** | `ARCHITECTURE.md` |
-| **HPC/SSH access** | `REMOTE_ACCESS.md` |
-| **Experiment scripts** | `experiments/` |
-| **SLURM scripts** | `scripts/slurm/` |
-| **Hydra configs** | `configs/experiment/` |
-| **Analysis scripts** | `scripts/analysis/` |
-| **All outputs** | `outputs/` (see per-experiment tables below) |
-
-### Key Output Directories
-
-| Directory | Contents | Status |
-|-----------|----------|--------|
-| `outputs/exp0_k562_scaling/` | DREAM-RNN K562 scaling (real labels) | DONE |
-| `outputs/exp0_k562_scaling_alphagenome_cached_rcaug/` | AG K562 scaling (real labels, cached head) | DONE |
-| `outputs/exp0_k562_scaling_oracle_labels/` | DREAM-RNN K562 scaling (S1 pseudolabels) | DONE (1 seed/frac) |
-| `outputs/exp0_k562_scaling_oracle_labels_s2/` | DREAM-RNN K562 scaling (S2 pseudolabels) | PENDING (804292) |
-| `outputs/exp0_k562_scaling_oracle_labels_s2_ag/` | AG K562 scaling (S2 pseudolabels) | PENDING (804679) |
-| `outputs/ag_hashfrag_oracle_cached/oracle_{0-9}/` | K562 AG 10-fold oracle ensemble (S1) | DONE |
-| `outputs/stage2_k562_oracle/fold_{0-9}/` | K562 AG 10-fold oracle ensemble (S2, encoder FT) | DONE |
-| `outputs/oracle_pseudolabels_k562_ag/` | K562 Stage 1 oracle pseudolabels | DONE |
-| `outputs/oracle_pseudolabels_stage2_k562_ag/` | K562 Stage 2 oracle pseudolabels | RUNNING (804277) |
-| `outputs/ag_hashfrag/embedding_cache/` | K562 AG embedding cache (train/val/test) | DONE |
-| `outputs/exp0_yeast_scaling/` | DREAM-RNN yeast scaling (real labels) | ~95% done (806081 filling gaps) |
-| `outputs/exp0_yeast_scaling_alphagenome/` | AG yeast scaling (real labels, cached head) | ~20% done, PENDING (806082) |
-| `outputs/exp0_yeast_scaling_oracle_labels/` | DREAM-RNN yeast scaling (oracle pseudolabels) | ~30% done (806059 running) |
-| `outputs/oracle_dream_rnn_yeast_kfold/` | Yeast DREAM 10-fold oracle ensemble | DONE |
-| `outputs/oracle_dream_rnn_yeast_kfold_v256_rcaug/` | Yeast DREAM v256 10-fold oracle (RC aug) | ~80% done (752819) |
-| `outputs/oracle_pseudolabels/yeast_dream_oracle/` | Yeast DREAM oracle pseudolabels | DONE |
-| `outputs/ag_yeast/embedding_cache/` | Yeast AG embedding cache (1M train + val) | BUILDING (806016) |
-| `outputs/ag_yeast_sweep_s1/` | AG yeast S1 head-only sweep (16 configs) | PENDING (806017) |
-| `outputs/ag_yeast_sweep_s2/` | AG yeast S2 encoder FT sweep (8 configs) | PENDING (806018) |
-| `outputs/analysis/k562_oracle_labels/` | K562 oracle label distribution analysis | DONE |
-| `outputs/analysis/yeast_oracle_label_distributions/` | Yeast oracle label distribution analysis | DONE |
-
-### Key Scripts (for resubmission or reference)
-
-| Script | What it does | Config |
-|--------|-------------|--------|
-| `scripts/slurm/exp0_yeast_scaling.sh` | DREAM yeast scaling (real labels), 30-task array | `exp0_yeast_scaling.yaml` |
-| `scripts/slurm/exp0_yeast_scaling_oracle_labels.sh` | DREAM yeast oracle-label scaling, 30-task array | `exp0_yeast_scaling_oracle_labels.yaml` |
-| `scripts/slurm/exp0_yeast_scaling_alphagenome.sh` | AG yeast scaling (real labels, cached), 30-task array | `exp0_yeast_scaling_alphagenome.yaml` |
-| `scripts/slurm/build_yeast_embedding_cache.sh` | Build 1M yeast AG embedding cache | — |
-| `scripts/slurm/train_oracle_alphagenome_yeast_sweep_s1.sh` | AG yeast S1 head-only sweep (16 tasks) | `oracle_alphagenome_yeast_finetune_sweep.yaml` |
-| `scripts/slurm/train_oracle_alphagenome_yeast_sweep_s2.sh` | AG yeast S2 encoder FT sweep (8 tasks, 200K subset) | `oracle_alphagenome_yeast_finetune_sweep.yaml` |
-| `scripts/slurm/generate_oracle_pseudolabels_stage2_k562_ag.sh` | K562 S2 pseudolabel generation (10 folds, full encoder) | `generate_oracle_pseudolabels_stage2_k562_ag.yaml` |
-| `scripts/slurm/analyze_yeast_oracle_labels.sh` | Yeast oracle label distribution analysis | — |
-
-### Result File Formats
-
-| File | Contents |
-|------|----------|
-| `result.json` | Per-run scaling metrics: fraction, n_samples, best_val_pearson, test_metrics |
-| `summary.json` | Oracle training summary: best_val_pearson, training_time, epochs |
-| `test_metrics.json` | Oracle test evaluation: per-test-set pearson/spearman/mse |
-| `*_oracle_labels.npz` | Pseudolabel arrays: oracle_mean, oracle_std, oof_oracle, true_label |
 
 ---
 
@@ -76,49 +13,52 @@ Experiment 0 establishes **scaling curves** for two model architectures (DREAM-R
 - K562: 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00 (7 fractions)
 - Yeast: 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00 (10 fractions)
 
+**Oracle ensembles:**
+- K562: AlphaGenome 10-fold (DONE)
+- Yeast: DREAM-RNN 10-fold (DONE)
+
 **Test sets:**
 - K562: in_distribution, snv_abs, snv_delta, ood (designed sequences)
 - Yeast: random (ID), genomic (OOD), snv_abs, snv (delta)
 
 ---
 
+## Master Completion Matrix
+
+| Component | K562 DREAM | K562 AG | Yeast DREAM | Yeast AG |
+|-----------|-----------|---------|-------------|----------|
+| **Real-label scaling** | DONE (3-4 seeds) | DONE (3 seeds) | DONE (3 seeds; f=1.0: 1/3, 2 running) | PENDING (blocked on cache) |
+| **Oracle ensemble** | N/A | DONE (10/10 folds) | DONE (10/10 folds) | N/A |
+| **Oracle pseudolabels** | N/A | DONE | DONE | N/A |
+| **Oracle-label scaling** | ~95% (f=1.0: 1/3, 2 running) | DONE (3 seeds) | DONE (3-4 seeds) | NOT STARTED (needs script) |
+| **Distribution analysis** | DONE | — | DONE | — |
+
+---
+
 ## K562 — Experiment 0 Status
 
-### Completed Components
+### All Components COMPLETE (or Nearly)
 
-| Component | Status | Results | Output Location |
-|-----------|--------|---------|-----------------|
-| **DREAM-RNN scaling (real labels)** | **DONE** (3-4 seeds/fraction) | f=0.01: 0.51, f=0.05: 0.57, f=0.20: 0.65, f=1.00: 0.82 (in_dist Pearson) | `exp0_k562_scaling/` |
-| **AG scaling (real labels, cached)** | **DONE** (3 seeds/fraction) | f=0.01: 0.86, f=0.05: 0.89, f=0.20: 0.90, f=1.00: 0.91 (in_dist Pearson) | `exp0_k562_scaling_alphagenome_cached_rcaug/` |
-| **DREAM-RNN oracle labels (S1)** | **DONE** (1 seed/fraction) | f=0.01: 0.40, f=0.05: 0.55, f=0.20: 0.59, f=1.00: 0.72 (in_dist) | `exp0_k562_scaling_oracle_labels/` |
-| **AG S1 10-fold oracle ensemble** | **DONE** (10/10 folds) | in_dist: 0.903–0.907, snv_abs: 0.892–0.895, ood: 0.703–0.747 | `ag_hashfrag_oracle_cached/oracle_{0-9}/` |
-| **AG S2 10-fold oracle ensemble** | **DONE** (10/10 folds, s2c config) | best: in_dist=0.914, snv_abs=0.903 | `stage2_k562_oracle/fold_{0-9}/` |
+| Component | Status | Key Results | Output Location |
+|-----------|--------|-------------|-----------------|
+| **DREAM-RNN scaling (real labels)** | **DONE** (3-4 seeds/frac) | f=0.01: 0.51, f=0.05: 0.57, f=0.20: 0.65, f=1.00: 0.82 (in_dist) | `exp0_k562_scaling/` |
+| **AG scaling (real labels, cached)** | **DONE** (3 seeds/frac) | f=0.01: 0.862, f=0.10: 0.892, f=1.00: 0.906 (in_dist) | `exp0_k562_scaling_alphagenome_cached_rcaug/` |
+| **AG 10-fold oracle ensemble** | **DONE** (10/10 folds) | in_dist: 0.903-0.907, snv_abs: 0.892-0.895, ood: 0.703-0.747 | `ag_hashfrag_oracle_cached/oracle_{0-9}/` |
 | **S1 oracle pseudolabels** | **DONE** | Ensemble: in_dist=0.909, snv_abs=0.897, ood=0.755 | `oracle_pseudolabels_k562_ag/` |
-| **K562 distribution analysis** | **DONE** | Plots + statistics | `outputs/analysis/k562_oracle_labels/` |
-
-### In Progress / Pending
-
-| Component | Status | Job ID | Depends On | Output Location |
-|-----------|--------|--------|------------|-----------------|
-| **S2 oracle pseudolabels** | **RUNNING** (~3.7h in, just starting fold 0 inference) | 804277 | — | `oracle_pseudolabels_stage2_k562_ag/` |
-| **AG scaling (S2 oracle labels)** | **PENDING** (dependency) | 804679 | 804277 | `exp0_k562_scaling_oracle_labels_s2_ag/` |
-| **DREAM scaling (S2 oracle labels)** | **PENDING** (dependency) | 804292 | 804277 | `exp0_k562_scaling_oracle_labels_s2/` |
-
-**Note on 804277**: NOT hung — full-encoder inference is inherently slow (~2.5-3h per fold for ~460K sequences with RC averaging). ETA: ~25-30h total (within 48h limit). The tqdm only updates between folds, so no visible progress until fold 0 completes.
-
-### K562 Pipeline Dependency Chain
-
-```
-804277 (S2 pseudolabels, RUNNING, ~25-30h ETA)
-    ├→ 804679 (AG S2 oracle-label scaling, 7 frac × 3 seeds)
-    └→ 804292 (DREAM S2 oracle-label scaling, 7 frac × 3 seeds)
-```
+| **AG oracle-label scaling** | **DONE** (3 seeds/frac) | f=0.01: 0.882, f=0.10: 0.891, f=1.00: 0.902 (in_dist) | `exp0_k562_scaling_oracle_labels_ag/` |
+| **DREAM oracle-label scaling** | **~95%** (f=1.0: 1/3) | f=0.01: 0.353, f=0.10: 0.455, f=1.00: 0.598 (val) | `exp0_k562_scaling_oracle_labels/` |
+| **Distribution analysis** | **DONE** | Plots + statistics | `analysis/k562_oracle_label_distributions/` |
 
 ### K562 Key Observations
 
-- AG scaling curve is **very flat** (f=0.01 → 0.860, f=1.00 → 0.907) — the frozen pretrained encoder does most of the work.
+- AG scaling curve is **very flat** (f=0.01 → 0.862, f=1.00 → 0.906) — frozen pretrained encoder does most of the work.
 - DREAM-RNN is much steeper (0.51 → 0.82), demonstrating strong data dependence for training-from-scratch models.
-- S2 encoder fine-tuning (s2c, lr=1e-4) beats S1 oracle on both validation (0.905 vs 0.903) and in_dist test (0.914 vs 0.909).
+- AG oracle-label scaling also flat (0.882 → 0.902), slightly below real labels (0.862 → 0.906). Oracle pseudolabels don't help AG much — the true labels are nearly as good as the ensemble's predictions.
+- DREAM oracle-label scaling is MUCH weaker (0.35-0.60 val Pearson). Architecture mismatch: DREAM-RNN struggles to learn AG's pseudolabel distribution.
+
+### K562 Remaining
+
+- **K562 DREAM oracle-label scaling f=1.0**: 2 more seeds running (jobs 825997_6, 825998_5/6). Expected completion: within hours.
 
 ---
 
@@ -126,203 +66,155 @@ Experiment 0 establishes **scaling curves** for two model architectures (DREAM-R
 
 ### Completed Components
 
-| Component | Status | Results | Output Location |
-|-----------|--------|---------|-----------------|
-| **DREAM-RNN 10-fold oracle ensemble** | **DONE** (10/10 folds) | val ~0.606, random ~0.800, genomic ~0.614, snv_abs ~0.873 | `oracle_dream_rnn_yeast_kfold/` |
-| **DREAM oracle pseudolabels** | **DONE** | train OOF=0.649, val=0.626, test_random=0.820, test_snv_abs=0.887 | `oracle_pseudolabels/yeast_dream_oracle/` |
-| **Yeast distribution analysis** | **DONE** | Plots + statistics (10 output files) | `analysis/yeast_oracle_label_distributions/` |
+| Component | Status | Key Results | Output Location |
+|-----------|--------|-------------|-----------------|
+| **DREAM-RNN 10-fold oracle ensemble** | **DONE** (10/10 folds) | val ~0.626, random ~0.820, snv_abs ~0.887 | `oracle_dream_rnn_yeast_kfold/` |
+| **DREAM oracle pseudolabels** | **DONE** | train OOF r=0.649, val r=0.626, test random r=0.820 | `oracle_pseudolabels/yeast_dream_oracle/` |
+| **Distribution analysis** | **DONE** | Plots + statistics (10 output files) | `analysis/yeast_oracle_label_distributions/` |
 
-### In Progress
+### DREAM-RNN Scaling (Real Labels) — DONE (f=1.0 nearly complete)
 
-| Component | Status | Job ID | Coverage | Output Location |
-|-----------|--------|--------|----------|-----------------|
-| **DREAM-RNN scaling (real labels)** | **~95%** | 802047 (1 task left) + 806081 (filling gaps) | 3 seeds: f=0.001–0.20; 1 seed: f=0.50, 1.00 | `exp0_yeast_scaling/` |
-| **AG scaling (real labels, cached)** | **~20%** | 806082 (PENDING) | 1 seed: f=0.001–0.05; NONE for f=0.10–1.00 | `exp0_yeast_scaling_alphagenome/` |
-| **DREAM oracle-label scaling** | **~30%** | 806059 (16 tasks RUNNING) | 1-3 seeds: f=0.001–0.02; 0 for f=0.05–1.00 (running now) | `exp0_yeast_scaling_oracle_labels/` |
-| **DREAM v256 oracle (RC aug)** | **~80%** | 752819 (fold 8 running) | Folds 0-5 done; 8 running; 6,7,9 failed | `oracle_dream_rnn_yeast_kfold_v256_rcaug/` |
-| **Yeast AG embedding cache** | **BUILDING** | 806016 (~51min in, ~10h ETA) | 1M sequences (of 6M) — limited by disk | `ag_yeast/embedding_cache/` |
-| **AG S1 hyperparameter sweep** | **PENDING** (dependency) | 806017 | 16 tasks | `ag_yeast_sweep_s1/` |
-| **AG S2 encoder FT sweep** | **PENDING** (dependency) | 806018 | 8 tasks (200K seq subset) | `ag_yeast_sweep_s2/` |
+| Fraction | Seeds | Avg Val Pearson |
+|----------|-------|-----------------|
+| 0.001 | 3 | 0.486 |
+| 0.002 | 3 | 0.506 |
+| 0.005 | 3 | 0.531 |
+| 0.01 | 3 | 0.550 |
+| 0.02 | 3 | 0.569 |
+| 0.05 | 3 | 0.583 |
+| 0.10 | 3 | 0.593 |
+| 0.20 | 3 | 0.599 |
+| 0.50 | 3 | 0.610 |
+| 1.00 | **1** (2 running, ep 74-75/80) | 0.598 |
 
-### Early Results — DREAM-RNN Yeast Scaling (Real Labels)
+Note: f=1.0 val Pearson (0.598) is lower than f=0.5 (0.610) — may indicate overfitting at 80 epochs on 6M sequences.
 
-| Fraction | Seeds | Avg Random Pearson |
-|----------|-------|-------------------|
-| 0.001 | 3 | 0.646 |
-| 0.002 | 3 | 0.651 |
-| 0.005 | 3 | 0.669 |
-| 0.01 | 3 | 0.678 |
-| 0.02 | 3 | 0.715 |
-| 0.05 | 3 | 0.728 |
-| 0.10 | 3 | 0.742 |
-| 0.20 | 3 | 0.735 |
-| 0.50 | 1 | 0.716 |
-| 1.00 | 1 | 0.742 |
+### DREAM-RNN Oracle-Label Scaling — COMPLETE
 
-Note: f=0.50 and f=1.00 have only 1 seed (timeouts). Job 806081 will fill in additional seeds.
+| Fraction | Seeds | Avg Val Pearson |
+|----------|-------|-----------------|
+| 0.001 | 3 | 0.831 |
+| 0.002 | 3 | 0.855 |
+| 0.005 | 3 | 0.926 |
+| 0.01 | 3 | 0.953 |
+| 0.02 | 3 | 0.986 |
+| 0.05 | 3 | 0.992 |
+| 0.10 | 3 | 0.995 |
+| 0.20 | 3 | 0.995 |
+| 0.50 | 3 | 0.996 |
+| 1.00 | 4 | 0.998 |
 
-### Early Results — DREAM-RNN Oracle-Label Scaling (DREAM Pseudolabels)
+**Dramatic** improvement vs real labels (0.83-0.998 vs 0.49-0.61). Oracle labels almost entirely eliminate the data bottleneck — f=0.02 with oracle labels (0.986) far exceeds f=1.0 with real labels (0.598).
 
-| Fraction | Seeds | Avg Random Pearson | Notes |
-|----------|-------|-------------------|-------|
-| 0.001 | 3 | 0.697 | +0.051 vs real labels |
-| 0.002 | 2 | 0.702 | High variance (0.676–0.728) |
-| 0.005 | 2 | 0.765 | +0.096 vs real labels |
-| 0.01 | 1 | 0.730 | |
-| 0.02 | 1 | 0.771 | +0.056 vs real labels |
-| 0.05–1.00 | 0 | — | Running now (806059) |
+### In Progress — Running on HPC
 
-Oracle pseudolabels provide consistent improvement over real labels at small fractions.
+| Component | Status | Job ID | Notes |
+|-----------|--------|--------|-------|
+| **AG yeast full cache (6M)** | **BUILDING** | 826538 (6 chunks) | ~10-11h remaining; 6 GPUs on bamgpu19-21 |
+| **AG yeast scaling (real labels)** | **PENDING** | 826661 (30 tasks) | Blocked on cache; 10 fractions × 3 seeds |
+| **AG S2v2 encoder FT sweep** | **RUNNING** | 815652 + 814869 | 8 configs, early S2 epoch (~3-5/50) |
+| **DREAM yeast real f=1.0** | **RUNNING** | 806634_19, 806634_29 | Epoch 74-75/80, ~1h remaining |
 
-### Not Yet Started (Yeast, Blocked)
+### Not Yet Started
 
 | Component | Blocked By | Notes |
 |-----------|-----------|-------|
-| **AG 10-fold oracle ensemble** | AG sweep (806017/806018) | Need best head config from sweep |
-| **AG oracle pseudolabels** | AG oracle ensemble | |
-| **AG oracle-label scaling** | AG pseudolabels | |
-
-### Yeast AG Sweep Design
-
-**Stage 1 (head-only, cached, 16 tasks — job 806017):**
-Uses 1M-sequence embedding cache. Auto-detection limits training to cache size.
-- Baseline: [1024] hidden, lr=1e-3, wd=1e-6, dropout=0.1, relu, constant LR
-- Variations: sum/center pooling, gelu activation, dropout 0/0.3/0.5, hidden [512,512]/[256,256]/[512,256]/[512], cosine/plateau LR, lr=3e-4/3e-3
-
-**Stage 2 (encoder fine-tuning, 8 tasks — job 806018):**
-Uses cached S1 training + 200K-sequence subset for S2 encoder FT (~1.2h/epoch on H100).
-- Full S1 early-stop then encoder FT at various S1 epoch cutoffs (1/3/5/full)
-- Backbone vs encoder vs gradual unfreezing
-- S2 LR variations (1e-5, 5e-6)
-
-### Yeast Pipeline Dependency Chain
-
-```
-806016 (cache build, RUNNING ~10h) ─┬→ 806017 (AG S1 sweep, 16 tasks)
-                                    ├→ 806018 (AG S2 sweep, 8 tasks, 200K subset)
-                                    └→ 806082 (AG yeast scaling real labels, 30 tasks)
-
-806017/806018 results → MANUAL: select best config → train AG oracle ensemble
-    → generate AG pseudolabels → AG oracle-label scaling
-```
+| **AG yeast oracle-label scaling** | Cache build + needs new script | Train AG on DREAM pseudolabels at various fractions |
 
 ---
 
-## Active HPC Jobs (as of 2026-03-04 ~22:00 EST)
+## AG Yeast Full Cache Build (NEW — Mar 6)
 
-### Running (20 tasks across 8 GPU nodes)
+Building full 6M embedding cache via **6 parallel GPU chunks** (~1M sequences each).
 
-| Job ID | Name | Runtime | Node | Notes |
-|--------|------|---------|------|-------|
-| **806016** | ag_yeast_cache | ~51min | bamgpu26 | Building 1M yeast embedding cache (~10h ETA) |
-| **804277** | oracle_pseudo_s2_k562 | ~3h43m | bamgpu17 | K562 S2 pseudolabels, just starting fold 0 inference (~25-30h ETA) |
-| **802047_28** | exp0_yeast | ~6h08m | bamgpu24 | DREAM yeast scaling, last running task |
-| **752819_8** | oracle_dream_yeast_v256 | ~10h22m | bamgpu24 | v256 oracle fold 8, ~5h remaining |
-| **806059_5-23** | exp0_yeast_oracle | 2-7min | various (16 nodes) | Yeast oracle-label scaling, actively training |
+- Previous approach (single GPU, BS=128) estimated at ~74h — exceeded 48h SLURM limit.
+- New approach: 6 array tasks running in parallel, each ~12h. Combined canonical+RC forward passes for 2× fewer GPU kernel launches.
+- Using `ConcatenatedMmaps` to load chunk files directly — no disk-intensive concat step needed.
 
-### Pending (7 job arrays)
+| Chunk | Sequences | Output | Rate |
+|-------|-----------|--------|------|
+| 0 | 1,010,888 | `embedding_cache_full/chunk_0/` | ~5.3 s/batch |
+| 1 | 1,010,888 | `embedding_cache_full/chunk_1/` | ~5.3 s/batch |
+| 2 | 1,010,888 | `embedding_cache_full/chunk_2/` | ~5.3 s/batch |
+| 3 | 1,010,888 | `embedding_cache_full/chunk_3/` | ~5.3 s/batch |
+| 4 | 1,010,888 | `embedding_cache_full/chunk_4/` | ~5.3 s/batch |
+| 5 | 1,010,885 | `embedding_cache_full/chunk_5/` | ~5.3 s/batch |
 
-| Job ID | Name | Reason | Dependency |
-|--------|------|--------|------------|
-| **806059_24+** | exp0_yeast_oracle | QOSMaxJobsPerUser | — |
-| **806081** | exp0_yeast | QOSMaxJobsPerUser | — |
-| **806082** | exp0_ag_yeast | Dependency | afterok:806016 (cache) |
-| **806017** | ag_yeast_s1_sweep | Dependency | afterok:806016 (cache) |
-| **806018** | ag_yeast_s2_sweep | Dependency | afterok:806016 (cache) |
-| **804679** | exp0_ag_k562_oracle_s2 | Dependency | afterok:804277 (S2 pseudo) |
-| **804292** | exp0_k562_oracle_s2 | Dependency | afterok:804277 (S2 pseudo) |
-
-### Expected Timeline (rough)
-
-| Time | Event |
-|------|-------|
-| ~8:00 AM Thu (10h) | 806016 cache build completes → triggers 806017, 806018, 806082 |
-| ~10:00 AM Thu (12h) | 806059 oracle-label scaling mostly done (30 tasks, QoS throttled) |
-| ~6:00 PM Thu (~20h) | 804277 nearing completion (fold 7-8 of 10) |
-| ~midnight Thu (~26h) | 804277 done → triggers 804679, 804292 |
-| ~midnight–Fri | 806017/806018 sweep tasks completing (S1: ~2-4h each; S2: ~12-20h each) |
-
-### Disk Space
-
-**35 GB free** on `/grid` (10T shared, 100%). After cache build uses ~18GB → ~17GB headroom. Tight but sufficient for scaling results (each result.json is <1KB; model checkpoints are the main cost at ~150-200MB each).
+**Dependency chain:** Cache build (826538) → AG yeast scaling (826661, 30 tasks: 10 fractions × 3 seeds)
 
 ---
 
-## Remaining Work — Priority Order
+## AG S2v2 Yeast Sweep — In Progress
 
-### K562 (nearly done, all jobs properly chained)
+8 encoder fine-tuning configurations. S1 uses optimal cached params (BS=4096, lr=3e-3), then S2 unfreezes downres_block_4,5 with BS=128 on up to 200K sequences.
 
-1. **Wait for S2 pseudolabels** (804277, ~25-30h) — full-encoder inference, 10 folds
-2. **AG + DREAM S2 oracle-label scaling** (804679, 804292) — auto-launches on 804277 completion
-3. **Consolidate results** — build decision table comparing real vs S1 vs S2 oracle labels
+| Task | Config | S2 LR | Unfreeze Mode | S2 Epoch |
+|------|--------|-------|---------------|----------|
+| 0 | s2_baseline_s1full_lr1e5 | 1e-5 | encoder | ~5/50 |
+| 1 | s2_s1ep1_lr1e5 | 1e-5 | encoder | ~5/50 |
+| 2 | s2_s1ep3_lr1e5 | 1e-5 | encoder | ~5/50 |
+| 3 | s2_s1ep5_lr1e5 | 1e-5 | encoder | ~5/50 |
+| 4 | s2_s1ep5_lr1e5_backbone | 1e-5 | backbone | ~3/50 |
+| 5 | s2_s1ep5_lr1e5_gradual | 1e-5 | gradual | ~3/50 |
+| 6 | s2_s1ep5_lr5e6 | 5e-6 | encoder | ~3/50 |
+| 7 | s2_s1ep5_lr1e5_noshift | 1e-5 | encoder (no shift) | ~3/50 |
 
-### Yeast (active, most jobs submitted)
-
-1. **Oracle-label scaling running** (806059, 16 tasks active) — filling f=0.05–1.00 + replicates
-2. **DREAM real-label scaling** (806081, pending QoS) — filling f=0.50/1.00 seeds
-3. **AG cache build** (806016, ~10h) → auto-triggers AG S1/S2 sweep + AG real-label scaling
-4. **v256 oracle folds 6,7,9 need resubmission** after fold 8 completes (all have summary.json from prior run, so may not be critical)
-5. **MANUAL STEP after sweep**: Select best AG head config → configure + train AG oracle ensemble → generate AG pseudolabels → AG oracle-label scaling
-
-### Cross-Cutting
-
-- **Final scaling curve plots** (DREAM vs AG, real vs oracle labels, both datasets)
-- **Decision table** — For each dataset × model × label source, summary Pearson at key fractions
-- **Paper figures** — Scaling curves with confidence bands (3+ seeds)
-- `scripts/analysis/build_yeast_exp0_decision_table.py` exists for aggregating yeast results
+Each S2 epoch takes ~2.7h (12.4s/it × 782 iterations). Full 50-epoch sweep per config = ~134h (5.6 days). Jobs will need multiple resubmissions to complete.
 
 ---
 
-## Technical Notes
+## Active HPC Jobs (as of 2026-03-06 ~12:30 EST)
 
-### Embedding Caches
+| Job ID | Name | Tasks | State | Runtime | Node(s) |
+|--------|------|-------|-------|---------|---------|
+| 826538_0-5 | ag_yeast_cache_chunk | 6 | RUNNING | ~15 min | bamgpu19/20/21 |
+| 826661_0-29 | exp0_ag_yeast_full | 30 | PENDING | — | (Dependency) |
+| 815652_0-3 | ag_yeast_s2_v2 | 4 | RUNNING | ~12h | bamgpu27/28 |
+| 814869_4-7 | ag_yeast_s2_v2 | 4 | RUNNING | ~12-14h | bamgpu18/26 |
+| 806634_19,29 | exp0_yeast (DREAM f=1.0) | 2 | RUNNING | ~13.5h | bamgpu15/24 |
+| 825997_6 | exp0_k562_oracle | 1 | RUNNING | ~50 min | bamgpu03 |
+| 825998_5,6 | exp0_k562_oracle | 2 | RUNNING | ~30 min | bamgpu01 |
 
-**K562** (`ag_hashfrag/embedding_cache/`):
-Unified 320K train split. Shape: (N, T=5, D=1536), float16.
+---
 
-**Yeast** (`ag_yeast/embedding_cache/`):
-Limited to 1M of 6M sequences (disk constraint). Shape: (N, T=3, D=1536), float16.
-Training script auto-detects cache size and limits dataset accordingly.
+## What's Left — Experiment 0 Checklist
 
-### SLURM Array Task Mapping (for scaling scripts)
+### Nearly Done (running, will complete without intervention)
 
-All yeast scaling scripts use the same mapping for 30-task arrays:
-- `task_id % 10` → fraction index (0.001, 0.002, 0.005, ..., 1.00)
-- `task_id / 10` → replicate slot (0, 1, 2)
-- Scripts skip fractions that already have enough completed `result.json` files
+- [ ] DREAM yeast real-label f=1.0: 2 more seeds (ep 74-75/80, ~1h)
+- [ ] K562 DREAM oracle-label f=1.0: 2 more seeds (ep 16-23/80, several hours)
 
-### Oracle Pseudolabel Pipeline
+### Blocked on Cache Build (~10h)
 
-```
-10-fold oracle ensemble (train on 90%, predict held-out 10%)
-    → out-of-fold predictions for all train sequences
-    → ensemble mean/std = oracle pseudolabels
-    → train student models on pseudolabels at various fractions
-```
+- [ ] AG yeast real-label scaling (job 826661 pending, 30 tasks)
 
-Stage 2 oracles fine-tune the encoder (better predictions: K562 in_dist 0.914 vs 0.909 for Stage 1).
+### Needs New Script
 
-### Recent Fixes (Mar 4, 2026)
+- [ ] **AG yeast oracle-label scaling**: Train AG on DREAM pseudolabels at 10 fractions × 3 seeds. Need `exp0_yeast_scaling_oracle_labels_ag.py` (adapt from K562 AG oracle experiment + yeast scaling experiment). Blocked on full 6M cache.
 
-- **Oracle-label training collapse**: `continuous_to_bin_probabilities` in `loss_utils.py` used hard rounding + one-hot encoding, destroying inter-bin information from continuous oracle pseudolabels. Fixed with soft label assignment (floor/ceil + fractional weighting via `scatter_add_`). Val Pearson went from ~0 to 0.955 at f=0.02.
+### Ongoing (multi-day)
 
-- **S2 sweep feasibility**: Original S2 sweep used `aug_mode=full` for Stage 1, causing full encoder forward passes through 6M yeast sequences (~35h/epoch). Fixed by: (a) using cached embeddings for Stage 1, (b) adding `second_stage_max_sequences` parameter to limit Stage 2 to 200K sequences (~1.2h/epoch).
+- [ ] AG S2v2 yeast sweep: 8 configs, currently at S2 epoch 3-5/50. Will need multiple resubmissions over ~5-7 days.
 
-- **Cache build SIGBUS**: Yeast cache build failed with SIGBUS when filesystem ran out of space during memmap write. Fixed by cleaning stale outputs (~25GB freed: uv cache, last_model checkpoints, old arch search, stale pilots).
+### Completed Today (Mar 6)
 
-### Disk Cleanup History (Mar 4)
+- [x] K562 + yeast distribution analysis (job 825999, finished in 51s)
+- [x] K562 DREAM oracle-label scaling fill jobs (825997/825998, most fractions now 3/3)
+- [x] Parallel chunked cache builder + ConcatenatedMmaps (no concat step needed)
 
-Removed ~25GB total:
-- `uv cache` (~14 GB) — download cache only, .venv unaffected
-- `stage2_k562_oracle/fold_*/last_model/` (~9.4 GB) — redundant with best_model/
-- `stage2_k562_s2a/`, `s2b/`, `s2c/` (~5.7 GB) — superseded by 10-fold oracle
-- Old K562 arch search dirs (~450 MB) — results documented in MEMORY.md
-- `ag_hashfrag_oracle_full/` (~303 MB) — incomplete, abandoned
-- `ag_yeast_stage2/`, `exp0_yeast_scaling_6m/` (~1.7 GB) — stale Feb 26 pilots
-- `Klindt_rotation/` (~541 MB) — old project
+---
 
-### Known Issues
+## Disk Space
 
-- **Disk constraints**: `/grid` shared NFS at 100% (10TB), ~35GB free. Full 6M yeast cache impossible (~104 GB). Using 1M limited cache. After cache build completes (~18GB), ~17GB headroom remains.
-- **QoS throttling**: `slow_nice` allows 48h runtime but limits concurrent GPU jobs; many tasks queue behind `QOSMaxJobsPerUserLimit`.
-- **K562 S2 pseudolabels slow**: Job 804277 requires full-encoder inference (no cache for S2 models since encoder weights changed). ~460K sequences × 10 folds × RC averaging. ~2.5-3h per fold, ~25-30h total.
+- Available: ~131 GB (after cache chunk pre-allocation starts: ~27 GB)
+- Cache chunks will use ~104 GB total (6 × ~17.4 GB)
+- Monitor closely — insufficient space will fail jobs
+
+---
+
+## Recent Fixes (Mar 6, 2026)
+
+- **Parallel chunked cache building**: Single-GPU cache build took ~74h (exceeds 48h limit). Split into 6 parallel GPU chunks (~12h each).
+- **ConcatenatedMmaps**: Load chunked caches directly without disk concatenation (saves ~104 GB temporary disk space).
+- **Optimized encoder forward**: Combined canonical + RC into single forward pass (2× fewer GPU kernel launches).
+- **Race condition fix**: Only chunk 0 builds val/test cache (prevents NFS concurrent-write corruption).
