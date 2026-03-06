@@ -38,11 +38,17 @@ echo "Disk free before:"
 df -h /grid/wsbs/home_norepl/christen | tail -1
 START_TIME=$(date +%s)
 
-# Each chunk builds its portion of train + full val/test (val/test auto-skip if already built)
+# Only chunk 0 builds val/test (avoids race condition with concurrent writers)
+if [[ "${SLURM_ARRAY_TASK_ID}" == "0" ]]; then
+    SPLITS="train val test"
+else
+    SPLITS="train"
+fi
+
 uv run --no-sync python scripts/analysis/build_yeast_embedding_cache.py \
     --data_path data/yeast \
     --cache_dir "${CACHE_DIR}" \
-    --splits train val test \
+    --splits ${SPLITS} \
     --batch_size 128 \
     --num_workers 8 \
     --chunk_id "${SLURM_ARRAY_TASK_ID}" \
