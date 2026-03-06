@@ -74,7 +74,7 @@ def _encode_and_save(
     cache_dir: Path,
     prefix: str,
     batch_size: int = 256,
-    dtype=np.float16,
+    dtype: np.dtype = np.float16,
 ) -> None:
     """Encode sequences and save canonical + RC caches."""
     can_path = cache_dir / f"{prefix}_canonical.npy"
@@ -127,9 +127,18 @@ def main():
         type=str,
         required=True,
     )
+    parser.add_argument(
+        "--dtype",
+        default="float16",
+        choices=["float16", "float32"],
+        help="Storage dtype. float32 avoids precision loss from bfloat16→float16 truncation.",
+    )
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--gpu", type=int, default=0)
     args = parser.parse_args()
+
+    _DTYPE_MAP = {"float16": np.float16, "float32": np.float32}
+    storage_dtype = _DTYPE_MAP[args.dtype]
 
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(args.gpu))
 
@@ -162,22 +171,42 @@ def main():
     # ── In-distribution test set ──────────────────────────────────────────────
     in_dist_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
     _encode_and_save(
-        encoder_fn, in_dist_df["sequence"].tolist(), cache_dir, "test_in_dist", args.batch_size
+        encoder_fn,
+        in_dist_df["sequence"].tolist(),
+        cache_dir,
+        "test_in_dist",
+        args.batch_size,
+        dtype=storage_dtype,
     )
 
     # ── SNV pairs (ref + alt separately) ──────────────────────────────────────
     snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
     _encode_and_save(
-        encoder_fn, snv_df["sequence_ref"].tolist(), cache_dir, "test_snv_ref", args.batch_size
+        encoder_fn,
+        snv_df["sequence_ref"].tolist(),
+        cache_dir,
+        "test_snv_ref",
+        args.batch_size,
+        dtype=storage_dtype,
     )
     _encode_and_save(
-        encoder_fn, snv_df["sequence_alt"].tolist(), cache_dir, "test_snv_alt", args.batch_size
+        encoder_fn,
+        snv_df["sequence_alt"].tolist(),
+        cache_dir,
+        "test_snv_alt",
+        args.batch_size,
+        dtype=storage_dtype,
     )
 
     # ── OOD designed CRE ──────────────────────────────────────────────────────
     ood_df = pd.read_csv(test_dir / "test_ood_designed_k562.tsv", sep="\t")
     _encode_and_save(
-        encoder_fn, ood_df["sequence"].tolist(), cache_dir, "test_ood", args.batch_size
+        encoder_fn,
+        ood_df["sequence"].tolist(),
+        cache_dir,
+        "test_ood",
+        args.batch_size,
+        dtype=storage_dtype,
     )
 
     print("\nDone! All test set embedding caches built.")
