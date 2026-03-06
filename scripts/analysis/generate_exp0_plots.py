@@ -41,6 +41,7 @@ def load_results(
     results_dir: Path,
     *,
     require_n_total: int | None = None,
+    require_test_keys: set[str] | None = None,
 ) -> list[dict]:
     records = []
     for p in sorted(results_dir.rglob("result.json")):
@@ -48,6 +49,10 @@ def load_results(
             d = json.load(f)
         if require_n_total is not None and d.get("n_total") != require_n_total:
             continue
+        if require_test_keys is not None:
+            tm = d.get("test_metrics", {})
+            if not require_test_keys.issubset(tm.keys()):
+                continue
         d["_path"] = str(p)
         records.append(d)
     return records
@@ -230,8 +235,14 @@ def generate_k562_plots():
         f"{ {k: f'{v:.4f}' for k, v in oracle_baselines.items()} }"
     )
 
+    # Require all 4 test metric keys to exclude old runs that used a different
+    # OOD test set (run_05/run_10/run_25 — missing snv_abs, spurious OOD values).
+    _k562_test_keys = {"in_distribution", "ood", "snv_abs", "snv_delta"}
     dream_real = make_df(
-        load_results(REPO / "outputs" / "exp0_k562_scaling"),
+        load_results(
+            REPO / "outputs" / "exp0_k562_scaling",
+            require_test_keys=_k562_test_keys,
+        ),
         "DREAM-RNN (real labels)",
         K562_METRICS,
     )
