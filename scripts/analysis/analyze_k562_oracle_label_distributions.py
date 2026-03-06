@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Analyse K562 oracle ensemble label distributions and prediction quality.
+"""Analyse K562 AlphaGenome Ensemble label distributions and prediction quality.
 
 Loads pseudolabel npz files from `outputs/oracle_pseudolabels_k562_ag/` and
 produces:
 
-  summary.json                  — full stats + oracle-vs-true metrics
-  distribution_stats.csv        — per-split summary statistics (true + oracle)
+  summary.json                  — full stats + ensemble-vs-true metrics
+  distribution_stats.csv        — per-split summary statistics (true + ensemble)
   oracle_vs_true_metrics.csv    — Pearson / Spearman / MAE / RMSE / Wasserstein
 
   true_train_val_id_ood_hist.png   — histogram overlay across all four splits
-  oracle_vs_true_id_ood_ecdf.png   — ECDF: true vs oracle for in-dist & OOD
-  oracle_scatter_panels.png        — scatter oracle_mean vs true (per test split)
-  oracle_uncertainty.png           — oracle_std distribution + calibration
+  oracle_vs_true_id_ood_ecdf.png   — ECDF: true vs ensemble for in-dist & OOD
+  oracle_scatter_panels.png        — scatter ensemble mean vs true (per test split)
+  oracle_uncertainty.png           — ensemble std distribution + calibration
+  oracle_snv_delta.png             — SNV delta (alt-ref) scatter + histograms
 
 Run from repo root::
 
@@ -182,14 +183,14 @@ def plot_ecdf(
         x_t, y_t = _ecdf(true)
         x_p, y_p = _ecdf(pred)
         ax.plot(x_t, y_t, label="true", linewidth=2)
-        ax.plot(x_p, y_p, label="oracle mean", linewidth=2, linestyle="--")
+        ax.plot(x_p, y_p, label="AlphaGenome Ensemble mean", linewidth=2, linestyle="--")
         ax.set_xlabel("K562 log2FC")
         ax.set_ylabel("ECDF")
         ax.set_title(label)
         ax.legend(fontsize=9)
         ax.grid(alpha=0.25)
 
-    fig.suptitle("K562: oracle vs true label distributions (ECDF)", fontsize=12)
+    fig.suptitle("K562: AlphaGenome Ensemble vs true label distributions (ECDF)", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_png, dpi=180, bbox_inches="tight")
     plt.close(fig)
@@ -219,14 +220,14 @@ def plot_scatter_panels(
         ax.set_xlim(lim)
         ax.set_ylim(lim)
         ax.set_xlabel("True K562 log2FC")
-        ax.set_ylabel("Oracle mean")
+        ax.set_ylabel("AlphaGenome Ensemble mean")
         m = metrics.get(name, {})
         r = m.get("pearson_r", float("nan"))
         rho = m.get("spearman_r", float("nan"))
         ax.set_title(f"{name}\nr={r:.3f}  ρ={rho:.3f}  n={m.get('n', 0):,}")
         ax.grid(alpha=0.2)
 
-    fig.suptitle("K562 oracle mean vs true labels", fontsize=12)
+    fig.suptitle("K562 AlphaGenome Ensemble mean vs true labels", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_png, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -252,11 +253,11 @@ def plot_oof_scatter(
     ax.set_xlim(lim)
     ax.set_ylim(lim)
     ax.set_xlabel("True K562 log2FC (train+pool)")
-    ax.set_ylabel("Oracle OOF prediction")
+    ax.set_ylabel("AlphaGenome Ensemble OOF prediction")
     r = metrics.get("pearson_r", float("nan"))
     rho = metrics.get("spearman_r", float("nan"))
     ax.set_title(
-        f"Oracle out-of-fold (train+pool, n={mask.sum():,})\n"
+        f"AlphaGenome Ensemble out-of-fold (train+pool, n={mask.sum():,})\n"
         f"r={r:.3f}  ρ={rho:.3f}  MAE={metrics.get('mae', float('nan')):.3f}"
     )
     ax.grid(alpha=0.2)
@@ -268,46 +269,54 @@ def plot_oof_scatter(
 def plot_uncertainty(
     oracle_stds: dict[str, np.ndarray],
     errors: dict[str, np.ndarray],
+    true_values: dict[str, np.ndarray],
     out_png: Path,
 ) -> None:
-    """Oracle std distribution per split + oracle_std vs |error| calibration."""
+    """Ensemble std distribution + normalized calibration."""
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
 
     # Left: std distribution across splits
     ax = axes[0]
-    bins = 50
     for name, std in oracle_stds.items():
         std = std[np.isfinite(std)]
-        ax.hist(std, bins=bins, alpha=0.5, density=True, label=name)
-    ax.set_xlabel("Oracle std (ensemble disagreement)")
+        ax.hist(std, bins=50, alpha=0.5, density=True, label=name)
+    ax.set_xlabel("Ensemble std (disagreement)")
     ax.set_ylabel("Density")
-    ax.set_title("Oracle uncertainty distribution by split")
+    ax.set_title("AlphaGenome Ensemble uncertainty distribution by split")
     ax.legend(fontsize=9)
     ax.grid(alpha=0.25)
 
-    # Right: calibration — oracle_std vs |oracle_mean - true| for in-dist
+    # Right: normalized calibration (relative error vs relative std)
     ax = axes[1]
-    if "in-dist test" in oracle_stds and "in-dist test" in errors:
-        std_id = oracle_stds["in-dist test"]
-        err_id = errors["in-dist test"]
-        mask = np.isfinite(std_id) & np.isfinite(err_id)
+    cal_key = next(
+        (k for k in oracle_stds if "in-dist" in k.lower() or "id" in k.lower()),
+        None,
+    )
+    if cal_key and cal_key in errors and cal_key in true_values:
+        std_arr = oracle_stds[cal_key]
+        err_arr = errors[cal_key]
+        true_arr = true_values[cal_key]
+        eps = 0.1
+        denom = np.maximum(np.abs(true_arr), eps)
+        rel_std = std_arr / denom
+        rel_err = np.abs(err_arr) / denom
+        mask = np.isfinite(rel_std) & np.isfinite(rel_err)
         if mask.sum() > 10:
-            # Bin by std
             n_bins = 20
-            quantiles = np.quantile(std_id[mask], np.linspace(0, 1, n_bins + 1))
+            quantiles = np.quantile(rel_std[mask], np.linspace(0, 1, n_bins + 1))
             bin_std, bin_err = [], []
             for lo, hi in zip(quantiles[:-1], quantiles[1:]):
-                sel = mask & (std_id >= lo) & (std_id < hi)
+                sel = mask & (rel_std >= lo) & (rel_std < hi)
                 if sel.sum() > 5:
-                    bin_std.append(float(np.mean(std_id[sel])))
-                    bin_err.append(float(np.mean(np.abs(err_id[sel]))))
+                    bin_std.append(float(np.mean(rel_std[sel])))
+                    bin_err.append(float(np.mean(rel_err[sel])))
             ax.plot(bin_std, bin_err, "o-", color="#C44E52", linewidth=2)
-            ax.set_xlabel("Mean oracle std (binned)")
-            ax.set_ylabel("Mean |oracle_mean − true|")
-            ax.set_title("Oracle calibration: uncertainty vs error (in-dist test)")
+            ax.set_xlabel("Mean relative ensemble std (binned)")
+            ax.set_ylabel("Mean relative |prediction - true|")
+            ax.set_title(f"Normalized calibration ({cal_key})")
             ax.grid(alpha=0.25)
 
-    fig.suptitle("K562 oracle uncertainty", fontsize=12)
+    fig.suptitle("K562 AlphaGenome Ensemble uncertainty", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_png, dpi=180, bbox_inches="tight")
     plt.close(fig)
@@ -337,21 +346,21 @@ def plot_snv_delta(
     ax.axhline(0, color="gray", linewidth=0.8, alpha=0.5)
     ax.axvline(0, color="gray", linewidth=0.8, alpha=0.5)
     ax.set_xlabel("True Δlog2FC (alt − ref)")
-    ax.set_ylabel("Oracle Δ (alt − ref)")
+    ax.set_ylabel("AlphaGenome Ensemble Δ (alt − ref)")
     ax.set_title(f"SNV delta predictions\nr={r:.3f}  ρ={rho:.3f}  n={mask.sum():,}")
     ax.grid(alpha=0.2)
 
     ax = axes[1]
     bins = np.linspace(-3, 3, 80)
     ax.hist(yt, bins=bins, alpha=0.5, density=True, label="true Δlog2FC")
-    ax.hist(yp, bins=bins, alpha=0.5, density=True, label="oracle Δ")
+    ax.hist(yp, bins=bins, alpha=0.5, density=True, label="ensemble Δ")
     ax.set_xlabel("Δlog2FC")
     ax.set_ylabel("Density")
     ax.set_title("SNV delta distributions")
     ax.legend(fontsize=9)
     ax.grid(alpha=0.25)
 
-    fig.suptitle("K562 oracle: SNV effect prediction (delta log2FC)", fontsize=12)
+    fig.suptitle("K562 AlphaGenome Ensemble: SNV effect prediction (delta log2FC)", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_png, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -507,6 +516,7 @@ def main() -> None:
 
     unc_stds = {}
     unc_errors = {}
+    unc_true = {}
     for name, pred, true, std in [
         ("in-dist test", pred_id, true_id, std_id),
         ("OOD test", pred_ood, true_ood, std_ood),
@@ -515,8 +525,9 @@ def main() -> None:
         if std.size and pred.size and true.size:
             unc_stds[name] = std
             unc_errors[name] = pred - true
+            unc_true[name] = true
     if unc_stds:
-        plot_uncertainty(unc_stds, unc_errors, out_dir / "oracle_uncertainty.png")
+        plot_uncertainty(unc_stds, unc_errors, unc_true, out_dir / "oracle_uncertainty.png")
         print("Wrote: oracle_uncertainty.png")
 
     if pred_snv_delta.size:
@@ -543,7 +554,7 @@ def main() -> None:
     print("Wrote: summary.json")
 
     # ── print console summary ─────────────────────────────────────────────────
-    print("\n=== Oracle ensemble quality (K562 hashFrag) ===")
+    print("\n=== AlphaGenome Ensemble quality (K562 hashFrag) ===")
     order = ["val", "in_dist_test", "snv_abs", "snv_delta", "ood_test", "train_oof"]
     for key in order:
         m = metrics.get(key)

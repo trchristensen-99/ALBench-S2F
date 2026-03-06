@@ -29,10 +29,8 @@ STYLE = {
     "DREAM-RNN (AlphaGenome Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
     "AlphaGenome (real labels, frozen)": dict(color="#4B7BE0", marker="s", ls="-"),
     "AlphaGenome (AlphaGenome Ensemble labels, frozen)": dict(color="#4B7BE0", marker="s", ls="--"),
-    # Yeast
-    "DREAM-RNN (real labels) ": dict(
-        color="#E05E4B", marker="o", ls="-"
-    ),  # trailing space distinguishes
+    # Yeast (trailing space in "real labels" key distinguishes from K562)
+    "DREAM-RNN (real labels) ": dict(color="#E05E4B", marker="o", ls="-"),
     "DREAM-RNN (DREAM-RNN Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
     "AlphaGenome frozen (partial)": dict(color="#4B7BE0", marker="s", ls="-"),
 }
@@ -136,6 +134,7 @@ def plot_scaling_panel(
     oracle_baseline: float | None = None,
     oracle_baseline_label: str = "AlphaGenome Ensemble",
     ylim: tuple[float, float] | None = None,
+    show_legend: bool = True,
 ):
     for label, df in dfs.items():
         agg = aggregate(df, metric)
@@ -143,10 +142,15 @@ def plot_scaling_panel(
             continue
         style = STYLE.get(label, dict(color="gray", marker="^", ls="-"))
         x = agg["n_samples_mean"]
+        yerr = agg["std"].fillna(0)
+        # Clamp error bars so they don't extend below 0
+        means = agg["mean"]
+        yerr_lo = np.minimum(yerr, means)
+        yerr_hi = yerr
         ax.errorbar(
             x,
-            agg["mean"],
-            yerr=agg["std"].fillna(0),
+            means,
+            yerr=[yerr_lo, yerr_hi],
             fmt=f"{style['ls']}{style['marker']}",
             color=style["color"],
             label=label,
@@ -172,8 +176,34 @@ def plot_scaling_panel(
     ax.set_title(title, fontsize=11)
     if ylim is not None:
         ax.set_ylim(ylim)
-    ax.legend(fontsize=8, loc="lower right")
+    if show_legend:
+        ax.legend(fontsize=8, loc="lower right")
     ax.grid(True, which="both", ls="--", alpha=0.35, zorder=0)
+
+
+def _add_shared_legend(fig, axes, *, ncol=None, loc="upper center", y_offset=-0.02):
+    """Collect unique legend handles from all axes and add one figure legend."""
+    handles, labels = [], []
+    seen = set()
+    for ax in axes.flatten() if hasattr(axes, "flatten") else [axes]:
+        for handle, lbl in zip(*ax.get_legend_handles_labels()):
+            if lbl not in seen:
+                handles.append(handle)
+                labels.append(lbl)
+                seen.add(lbl)
+    if not handles:
+        return
+    if ncol is None:
+        ncol = min(len(handles), 3)
+    fig.legend(
+        handles,
+        labels,
+        loc=loc,
+        bbox_to_anchor=(0.5, y_offset),
+        ncol=ncol,
+        fontsize=9,
+        framealpha=0.9,
+    )
 
 
 # ── K562 plots ────────────────────────────────────────────────────────────────
@@ -226,7 +256,7 @@ def generate_k562_plots():
         K562_METRICS,
     )
 
-    dfs = {}
+    dfs_all = {}
     for label, df in [
         ("DREAM-RNN (real labels)", dream_real),
         ("AlphaGenome (real labels, frozen)", ag_real),
@@ -234,9 +264,11 @@ def generate_k562_plots():
         ("AlphaGenome (AlphaGenome Ensemble labels, frozen)", ag_oracle),
     ]:
         if not df.empty:
-            dfs[label] = df
+            dfs_all[label] = df
 
-    print(f"K562 data: {', '.join(f'{k}: {len(v)} records' for k, v in dfs.items())}")
+    dfs_real = {k: v for k, v in dfs_all.items() if "Ensemble labels" not in k}
+
+    print(f"K562 data: {', '.join(f'{k}: {len(v)} records' for k, v in dfs_all.items())}")
 
     panels = [
         ("test_id", "Pearson R", "In-distribution"),
@@ -245,49 +277,91 @@ def generate_k562_plots():
         ("test_snv_delta", "Pearson R", "SNV effect (delta)"),
     ]
 
-    # 4-panel comparison
+    # 4-panel: ALL conditions (real + oracle)
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
         plot_scaling_panel(
             ax,
-            dfs,
+            dfs_all,
             metric,
             ylabel,
             title,
             oracle_baseline=oracle_baselines.get(metric),
             oracle_baseline_label="AlphaGenome Ensemble",
             ylim=(0, 1),
+            show_legend=False,
         )
-    fig.suptitle("K562 MPRA — Exp 0 Scaling Curves (all conditions)", fontsize=14, y=1.01)
-    fig.tight_layout()
+    fig.suptitle("K562 MPRA — Exp 0 Scaling Curves (all conditions)", fontsize=14, y=1.02)
+    _add_shared_legend(fig, axes, ncol=3, y_offset=-0.01)
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
     fig.savefig(OUT_DIR / "k562_all_conditions_4panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  Saved: k562_all_conditions_4panel.png")
 
-    # Real vs oracle comparison (in-dist + OOD, 2 panels)
+    # 4-panel: REAL LABELS ONLY
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
+        plot_scaling_panel(
+            ax,
+            dfs_real,
+            metric,
+            ylabel,
+            title,
+            ylim=(0, 1),
+            show_legend=False,
+        )
+    fig.suptitle("K562 MPRA — Exp 0 Scaling Curves (real labels only)", fontsize=14, y=1.02)
+    _add_shared_legend(fig, axes, y_offset=-0.01)
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
+    fig.savefig(OUT_DIR / "k562_real_labels_4panel.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved: k562_real_labels_4panel.png")
+
+    # 2-panel: real vs oracle comparison (in-dist + OOD)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
         plot_scaling_panel(
             ax,
-            dfs,
+            dfs_all,
             metric,
             ylabel,
             title,
             oracle_baseline=oracle_baselines.get(metric),
             oracle_baseline_label="AlphaGenome Ensemble",
             ylim=(0, 1),
+            show_legend=False,
         )
-    fig.suptitle("K562 MPRA — Real vs AlphaGenome Ensemble Labels", fontsize=13, y=1.01)
-    fig.tight_layout()
+    fig.suptitle("K562 MPRA — Real vs AlphaGenome Ensemble Labels", fontsize=13, y=1.02)
+    _add_shared_legend(fig, axes, ncol=3, y_offset=-0.06)
+    fig.tight_layout(rect=[0, 0.10, 1, 1])
     fig.savefig(OUT_DIR / "k562_real_vs_oracle_2panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  Saved: k562_real_vs_oracle_2panel.png")
 
-    # Single-panel in-dist
+    # 2-panel: REAL LABELS ONLY (in-dist + OOD)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
+        plot_scaling_panel(
+            ax,
+            dfs_real,
+            metric,
+            ylabel,
+            title,
+            ylim=(0, 1),
+            show_legend=False,
+        )
+    fig.suptitle("K562 MPRA — Scaling Curves (real labels)", fontsize=13, y=1.02)
+    _add_shared_legend(fig, axes, y_offset=-0.06)
+    fig.tight_layout(rect=[0, 0.10, 1, 1])
+    fig.savefig(OUT_DIR / "k562_real_labels_2panel.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved: k562_real_labels_2panel.png")
+
+    # Single-panel in-dist (all conditions)
     fig, ax = plt.subplots(figsize=(8, 5.5))
     plot_scaling_panel(
         ax,
-        dfs,
+        dfs_all,
         "test_id",
         "Pearson R",
         "K562 In-distribution Scaling",
@@ -301,12 +375,12 @@ def generate_k562_plots():
     print("  Saved: k562_in_dist.png")
 
     # Save combined CSV
-    all_k562 = pd.concat(dfs.values(), ignore_index=True)
+    all_k562 = pd.concat(dfs_all.values(), ignore_index=True)
     all_k562.to_csv(OUT_DIR / "k562_all_results.csv", index=False)
 
     # Print summary table
     print("\n  K562 Summary (mean test in-dist Pearson R):")
-    for label, df in dfs.items():
+    for label, df in dfs_all.items():
         agg = aggregate(df, "test_id")
         if agg.empty:
             continue
@@ -344,7 +418,7 @@ def generate_yeast_plots():
             REPO / "outputs" / "exp0_yeast_scaling",
             require_n_total=6065325,
         ),
-        "DREAM-RNN (real labels) ",  # trailing space distinguishes from K562 style key
+        "DREAM-RNN (real labels) ",  # trailing space distinguishes from K562
         YEAST_METRICS,
     )
     dream_real = snap_yeast_fracs(dream_real)
@@ -359,7 +433,7 @@ def generate_yeast_plots():
     )
     dream_oracle = snap_yeast_fracs(dream_oracle)
 
-    # AlphaGenome frozen-encoder (partial — only fractions up to 0.05, 1 seed each)
+    # AlphaGenome frozen-encoder (partial — only fractions up to 0.05, 1 seed)
     ag_frozen = make_df(
         load_results(
             REPO / "outputs" / "exp0_yeast_scaling_alphagenome",
@@ -370,16 +444,18 @@ def generate_yeast_plots():
     )
     ag_frozen = snap_yeast_fracs(ag_frozen)
 
-    dfs = {}
+    dfs_all = {}
     for label, df in [
         ("DREAM-RNN (real labels) ", dream_real),
         ("DREAM-RNN (DREAM-RNN Ensemble labels)", dream_oracle),
         ("AlphaGenome frozen (partial)", ag_frozen),
     ]:
         if not df.empty:
-            dfs[label] = df
+            dfs_all[label] = df
 
-    print(f"\nYeast data: {', '.join(f'{k}: {len(v)} records' for k, v in dfs.items())}")
+    dfs_real = {k: v for k, v in dfs_all.items() if "Ensemble labels" not in k}
+
+    print(f"\nYeast data: {', '.join(f'{k}: {len(v)} records' for k, v in dfs_all.items())}")
 
     panels = [
         ("test_random", "Pearson R", "Random (in-distribution)"),
@@ -388,46 +464,81 @@ def generate_yeast_plots():
         ("test_snv", "Pearson R", "SNV effect (delta)"),
     ]
 
-    # 4-panel comparison: real vs DREAM-RNN Ensemble
+    # 4-panel: ALL conditions
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
-        plot_scaling_panel(ax, dfs, metric, ylabel, title, ylim=(0, 1))
+        plot_scaling_panel(ax, dfs_all, metric, ylabel, title, ylim=(0, 1), show_legend=False)
     fig.suptitle(
         "Yeast — Exp 0 Scaling Curves: Real vs DREAM-RNN Ensemble Labels",
         fontsize=14,
-        y=1.01,
+        y=1.02,
     )
-    fig.tight_layout()
+    _add_shared_legend(fig, axes, y_offset=-0.01)
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
     fig.savefig(OUT_DIR / "yeast_real_vs_oracle_4panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  Saved: yeast_real_vs_oracle_4panel.png")
 
-    # 2-panel: random (ID) + genomic (OOD)
+    # 4-panel: REAL LABELS ONLY
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
+        plot_scaling_panel(ax, dfs_real, metric, ylabel, title, ylim=(0, 1), show_legend=False)
+    fig.suptitle(
+        "Yeast — Exp 0 Scaling Curves (real labels only)",
+        fontsize=14,
+        y=1.02,
+    )
+    _add_shared_legend(fig, axes, y_offset=-0.01)
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
+    fig.savefig(OUT_DIR / "yeast_real_labels_4panel.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved: yeast_real_labels_4panel.png")
+
+    # 2-panel: ALL conditions (random + genomic)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
-        plot_scaling_panel(ax, dfs, metric, ylabel, title, ylim=(0, 1))
+        plot_scaling_panel(ax, dfs_all, metric, ylabel, title, ylim=(0, 1), show_legend=False)
     fig.suptitle(
         "Yeast — Real vs DREAM-RNN Ensemble Labels",
         fontsize=13,
-        y=1.01,
+        y=1.02,
     )
-    fig.tight_layout()
+    _add_shared_legend(fig, axes, y_offset=-0.06)
+    fig.tight_layout(rect=[0, 0.10, 1, 1])
     fig.savefig(OUT_DIR / "yeast_real_vs_oracle_2panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  Saved: yeast_real_vs_oracle_2panel.png")
 
+    # 2-panel: REAL LABELS ONLY (random + genomic)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
+        plot_scaling_panel(ax, dfs_real, metric, ylabel, title, ylim=(0, 1), show_legend=False)
+    fig.suptitle(
+        "Yeast — Scaling Curves (real labels)",
+        fontsize=13,
+        y=1.02,
+    )
+    _add_shared_legend(fig, axes, y_offset=-0.06)
+    fig.tight_layout(rect=[0, 0.10, 1, 1])
+    fig.savefig(OUT_DIR / "yeast_real_labels_2panel.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved: yeast_real_labels_2panel.png")
+
     # Single-panel: val Pearson comparison
     fig, ax = plt.subplots(figsize=(8, 5.5))
-    for label, df in dfs.items():
+    for label, df in dfs_all.items():
         agg = aggregate(df, "val_pearson")
         if agg.empty:
             continue
         style = STYLE[label]
         x = agg["n_samples_mean"]
+        yerr = agg["std"].fillna(0)
+        means = agg["mean"]
+        yerr_lo = np.minimum(yerr, means)
         ax.errorbar(
             x,
-            agg["mean"],
-            yerr=agg["std"].fillna(0),
+            means,
+            yerr=[yerr_lo, yerr],
             fmt=f"{style['ls']}{style['marker']}",
             color=style["color"],
             label=label,
@@ -453,12 +564,12 @@ def generate_yeast_plots():
     print("  Saved: yeast_val_pearson_comparison.png")
 
     # Save combined CSV
-    all_yeast = pd.concat(dfs.values(), ignore_index=True)
+    all_yeast = pd.concat(dfs_all.values(), ignore_index=True)
     all_yeast.to_csv(OUT_DIR / "yeast_all_results.csv", index=False)
 
     # Print summary
     print("\n  Yeast Summary (mean test random Pearson R):")
-    for label, df in dfs.items():
+    for label, df in dfs_all.items():
         agg = aggregate(df, "test_random")
         if agg.empty:
             continue
@@ -471,7 +582,7 @@ def generate_yeast_plots():
             print(f"      n={ns:,}: {m:.4f} +/- {s:.4f} (seeds={n})")
 
     print("\n  Yeast Summary (mean val Pearson R):")
-    for label, df in dfs.items():
+    for label, df in dfs_all.items():
         agg = aggregate(df, "val_pearson")
         if agg.empty:
             continue
