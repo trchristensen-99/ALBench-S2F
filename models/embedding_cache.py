@@ -196,18 +196,85 @@ def build_embedding_cache(
     print(f"[EmbeddingCache] {split} cache saved → {cache_dir} ({ptr:,} rows)")
 
 
+class ConcatenatedMmaps:
+    """Lazily concatenate multiple memory-mapped arrays (zero extra disk/RAM).
+
+    Supports integer and integer-array indexing, as used by
+    :func:`lookup_cached_batch`.
+    """
+
+    def __init__(self, arrays: list[np.ndarray]):
+        self.arrays = arrays
+        self._lengths = [len(a) for a in arrays]
+        self._cum = np.cumsum([0] + self._lengths)
+        self.shape = (int(self._cum[-1]),) + arrays[0].shape[1:]
+        self.dtype = arrays[0].dtype
+
+    def __len__(self) -> int:
+        return self.shape[0]
+
+    def __getitem__(self, idx):
+        if isinstance(idx, (int, np.integer)):
+            for i, (lo, hi) in enumerate(zip(self._cum[:-1], self._cum[1:])):
+                if lo <= idx < hi:
+                    return self.arrays[i][idx - lo]
+            raise IndexError(idx)
+        # Batch integer-array indexing
+        idx = np.asarray(idx)
+        result = np.empty((len(idx),) + self.shape[1:], dtype=self.dtype)
+        for i, (lo, hi) in enumerate(zip(self._cum[:-1], self._cum[1:])):
+            mask = (idx >= lo) & (idx < hi)
+            if mask.any():
+                result[mask] = self.arrays[i][idx[mask] - lo]
+        return result
+
+
 def load_embedding_cache(
     cache_dir: Path, split: str, mmap_mode: str | None = "r"
 ) -> tuple[np.ndarray, np.ndarray]:
     """Load a pre-built cache as memory-mapped arrays (zero RAM until accessed).
 
+    Automatically detects chunked caches (chunk_0/, chunk_1/, ...) and returns
+    a :class:`ConcatenatedMmaps` wrapper that indexes across all chunks.
+
     Returns:
-        canonical: (N, T, D) float16 memmap
-        rc:        (N, T, D) float16 memmap
+        canonical: (N, T, D) float16 memmap or ConcatenatedMmaps
+        rc:        (N, T, D) float16 memmap or ConcatenatedMmaps
     """
-    canonical = np.load(cache_dir / f"{split}_canonical.npy", mmap_mode=mmap_mode)
-    rc = np.load(cache_dir / f"{split}_rc.npy", mmap_mode=mmap_mode)
-    return canonical, rc
+    cache_dir = Path(cache_dir)
+
+    # Try non-chunked first
+    can_path = cache_dir / f"{split}_canonical.npy"
+    rc_path = cache_dir / f"{split}_rc.npy"
+    if can_path.exists() and rc_path.exists():
+        return (
+            np.load(can_path, mmap_mode=mmap_mode),
+            np.load(rc_path, mmap_mode=mmap_mode),
+        )
+
+    # Try chunked cache
+    chunk_dirs = sorted(cache_dir.glob("chunk_*"), key=lambda p: int(p.name.split("_")[1]))
+    if chunk_dirs:
+        can_arrays = []
+        rc_arrays = []
+        for cd in chunk_dirs:
+            cf = cd / f"{split}_canonical.npy"
+            rf = cd / f"{split}_rc.npy"
+            if cf.exists() and rf.exists():
+                can_arrays.append(np.load(cf, mmap_mode=mmap_mode))
+                rc_arrays.append(np.load(rf, mmap_mode=mmap_mode))
+        if can_arrays:
+            total = sum(len(a) for a in can_arrays)
+            print(
+                f"[EmbeddingCache] Loaded {split} from {len(can_arrays)} chunks: "
+                f"{total:,} total rows"
+            )
+            return ConcatenatedMmaps(can_arrays), ConcatenatedMmaps(rc_arrays)
+
+    raise FileNotFoundError(
+        f"No cache found for split '{split}' in {cache_dir} "
+        f"(checked direct files and chunk_*/ dirs)"
+    )
 
 
 # ── Head-only JIT functions ───────────────────────────────────────────────────
