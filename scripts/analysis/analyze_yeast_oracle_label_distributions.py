@@ -186,14 +186,14 @@ def plot_ecdf(
         x_t, y_t = _ecdf(true)
         x_p, y_p = _ecdf(pred)
         ax.plot(x_t, y_t, label="true", linewidth=2)
-        ax.plot(x_p, y_p, label="oracle mean", linewidth=2, linestyle="--")
+        ax.plot(x_p, y_p, label="DREAM-RNN Ensemble mean", linewidth=2, linestyle="--")
         ax.set_xlabel("Expression")
         ax.set_ylabel("ECDF")
         ax.set_title(label)
         ax.legend(fontsize=9)
         ax.grid(alpha=0.25)
 
-    fig.suptitle("Yeast: oracle vs true label distributions (ECDF)", fontsize=12)
+    fig.suptitle("Yeast: DREAM-RNN Ensemble vs true label distributions (ECDF)", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_png, dpi=180, bbox_inches="tight")
     plt.close(fig)
@@ -221,14 +221,14 @@ def plot_scatter_panels(
         ax.set_xlim(lim)
         ax.set_ylim(lim)
         ax.set_xlabel("True expression")
-        ax.set_ylabel("Oracle mean")
+        ax.set_ylabel("DREAM-RNN Ensemble mean")
         m = metrics.get(name, {})
         r = m.get("pearson_r", float("nan"))
         rho = m.get("spearman_r", float("nan"))
         ax.set_title(f"{name}\nr={r:.3f}  rho={rho:.3f}  n={m.get('n', 0):,}")
         ax.grid(alpha=0.2)
 
-    fig.suptitle("Yeast oracle mean vs true labels", fontsize=12)
+    fig.suptitle("Yeast DREAM-RNN Ensemble mean vs true labels", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_png, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -253,11 +253,11 @@ def plot_oof_scatter(
     ax.set_xlim(lim)
     ax.set_ylim(lim)
     ax.set_xlabel("True expression (train)")
-    ax.set_ylabel("Oracle OOF prediction")
+    ax.set_ylabel("DREAM-RNN Ensemble OOF prediction")
     r = metrics.get("pearson_r", float("nan"))
     rho = metrics.get("spearman_r", float("nan"))
     ax.set_title(
-        f"Oracle out-of-fold (train, n={mask.sum():,})\n"
+        f"DREAM-RNN Ensemble out-of-fold (train, n={mask.sum():,})\n"
         f"r={r:.3f}  rho={rho:.3f}  MAE={metrics.get('mae', float('nan')):.3f}"
     )
     ax.grid(alpha=0.2)
@@ -269,6 +269,7 @@ def plot_oof_scatter(
 def plot_uncertainty(
     oracle_stds: dict[str, np.ndarray],
     errors: dict[str, np.ndarray],
+    true_values: dict[str, np.ndarray],
     out_png: Path,
 ) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
@@ -277,35 +278,42 @@ def plot_uncertainty(
     for name, std in oracle_stds.items():
         std = std[np.isfinite(std)]
         ax.hist(std, bins=50, alpha=0.5, density=True, label=name)
-    ax.set_xlabel("Oracle std (ensemble disagreement)")
+    ax.set_xlabel("Ensemble std (disagreement)")
     ax.set_ylabel("Density")
-    ax.set_title("Oracle uncertainty distribution by split")
+    ax.set_title("DREAM-RNN Ensemble uncertainty distribution by split")
     ax.legend(fontsize=9)
     ax.grid(alpha=0.25)
 
     ax = axes[1]
-    # Calibration plot for ID (random) test split
+    # Normalized calibration plot for ID (random) test split:
+    # Divide error and std by max(|true|, eps) so the calibration is not
+    # dominated by high-activity sequences.
     cal_key = next((k for k in oracle_stds if "random" in k.lower() or "id" in k.lower()), None)
-    if cal_key and cal_key in errors:
+    if cal_key and cal_key in errors and cal_key in true_values:
         std_arr = oracle_stds[cal_key]
         err_arr = errors[cal_key]
-        mask = np.isfinite(std_arr) & np.isfinite(err_arr)
+        true_arr = true_values[cal_key]
+        eps = 0.1  # floor to avoid division by near-zero
+        denom = np.maximum(np.abs(true_arr), eps)
+        rel_std = std_arr / denom
+        rel_err = np.abs(err_arr) / denom
+        mask = np.isfinite(rel_std) & np.isfinite(rel_err)
         if mask.sum() > 10:
             n_bins = 20
-            quantiles = np.quantile(std_arr[mask], np.linspace(0, 1, n_bins + 1))
+            quantiles = np.quantile(rel_std[mask], np.linspace(0, 1, n_bins + 1))
             bin_std, bin_err = [], []
             for lo, hi in zip(quantiles[:-1], quantiles[1:]):
-                sel = mask & (std_arr >= lo) & (std_arr < hi)
+                sel = mask & (rel_std >= lo) & (rel_std < hi)
                 if sel.sum() > 5:
-                    bin_std.append(float(np.mean(std_arr[sel])))
-                    bin_err.append(float(np.mean(np.abs(err_arr[sel]))))
+                    bin_std.append(float(np.mean(rel_std[sel])))
+                    bin_err.append(float(np.mean(rel_err[sel])))
             ax.plot(bin_std, bin_err, "o-", color="#C44E52", linewidth=2)
-            ax.set_xlabel("Mean oracle std (binned)")
-            ax.set_ylabel("Mean |oracle_mean - true|")
-            ax.set_title(f"Oracle calibration: uncertainty vs error ({cal_key})")
+            ax.set_xlabel("Mean relative ensemble std (binned)")
+            ax.set_ylabel("Mean relative |prediction - true|")
+            ax.set_title(f"Normalized calibration ({cal_key})")
             ax.grid(alpha=0.25)
 
-    fig.suptitle("Yeast oracle uncertainty", fontsize=12)
+    fig.suptitle("Yeast DREAM-RNN Ensemble uncertainty", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_png, dpi=180, bbox_inches="tight")
     plt.close(fig)
@@ -334,21 +342,21 @@ def plot_snv_delta(
     ax.axhline(0, color="gray", linewidth=0.8, alpha=0.5)
     ax.axvline(0, color="gray", linewidth=0.8, alpha=0.5)
     ax.set_xlabel("True delta expression (alt - ref)")
-    ax.set_ylabel("Oracle delta (alt - ref)")
+    ax.set_ylabel("DREAM-RNN Ensemble delta (alt - ref)")
     ax.set_title(f"SNV delta predictions\nr={r:.3f}  rho={rho:.3f}  n={mask.sum():,}")
     ax.grid(alpha=0.2)
 
     ax = axes[1]
     bins = np.linspace(yt.min() - 0.1, yt.max() + 0.1, 80)
     ax.hist(yt, bins=bins, alpha=0.5, density=True, label="true delta")
-    ax.hist(yp, bins=bins, alpha=0.5, density=True, label="oracle delta")
+    ax.hist(yp, bins=bins, alpha=0.5, density=True, label="ensemble delta")
     ax.set_xlabel("Delta expression")
     ax.set_ylabel("Density")
     ax.set_title("SNV delta distributions")
     ax.legend(fontsize=9)
     ax.grid(alpha=0.25)
 
-    fig.suptitle("Yeast oracle: SNV effect prediction (delta expression)", fontsize=12)
+    fig.suptitle("Yeast DREAM-RNN Ensemble: SNV effect prediction (delta expression)", fontsize=12)
     fig.tight_layout()
     fig.savefig(out_png, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -582,12 +590,17 @@ def main() -> None:
             "ID (random)": pred_cal_sub["id_random"] - true_data["id_random"],
             "OOD (genomic)": pred_cal_sub["ood_genomic"] - true_data["ood_genomic"],
         }
+        unc_true = {
+            "ID (random)": true_data["id_random"],
+            "OOD (genomic)": true_data["ood_genomic"],
+        }
         if val_pl is not None and "oracle_std" in val_pl:
             unc_stds["val"] = val_pl["oracle_std"].astype(np.float32)
             unc_errors["val"] = val_pl["oracle_mean"].astype(np.float32) - val_pl[
                 "true_label"
             ].astype(np.float32)
-        plot_uncertainty(unc_stds, unc_errors, out_dir / "oracle_uncertainty.png")
+            unc_true["val"] = val_pl["true_label"].astype(np.float32)
+        plot_uncertainty(unc_stds, unc_errors, unc_true, out_dir / "oracle_uncertainty.png")
         print("Wrote: oracle_uncertainty.png")
 
         # SNV delta plot (calibrated: scale factor applies to delta too)

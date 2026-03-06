@@ -21,12 +21,20 @@ REPO = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO / "results" / "exp0_plots"
 
 # ── Color / marker scheme ─────────────────────────────────────────────────────
+# K562 uses AlphaGenome as the oracle ensemble.
+# Yeast uses DREAM-RNN as the oracle ensemble.
 STYLE = {
-    "DREAM-RNN (real)": dict(color="#E05E4B", marker="o", ls="-"),
-    "DREAM-RNN (oracle)": dict(color="#E05E4B", marker="o", ls="--"),
-    "AG (real, frozen)": dict(color="#4B7BE0", marker="s", ls="-"),
-    "AG (oracle, frozen)": dict(color="#4B7BE0", marker="s", ls="--"),
-    "AG frozen (partial)": dict(color="#4B7BE0", marker="s", ls="-"),
+    # K562
+    "DREAM-RNN (real labels)": dict(color="#E05E4B", marker="o", ls="-"),
+    "DREAM-RNN (AlphaGenome Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
+    "AlphaGenome (real labels, frozen)": dict(color="#4B7BE0", marker="s", ls="-"),
+    "AlphaGenome (AlphaGenome Ensemble labels, frozen)": dict(color="#4B7BE0", marker="s", ls="--"),
+    # Yeast
+    "DREAM-RNN (real labels) ": dict(
+        color="#E05E4B", marker="o", ls="-"
+    ),  # trailing space distinguishes
+    "DREAM-RNN (DREAM-RNN Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
+    "AlphaGenome frozen (partial)": dict(color="#4B7BE0", marker="s", ls="-"),
 }
 
 
@@ -72,10 +80,15 @@ def make_df(records: list[dict], model: str, metric_keys: dict[str, str]) -> pd.
 def aggregate(df: pd.DataFrame, metric: str) -> pd.DataFrame:
     valid = df.dropna(subset=[metric])
     if valid.empty:
-        return pd.DataFrame(columns=["fraction", "mean", "std", "n"])
+        return pd.DataFrame(columns=["fraction", "mean", "std", "n", "n_samples_mean"])
     agg = (
-        valid.groupby("fraction")[metric]
-        .agg(mean="mean", std="std", n="count")
+        valid.groupby("fraction")
+        .agg(
+            mean=(metric, "mean"),
+            std=(metric, "std"),
+            n=(metric, "count"),
+            n_samples_mean=("n_samples", "mean"),
+        )
         .reset_index()
         .sort_values("fraction")
     )
@@ -105,6 +118,15 @@ def load_k562_oracle_baselines() -> dict[str, float]:
 
 
 # ── Plotting helpers ──────────────────────────────────────────────────────────
+def _format_n_samples(v: float, _pos) -> str:
+    """Format absolute sample count for x-axis tick labels."""
+    if v >= 1_000_000:
+        return f"{v / 1_000_000:.1f}M"
+    if v >= 1_000:
+        return f"{v / 1_000:.0f}K"
+    return f"{v:.0f}"
+
+
 def plot_scaling_panel(
     ax: plt.Axes,
     dfs: dict[str, pd.DataFrame],
@@ -112,14 +134,15 @@ def plot_scaling_panel(
     ylabel: str,
     title: str,
     oracle_baseline: float | None = None,
-    use_pct: bool = True,
+    oracle_baseline_label: str = "AlphaGenome Ensemble",
+    ylim: tuple[float, float] | None = None,
 ):
     for label, df in dfs.items():
         agg = aggregate(df, metric)
         if agg.empty:
             continue
         style = STYLE.get(label, dict(color="gray", marker="^", ls="-"))
-        x = agg["fraction"] * 100 if use_pct else agg["fraction"]
+        x = agg["n_samples_mean"]
         ax.errorbar(
             x,
             agg["mean"],
@@ -139,14 +162,16 @@ def plot_scaling_panel(
             ls=":",
             lw=1.5,
             alpha=0.8,
-            label="AG oracle ensemble",
+            label=oracle_baseline_label,
             zorder=2,
         )
     ax.set_xscale("log")
-    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:g}%" if use_pct else f"{v:g}"))
-    ax.set_xlabel("Training data (% of total)", fontsize=10)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(_format_n_samples))
+    ax.set_xlabel("Number of training sequences", fontsize=10)
     ax.set_ylabel(ylabel, fontsize=10)
     ax.set_title(title, fontsize=11)
+    if ylim is not None:
+        ax.set_ylim(ylim)
     ax.legend(fontsize=8, loc="lower right")
     ax.grid(True, which="both", ls="--", alpha=0.35, zorder=0)
 
@@ -171,40 +196,42 @@ def snap_k562_fracs(df: pd.DataFrame) -> pd.DataFrame:
 
 def generate_k562_plots():
     oracle_baselines = load_k562_oracle_baselines()
-    print(f"  Oracle ensemble baselines: { {k: f'{v:.4f}' for k, v in oracle_baselines.items()} }")
+    print(
+        f"  AlphaGenome Ensemble baselines: "
+        f"{ {k: f'{v:.4f}' for k, v in oracle_baselines.items()} }"
+    )
 
     dream_real = make_df(
         load_results(REPO / "outputs" / "exp0_k562_scaling"),
-        "DREAM-RNN (real)",
+        "DREAM-RNN (real labels)",
         K562_METRICS,
     )
-    # Remove non-standard fractions (e.g. 0.25 from early run_25)
     dream_real = snap_k562_fracs(dream_real)
 
     ag_real = make_df(
         load_results(REPO / "outputs" / "exp0_k562_scaling_alphagenome_cached_rcaug"),
-        "AG (real, frozen)",
+        "AlphaGenome (real labels, frozen)",
         K562_METRICS,
     )
 
     ag_oracle = make_df(
         load_results(REPO / "outputs" / "exp0_k562_scaling_oracle_labels_ag"),
-        "AG (oracle, frozen)",
+        "AlphaGenome (AlphaGenome Ensemble labels, frozen)",
         K562_METRICS,
     )
 
     dream_oracle = make_df(
         load_results(REPO / "outputs" / "exp0_k562_scaling_oracle_labels"),
-        "DREAM-RNN (oracle)",
+        "DREAM-RNN (AlphaGenome Ensemble labels)",
         K562_METRICS,
     )
 
     dfs = {}
     for label, df in [
-        ("DREAM-RNN (real)", dream_real),
-        ("AG (real, frozen)", ag_real),
-        ("DREAM-RNN (oracle)", dream_oracle),
-        ("AG (oracle, frozen)", ag_oracle),
+        ("DREAM-RNN (real labels)", dream_real),
+        ("AlphaGenome (real labels, frozen)", ag_real),
+        ("DREAM-RNN (AlphaGenome Ensemble labels)", dream_oracle),
+        ("AlphaGenome (AlphaGenome Ensemble labels, frozen)", ag_oracle),
     ]:
         if not df.empty:
             dfs[label] = df
@@ -228,12 +255,14 @@ def generate_k562_plots():
             ylabel,
             title,
             oracle_baseline=oracle_baselines.get(metric),
+            oracle_baseline_label="AlphaGenome Ensemble",
+            ylim=(0, 1),
         )
     fig.suptitle("K562 MPRA — Exp 0 Scaling Curves (all conditions)", fontsize=14, y=1.01)
     fig.tight_layout()
     fig.savefig(OUT_DIR / "k562_all_conditions_4panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved: k562_all_conditions_4panel.png")
+    print("  Saved: k562_all_conditions_4panel.png")
 
     # Real vs oracle comparison (in-dist + OOD, 2 panels)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
@@ -245,12 +274,14 @@ def generate_k562_plots():
             ylabel,
             title,
             oracle_baseline=oracle_baselines.get(metric),
+            oracle_baseline_label="AlphaGenome Ensemble",
+            ylim=(0, 1),
         )
-    fig.suptitle("K562 MPRA — Real vs Oracle Labels", fontsize=13, y=1.01)
+    fig.suptitle("K562 MPRA — Real vs AlphaGenome Ensemble Labels", fontsize=13, y=1.01)
     fig.tight_layout()
     fig.savefig(OUT_DIR / "k562_real_vs_oracle_2panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved: k562_real_vs_oracle_2panel.png")
+    print("  Saved: k562_real_vs_oracle_2panel.png")
 
     # Single-panel in-dist
     fig, ax = plt.subplots(figsize=(8, 5.5))
@@ -261,11 +292,13 @@ def generate_k562_plots():
         "Pearson R",
         "K562 In-distribution Scaling",
         oracle_baseline=oracle_baselines.get("test_id"),
+        oracle_baseline_label="AlphaGenome Ensemble",
+        ylim=(0, 1),
     )
     fig.tight_layout()
     fig.savefig(OUT_DIR / "k562_in_dist.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved: k562_in_dist.png")
+    print("  Saved: k562_in_dist.png")
 
     # Save combined CSV
     all_k562 = pd.concat(dfs.values(), ignore_index=True)
@@ -279,11 +312,11 @@ def generate_k562_plots():
             continue
         print(f"    {label}:")
         for _, row in agg.iterrows():
-            f = row["fraction"]
+            ns = int(row["n_samples_mean"])
             m = row["mean"]
             s = row["std"]
             n = int(row["n"])
-            print(f"      f={f:.2f}: {m:.4f} +/- {s:.4f} (n={n})")
+            print(f"      n={ns:,}: {m:.4f} +/- {s:.4f} (seeds={n})")
 
 
 # ── Yeast plots ───────────────────────────────────────────────────────────────
@@ -311,7 +344,7 @@ def generate_yeast_plots():
             REPO / "outputs" / "exp0_yeast_scaling",
             require_n_total=6065325,
         ),
-        "DREAM-RNN (real)",
+        "DREAM-RNN (real labels) ",  # trailing space distinguishes from K562 style key
         YEAST_METRICS,
     )
     dream_real = snap_yeast_fracs(dream_real)
@@ -321,27 +354,27 @@ def generate_yeast_plots():
             REPO / "outputs" / "exp0_yeast_scaling_oracle_labels",
             require_n_total=6065325,
         ),
-        "DREAM-RNN (oracle)",
+        "DREAM-RNN (DREAM-RNN Ensemble labels)",
         YEAST_METRICS,
     )
     dream_oracle = snap_yeast_fracs(dream_oracle)
 
-    # AG frozen-encoder (partial — only fractions up to 0.05, 1 seed each)
+    # AlphaGenome frozen-encoder (partial — only fractions up to 0.05, 1 seed each)
     ag_frozen = make_df(
         load_results(
             REPO / "outputs" / "exp0_yeast_scaling_alphagenome",
             require_n_total=6065325,
         ),
-        "AG frozen (partial)",
+        "AlphaGenome frozen (partial)",
         YEAST_METRICS,
     )
     ag_frozen = snap_yeast_fracs(ag_frozen)
 
     dfs = {}
     for label, df in [
-        ("DREAM-RNN (real)", dream_real),
-        ("DREAM-RNN (oracle)", dream_oracle),
-        ("AG frozen (partial)", ag_frozen),
+        ("DREAM-RNN (real labels) ", dream_real),
+        ("DREAM-RNN (DREAM-RNN Ensemble labels)", dream_oracle),
+        ("AlphaGenome frozen (partial)", ag_frozen),
     ]:
         if not df.empty:
             dfs[label] = df
@@ -355,33 +388,33 @@ def generate_yeast_plots():
         ("test_snv", "Pearson R", "SNV effect (delta)"),
     ]
 
-    # 4-panel comparison: real vs oracle
+    # 4-panel comparison: real vs DREAM-RNN Ensemble
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
-        plot_scaling_panel(ax, dfs, metric, ylabel, title)
+        plot_scaling_panel(ax, dfs, metric, ylabel, title, ylim=(0, 1))
     fig.suptitle(
-        "Yeast — Exp 0 Scaling Curves: Real vs Oracle Labels (DREAM-RNN)",
+        "Yeast — Exp 0 Scaling Curves: Real vs DREAM-RNN Ensemble Labels",
         fontsize=14,
         y=1.01,
     )
     fig.tight_layout()
     fig.savefig(OUT_DIR / "yeast_real_vs_oracle_4panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved: yeast_real_vs_oracle_4panel.png")
+    print("  Saved: yeast_real_vs_oracle_4panel.png")
 
     # 2-panel: random (ID) + genomic (OOD)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
-        plot_scaling_panel(ax, dfs, metric, ylabel, title)
+        plot_scaling_panel(ax, dfs, metric, ylabel, title, ylim=(0, 1))
     fig.suptitle(
-        "Yeast — Real vs Oracle Labels (DREAM-RNN)",
+        "Yeast — Real vs DREAM-RNN Ensemble Labels",
         fontsize=13,
         y=1.01,
     )
     fig.tight_layout()
     fig.savefig(OUT_DIR / "yeast_real_vs_oracle_2panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved: yeast_real_vs_oracle_2panel.png")
+    print("  Saved: yeast_real_vs_oracle_2panel.png")
 
     # Single-panel: val Pearson comparison
     fig, ax = plt.subplots(figsize=(8, 5.5))
@@ -390,8 +423,9 @@ def generate_yeast_plots():
         if agg.empty:
             continue
         style = STYLE[label]
+        x = agg["n_samples_mean"]
         ax.errorbar(
-            agg["fraction"] * 100,
+            x,
             agg["mean"],
             yerr=agg["std"].fillna(0),
             fmt=f"{style['ls']}{style['marker']}",
@@ -403,16 +437,20 @@ def generate_yeast_plots():
             zorder=3,
         )
     ax.set_xscale("log")
-    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:g}%"))
-    ax.set_xlabel("Training data (% of total)", fontsize=10)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(_format_n_samples))
+    ax.set_xlabel("Number of training sequences", fontsize=10)
     ax.set_ylabel("Pearson R", fontsize=10)
-    ax.set_title("Yeast — Validation Pearson: Real vs Oracle Labels", fontsize=11)
+    ax.set_title(
+        "Yeast — Validation Pearson: Real vs DREAM-RNN Ensemble Labels",
+        fontsize=11,
+    )
+    ax.set_ylim(0, 1)
     ax.legend(fontsize=9, loc="lower right")
     ax.grid(True, which="both", ls="--", alpha=0.35, zorder=0)
     fig.tight_layout()
     fig.savefig(OUT_DIR / "yeast_val_pearson_comparison.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved: yeast_val_pearson_comparison.png")
+    print("  Saved: yeast_val_pearson_comparison.png")
 
     # Save combined CSV
     all_yeast = pd.concat(dfs.values(), ignore_index=True)
@@ -426,11 +464,11 @@ def generate_yeast_plots():
             continue
         print(f"    {label}:")
         for _, row in agg.iterrows():
-            f = row["fraction"]
+            ns = int(row["n_samples_mean"])
             m = row["mean"]
             s = row["std"]
             n = int(row["n"])
-            print(f"      f={f:.4f}: {m:.4f} +/- {s:.4f} (n={n})")
+            print(f"      n={ns:,}: {m:.4f} +/- {s:.4f} (seeds={n})")
 
     print("\n  Yeast Summary (mean val Pearson R):")
     for label, df in dfs.items():
@@ -439,11 +477,11 @@ def generate_yeast_plots():
             continue
         print(f"    {label}:")
         for _, row in agg.iterrows():
-            f = row["fraction"]
+            ns = int(row["n_samples_mean"])
             m = row["mean"]
             s = row["std"]
             n = int(row["n"])
-            print(f"      f={f:.4f}: {m:.4f} +/- {s:.4f} (n={n})")
+            print(f"      n={ns:,}: {m:.4f} +/- {s:.4f} (seeds={n})")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

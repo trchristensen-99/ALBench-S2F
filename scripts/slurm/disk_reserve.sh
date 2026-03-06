@@ -2,12 +2,12 @@
 # Manually create or remove the disk space reservation.
 #
 # Usage:
-#   scripts/slurm/disk_reserve.sh claim   # Reserve 20GB placeholder
+#   scripts/slurm/disk_reserve.sh claim   # Reserve 5GB placeholder
 #   scripts/slurm/disk_reserve.sh release # Free the placeholder
 #   scripts/slurm/disk_reserve.sh status  # Show current state
 
 PLACEHOLDER="/grid/wsbs/home_norepl/christen/.disk_placeholder.dat"
-SIZE="20G"
+SIZE="5G"
 
 case "${1:-status}" in
     claim|create)

@@ -11,7 +11,7 @@
 # shared disk space. Only release manually via scripts/slurm/disk_reserve.sh
 # if extra space is truly needed.
 _PLACEHOLDER="/grid/wsbs/home_norepl/christen/.disk_placeholder.dat"
-_PLACEHOLDER_SIZE="20G"
+_PLACEHOLDER_SIZE="5G"
 
 if [ -f "$_PLACEHOLDER" ]; then
     echo "[setup_hpc_deps] Disk reservation active (${_PLACEHOLDER_SIZE})"
