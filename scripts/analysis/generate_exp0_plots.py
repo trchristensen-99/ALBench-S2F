@@ -655,12 +655,14 @@ def _extract_pearson(metrics_list: list[dict], test_key: str) -> list[float]:
 def generate_k562_bar_plot():
     """6-model bar plot: DREAM-RNN, Malinois, NT, Enformer, Borzoi, AlphaGenome on full K562."""
     # ── Model definitions: (name, dir, json_name, color) ─────────────────────
+    # Colors: DREAM-RNN/Malinois in purple shades, foundation models in warm/cool
+    # mid-range, AlphaGenome in bright green (should visually pop).
     models = [
-        ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#E8602C"),
-        ("Malinois", "malinois_k562_3seeds", "result.json", "#9467BD"),
-        ("NT v2", "nt_k562_cached", "result.json", "#FF7F0E"),
-        ("Enformer", "enformer_k562_cached", "result.json", "#D62728"),
-        ("Borzoi", "borzoi_k562_cached", "result.json", "#17BECF"),
+        ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
+        ("Malinois", "malinois_k562_3seeds", "result.json", "#B07CC6"),
+        ("NTv3", "ntv3_k562_cached", "result.json", "#E8602C"),
+        ("Enformer", "enformer_k562_cached", "result.json", "#3A86C8"),
+        ("Borzoi", "borzoi_k562_cached", "result.json", "#DAA520"),
         ("AlphaGenome", "stage2_k562_full_train", "test_metrics.json", "#2CA02C"),
     ]
 
