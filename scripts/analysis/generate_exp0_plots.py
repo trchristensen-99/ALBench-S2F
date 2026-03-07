@@ -689,61 +689,36 @@ def generate_k562_bar_plot():
     )
 
     # Add correlation values above bars (2 decimal places).
-    # For tall bars (>0.85), place label inside; otherwise above.
     def _fmt(v):
         return f"{v:.2f}"
 
     for bar, val in zip(bars_dream, dream_means):
-        if val > 0.85:
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() - 0.03,
-                _fmt(val),
-                ha="center",
-                va="top",
-                fontsize=9,
-                fontweight="bold",
-                color="white",
-            )
-        else:
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.02,
-                _fmt(val),
-                ha="center",
-                va="bottom",
-                fontsize=9,
-                fontweight="bold",
-            )
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.01,
+            _fmt(val),
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            fontweight="bold",
+        )
     for bar, val in zip(bars_ag, ag_vals):
-        if val > 0.85:
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() - 0.03,
-                _fmt(val),
-                ha="center",
-                va="top",
-                fontsize=9,
-                fontweight="bold",
-                color="white",
-            )
-        else:
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.02,
-                _fmt(val),
-                ha="center",
-                va="bottom",
-                fontsize=9,
-                fontweight="bold",
-            )
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.01,
+            _fmt(val),
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            fontweight="bold",
+        )
 
     ax.set_ylabel("Pearson R", fontsize=11)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=10)
-    ax.set_ylim(0, 1.0)
+    ax.set_ylim(0, 1.05)
     ax.set_title("K562 MPRA — Full Dataset Performance", fontsize=13)
-    ax.legend(fontsize=10, loc="center right")
+    ax.legend(fontsize=10, loc="upper right")
     ax.grid(axis="y", alpha=0.3, zorder=0)
 
     fig.tight_layout()
