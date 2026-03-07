@@ -301,7 +301,7 @@ def generate_k562_plots():
             title,
             oracle_baseline=oracle_baselines.get(metric),
             oracle_baseline_label="AlphaGenome Ensemble",
-            ylim=(0, 1),
+            ylim=(-0.1, 1),
             show_legend=False,
         )
     fig.suptitle("K562 MPRA — Exp 0 Scaling Curves (all conditions)", fontsize=14, y=1.02)
@@ -320,7 +320,7 @@ def generate_k562_plots():
             metric,
             ylabel,
             title,
-            ylim=(0, 1),
+            ylim=(-0.1, 1),
             show_legend=False,
         )
     fig.suptitle("K562 MPRA — Exp 0 Scaling Curves (real labels only)", fontsize=14, y=1.02)
@@ -341,7 +341,7 @@ def generate_k562_plots():
             title,
             oracle_baseline=oracle_baselines.get(metric),
             oracle_baseline_label="AlphaGenome Ensemble",
-            ylim=(0, 1),
+            ylim=(-0.1, 1),
             show_legend=False,
         )
     fig.suptitle("K562 MPRA — Real vs AlphaGenome Ensemble Labels", fontsize=13, y=1.02)
@@ -360,7 +360,7 @@ def generate_k562_plots():
             metric,
             ylabel,
             title,
-            ylim=(0, 1),
+            ylim=(-0.1, 1),
             show_legend=False,
         )
     fig.suptitle("K562 MPRA — Scaling Curves (real labels)", fontsize=13, y=1.02)
@@ -380,7 +380,7 @@ def generate_k562_plots():
         "K562 In-distribution Scaling",
         oracle_baseline=oracle_baselines.get("test_id"),
         oracle_baseline_label="AlphaGenome Ensemble",
-        ylim=(0, 1),
+        ylim=(-0.1, 1),
     )
     fig.tight_layout()
     fig.savefig(OUT_DIR / "k562_in_dist.png", dpi=200, bbox_inches="tight")
@@ -480,7 +480,7 @@ def generate_yeast_plots():
     # 4-panel: ALL conditions
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
-        plot_scaling_panel(ax, dfs_all, metric, ylabel, title, ylim=(0, 1), show_legend=False)
+        plot_scaling_panel(ax, dfs_all, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False)
     fig.suptitle(
         "Yeast — Exp 0 Scaling Curves: Real vs DREAM-RNN Ensemble Labels",
         fontsize=14,
@@ -495,7 +495,7 @@ def generate_yeast_plots():
     # 4-panel: REAL LABELS ONLY
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
-        plot_scaling_panel(ax, dfs_real, metric, ylabel, title, ylim=(0, 1), show_legend=False)
+        plot_scaling_panel(ax, dfs_real, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False)
     fig.suptitle(
         "Yeast — Exp 0 Scaling Curves (real labels only)",
         fontsize=14,
@@ -510,7 +510,7 @@ def generate_yeast_plots():
     # 2-panel: ALL conditions (random + genomic)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
-        plot_scaling_panel(ax, dfs_all, metric, ylabel, title, ylim=(0, 1), show_legend=False)
+        plot_scaling_panel(ax, dfs_all, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False)
     fig.suptitle(
         "Yeast — Real vs DREAM-RNN Ensemble Labels",
         fontsize=13,
@@ -525,7 +525,7 @@ def generate_yeast_plots():
     # 2-panel: REAL LABELS ONLY (random + genomic)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
-        plot_scaling_panel(ax, dfs_real, metric, ylabel, title, ylim=(0, 1), show_legend=False)
+        plot_scaling_panel(ax, dfs_real, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False)
     fig.suptitle(
         "Yeast — Scaling Curves (real labels)",
         fontsize=13,
