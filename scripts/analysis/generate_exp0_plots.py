@@ -676,7 +676,7 @@ def generate_k562_bar_plot():
         dream_means,
         width,
         label="DREAM-RNN",
-        color="#E05E4B",
+        color="#E8602C",
         zorder=3,
     )
     bars_ag = ax.bar(
@@ -684,7 +684,7 @@ def generate_k562_bar_plot():
         ag_vals,
         width,
         label="AlphaGenome",
-        color="#4B7BE0",
+        color="#2CA02C",
         zorder=3,
     )
 
@@ -717,8 +717,8 @@ def generate_k562_bar_plot():
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=10)
     ax.set_ylim(0, 1.0)
-    ax.set_title("K562 MPRA — Full Dataset Performance", fontsize=13)
-    ax.legend(fontsize=10, loc="upper right")
+    ax.set_title("K562 MPRA — Full Dataset Performance (Gosai et al. 2024)", fontsize=13)
+    ax.legend(fontsize=10, loc="upper right", frameon=False)
     ax.grid(axis="y", alpha=0.3, zorder=0)
 
     fig.tight_layout()
