@@ -23,9 +23,7 @@ source /etc/profile.d/modules.sh
 set -u
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
-export PYTHONPATH="$PWD:${PYTHONPATH:+$PYTHONPATH}"
-# Add boda2 to PYTHONPATH for BassetBranched import
-export PYTHONPATH="/grid/wsbs/home_norepl/christen/boda2-main:$PYTHONPATH"
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 source scripts/slurm/setup_hpc_deps.sh
 
 echo "Malinois K562 training: seed_idx=${SLURM_ARRAY_TASK_ID}"

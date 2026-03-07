@@ -19,12 +19,12 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from boda.model.basset import BassetBranched
 from scipy.stats import pearsonr, spearmanr
 from torch.utils.data import DataLoader, Dataset
 
 from data.k562 import K562Dataset
 from data.utils import one_hot_encode
+from models.basset_branched import BassetBranched
 
 # ── MPRA flanking sequences (from boda2 constants) ──────────────────────────
 MPRA_UPSTREAM = (
