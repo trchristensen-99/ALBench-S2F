@@ -32,7 +32,7 @@ echo "Node: ${SLURMD_NODENAME}  Date: $(date)"
 uv run --no-sync python experiments/train_foundation_cached.py \
     ++model_name=ntv3 \
     ++cache_dir=outputs/ntv3_k562_cached/embedding_cache \
-    ++embed_dim=512 \
+    ++embed_dim=1536 \
     ++output_dir=outputs/ntv3_k562_cached
 
 echo "seed_idx=${SLURM_ARRAY_TASK_ID} DONE — $(date)"

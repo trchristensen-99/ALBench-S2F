@@ -12,17 +12,17 @@ compatibility (7 downsamples → divisor = 2^7 = 128).
 Cache layout::
 
     outputs/ntv3_k562_cached/embedding_cache/
-        train_canonical.npy   (N_train, 512)  float16
+        train_canonical.npy   (N_train, 1536)  float16
         train_rc.npy
-        val_canonical.npy     (N_val, 512)    float16
+        val_canonical.npy     (N_val, 1536)    float16
         val_rc.npy
-        test_in_dist_canonical.npy   (40718, 512)
+        test_in_dist_canonical.npy   (40718, 1536)
         test_in_dist_rc.npy
-        test_snv_ref_canonical.npy   (35226, 512)
+        test_snv_ref_canonical.npy   (35226, 1536)
         test_snv_ref_rc.npy
-        test_snv_alt_canonical.npy   (35226, 512)
+        test_snv_alt_canonical.npy   (35226, 1536)
         test_snv_alt_rc.npy
-        test_ood_canonical.npy       (22862, 512)
+        test_ood_canonical.npy       (22862, 1536)
         test_ood_rc.npy
 
 Usage::

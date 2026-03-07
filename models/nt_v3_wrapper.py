@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import numpy as np
 from nucleotide_transformer_v3.pretrained import get_pretrained_ntv3_model
 
-NTV3_650M_EMBED_DIM = 512
+NTV3_650M_EMBED_DIM = 1536
 # U-Net uses 7 downsamples → sequences must be divisible by 2^7 = 128
 NTV3_SEQ_DIVISOR = 128
 
