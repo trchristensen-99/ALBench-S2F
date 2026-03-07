@@ -312,11 +312,16 @@ def generate_k562_plots():
     print("  Saved: k562_all_conditions_4panel.png")
 
     # 4-panel: REAL LABELS ONLY
+    _real_short = {
+        k: v.assign(label=v["label"].str.replace(r"\s*\(.*\)\s*", "", regex=True))
+        for k, v in dfs_real.items()
+    }
+    dfs_real_short = {v["label"].iloc[0]: v for v in _real_short.values() if not v.empty}
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
         plot_scaling_panel(
             ax,
-            dfs_real,
+            dfs_real_short,
             metric,
             ylabel,
             title,
@@ -324,8 +329,8 @@ def generate_k562_plots():
             show_legend=False,
         )
     fig.suptitle("K562 MPRA — Exp 0 Scaling Curves (real labels only)", fontsize=14, y=1.02)
-    _add_shared_legend(fig, axes, y_offset=-0.01)
-    fig.tight_layout(rect=[0, 0.06, 1, 1])
+    _add_shared_legend(fig, axes, y_offset=0.01)
+    fig.tight_layout(rect=[0, 0.04, 1, 1])
     fig.savefig(OUT_DIR / "k562_real_labels_4panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  Saved: k562_real_labels_4panel.png")
@@ -356,7 +361,7 @@ def generate_k562_plots():
     for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
         plot_scaling_panel(
             ax,
-            dfs_real,
+            dfs_real_short,
             metric,
             ylabel,
             title,
@@ -364,8 +369,8 @@ def generate_k562_plots():
             show_legend=False,
         )
     fig.suptitle("K562 MPRA — Scaling Curves (real labels)", fontsize=13, y=1.02)
-    _add_shared_legend(fig, axes, y_offset=-0.06)
-    fig.tight_layout(rect=[0, 0.10, 1, 1])
+    _add_shared_legend(fig, axes, y_offset=-0.02)
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
     fig.savefig(OUT_DIR / "k562_real_labels_2panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  Saved: k562_real_labels_2panel.png")
@@ -493,16 +498,23 @@ def generate_yeast_plots():
     print("  Saved: yeast_real_vs_oracle_4panel.png")
 
     # 4-panel: REAL LABELS ONLY
+    _yreal_short = {
+        k: v.assign(label=v["label"].str.replace(r"\s*\(.*\)\s*", "", regex=True).str.strip())
+        for k, v in dfs_real.items()
+    }
+    dfs_real_short = {v["label"].iloc[0]: v for v in _yreal_short.values() if not v.empty}
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
-        plot_scaling_panel(ax, dfs_real, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False)
+        plot_scaling_panel(
+            ax, dfs_real_short, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False
+        )
     fig.suptitle(
         "Yeast — Exp 0 Scaling Curves (real labels only)",
         fontsize=14,
         y=1.02,
     )
-    _add_shared_legend(fig, axes, y_offset=-0.01)
-    fig.tight_layout(rect=[0, 0.06, 1, 1])
+    _add_shared_legend(fig, axes, y_offset=0.01)
+    fig.tight_layout(rect=[0, 0.04, 1, 1])
     fig.savefig(OUT_DIR / "yeast_real_labels_4panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  Saved: yeast_real_labels_4panel.png")
@@ -525,14 +537,16 @@ def generate_yeast_plots():
     # 2-panel: REAL LABELS ONLY (random + genomic)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
-        plot_scaling_panel(ax, dfs_real, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False)
+        plot_scaling_panel(
+            ax, dfs_real_short, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False
+        )
     fig.suptitle(
         "Yeast — Scaling Curves (real labels)",
         fontsize=13,
         y=1.02,
     )
-    _add_shared_legend(fig, axes, y_offset=-0.06)
-    fig.tight_layout(rect=[0, 0.10, 1, 1])
+    _add_shared_legend(fig, axes, y_offset=-0.02)
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
     fig.savefig(OUT_DIR / "yeast_real_labels_2panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  Saved: yeast_real_labels_2panel.png")
