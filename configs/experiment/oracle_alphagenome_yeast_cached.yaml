@@ -13,7 +13,7 @@ gpu: 0
 
 # Training
 epochs: 100
-seed: 42
+seed: null  # null → random seed; each run gets a distinct initialization
 wandb_mode: online
 
 batch_size: 128
