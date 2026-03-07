@@ -625,93 +625,108 @@ def generate_yeast_plots():
             print(f"      n={ns:,}: {m:.4f} +/- {s:.4f} (seeds={n})")
 
 
-# ── K562 bar plot (full-dataset comparison) ──────────────────────────────────
+# ── K562 bar plot (full-dataset 3-model comparison) ──────────────────────────
+
+# Test set sizes (from hashfrag data)
+_K562_TEST_SIZES = {
+    "in_distribution": 40_718,
+    "ood": 22_862,
+    "snv_abs": 35_226,
+    "snv_delta": 35_226,
+}
+
+
+def _load_bar_model_metrics(results_dir: Path, json_name: str = "result.json") -> list[dict]:
+    """Load test_metrics from all result JSON files in a directory tree."""
+    metrics_list = []
+    for p in sorted(results_dir.rglob(json_name)):
+        with open(p) as f:
+            d = json.load(f)
+        tm = d.get("test_metrics", d)  # test_metrics.json has metrics at top level
+        if "in_distribution" in tm:
+            metrics_list.append(tm)
+    return metrics_list
+
+
+def _extract_pearson(metrics_list: list[dict], test_key: str) -> list[float]:
+    return [m[test_key]["pearson_r"] for m in metrics_list if test_key in m]
+
+
 def generate_k562_bar_plot():
-    """Side-by-side bar plot: DREAM-RNN vs AlphaGenome on full K562 dataset."""
-    # Load AlphaGenome ensemble baselines + test set sizes
-    summary_path = REPO / "outputs" / "oracle_pseudolabels_k562_ag" / "summary.json"
-    if not summary_path.exists():
-        print("  Skipping bar plot: no oracle summary found")
-        return
-    with open(summary_path) as f:
-        summary = json.load(f)
+    """3-model bar plot: DREAM-RNN vs Malinois vs AlphaGenome (S2) on full K562."""
+    # ── Load results from 3-seed training jobs ────────────────────────────────
+    dream_dir = REPO / "outputs" / "dream_rnn_k562_3seeds"
+    malinois_dir = REPO / "outputs" / "malinois_k562_3seeds"
+    ag_s2_dir = REPO / "outputs" / "stage2_k562_full_train"
 
-    # Load DREAM-RNN real-label results at f=1.00
-    _k562_test_keys = {"in_distribution", "ood", "snv_abs", "snv_delta"}
-    dream_records = load_results(
-        REPO / "outputs" / "exp0_k562_scaling",
-        require_test_keys=_k562_test_keys,
+    dream_metrics = _load_bar_model_metrics(dream_dir)
+    malinois_metrics = _load_bar_model_metrics(malinois_dir)
+    ag_s2_metrics = _load_bar_model_metrics(ag_s2_dir, "test_metrics.json")
+
+    n_dream = len(dream_metrics)
+    n_malinois = len(malinois_metrics)
+    n_ag = len(ag_s2_metrics)
+    print(
+        f"  Bar plot data: DREAM-RNN={n_dream}, Malinois={n_malinois}, AlphaGenome S2={n_ag} runs"
     )
-    dream_df = make_df(dream_records, "DREAM-RNN", K562_METRICS)
-    dream_full = dream_df[dream_df["fraction"].between(0.99, 1.01)]
 
-    # Metrics config: (internal_key, display_label, summary_key, summary_n_key)
-    metrics = [
-        ("test_id", "Reference", "test_in_distribution", "test_in_distribution"),
-        ("test_ood", "Synthetic design", "test_ood", "test_ood"),
-        ("test_snv_abs", "SNV", "test_snv_alt", "test_snv_alt"),
-        ("test_snv_delta", "SNV effect (delta)", "test_snv_delta", "test_snv_delta"),
+    if n_dream == 0 and n_malinois == 0 and n_ag == 0:
+        print("  Skipping bar plot: no results yet")
+        return
+
+    # ── Build per-metric arrays ───────────────────────────────────────────────
+    test_keys = [
+        ("in_distribution", "Reference"),
+        ("ood", "Synthetic design"),
+        ("snv_abs", "SNV"),
+        ("snv_delta", "SNV effect (delta)"),
     ]
 
     labels = []
-    dream_means = []
-    dream_stds = []
-    ag_vals = []
-    for col, display, summary_key, n_key in metrics:
-        n_seqs = summary.get(n_key, {}).get("n", "?")
-        labels.append(f"{display}\n(n={n_seqs:,})" if isinstance(n_seqs, int) else display)
-        # DREAM-RNN: mean ± std across seeds
-        vals = dream_full[col].dropna()
-        dream_means.append(vals.mean() if len(vals) > 0 else 0)
-        dream_stds.append(vals.std() if len(vals) > 1 else 0)
-        # AlphaGenome ensemble
-        ag_vals.append(float(summary.get(summary_key, {}).get("ensemble_pearson_r", 0)))
+    dream_means, dream_stds = [], []
+    malinois_means, malinois_stds = [], []
+    ag_means, ag_stds = [], []
+
+    for key, display in test_keys:
+        n_seqs = _K562_TEST_SIZES.get(key, "?")
+        labels.append(f"{display}\n(n={n_seqs:,})")
+
+        for src, means, stds in [
+            (dream_metrics, dream_means, dream_stds),
+            (malinois_metrics, malinois_means, malinois_stds),
+            (ag_s2_metrics, ag_means, ag_stds),
+        ]:
+            vals = _extract_pearson(src, key)
+            means.append(np.mean(vals) if vals else 0)
+            stds.append(np.std(vals) if len(vals) > 1 else 0)
 
     x = np.arange(len(labels))
-    width = 0.35
+    width = 0.25
 
-    fig, ax = plt.subplots(figsize=(9, 5.5))
-    bars_dream = ax.bar(
-        x - width / 2,
-        dream_means,
-        width,
-        label="DREAM-RNN",
-        color="#E8602C",
-        zorder=3,
-    )
-    bars_ag = ax.bar(
-        x + width / 2,
-        ag_vals,
-        width,
-        label="AlphaGenome",
-        color="#2CA02C",
-        zorder=3,
-    )
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    bars_dream = ax.bar(x - width, dream_means, width, label="DREAM-RNN", color="#E8602C", zorder=3)
+    bars_malinois = ax.bar(x, malinois_means, width, label="Malinois", color="#9467BD", zorder=3)
+    bars_ag = ax.bar(x + width, ag_means, width, label="AlphaGenome", color="#2CA02C", zorder=3)
 
-    # Add correlation values above bars (2 decimal places).
     def _fmt(v):
         return f"{v:.3f}"
 
-    for bar, val in zip(bars_dream, dream_means):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.01,
-            _fmt(val),
-            ha="center",
-            va="bottom",
-            fontsize=9,
-            fontweight="bold",
-        )
-    for bar, val in zip(bars_ag, ag_vals):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.01,
-            _fmt(val),
-            ha="center",
-            va="bottom",
-            fontsize=9,
-            fontweight="bold",
-        )
+    for bars, means in [
+        (bars_dream, dream_means),
+        (bars_malinois, malinois_means),
+        (bars_ag, ag_means),
+    ]:
+        for bar, val in zip(bars, means):
+            if val > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.008,
+                    _fmt(val),
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    fontweight="bold",
+                )
 
     ax.set_ylabel("Pearson R", fontsize=11)
     ax.set_xticks(x)
