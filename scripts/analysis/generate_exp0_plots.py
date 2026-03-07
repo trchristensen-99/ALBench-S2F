@@ -690,7 +690,7 @@ def generate_k562_bar_plot():
 
     # Add correlation values above bars (2 decimal places).
     def _fmt(v):
-        return f"{v:.2f}"
+        return f"{v:.3f}"
 
     for bar, val in zip(bars_dream, dream_means):
         ax.text(
