@@ -361,25 +361,37 @@ def main(cfg: DictConfig) -> None:
         flush=True,
     )
 
-    # ── Dataset: K562 train with fold_0 10-fold CV ────────────────────────────
-    n_folds = int(cfg.get("n_folds", 10))
-    fold_id = int(cfg.get("fold_id", 0))
+    # ── Dataset ────────────────────────────────────────────────────────────────
+    use_dedicated_val = bool(cfg.get("use_dedicated_val", False))
 
-    ds_all = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
-    n_total = len(ds_all)
-    perm = np.random.default_rng(seed=42).permutation(n_total)
-    fold_size = n_total // n_folds
-    val_start = fold_id * fold_size
-    val_end = val_start + fold_size if fold_id < n_folds - 1 else n_total
-    val_idx = perm[val_start:val_end]
-    train_idx = np.concatenate([perm[:val_start], perm[val_end:]])
+    if use_dedicated_val:
+        # Use full train split for training + dedicated val split for validation
+        train_subset = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
+        val_subset = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
+    else:
+        # 10-fold CV within the train split
+        n_folds = int(cfg.get("n_folds", 10))
+        fold_id = int(cfg.get("fold_id", 0))
+        ds_all = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
+        n_total = len(ds_all)
+        perm = np.random.default_rng(seed=42).permutation(n_total)
+        fold_size = n_total // n_folds
+        val_start = fold_id * fold_size
+        val_end = val_start + fold_size if fold_id < n_folds - 1 else n_total
+        val_idx = perm[val_start:val_end]
+        train_idx = np.concatenate([perm[:val_start], perm[val_end:]])
+        train_subset = torch.utils.data.Subset(ds_all, train_idx.tolist())
+        val_subset = torch.utils.data.Subset(ds_all, val_idx.tolist())
 
-    train_subset = torch.utils.data.Subset(ds_all, train_idx.tolist())
-    val_subset = torch.utils.data.Subset(ds_all, val_idx.tolist())
     N_train = len(train_subset)
     N_val = len(val_subset)
     print(
-        f"Stage 2 (fold {fold_id}/{n_folds}) — Train: {N_train:,} | Val: {N_val:,}",
+        f"Stage 2 — Train: {N_train:,} | Val: {N_val:,}"
+        + (
+            f" (dedicated val split)"
+            if use_dedicated_val
+            else f" (fold {cfg.get('fold_id', 0)}/{cfg.get('n_folds', 10)})"
+        ),
         flush=True,
     )
 

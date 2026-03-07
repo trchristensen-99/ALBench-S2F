@@ -1,0 +1,43 @@
+# Stage 2: encoder fine-tuning on K562 hashFrag — full train split
+# Uses s2c hyperparameters (encoder_lr=1e-4, head_lr=1e-3) which were best in sweep.
+# Trains on full ~320K train split with dedicated val split for early stopping.
+# S1 checkpoint: head-only model trained on full train split at f=1.0.
+
+variant: s2_full_train
+task_mode: human
+head_arch: boda-flatten-512-512
+head_name: alphagenome_k562_head_hashfrag  # same as Stage 1 → _merge loads trained head
+num_tracks: 1
+
+k562_data_path: data/k562
+output_dir: outputs/stage2_k562_full_train
+stage1_dir: outputs/exp0_k562_scaling_alphagenome_cached_rcaug/fraction_1.0000/run_3015420
+weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+gpu: 0
+
+# Training
+epochs: 50
+early_stop_patience: 10
+seed: null
+wandb_mode: offline
+
+# Optimizer — per-group learning rates (s2c config)
+encoder_lr: 0.0001    # 1e-4
+head_lr: 0.001        # 1e-3
+weight_decay: 0.000001
+
+# Head
+dropout_rate: 0.1
+
+# Augmentation
+max_shift: 15
+
+# Selective encoder unfreezing — only top 2 downres blocks
+unfreeze_encoder_blocks: [4, 5]
+
+# Data
+batch_size: 128
+num_workers: 8
+
+# Use dedicated val split instead of k-fold CV
+use_dedicated_val: true
