@@ -653,24 +653,26 @@ def _extract_pearson(metrics_list: list[dict], test_key: str) -> list[float]:
 
 
 def generate_k562_bar_plot():
-    """3-model bar plot: DREAM-RNN vs Malinois vs AlphaGenome (S2) on full K562."""
-    # ── Load results from 3-seed training jobs ────────────────────────────────
-    dream_dir = REPO / "outputs" / "dream_rnn_k562_3seeds"
-    malinois_dir = REPO / "outputs" / "malinois_k562_3seeds"
-    ag_s2_dir = REPO / "outputs" / "stage2_k562_full_train"
+    """6-model bar plot: DREAM-RNN, Malinois, NT, Enformer, Borzoi, AlphaGenome on full K562."""
+    # ── Model definitions: (name, dir, json_name, color) ─────────────────────
+    models = [
+        ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#E8602C"),
+        ("Malinois", "malinois_k562_3seeds", "result.json", "#9467BD"),
+        ("NT v2", "nt_k562_cached", "result.json", "#FF7F0E"),
+        ("Enformer", "enformer_k562_cached", "result.json", "#D62728"),
+        ("Borzoi", "borzoi_k562_cached", "result.json", "#17BECF"),
+        ("AlphaGenome", "stage2_k562_full_train", "test_metrics.json", "#2CA02C"),
+    ]
 
-    dream_metrics = _load_bar_model_metrics(dream_dir)
-    malinois_metrics = _load_bar_model_metrics(malinois_dir)
-    ag_s2_metrics = _load_bar_model_metrics(ag_s2_dir, "test_metrics.json")
+    all_metrics = {}
+    for name, dirname, json_name, _ in models:
+        d = REPO / "outputs" / dirname
+        all_metrics[name] = _load_bar_model_metrics(d, json_name)
 
-    n_dream = len(dream_metrics)
-    n_malinois = len(malinois_metrics)
-    n_ag = len(ag_s2_metrics)
-    print(
-        f"  Bar plot data: DREAM-RNN={n_dream}, Malinois={n_malinois}, AlphaGenome S2={n_ag} runs"
-    )
+    counts = {name: len(m) for name, m in all_metrics.items()}
+    print(f"  Bar plot data: {counts}")
 
-    if n_dream == 0 and n_malinois == 0 and n_ag == 0:
+    if all(n == 0 for n in counts.values()):
         print("  Skipping bar plot: no results yet")
         return
 
@@ -683,57 +685,69 @@ def generate_k562_bar_plot():
     ]
 
     labels = []
-    dream_means, dream_stds = [], []
-    malinois_means, malinois_stds = [], []
-    ag_means, ag_stds = [], []
+    model_means = {name: [] for name, *_ in models}
+    model_stds = {name: [] for name, *_ in models}
 
     for key, display in test_keys:
         n_seqs = _K562_TEST_SIZES.get(key, "?")
         labels.append(f"{display}\n(n={n_seqs:,})")
 
-        for src, means, stds in [
-            (dream_metrics, dream_means, dream_stds),
-            (malinois_metrics, malinois_means, malinois_stds),
-            (ag_s2_metrics, ag_means, ag_stds),
-        ]:
-            vals = _extract_pearson(src, key)
-            means.append(np.mean(vals) if vals else 0)
-            stds.append(np.std(vals) if len(vals) > 1 else 0)
+        for name, *_ in models:
+            vals = _extract_pearson(all_metrics[name], key)
+            model_means[name].append(np.mean(vals) if vals else 0)
+            model_stds[name].append(np.std(vals) if len(vals) > 1 else 0)
+
+    n_models = sum(1 for name, *_ in models if any(v > 0 for v in model_means[name]))
+    if n_models == 0:
+        print("  Skipping bar plot: no non-zero results")
+        return
 
     x = np.arange(len(labels))
-    width = 0.25
+    width = 0.8 / max(n_models, 1)
+    offsets = np.linspace(-(n_models - 1) / 2 * width, (n_models - 1) / 2 * width, n_models)
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    bars_dream = ax.bar(x - width, dream_means, width, label="DREAM-RNN", color="#E8602C", zorder=3)
-    bars_malinois = ax.bar(x, malinois_means, width, label="Malinois", color="#9467BD", zorder=3)
-    bars_ag = ax.bar(x + width, ag_means, width, label="AlphaGenome", color="#2CA02C", zorder=3)
+    fig, ax = plt.subplots(figsize=(12, 5.5))
 
-    def _fmt(v):
-        return f"{v:.3f}"
+    bar_groups = []
+    offset_idx = 0
+    for name, _, _, color in models:
+        means = model_means[name]
+        stds = model_stds[name]
+        if not any(v > 0 for v in means):
+            continue
+        bars = ax.bar(
+            x + offsets[offset_idx],
+            means,
+            width,
+            yerr=stds,
+            label=name,
+            color=color,
+            zorder=3,
+            capsize=2,
+        )
+        bar_groups.append((bars, means))
+        offset_idx += 1
 
-    for bars, means in [
-        (bars_dream, dream_means),
-        (bars_malinois, malinois_means),
-        (bars_ag, ag_means),
-    ]:
+    for bars, means in bar_groups:
         for bar, val in zip(bars, means):
             if val > 0:
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + 0.008,
-                    _fmt(val),
+                    f"{val:.3f}",
                     ha="center",
                     va="bottom",
-                    fontsize=8,
+                    fontsize=7,
                     fontweight="bold",
+                    rotation=45,
                 )
 
     ax.set_ylabel("Pearson R", fontsize=11)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=10)
-    ax.set_ylim(0, 1.0)
+    ax.set_ylim(0, 1.05)
     ax.set_title("K562 MPRA (Gosai et al. 2024)", fontsize=13)
-    ax.legend(fontsize=10, loc="upper right", frameon=False)
+    ax.legend(fontsize=9, loc="upper right", frameon=False, ncol=2)
     ax.grid(axis="y", alpha=0.3, zorder=0)
 
     fig.tight_layout()
