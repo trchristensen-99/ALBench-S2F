@@ -717,7 +717,7 @@ def generate_k562_bar_plot():
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=10)
     ax.set_ylim(0, 1.0)
-    ax.set_title("K562 MPRA — Full Dataset Performance (Gosai et al. 2024)", fontsize=13)
+    ax.set_title("K562 MPRA (Gosai et al. 2024)", fontsize=13)
     ax.legend(fontsize=10, loc="upper right", frameon=False)
     ax.grid(axis="y", alpha=0.3, zorder=0)
 
