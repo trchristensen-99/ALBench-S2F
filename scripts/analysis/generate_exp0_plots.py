@@ -625,11 +625,116 @@ def generate_yeast_plots():
             print(f"      n={ns:,}: {m:.4f} +/- {s:.4f} (seeds={n})")
 
 
+# ── K562 bar plot (full-dataset comparison) ──────────────────────────────────
+def generate_k562_bar_plot():
+    """Side-by-side bar plot: DREAM-RNN vs AlphaGenome on full K562 dataset."""
+    # Load AlphaGenome ensemble baselines + test set sizes
+    summary_path = REPO / "outputs" / "oracle_pseudolabels_k562_ag" / "summary.json"
+    if not summary_path.exists():
+        print("  Skipping bar plot: no oracle summary found")
+        return
+    with open(summary_path) as f:
+        summary = json.load(f)
+
+    # Load DREAM-RNN real-label results at f=1.00
+    _k562_test_keys = {"in_distribution", "ood", "snv_abs", "snv_delta"}
+    dream_records = load_results(
+        REPO / "outputs" / "exp0_k562_scaling",
+        require_test_keys=_k562_test_keys,
+    )
+    dream_df = make_df(dream_records, "DREAM-RNN", K562_METRICS)
+    dream_full = dream_df[dream_df["fraction"].between(0.99, 1.01)]
+
+    # Metrics config: (internal_key, display_label, summary_key, summary_n_key)
+    metrics = [
+        ("test_id", "Reference", "test_in_distribution", "test_in_distribution"),
+        ("test_ood", "Synthetic design", "test_ood", "test_ood"),
+        ("test_snv_abs", "SNV", "test_snv_alt", "test_snv_alt"),
+        ("test_snv_delta", "SNV effect (delta)", "test_snv_delta", "test_snv_delta"),
+    ]
+
+    labels = []
+    dream_means = []
+    dream_stds = []
+    ag_vals = []
+    for col, display, summary_key, n_key in metrics:
+        n_seqs = summary.get(n_key, {}).get("n", "?")
+        labels.append(f"{display}\n(n={n_seqs:,})" if isinstance(n_seqs, int) else display)
+        # DREAM-RNN: mean ± std across seeds
+        vals = dream_full[col].dropna()
+        dream_means.append(vals.mean() if len(vals) > 0 else 0)
+        dream_stds.append(vals.std() if len(vals) > 1 else 0)
+        # AlphaGenome ensemble
+        ag_vals.append(float(summary.get(summary_key, {}).get("ensemble_pearson_r", 0)))
+
+    x = np.arange(len(labels))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    bars_dream = ax.bar(
+        x - width / 2,
+        dream_means,
+        width,
+        yerr=dream_stds,
+        label="DREAM-RNN",
+        color="#E05E4B",
+        capsize=4,
+        zorder=3,
+    )
+    bars_ag = ax.bar(
+        x + width / 2,
+        ag_vals,
+        width,
+        label="AlphaGenome",
+        color="#4B7BE0",
+        zorder=3,
+    )
+
+    # Add correlation values above bars (2 significant figures)
+    def _fmt(v):
+        return f"{v:.2f}"
+
+    for bar, val in zip(bars_dream, dream_means):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.02,
+            _fmt(val),
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            fontweight="bold",
+        )
+    for bar, val in zip(bars_ag, ag_vals):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.02,
+            _fmt(val),
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            fontweight="bold",
+        )
+
+    ax.set_ylabel("Pearson R", fontsize=11)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=10)
+    ax.set_ylim(0, 1.12)
+    ax.set_title("K562 MPRA — Full Dataset Performance", fontsize=13)
+    ax.legend(fontsize=10, loc="upper right")
+    ax.grid(axis="y", alpha=0.3, zorder=0)
+
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "k562_full_dataset_bar.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved: k562_full_dataset_bar.png")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {OUT_DIR}\n")
     generate_k562_plots()
+    generate_k562_bar_plot()
     generate_yeast_plots()
     print(f"\nAll plots saved to: {OUT_DIR}")
 
