@@ -180,6 +180,9 @@ def plot_scaling_panel(
     ax.set_title(title, fontsize=11)
     if ylim is not None:
         ax.set_ylim(ylim)
+    else:
+        # Default: start y-axis slightly below 0 so small negative values are visible
+        ax.set_ylim(bottom=-0.1)
     if show_legend:
         ax.legend(fontsize=8, loc="lower right")
     ax.grid(True, which="both", ls="--", alpha=0.35, zorder=0)
