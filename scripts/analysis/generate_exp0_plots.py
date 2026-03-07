@@ -716,7 +716,7 @@ def generate_k562_bar_plot():
     ax.set_ylabel("Pearson R", fontsize=11)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=10)
-    ax.set_ylim(0, 1.05)
+    ax.set_ylim(0, 1.0)
     ax.set_title("K562 MPRA — Full Dataset Performance", fontsize=13)
     ax.legend(fontsize=10, loc="upper right")
     ax.grid(axis="y", alpha=0.3, zorder=0)
