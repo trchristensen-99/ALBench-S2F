@@ -252,9 +252,13 @@ def generate_k562_plots():
     # Require all 4 test metric keys to exclude old runs that used a different
     # OOD test set (run_05/run_10/run_25 — missing snv_abs, spurious OOD values).
     _k562_test_keys = {"in_distribution", "ood", "snv_abs", "snv_delta"}
+    # Use v2 results (batch_size=128) if available, fall back to v1 (batch_size=1024)
+    _dream_real_dir = REPO / "outputs" / "exp0_k562_scaling_v2"
+    if not _dream_real_dir.exists() or not list(_dream_real_dir.rglob("result.json")):
+        _dream_real_dir = REPO / "outputs" / "exp0_k562_scaling"
     dream_real = make_df(
         load_results(
-            REPO / "outputs" / "exp0_k562_scaling",
+            _dream_real_dir,
             require_test_keys=_k562_test_keys,
         ),
         "DREAM-RNN (real labels)",
@@ -274,8 +278,11 @@ def generate_k562_plots():
         K562_METRICS,
     )
 
+    _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_v2"
+    if not _dream_oracle_dir.exists() or not list(_dream_oracle_dir.rglob("result.json")):
+        _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels"
     dream_oracle = make_df(
-        load_results(REPO / "outputs" / "exp0_k562_scaling_oracle_labels"),
+        load_results(_dream_oracle_dir),
         "DREAM-RNN (AlphaGenome Ensemble labels)",
         K562_METRICS,
     )

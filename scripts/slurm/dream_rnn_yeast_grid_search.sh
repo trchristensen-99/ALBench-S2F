@@ -5,7 +5,8 @@
 #
 # Key hypotheses:
 #   - batch_size=128 was much better than 1024 on K562 (0.82 → 0.88)
-#   - dropout_lstm=0.5 may be too high (leaving performance on the table)
+#   - dropout_lstm=0.5 (current) may be too high; try 0 and low values
+#   - smaller batch sizes (32) may further improve generalization
 #   - lr interacts with batch_size (smaller bs may prefer smaller lr)
 #
 # Submit:
@@ -33,8 +34,8 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 source scripts/slurm/setup_hpc_deps.sh
 
 # Grid dimensions
-BATCH_SIZES=(128 512 1024)
-DROPOUT_LSTMS=(0.2 0.3 0.5)
+BATCH_SIZES=(32 128 512)
+DROPOUT_LSTMS=(0.0 0.1 0.3)
 LRS=(0.001 0.003 0.005)
 
 # Map array index to (bs, dropout, lr)
@@ -58,6 +59,7 @@ uv run --no-sync python experiments/exp0_yeast_scaling.py \
     output_dir="outputs/dream_yeast_grid/bs${BS}_do${DO}_lr${LR}" \
     batch_size="${BS}" \
     dropout_lstm="${DO}" \
+    dropout_cnn="${DO}" \
     lr="${LR}" \
     lr_lstm="${LR}" \
     num_workers=4 \
