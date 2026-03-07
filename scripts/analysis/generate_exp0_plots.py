@@ -33,6 +33,17 @@ STYLE = {
     "DREAM-RNN (real labels) ": dict(color="#E05E4B", marker="o", ls="-"),
     "DREAM-RNN (DREAM-RNN Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
     "AlphaGenome frozen (partial)": dict(color="#4B7BE0", marker="s", ls="-"),
+    # Short names (used in real-label-only plots)
+    "DREAM-RNN": dict(color="#E05E4B", marker="o", ls="-"),
+    "AlphaGenome": dict(color="#4B7BE0", marker="s", ls="-"),
+}
+
+# Map verbose real-label keys to short legend labels
+_SHORT_LABELS = {
+    "DREAM-RNN (real labels)": "DREAM-RNN",
+    "AlphaGenome (real labels, frozen)": "AlphaGenome",
+    "DREAM-RNN (real labels) ": "DREAM-RNN",
+    "AlphaGenome frozen (partial)": "AlphaGenome",
 }
 
 
@@ -312,11 +323,7 @@ def generate_k562_plots():
     print("  Saved: k562_all_conditions_4panel.png")
 
     # 4-panel: REAL LABELS ONLY
-    _real_short = {
-        k: v.assign(label=v["label"].str.replace(r"\s*\(.*\)\s*", "", regex=True))
-        for k, v in dfs_real.items()
-    }
-    dfs_real_short = {v["label"].iloc[0]: v for v in _real_short.values() if not v.empty}
+    dfs_real_short = {_SHORT_LABELS.get(k, k): v for k, v in dfs_real.items()}
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
         plot_scaling_panel(
@@ -498,11 +505,7 @@ def generate_yeast_plots():
     print("  Saved: yeast_real_vs_oracle_4panel.png")
 
     # 4-panel: REAL LABELS ONLY
-    _yreal_short = {
-        k: v.assign(label=v["label"].str.replace(r"\s*\(.*\)\s*", "", regex=True).str.strip())
-        for k, v in dfs_real.items()
-    }
-    dfs_real_short = {v["label"].iloc[0]: v for v in _yreal_short.values() if not v.empty}
+    dfs_real_short = {_SHORT_LABELS.get(k, k): v for k, v in dfs_real.items()}
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
         plot_scaling_panel(
