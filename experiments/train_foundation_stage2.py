@@ -182,23 +182,72 @@ def _load_enformer():
     return model, ENFORMER_EMBED_DIM
 
 
-def _fix_borzoi_positions(model):
-    """Recompute relative-position buffers to fix NaN corruption.
+def _fix_borzoi_attention(model):
+    """Fix Borzoi transformer attention for non-standard input lengths.
 
-    The Borzoi Attention registers ``positions`` as a non-persistent buffer
-    computed at ``__init__`` time.  HuggingFace ``from_pretrained()`` can
-    corrupt these buffers (blocks 2-5 get NaN values because the buffer is
-    created on a meta / uninitialised device during weight loading).
+    Two issues are addressed:
 
-    We recompute at seq_len=4096 to match the original Borzoi training
-    (the ``to_rel_k`` weights were trained to interpret 4096-scale features).
+    1. **NaN positions buffer**: ``from_pretrained()`` corrupts the
+       non-persistent ``positions`` buffer in some transformer blocks.
+       We recompute them at ``seq_len=4096`` (matching the original
+       Borzoi training) so that ``to_rel_k`` weights interpret features
+       correctly.
+
+    2. **Stride mismatch in ``fast_relative_shift``**: The positions
+       buffer has ``2*4096-1 = 8191`` entries but with 196 608 bp input
+       the actual transformer sequence length is ``N = 1536``.  The
+       ``fast_relative_shift`` stride trick assumes the rel-key tensor
+       has exactly ``2*N-1`` entries.  We monkey-patch each Attention
+       ``forward`` to **slice** the center ``2*N-1`` entries from the
+       full buffer before passing them to ``fast_relative_shift``.
     """
-    from borzoi_pytorch.pytorch_borzoi_transformer import get_positional_embed
+    from borzoi_pytorch.pytorch_borzoi_transformer import (
+        fast_relative_shift,
+        get_positional_embed,
+    )
+    from einops import rearrange
+    from torch import einsum
 
+    # 1. Recompute positions at seq_len=4096 (fixes NaN).
     for blk in model.transformer:
         attn = blk[0].fn[1]  # Residual → Sequential[LN, Attention, Dropout]
         device = attn.to_v.weight.device
         attn.positions = get_positional_embed(4096, attn.num_rel_pos_features, device)
+
+    # 2. Monkey-patch Attention.forward to slice positions for actual N.
+    from borzoi_pytorch.pytorch_borzoi_transformer import Attention
+
+    def _patched_forward(self, x):
+        n, h = x.shape[-2], self.heads
+
+        q = self.to_q(x)
+        k = self.to_k(x)
+        v = self.to_v(x)
+
+        q, k, v = map(lambda t: rearrange(t, "b n (h d) -> b h n d", h=h), (q, k, v))
+        q = q * self.scale
+
+        content_logits = einsum("b h i d, b h j d -> b h i j", q + self.rel_content_bias, k)
+
+        # Slice the center 2*n-1 positions from the full 2*4096-1 buffer
+        # so that fast_relative_shift gets correctly-sized inputs.
+        pos_center = self.positions.shape[0] // 2  # 4095
+        positions = self.pos_dropout(self.positions[pos_center - (n - 1) : pos_center + n])
+
+        rel_k = self.to_rel_k(positions)
+        rel_k = rearrange(rel_k, "n (h d) -> h n d", h=h)
+        rel_logits = fast_relative_shift(q + self.rel_pos_bias, rel_k)
+
+        logits = content_logits + rel_logits
+        attn = logits.softmax(dim=-1)
+        attn = self.attn_dropout(attn)
+
+        out = einsum("b h i j, b h j d -> b h i d", attn, v)
+        out = rearrange(out, "b h n d -> b n (h d)")
+        out = self.to_out(out)
+        return out
+
+    Attention.forward = _patched_forward
 
 
 def _load_borzoi():
@@ -209,9 +258,8 @@ def _load_borzoi():
         Borzoi.all_tied_weights_keys = {}
 
     model = Borzoi.from_pretrained("johahi/borzoi-replicate-0")
-    # Fix corrupted relative-position buffers (keep seq_len=4096 to match
-    # the original training — to_rel_k weights expect 4096-scale features).
-    _fix_borzoi_positions(model)
+    # Fix NaN positions + stride mismatch for non-standard input lengths.
+    _fix_borzoi_attention(model)
     return model, BORZOI_EMBED_DIM
 
 
