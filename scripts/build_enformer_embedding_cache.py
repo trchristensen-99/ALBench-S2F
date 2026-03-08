@@ -162,9 +162,10 @@ def main():
 
     from data.k562 import K562Dataset
 
-    # Fix for transformers>=5.3 which expects all_tied_weights_keys on PreTrainedModel
+    # Fix for transformers>=5.3 which expects all_tied_weights_keys (dict) on PreTrainedModel.
+    # enformer-pytorch only defines _tied_weights_keys which may be None.
     if not hasattr(Enformer, "all_tied_weights_keys"):
-        Enformer.all_tied_weights_keys = getattr(Enformer, "_tied_weights_keys", set())
+        Enformer.all_tied_weights_keys = {}
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loading Enformer on {device}...")
