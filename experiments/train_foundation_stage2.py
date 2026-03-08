@@ -278,29 +278,19 @@ def _forward_enformer(model, one_hot_batch):
     return center_emb.mean(dim=1)  # (B, 3072)
 
 
-BORZOI_NUM_BINS = 6144
-BORZOI_BIN_SIZE = 32  # 196608 / 6144 = 32bp per bin
-# Center bins covering the actual 600bp sequence region (~19 bins at 32bp)
-BORZOI_N_CENTER_BINS = 20
-
-
 def _forward_borzoi(model, one_hot_batch):
     """Forward pass through Borzoi: (B, 4, 600) -> (B, 1536).
 
-    Uses center bins (covering the actual sequence region) instead of
-    mean-pooling all 6144 bins, which are 99.7% zero-padded and cause
-    gradient instability during S2 fine-tuning.
+    Mean-pools all 6144 bins (matching S1 embedding cache).  This averages
+    out the constant background from the 99.7 % zero-padded input, giving
+    ~10x better signal-to-noise ratio than extracting center bins only.
     """
     pad_total = BORZOI_SEQ_LEN - one_hot_batch.shape[2]
     pad_left = pad_total // 2
     pad_right = pad_total - pad_left
     padded = F.pad(one_hot_batch, (pad_left, pad_right), value=0.0)  # (B, 4, 196608)
     emb = model.get_embs_after_crop(padded)  # (B, 1536, 6144)
-    # Extract center bins corresponding to the actual sequence region
-    center = BORZOI_NUM_BINS // 2  # 3072
-    half = BORZOI_N_CENTER_BINS // 2
-    center_emb = emb[:, :, center - half : center + half]  # (B, 1536, 20)
-    return center_emb.mean(dim=2)  # (B, 1536)
+    return emb.mean(dim=2)  # (B, 1536)
 
 
 # ── Selective unfreezing ─────────────────────────────────────────────────────
