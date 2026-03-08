@@ -516,7 +516,10 @@ def train(cfg: dict):
 
     for epoch in range(int(cfg["epochs"])):
         t_epoch = time.time()
-        encoder_model.train()
+        # Keep encoder in eval mode: disables dropout/BN updates for numerical
+        # stability with 196K zero-padded input. Gradients still flow through
+        # unfrozen params (requires_grad=True is independent of train/eval mode).
+        encoder_model.eval()
         head.train()
         train_losses: list[float] = []
 
@@ -549,7 +552,7 @@ def train(cfg: dict):
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
 
-            if (batch_idx + 1) % 500 == 0:
+            if (batch_idx + 1) % 100 == 0:
                 print(
                     f"  Epoch {epoch + 1} batch {batch_idx + 1}/{n_train_batches} "
                     f"loss={train_losses[-1]:.4f}",
