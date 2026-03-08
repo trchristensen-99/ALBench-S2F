@@ -64,7 +64,7 @@ DEFAULT_CONFIG = {
     "unfreeze_mode": "transformer",  # "transformer" or "all"
     "grad_clip": 1.0,
     "num_workers": 4,
-    "use_amp": True,  # bfloat16 autocast; set False for float32 (more stable)
+    "amp_mode": "bfloat16",  # "bfloat16", "fp16", or "off"
 }
 
 # ── MPRA flanks as one-hot arrays ────────────────────────────────────────────
@@ -272,6 +272,8 @@ def _predict_test_sequences(
     sequences_200bp: list[str],
     device: torch.device,
     batch_size: int = 4,
+    amp_dtype: torch.dtype = torch.bfloat16,
+    use_amp: bool = True,
 ) -> np.ndarray:
     """RC-averaged predictions on raw 200bp test strings."""
     from data.utils import one_hot_encode
@@ -308,7 +310,7 @@ def _predict_test_sequences(
 
         with (
             torch.no_grad(),
-            torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=device.type == "cuda"),
+            torch.amp.autocast("cuda", dtype=amp_dtype, enabled=use_amp),
         ):
             emb_can = forward_fn(encoder_model, can_t)
             emb_rc = forward_fn(encoder_model, rc_t)
@@ -328,6 +330,8 @@ def evaluate_all_test_sets(
     test_set_dir: Path,
     device: torch.device,
     batch_size: int = 4,
+    amp_dtype: torch.dtype = torch.bfloat16,
+    use_amp: bool = True,
 ) -> dict[str, dict[str, float]]:
     """Evaluate on hashFrag in-dist / SNV / OOD test sets."""
     import pandas as pd
@@ -338,7 +342,14 @@ def evaluate_all_test_sets(
     if in_path.exists():
         df = pd.read_csv(in_path, sep="\t")
         pred = _predict_test_sequences(
-            encoder_model, head, forward_fn, df["sequence"].tolist(), device, batch_size
+            encoder_model,
+            head,
+            forward_fn,
+            df["sequence"].tolist(),
+            device,
+            batch_size,
+            amp_dtype=amp_dtype,
+            use_amp=use_amp,
         )
         true = df["K562_log2FC"].to_numpy(dtype=np.float32)
         metrics["in_distribution"] = {
@@ -352,10 +363,24 @@ def evaluate_all_test_sets(
     if snv_path.exists():
         df = pd.read_csv(snv_path, sep="\t")
         ref_pred = _predict_test_sequences(
-            encoder_model, head, forward_fn, df["sequence_ref"].tolist(), device, batch_size
+            encoder_model,
+            head,
+            forward_fn,
+            df["sequence_ref"].tolist(),
+            device,
+            batch_size,
+            amp_dtype=amp_dtype,
+            use_amp=use_amp,
         )
         alt_pred = _predict_test_sequences(
-            encoder_model, head, forward_fn, df["sequence_alt"].tolist(), device, batch_size
+            encoder_model,
+            head,
+            forward_fn,
+            df["sequence_alt"].tolist(),
+            device,
+            batch_size,
+            amp_dtype=amp_dtype,
+            use_amp=use_amp,
         )
         alt_true = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
         metrics["snv_abs"] = {
@@ -377,7 +402,14 @@ def evaluate_all_test_sets(
     if ood_path.exists():
         df = pd.read_csv(ood_path, sep="\t")
         pred = _predict_test_sequences(
-            encoder_model, head, forward_fn, df["sequence"].tolist(), device, batch_size
+            encoder_model,
+            head,
+            forward_fn,
+            df["sequence"].tolist(),
+            device,
+            batch_size,
+            amp_dtype=amp_dtype,
+            use_amp=use_amp,
         )
         true = df["K562_log2FC"].to_numpy(dtype=np.float32)
         metrics["ood"] = {
@@ -423,65 +455,6 @@ def train(cfg: dict):
     encoder_model.to(device)
     encoder_model.eval()
     print(f"Encoder loaded in {time.time() - t0:.1f}s", flush=True)
-
-    # ── Borzoi diagnostic: test full pipeline with real data ──────────────
-    if model_name == "borzoi":
-        _tmphead = MLPHead(embed_dim, int(cfg["hidden_dim"]), float(cfg["dropout"]))
-        _s1tmp = cfg["stage1_result_dir"]
-        if _s1tmp:
-            _ck = torch.load(
-                Path(_s1tmp).expanduser().resolve() / "best_model.pt",
-                map_location="cpu",
-                weights_only=True,
-            )
-            _tmphead.load_state_dict(_ck["model_state_dict"])
-        _tmphead.to(device)
-        _tmphead.eval()
-
-        # Get first real batch
-        _tmpds = K562Dataset(data_path=str(Path(cfg["data_path"])), split="train")
-        _tmploader = DataLoader(
-            _tmpds, batch_size=4, collate_fn=lambda b: _collate_train(b, rc_aug=False)
-        )
-        _oh, _lbl = next(iter(_tmploader))
-        _oh = _oh.to(device)
-        _lbl = _lbl.to(device)
-
-        # Test 1: no_grad forward
-        with torch.no_grad():
-            _emb = forward_fn(encoder_model, _oh)
-            _pred = _tmphead(_emb)
-            _loss = F.mse_loss(_pred, _lbl)
-            print(
-                f"[DIAG] no_grad: emb_nan={torch.isnan(_emb).any().item()} "
-                f"emb_range=[{_emb.min().item():.2f}, {_emb.max().item():.2f}] "
-                f"pred_nan={torch.isnan(_pred).any().item()} "
-                f"pred_range=[{_pred.min().item():.4f}, {_pred.max().item():.4f}] "
-                f"loss={_loss.item():.4f}",
-                flush=True,
-            )
-
-        # Test 2: with grad on last 2 blocks
-        for _n, _p in encoder_model.named_parameters():
-            if _n.startswith("transformer.6.") or _n.startswith("transformer.7."):
-                _p.requires_grad = True
-        _emb2 = forward_fn(encoder_model, _oh)
-        _pred2 = _tmphead(_emb2)
-        _loss2 = F.mse_loss(_pred2, _lbl)
-        print(
-            f"[DIAG] with_grad: emb_nan={torch.isnan(_emb2).any().item()} "
-            f"emb_range=[{_emb2.min().item():.2f}, {_emb2.max().item():.2f}] "
-            f"pred_nan={torch.isnan(_pred2).any().item()} "
-            f"pred_range=[{_pred2.min().item():.4f}, {_pred2.max().item():.4f}] "
-            f"loss={_loss2.item():.4f}",
-            flush=True,
-        )
-
-        # Reset
-        for _p in encoder_model.parameters():
-            _p.requires_grad = False
-        del _tmphead, _tmpds, _tmploader, _oh, _lbl, _emb, _pred, _emb2, _pred2
-        torch.cuda.empty_cache()
 
     # ── Load S1 head ─────────────────────────────────────────────────────────
     hidden_dim = int(cfg["hidden_dim"])
@@ -590,10 +563,21 @@ def train(cfg: dict):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Training loop ────────────────────────────────────────────────────────
-    # bfloat16 autocast (better dynamic range than float16, no GradScaler needed)
-    use_amp = device.type == "cuda" and bool(cfg["use_amp"])
-    amp_dtype = torch.bfloat16
-    print(f"Mixed precision (bfloat16): {'enabled' if use_amp else 'disabled'}", flush=True)
+    # AMP mode: "bfloat16" (Enformer), "fp16" (Borzoi — needs GradScaler), "off"
+    amp_mode = str(cfg["amp_mode"]).lower()
+    if amp_mode == "bfloat16" and device.type == "cuda":
+        use_amp = True
+        amp_dtype = torch.bfloat16
+        scaler = None  # bfloat16 doesn't need GradScaler
+    elif amp_mode == "fp16" and device.type == "cuda":
+        use_amp = True
+        amp_dtype = torch.float16
+        scaler = torch.amp.GradScaler("cuda")
+    else:
+        use_amp = False
+        amp_dtype = torch.float32
+        scaler = None
+    print(f"Mixed precision: {amp_mode} (enabled={use_amp})", flush=True)
     best_val_pearson = -1.0
     epochs_no_improve = 0
     early_stop_patience = int(cfg["early_stop_patience"])
@@ -626,16 +610,27 @@ def train(cfg: dict):
                     flush=True,
                 )
                 optimizer.zero_grad(set_to_none=True)
+                if scaler is not None:
+                    scaler.update()
                 continue
 
-            loss.backward()
+            if scaler is not None:
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
             train_losses.append(loss.item() * grad_accum_steps)
 
             is_accum_step = (batch_idx + 1) % grad_accum_steps == 0
             is_last_batch = (batch_idx + 1) == n_train_batches
             if is_accum_step or is_last_batch:
+                if scaler is not None:
+                    scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(all_trainable, grad_clip)
-                optimizer.step()
+                if scaler is not None:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
 
             if (batch_idx + 1) % 100 == 0:
@@ -718,7 +713,14 @@ def train(cfg: dict):
     print("\n[eval] Evaluating on test sets ...", flush=True)
     test_set_dir = data_path / "test_sets"
     test_metrics = evaluate_all_test_sets(
-        encoder_model, head, forward_fn, test_set_dir, device, batch_size=batch_size
+        encoder_model,
+        head,
+        forward_fn,
+        test_set_dir,
+        device,
+        batch_size=batch_size,
+        amp_dtype=amp_dtype,
+        use_amp=use_amp,
     )
 
     results = {

@@ -98,7 +98,7 @@ uv run --no-sync python experiments/train_foundation_stage2.py \
     ++early_stop_patience=5 \
     ++max_train_sequences=20000 \
     ++max_val_sequences=2000 \
-    ++use_amp=false
+    ++amp_mode=fp16
 
 echo "Task ${IDX} DONE — $(date)"
 
