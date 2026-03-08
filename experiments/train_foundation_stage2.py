@@ -424,6 +424,65 @@ def train(cfg: dict):
     encoder_model.eval()
     print(f"Encoder loaded in {time.time() - t0:.1f}s", flush=True)
 
+    # ── Borzoi diagnostic: test full pipeline with real data ──────────────
+    if model_name == "borzoi":
+        _tmphead = MLPHead(embed_dim, int(cfg["hidden_dim"]), float(cfg["dropout"]))
+        _s1tmp = cfg["stage1_result_dir"]
+        if _s1tmp:
+            _ck = torch.load(
+                Path(_s1tmp).expanduser().resolve() / "best_model.pt",
+                map_location="cpu",
+                weights_only=True,
+            )
+            _tmphead.load_state_dict(_ck["model_state_dict"])
+        _tmphead.to(device)
+        _tmphead.eval()
+
+        # Get first real batch
+        _tmpds = K562Dataset(data_path=str(Path(cfg["data_path"])), split="train")
+        _tmploader = DataLoader(
+            _tmpds, batch_size=4, collate_fn=lambda b: _collate_train(b, rc_aug=False)
+        )
+        _oh, _lbl = next(iter(_tmploader))
+        _oh = _oh.to(device)
+        _lbl = _lbl.to(device)
+
+        # Test 1: no_grad forward
+        with torch.no_grad():
+            _emb = forward_fn(encoder_model, _oh)
+            _pred = _tmphead(_emb)
+            _loss = F.mse_loss(_pred, _lbl)
+            print(
+                f"[DIAG] no_grad: emb_nan={torch.isnan(_emb).any().item()} "
+                f"emb_range=[{_emb.min().item():.2f}, {_emb.max().item():.2f}] "
+                f"pred_nan={torch.isnan(_pred).any().item()} "
+                f"pred_range=[{_pred.min().item():.4f}, {_pred.max().item():.4f}] "
+                f"loss={_loss.item():.4f}",
+                flush=True,
+            )
+
+        # Test 2: with grad on last 2 blocks
+        for _n, _p in encoder_model.named_parameters():
+            if _n.startswith("transformer.6.") or _n.startswith("transformer.7."):
+                _p.requires_grad = True
+        _emb2 = forward_fn(encoder_model, _oh)
+        _pred2 = _tmphead(_emb2)
+        _loss2 = F.mse_loss(_pred2, _lbl)
+        print(
+            f"[DIAG] with_grad: emb_nan={torch.isnan(_emb2).any().item()} "
+            f"emb_range=[{_emb2.min().item():.2f}, {_emb2.max().item():.2f}] "
+            f"pred_nan={torch.isnan(_pred2).any().item()} "
+            f"pred_range=[{_pred2.min().item():.4f}, {_pred2.max().item():.4f}] "
+            f"loss={_loss2.item():.4f}",
+            flush=True,
+        )
+
+        # Reset
+        for _p in encoder_model.parameters():
+            _p.requires_grad = False
+        del _tmphead, _tmpds, _tmploader, _oh, _lbl, _emb, _pred, _emb2, _pred2
+        torch.cuda.empty_cache()
+
     # ── Load S1 head ─────────────────────────────────────────────────────────
     hidden_dim = int(cfg["hidden_dim"])
     dropout = float(cfg["dropout"])
