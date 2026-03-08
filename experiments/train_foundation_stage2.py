@@ -168,6 +168,8 @@ def _collate_eval(batch):
 
 # ── Model loading ───────────────────────────────────────────────────────────
 def _load_enformer():
+    import copy
+
     from enformer_pytorch import Enformer
 
     # Fix for transformers>=5.3 which expects all_tied_weights_keys
@@ -175,10 +177,14 @@ def _load_enformer():
         Enformer.all_tied_weights_keys = {}
 
     model = Enformer.from_pretrained("EleutherAI/enformer-official-rough")
+    # Deep copy to prevent safetensors memory-mapping corruption.
+    model = copy.deepcopy(model)
     return model, ENFORMER_EMBED_DIM
 
 
 def _load_borzoi():
+    import copy
+
     from borzoi_pytorch import Borzoi
 
     # Fix for transformers>=5.3 which expects all_tied_weights_keys
@@ -186,6 +192,9 @@ def _load_borzoi():
         Borzoi.all_tied_weights_keys = {}
 
     model = Borzoi.from_pretrained("johahi/borzoi-replicate-0")
+    # Deep copy to prevent safetensors memory-mapping from corrupting the
+    # HuggingFace cache when we modify weights during training.
+    model = copy.deepcopy(model)
     return model, BORZOI_EMBED_DIM
 
 
