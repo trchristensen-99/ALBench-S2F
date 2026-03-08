@@ -43,6 +43,18 @@ from torch.utils.data import DataLoader
 from data.k562 import K562Dataset
 from data.k562_full import K562FullDataset
 
+# ── JAX 0.9 / Flax 0.10 compat fix ──────────────────────────────────────────
+# Flax 0.10.4's nnx.jit passes `abstracted_axes` to jax.jit, but JAX 0.9 removed it.
+_orig_jax_jit = jax.jit
+
+
+def _patched_jax_jit(fun, *args, **kwargs):
+    kwargs.pop("abstracted_axes", None)
+    return _orig_jax_jit(fun, *args, **kwargs)
+
+
+jax.jit = _patched_jax_jit
+
 # ── Config ───────────────────────────────────────────────────────────────────
 DEFAULT_CONFIG = {
     "output_dir": "outputs/ntv3_k562_stage2",
@@ -60,7 +72,7 @@ DEFAULT_CONFIG = {
     "early_stop_patience": 10,
     "max_shift": 15,
     "rc_aug": True,
-    "unfreeze_blocks": "20,21,22,23",  # last 4 of 24 transformer blocks
+    "unfreeze_blocks": "8,9,10,11",  # last 4 of 12 transformer blocks
     "use_flanks": True,  # 600bp with MPRA flanks (vs 200bp bare)
     "num_workers": 4,
     "use_bfloat16": False,  # f32 for training stability; bf16 OK for inference

@@ -2,12 +2,12 @@
 # NTv3 Stage 2 encoder fine-tuning sweep on K562 hashFrag.
 #
 # Grid: 2 encoder_lr × 3 unfreeze depths = 6 configs (single seed each).
-#   0 → elr=1e-5, last 4 blocks (20-23)
-#   1 → elr=1e-5, last 8 blocks (16-23)
-#   2 → elr=1e-5, last 12 blocks (12-23)
-#   3 → elr=1e-4, last 4 blocks (20-23)
-#   4 → elr=1e-4, last 8 blocks (16-23)
-#   5 → elr=1e-4, last 12 blocks (12-23)
+#   0 → elr=1e-5, last 4 blocks (8-11)
+#   1 → elr=1e-5, last 8 blocks (4-11)
+#   2 → elr=1e-5, all 12 blocks (0-11)
+#   3 → elr=1e-4, last 4 blocks (8-11)
+#   4 → elr=1e-4, last 8 blocks (4-11)
+#   5 → elr=1e-4, all 12 blocks (0-11)
 #
 # Prerequisites:
 #   Stage 1 grid search must have at least one completed result in:
@@ -66,8 +66,9 @@ echo "Best Stage 1 dir: ${BEST_S1_DIR}"
 
 # ── Sweep grid ──────────────────────────────────────────────────────────────
 ENCODER_LRS=(1e-5 1e-5 1e-5 1e-4 1e-4 1e-4)
-UNFREEZE_SPECS=("20,21,22,23" "16,17,18,19,20,21,22,23" "12,13,14,15,16,17,18,19,20,21,22,23" \
-                "20,21,22,23" "16,17,18,19,20,21,22,23" "12,13,14,15,16,17,18,19,20,21,22,23")
+# NTv3 650M has 12 transformer blocks (0-11), not 24
+UNFREEZE_SPECS=("8,9,10,11" "4,5,6,7,8,9,10,11" "0,1,2,3,4,5,6,7,8,9,10,11" \
+                "8,9,10,11" "4,5,6,7,8,9,10,11" "0,1,2,3,4,5,6,7,8,9,10,11")
 LABELS=(uf4 uf8 uf12 uf4 uf8 uf12)
 
 IDX=${SLURM_ARRAY_TASK_ID}
