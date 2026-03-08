@@ -552,6 +552,19 @@ def train(cfg: dict):
                 loss = F.mse_loss(pred, labels) / grad_accum_steps
 
             if torch.isnan(loss):
+                if batch_idx < 5:
+                    # Diagnostic for first few NaN batches
+                    emb_nan = torch.isnan(emb).any().item()
+                    emb_inf = torch.isinf(emb).any().item()
+                    pred_nan = torch.isnan(pred).any().item()
+                    print(
+                        f"  [DIAG] batch {batch_idx + 1}: "
+                        f"emb_nan={emb_nan} emb_inf={emb_inf} "
+                        f"emb_range=[{emb.min().item():.4f}, {emb.max().item():.4f}] "
+                        f"pred_nan={pred_nan} "
+                        f"labels_range=[{labels.min().item():.4f}, {labels.max().item():.4f}]",
+                        flush=True,
+                    )
                 print(
                     f"  [WARN] NaN loss at batch {batch_idx + 1}, skipping",
                     flush=True,
