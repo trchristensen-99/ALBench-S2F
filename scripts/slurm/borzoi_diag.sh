@@ -53,6 +53,21 @@ oh = torch.from_numpy(np.stack(seqs)).float().cuda()
 pad_total = 196608 - oh.shape[2]
 padded = F.pad(oh, (pad_total//2, pad_total-pad_total//2), value=0.0)
 print('Input shape:', padded.shape, flush=True)
+print(f'Input stats: min={padded.min():.4f} max={padded.max():.4f} mean={padded.mean():.6f} sum={padded.sum():.1f}', flush=True)
+print(f'oh 600bp stats: min={oh.min():.4f} max={oh.max():.4f} sum_per_pos={oh[:,:,:600].sum(dim=1).mean():.4f}', flush=True)
+
+# Quick sanity: test with random input
+rand_input = torch.randn(4, 4, 196608, device='cuda')
+with torch.no_grad():
+    rand_emb = model.get_embs_after_crop(rand_input)
+    print(f'random_input: nan={torch.isnan(rand_emb).any().item()} range=[{rand_emb.min():.2f}, {rand_emb.max():.2f}]', flush=True)
+del rand_input, rand_emb
+
+# Also test with the padded input under torch.no_grad() explicitly
+with torch.no_grad():
+    test_emb = model.get_embs_after_crop(padded)
+    print(f'real_no_grad_explicit: nan={torch.isnan(test_emb).any().item()} range=[{test_emb.float().min():.2f}, {test_emb.float().max():.2f}]', flush=True)
+del test_emb
 
 # Center bins extraction
 NBINS = 6144
