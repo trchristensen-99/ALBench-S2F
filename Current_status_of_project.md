@@ -1,270 +1,215 @@
 # ALBench-S2F — Current Project Status
 
-**Last updated:** 2026-03-06 ~14:00 EST (Fri)
-**Scope:** Experiment 0 status for both K562 and Yeast, active HPC jobs, and remaining work
+**Last updated:** 2026-03-07 ~20:00 EST (Sat)
+**Scope:** Experiment 0 status for K562 and Yeast, foundation model comparison (6 models), active HPC jobs, and remaining work
 
 ---
 
-## Experiment 0 Overview
+## High-Level Summary
 
-Experiment 0 establishes **scaling curves** for two model architectures (DREAM-RNN and AlphaGenome) on two datasets (K562 and Yeast), trained on both **real labels** and **oracle pseudolabels**. The goal is to characterize how performance scales with training set size and whether oracle pseudolabels (from an ensemble trained on 100% of data) provide a better training signal.
+We are running **Experiment 0**: comparing 6 models on K562 MPRA data with scaling curves and test-set evaluation. The 6 models are:
+1. **DREAM-RNN** — train-from-scratch baseline
+2. **Malinois** — train-from-scratch baseline (Basset-branched architecture)
+3. **AlphaGenome (AG)** — two-stage: frozen encoder → selective encoder fine-tuning (Stage 2)
+4. **Enformer** — frozen encoder + MLP head (Stage 1 only)
+5. **Borzoi** — frozen encoder + MLP head (Stage 1 only)
+6. **NTv3 (Nucleotide Transformer v3 650M)** — two-stage: frozen encoder + head → selective encoder fine-tuning
 
-**Fractions tested:**
-- K562: 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00 (7 fractions)
-- Yeast: 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00 (10 fractions)
-
-**Oracle ensembles:**
-- K562: AlphaGenome 10-fold (DONE)
-- Yeast: DREAM-RNN 10-fold (DONE)
-
-**Test sets:**
-- K562: in_distribution, snv_abs, snv_delta, ood (designed sequences)
-- Yeast: random (ID), genomic (OOD), snv_abs, snv (delta)
+In parallel, we are running **AG yeast Stage 2 encoder fine-tuning sweep** to determine optimal hyperparameters for unfrozen-encoder AG on yeast data.
 
 ---
 
-## Master Completion Matrix
+## K562 — 6-Model Comparison Status
 
-| Component | K562 DREAM | K562 AG | Yeast DREAM | Yeast AG |
-|-----------|-----------|---------|-------------|----------|
-| **Real-label scaling** | DONE (3-4 seeds) | DONE (3 seeds) | DONE (3 seeds; f=1.0: 1/3, 2 running) | BLOCKED (needs S2v2 sweep results) |
-| **Oracle ensemble** | N/A | DONE (10/10 folds) | DONE (10/10 folds) | N/A |
-| **Oracle pseudolabels** | N/A | DONE | DONE | N/A |
-| **Oracle-label scaling** | ~95% (f=1.0: 1/3, 2 running) | DONE (3 seeds) | DONE (3-4 seeds) | BLOCKED (needs S2v2 sweep results) |
-| **Distribution analysis** | DONE | — | DONE | — |
+### Final 3-Seed Results (COMPLETED)
 
----
+| Model | in_dist Pearson | SNV abs Pearson | SNV delta Pearson | OOD Pearson | Status |
+|-------|----------------|-----------------|-------------------|-------------|--------|
+| **AG Stage 2** (s2c, full train) | **0.9161 ± 0.001** | **0.9055 ± 0.001** | **0.387 ± 0.001** | **0.775 ± 0.003** | DONE (3 seeds) |
+| **DREAM-RNN** | 0.8779 ± 0.001 | 0.8647 ± 0.000 | 0.357 ± 0.000 | 0.519 ± 0.003 | DONE (3 seeds) |
+| **Malinois** | 0.8593 ± 0.001 | 0.8449 ± 0.001 | 0.317 ± 0.004 | 0.470 ± 0.013 | DONE (3 seeds) |
+| **Borzoi** (S1 frozen) | ~0.851 (grid best) | ~0.831 | ~0.327 | ~0.549 | Grid search 15/27; 3-seed PENDING |
+| **NTv3** (S1 frozen) | ~0.603 (grid best) | ~0.554 | ~0.095 | -0.035 | Grid search 10/27; 3-seed PENDING |
+| **Enformer** (S1 frozen) | — | — | — | — | BLOCKED (cache build failed) |
 
-## K562 — Experiment 0 Status
+**Key observations:**
+- AG Stage 2 is the clear winner across all metrics
+- DREAM-RNN > Malinois (both train-from-scratch)
+- Borzoi (frozen, S1 only) is competitive with Malinois (~0.85 in_dist)
+- **NTv3 Stage 1 is surprisingly weak** (~0.60 in_dist) — the frozen encoder embeddings don't transfer well to MPRA prediction with just a head. Stage 2 fine-tuning may be critical for NTv3.
+- Enformer blocked on a `transformers` library version issue
 
-### All Components COMPLETE (or Nearly)
+### Foundation Model Pipeline
 
-| Component | Status | Key Results | Output Location |
-|-----------|--------|-------------|-----------------|
-| **DREAM-RNN scaling (real labels)** | **DONE** (3-4 seeds/frac) | f=0.01: 0.51, f=0.05: 0.57, f=0.20: 0.65, f=1.00: 0.82 (in_dist) | `exp0_k562_scaling/` |
-| **AG scaling (real labels, cached)** | **DONE** (3 seeds/frac) | f=0.01: 0.862, f=0.10: 0.892, f=1.00: 0.906 (in_dist) | `exp0_k562_scaling_alphagenome_cached_rcaug/` |
-| **AG 10-fold oracle ensemble** | **DONE** (10/10 folds) | in_dist: 0.903-0.907, snv_abs: 0.892-0.895, ood: 0.703-0.747 | `ag_hashfrag_oracle_cached/oracle_{0-9}/` |
-| **S1 oracle pseudolabels** | **DONE** | Ensemble: in_dist=0.909, snv_abs=0.897, ood=0.755 | `oracle_pseudolabels_k562_ag/` |
-| **AG oracle-label scaling** | **DONE** (3 seeds/frac) | f=0.01: 0.882, f=0.10: 0.891, f=1.00: 0.902 (in_dist) | `exp0_k562_scaling_oracle_labels_ag/` |
-| **DREAM oracle-label scaling** | **~95%** (f=1.0: 1/3) | f=0.01: 0.353, f=0.10: 0.455, f=1.00: 0.598 (val) | `exp0_k562_scaling_oracle_labels/` |
-| **Distribution analysis** | **DONE** | Plots + statistics | `analysis/k562_oracle_label_distributions/` |
+| Step | NTv3 | Borzoi | Enformer |
+|------|------|--------|----------|
+| Embedding cache (train+val+test) | DONE | DONE | PARTIAL (missing snv/ood test) |
+| Grid search (27 configs, seed=42) | **10/27** (lr=1e-4 done) | **15/27** (lr=1e-4, 5e-4 partial) | **0/27** (BLOCKED) |
+| Best S1 config identified | Not yet (needs full grid) | Not yet (needs full grid) | BLOCKED |
+| 3-seed final training | PENDING | PENDING | BLOCKED |
+| Stage 2 fine-tuning | **Script ready** | N/A (too slow) | N/A (too slow) |
 
-### K562 Key Observations
+### NTv3 Grid Search Results So Far (10/27)
 
-- AG scaling curve is **very flat** (f=0.01 → 0.862, f=1.00 → 0.906) — frozen pretrained encoder does most of the work.
-- DREAM-RNN is much steeper (0.51 → 0.82), demonstrating strong data dependence for training-from-scratch models.
-- AG oracle-label scaling also flat (0.882 → 0.902), slightly below real labels (0.862 → 0.906). Oracle pseudolabels don't help AG much — the true labels are nearly as good as the ensemble's predictions.
-- DREAM oracle-label scaling is MUCH weaker (0.35-0.60 val Pearson). Architecture mismatch: DREAM-RNN struggles to learn AG's pseudolabel distribution.
+Best: `lr0.0001_wd0.000001_do0.1` → in_dist=0.603, snv_abs=0.554, ood=-0.035
+All lr=0.0001 configs show similar weak performance (~0.54-0.60 in_dist). lr=0.0005 and lr=0.001 configs still pending.
 
-### K562 Remaining
+### Borzoi Grid Search Results So Far (15/27)
 
-- **K562 DREAM oracle-label scaling f=1.0**: 2 more seeds running (jobs 825997_6, 825998_5/6). Expected completion: within hours.
+Best: `lr0.0005_wd0.000001_do0.1` → in_dist=0.851, snv_abs=0.831, ood=0.494
+Borzoi transfers much better than NTv3 to MPRA (likely due to its genomics-specific pretraining).
 
----
+### Issues to Resolve
 
-## Yeast — Experiment 0 Status
+1. **Enformer cache build failed** (job 830059): `'Enformer' object has no attribute 'all_tied_weights_keys'` — `transformers` library version incompatibility with `enformer-pytorch`. The dependent grid search job (830061, array task 2) is stuck with `DependencyNeverSatisfied`. Need to fix the transformers version or the loading code.
 
-### Completed Components
+2. **NTv3 grid search incomplete**: 17/27 configs still need to run. The grid search job for NTv3 (830060 task 0) completed but only covered lr=0.0001 configs (9 of 27). Need to resubmit for remaining configs, or the next submission will skip already-completed ones automatically.
 
-| Component | Status | Key Results | Output Location |
-|-----------|--------|-------------|-----------------|
-| **DREAM-RNN 10-fold oracle ensemble** | **DONE** (10/10 folds) | val ~0.626, random ~0.820, snv_abs ~0.887 | `oracle_dream_rnn_yeast_kfold/` |
-| **DREAM oracle pseudolabels** | **DONE** | train OOF r=0.649, val r=0.626, test random r=0.820 | `oracle_pseudolabels/yeast_dream_oracle/` |
-| **Distribution analysis** | **DONE** | Plots + statistics (10 output files) | `analysis/yeast_oracle_label_distributions/` |
-
-### DREAM-RNN Scaling (Real Labels) — DONE (f=1.0 nearly complete)
-
-| Fraction | Seeds | Avg Val Pearson |
-|----------|-------|-----------------|
-| 0.001 | 3 | 0.486 |
-| 0.002 | 3 | 0.506 |
-| 0.005 | 3 | 0.531 |
-| 0.01 | 3 | 0.550 |
-| 0.02 | 3 | 0.569 |
-| 0.05 | 3 | 0.583 |
-| 0.10 | 3 | 0.593 |
-| 0.20 | 3 | 0.599 |
-| 0.50 | 3 | 0.610 |
-| 1.00 | **1** (2 running, ep 74-75/80) | 0.598 |
-
-Note: f=1.0 val Pearson (0.598) is lower than f=0.5 (0.610) — may indicate overfitting at 80 epochs on 6M sequences.
-
-### DREAM-RNN Oracle-Label Scaling — COMPLETE
-
-| Fraction | Seeds | Avg Val Pearson |
-|----------|-------|-----------------|
-| 0.001 | 3 | 0.831 |
-| 0.002 | 3 | 0.855 |
-| 0.005 | 3 | 0.926 |
-| 0.01 | 3 | 0.953 |
-| 0.02 | 3 | 0.986 |
-| 0.05 | 3 | 0.992 |
-| 0.10 | 3 | 0.995 |
-| 0.20 | 3 | 0.995 |
-| 0.50 | 3 | 0.996 |
-| 1.00 | 4 | 0.998 |
-
-**Dramatic** improvement vs real labels (0.83-0.998 vs 0.49-0.61). Oracle labels almost entirely eliminate the data bottleneck — f=0.02 with oracle labels (0.986) far exceeds f=1.0 with real labels (0.598).
-
-### AG Yeast Scaling — BLOCKED on S2v2 Sweep
-
-**Decision (Mar 6):** Frozen-encoder AG scaling was **cancelled**. AlphaGenome was pretrained on human/mouse genomes — a frozen encoder cannot learn yeast-specific patterns. Encoder fine-tuning with high LR (≥1e-3) is required.
-
-**What was cancelled:**
-- Cache build job 826538 (6 parallel GPU chunks) — CANCELLED, partial files cleaned up (~128 GB freed)
-- AG yeast real-label scaling job 826661 (30 tasks) — CANCELLED
-- AG yeast oracle-label scaling job 827321 (30 tasks) — CANCELLED
-
-**What's needed:**
-- S2v2 sweep must complete first to determine optimal unfrozen-encoder hyperparameters (S1 head warmup epochs, S2 encoder LR, unfreeze mode, shift augmentation)
-- Once best config is known, run both real-label and oracle-label AG scaling with unfrozen encoder (no cache — full encoder forward pass each epoch)
-- Scripts exist (`exp0_yeast_scaling_oracle_labels_ag.py`) but will need modification for unfrozen-encoder training
-
-### In Progress — Running on HPC
-
-| Component | Status | Job ID | Notes |
-|-----------|--------|--------|-------|
-| **AG S2v2 encoder FT sweep** | **RUNNING** | 815652 + 814869 | 8 configs, S2 epoch ~3-5/50; **CRITICAL PATH** |
-| **DREAM yeast real f=1.0** | **RUNNING** | 806634_19, 806634_29 | Epoch 74-75/80, ~1h remaining |
+3. **Borzoi grid search incomplete**: 12/27 configs remaining (lr=0.0005_wd0.001 and all lr=0.001 configs).
 
 ---
 
-## AG S2v2 Yeast Sweep — CRITICAL PATH for Exp 0
+## NTv3 Stage 2 Fine-Tuning — NEW (implemented today)
 
-8 encoder fine-tuning configurations. S1 uses optimal cached params (BS=4096, lr=3e-3), then S2 unfreezes downres_block_4,5 with BS=128 on up to 200K sequences.
+Since NTv3's frozen encoder performs poorly on MPRA (0.60 in_dist vs AG's 0.91), we implemented Stage 2 selective encoder fine-tuning to improve it.
 
-| Task | Config | S2 LR | Unfreeze Mode | S2 Epoch |
-|------|--------|-------|---------------|----------|
-| 0 | s2_baseline_s1full_lr1e5 | 1e-5 | encoder | ~5/50 |
-| 1 | s2_s1ep1_lr1e5 | 1e-5 | encoder | ~5/50 |
-| 2 | s2_s1ep3_lr1e5 | 1e-5 | encoder | ~5/50 |
-| 3 | s2_s1ep5_lr1e5 | 1e-5 | encoder | ~5/50 |
-| 4 | s2_s1ep5_lr1e5_backbone | 1e-5 | backbone | ~3/50 |
-| 5 | s2_s1ep5_lr1e5_gradual | 1e-5 | gradual | ~3/50 |
-| 6 | s2_s1ep5_lr5e6 | 5e-6 | encoder | ~3/50 |
-| 7 | s2_s1ep5_lr1e5_noshift | 1e-5 | encoder (no shift) | ~3/50 |
+**Files created:**
+- `experiments/train_ntv3_stage2.py` — End-to-end NTv3 fine-tuning script (JAX/NNX + optax.multi_transform)
+- `scripts/slurm/ntv3_stage2_sweep.sh` — Hyperparameter sweep (6 configs)
+- `scripts/slurm/ntv3_stage2_final.sh` — Final 3-seed evaluation
 
-Each S2 epoch takes ~2.7h (12.4s/it × 782 iterations). Full 50-epoch sweep per config = ~134h (5.6 days). Jobs will need multiple resubmissions to complete.
+**Sweep grid:** encoder_lr ∈ {1e-5, 1e-4} × unfreeze_depth ∈ {last 4, last 8, last 12 transformer blocks} = 6 configs
 
-**This sweep is now the critical path** for AG yeast scaling. Results will determine the config for both real-label and oracle-label AG yeast scaling experiments.
+**Status:** Scripts ready, not yet submitted. Waiting for NTv3 S1 grid search to complete (need best head checkpoint as initialization).
+
+**Decision:** Stage 2 is only feasible for NTv3 (200bp input, ~0.1-0.3s/batch). Enformer and Borzoi require 196,608bp padded input making end-to-end training prohibitively slow.
 
 ---
 
-## Active HPC Jobs (as of 2026-03-06 ~14:00 EST)
+## Experiment 0 — Scaling Curves
 
-| Job ID | Name | Tasks | State | Runtime | Node(s) |
-|--------|------|-------|-------|---------|---------|
-| 815652_0-3 | ag_yeast_s2_v2 | 4 | RUNNING | ~12h | bamgpu27/28 |
-| 814869_4-7 | ag_yeast_s2_v2 | 4 | RUNNING | ~12-14h | bamgpu18/26 |
-| 806634_19,29 | exp0_yeast (DREAM f=1.0) | 2 | RUNNING | ~13.5h | bamgpu15/24 |
-| 825997_6 | exp0_k562_oracle | 1 | RUNNING | ~50 min | bamgpu03 |
-| 825998_5,6 | exp0_k562_oracle | 2 | RUNNING | ~30 min | bamgpu01 |
+### K562 Scaling (COMPLETE)
 
-**Cancelled jobs (Mar 6):** 826538 (cache chunks), 826661 (AG yeast real scaling), 827321 (AG yeast oracle scaling)
+| Component | Status | Key Results |
+|-----------|--------|-------------|
+| **DREAM-RNN scaling (real labels)** | **DONE** (3-4 seeds/frac) | f=0.01: 0.51, f=1.00: 0.82 (in_dist) |
+| **AG scaling (real, cached)** | **DONE** (3 seeds/frac) | f=0.01: 0.862, f=1.00: 0.906 (in_dist) |
+| **AG 10-fold oracle ensemble** | **DONE** (10/10 folds) | in_dist: 0.903-0.907 |
+| **S1 oracle pseudolabels** | **DONE** | Ensemble: in_dist=0.909, ood=0.755 |
+| **AG oracle-label scaling** | **DONE** (3 seeds/frac) | f=0.01: 0.882, f=1.00: 0.902 |
+| **DREAM oracle-label scaling** | **DONE** | f=0.01: 0.353, f=1.00: 0.598 |
+
+### Yeast Scaling
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **DREAM-RNN scaling (real labels)** | **DONE** | f=0.001-1.00, 3 seeds |
+| **DREAM oracle-label scaling** | **DONE** | 3-4 seeds, dramatic improvement (0.83→0.998) |
+| **DREAM 10-fold oracle ensemble** | **DONE** (10/10 folds) | val ~0.626 |
+| **AG yeast scaling** | **BLOCKED** on S2v2 sweep | Frozen encoder abandoned; need S2 config |
 
 ---
 
-## What's Left — Experiment 0 Checklist
+## Active HPC Jobs (as of 2026-03-07 ~20:00 EST)
 
-### Nearly Done (running, will complete without intervention)
+| Job ID | Name | State | Runtime | Node | Notes |
+|--------|------|-------|---------|------|-------|
+| 815652_0 | ag_yeast_s2_v2 | RUNNING | 23.5h | bamgpu18 | s2_baseline_s1full_lr1e5 |
+| 815652_3 | ag_yeast_s2_v2 | RUNNING | 1d 2h | bamgpu26 | s2_s1ep5_lr1e5 |
+| 814869_4 | ag_yeast_s2_v2 | RUNNING | 1d 0h | bamgpu20 | s2_s1ep5_lr1e5_backbone |
+| 830061_[2] | fm_grid (Enformer) | PENDING | — | — | DependencyNeverSatisfied (cache job 830059 failed) |
 
-- [ ] DREAM yeast real-label f=1.0: 2 more seeds (ep 74-75/80, ~1h)
-- [ ] K562 DREAM oracle-label f=1.0: 2 more seeds (several hours)
+Only 3 active GPU jobs (yeast S2 sweep). The Enformer grid search is stuck.
 
-### Blocked on S2v2 Sweep (~5-7 days)
+---
 
-- [ ] **AG yeast real-label scaling**: 10 fractions × 3 seeds with unfrozen encoder. Needs S2v2 results to determine optimal config.
-- [ ] **AG yeast oracle-label scaling**: Same as above but trained on DREAM pseudolabels. Script exists (`exp0_yeast_scaling_oracle_labels_ag.py`) but needs unfrozen-encoder modifications.
+## AG S2v2 Yeast Sweep — CRITICAL PATH for Yeast Exp 0
+
+8 encoder fine-tuning configurations testing S1 warmup epochs, S2 LR, unfreeze mode, and shift augmentation. Each S2 epoch takes ~2.7h. Currently 3 of 8 configs are actively running; the other 5 have completed or timed out.
+
+**This sweep determines the config for AG yeast scaling experiments** (real-label and oracle-label).
+
+---
+
+## Completed Since Last Update (Mar 6-7)
+
+- [x] **DREAM-RNN 3-seed K562 evaluation** (job 829243) — all 3 seeds completed
+- [x] **Malinois 3-seed K562 evaluation** (job 829273) — all 3 seeds completed
+- [x] **AG Stage 2 full-train 3-seed K562** (job 829248) — all 3 seeds completed (~15 min each on H100)
+- [x] **NTv3 embedding cache** — complete (train, val, all test sets)
+- [x] **Borzoi embedding cache** — complete (train, val, all test sets)
+- [x] **Enformer embedding cache** — partial (train, val, test_in_dist done; snv/ood test sets missing)
+- [x] **NTv3 grid search** — 10/27 configs completed (lr=0.0001 all 9 + 1 lr=0.001)
+- [x] **Borzoi grid search** — 15/27 configs completed
+- [x] **NTv3 Stage 2 scripts** — implemented (train script + sweep + final SLURM scripts)
+- [x] **Foundation model install script** — `scripts/install_foundation_models.sh`
+
+---
+
+## What's Left — Priority Order
+
+### Immediate (no blockers)
+
+1. **Fix Enformer cache build** — transformers version issue (`all_tied_weights_keys` attribute error). Fix and resubmit.
+2. **Resubmit NTv3 grid search** — 17 remaining configs (lr=0.0005, lr=0.001). Script auto-skips completed ones.
+3. **Resubmit Borzoi grid search** — 12 remaining configs.
+4. **Cancel stuck Enformer grid search job** (830061) — clear the DependencyNeverSatisfied state.
+
+### After Grid Searches Complete
+
+5. **Foundation model 3-seed final training** — submit for NTv3, Borzoi, (and Enformer if fixed) using best grid search config.
+6. **NTv3 Stage 2 sweep** — submit `ntv3_stage2_sweep.sh` after NTv3 S1 grid search identifies best head.
+7. **NTv3 Stage 2 final 3-seed** — after sweep identifies best S2 config.
 
 ### Ongoing (multi-day, CRITICAL PATH)
 
-- [ ] AG S2v2 yeast sweep: 8 configs, currently at S2 epoch 3-5/50. Will need multiple resubmissions over ~5-7 days. **Results determine AG yeast scaling config.**
+8. **AG S2v2 yeast sweep** — 3 configs running, needs multiple resubmissions over ~5-7 days.
 
-### Completed Today (Mar 6)
+### After Yeast Sweep
 
-- [x] K562 + yeast distribution analysis (job 825999, finished in 51s)
-- [x] K562 DREAM oracle-label scaling fill jobs (825997/825998, most fractions now 3/3)
-- [x] Parallel chunked cache builder + ConcatenatedMmaps infrastructure (implemented but not needed — frozen encoder abandoned)
-- [x] AG yeast oracle-label scaling script created (`exp0_yeast_scaling_oracle_labels_ag.py`)
-- [x] Decision: frozen-encoder AG yeast scaling cancelled — unfrozen encoder required
-
----
-
-## Disk Space
-
-- Available: ~128 GB (cache build cancelled, partial files cleaned up)
-- No large disk-intensive jobs currently running
-- Future AG yeast scaling (unfrozen encoder) does not need embedding cache, so disk is not a concern
-
----
-
-## Key Decision Log (Mar 6, 2026)
-
-### Frozen encoder abandoned for yeast AG scaling
-
-**Rationale:** AlphaGenome was pretrained on human/mouse genomes. A frozen encoder transfers well to K562 (human data → flat scaling curve, 0.86-0.91) but cannot learn yeast-specific regulatory patterns. Encoder fine-tuning with high LR (≥1e-3) is required for yeast.
-
-**Implications:**
-- Embedding cache is NOT useful (encoder weights change during training)
-- Each training run requires full encoder forward+backward passes (~12s/iter vs <1s cached)
-- AG yeast scaling will be much slower per run than K562 AG scaling
-- S2v2 sweep results are the critical path — must know optimal (S1 epochs, S2 LR, unfreeze mode) before launching 60 scaling jobs
-
-### Infrastructure built but shelved
-
-The following were implemented during this session but are not currently needed:
-- `ConcatenatedMmaps` class in `embedding_cache.py` (transparent cross-chunk memmap indexing)
-- Chunked parallel cache building (`build_yeast_embedding_cache_chunked.sh`)
-- Combined canonical+RC encoder forward pass optimization
-These remain available if frozen-encoder caching is ever needed for other tasks.
+9. **AG yeast real-label scaling** — 10 fractions × 3 seeds with unfrozen encoder.
+10. **AG yeast oracle-label scaling** — same as above with DREAM pseudolabels.
 
 ---
 
 ## Results & Output Locations
 
-### Plots and Figures
+### K562 6-Model Comparison
+
+| Output | Location |
+|--------|----------|
+| DREAM-RNN 3-seed | `outputs/dream_rnn_k562_3seeds/seed_*/scaling_curve.json` |
+| Malinois 3-seed | `outputs/malinois_k562_3seeds/seed_*/result.json` |
+| AG S2 3-seed | `outputs/stage2_k562_full_train/run_*/test_metrics.json` |
+| NTv3 grid search | `outputs/foundation_grid_search/ntv3/lr*_wd*_do*/seed_42/result.json` |
+| Borzoi grid search | `outputs/foundation_grid_search/borzoi/lr*_wd*_do*/seed_42/result.json` |
+| NTv3 embeddings | `outputs/ntv3_k562_cached/embedding_cache/` |
+| Borzoi embeddings | `outputs/borzoi_k562_cached/embedding_cache/` |
+| Enformer embeddings | `outputs/enformer_k562_cached/embedding_cache/` (partial) |
+
+### Scaling Curves
 
 | Location | Contents |
 |----------|----------|
-| `results/exp0_scaling/plots/` | `scaling_curves.png`, `yeast_scaling.png`, `k562_scaling.png` |
-| `outputs/analysis/plots/` | `k562_scaling_comparison.png`, `k562_scaling_comparison_4panel.png`, `k562_scaling_in_dist.png` |
-| `outputs/analysis/reports/exp0_yeast_scaling/` | Test metric scaling plots (genomic, random, snv) |
-| `outputs/analysis/reports/exp0_yeast_scaling_consolidated/` | Consolidated val/test scaling plots |
-| `outputs/analysis/reports/exp0_yeast_scaling_clean_6m_only/` | Clean 6M-only scaling plots (val, id, snv, snv_abs, ood) |
-| `outputs/analysis/reports/exp0_yeast_scaling_investigation/` | Modern-schema scaling investigation plots |
+| `outputs/exp0_k562_scaling/` | K562 DREAM-RNN scaling |
+| `outputs/exp0_k562_scaling_alphagenome_cached_rcaug/` | K562 AG cached scaling |
+| `outputs/exp0_k562_scaling_oracle_labels_ag/` | K562 AG oracle scaling |
+| `outputs/exp0_yeast_scaling/` | Yeast DREAM-RNN scaling |
+| `outputs/exp0_yeast_scaling_oracle_labels/` | Yeast DREAM oracle scaling |
 
-### Data Files (CSVs and JSONs)
-
-| Location | Contents |
-|----------|----------|
-| `results/exp0_scaling/data/` | `yeast_baseline.csv`, `k562_baseline.csv` |
-| `results/oracle_benchmarks/data/` | `k562_oracles.csv` |
-| `outputs/exp0_scaling_curve.csv` | Combined scaling curve data |
-| `outputs/analysis/plots/k562_scaling_records.csv` | K562 scaling comparison data |
-| `outputs/analysis/reports/*/summary_by_fraction.csv` | Per-fraction summary statistics |
-
-### Experiment Result JSONs (on HPC)
+### Plots
 
 | Location | Contents |
 |----------|----------|
-| `outputs/exp0_k562_scaling/` | K562 DREAM-RNN scaling: `seed_*/fraction_*/result.json` |
-| `outputs/exp0_k562_scaling_alphagenome_cached_rcaug/` | K562 AG cached scaling: `fraction_*/run_*/result.json` |
-| `outputs/exp0_k562_scaling_oracle_labels_ag/` | K562 AG oracle scaling: `fraction_*/seed_*/result.json` |
-| `outputs/exp0_k562_scaling_oracle_labels/` | K562 DREAM oracle scaling results |
-| `outputs/exp0_yeast_scaling/` | Yeast DREAM-RNN scaling: `run_*/seed_*/fraction_*/result.json` |
-| `outputs/exp0_yeast_scaling_oracle_labels/` | Yeast DREAM oracle scaling results |
-| `outputs/ag_hashfrag_oracle_cached/oracle_{0-9}/` | K562 AG 10-fold oracle: `test_metrics.json` |
-| `outputs/oracle_pseudolabels_k562_ag/` | K562 pseudolabels: `summary.json` + 5 npz files |
-| `outputs/oracle_pseudolabels/yeast_dream_oracle/` | Yeast pseudolabels: train/val/test oracle labels |
+| `results/exp0_scaling/plots/` | Main scaling curve plots |
+| `outputs/analysis/plots/` | K562 comparison plots |
+| `outputs/analysis/reports/exp0_yeast_scaling_clean_6m_only/` | Clean yeast scaling plots |
 
-### Analysis Scripts
+---
 
-| Script | Purpose |
-|--------|---------|
-| `scripts/analysis/generate_scaling_plots.py` | Generate yeast/K562 scaling curve plots |
-| `scripts/analysis/plot_k562_scaling_comparison.py` | K562 DREAM vs AG comparison |
-| `scripts/analysis/analyze_experiment_results.py` | Generic experiment aggregation and plotting |
-| `scripts/analysis/aggregate_exp0_results.py` | Exp0 aggregation wrapper |
-| `scripts/analysis/build_yeast_exp0_decision_table.py` | Yeast Exp0 decision table |
-| `scripts/analysis/analyze_k562_oracle_label_distributions.py` | K562 oracle label distribution analysis |
-| `scripts/analysis/analyze_yeast_oracle_label_distributions.py` | Yeast oracle label distribution analysis |
+## Disk Space
+
+- Available: ~128 GB (cache build cleanup freed significant space)
+- NTv3 + Borzoi caches: ~2.8 GB each
+- Enformer cache: ~4.6 GB (partial)
+- No large disk-intensive jobs currently running
