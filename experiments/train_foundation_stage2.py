@@ -182,26 +182,23 @@ def _load_enformer():
     return model, ENFORMER_EMBED_DIM
 
 
-def _fix_borzoi_positions(model, seq_len: int = 1536):
-    """Recompute relative-position buffers for the actual transformer seq length.
+def _fix_borzoi_positions(model):
+    """Recompute relative-position buffers to fix NaN corruption.
 
     The Borzoi Attention registers ``positions`` as a non-persistent buffer
     computed at ``__init__`` time.  HuggingFace ``from_pretrained()`` can
     corrupt these buffers (blocks 2-5 get NaN values because the buffer is
     created on a meta / uninitialised device during weight loading).
 
-    Additionally, the original buffer is hard-coded for seq_len=4096
-    (matching the standard 524 288 bp input), but with 196 608 bp input the
-    transformer sequence length is 1536.  ``fast_relative_shift`` relies on
-    the positions tensor having exactly ``2*N - 1`` entries, so we recompute
-    it here for the correct N.
+    We recompute at seq_len=4096 to match the original Borzoi training
+    (the ``to_rel_k`` weights were trained to interpret 4096-scale features).
     """
     from borzoi_pytorch.pytorch_borzoi_transformer import get_positional_embed
 
     for blk in model.transformer:
         attn = blk[0].fn[1]  # Residual → Sequential[LN, Attention, Dropout]
         device = attn.to_v.weight.device
-        attn.positions = get_positional_embed(seq_len, attn.num_rel_pos_features, device)
+        attn.positions = get_positional_embed(4096, attn.num_rel_pos_features, device)
 
 
 def _load_borzoi():
@@ -212,9 +209,9 @@ def _load_borzoi():
         Borzoi.all_tied_weights_keys = {}
 
     model = Borzoi.from_pretrained("johahi/borzoi-replicate-0")
-    # Fix corrupted / mismatched relative-position buffers.
-    # 196608 bp input → N = 196608 / 128 = 1536 at the transformer.
-    _fix_borzoi_positions(model, seq_len=BORZOI_SEQ_LEN // 128)
+    # Fix corrupted relative-position buffers (keep seq_len=4096 to match
+    # the original training — to_rel_k weights expect 4096-scale features).
+    _fix_borzoi_positions(model)
     return model, BORZOI_EMBED_DIM
 
 
