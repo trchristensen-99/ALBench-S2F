@@ -64,6 +64,7 @@ DEFAULT_CONFIG = {
     "unfreeze_mode": "transformer",  # "transformer" or "all"
     "grad_clip": 1.0,
     "num_workers": 4,
+    "use_amp": True,  # bfloat16 autocast; set False for float32 (more stable)
 }
 
 # ── MPRA flanks as one-hot arrays ────────────────────────────────────────────
@@ -505,9 +506,10 @@ def train(cfg: dict):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Training loop ────────────────────────────────────────────────────────
-    # Use bfloat16 autocast (better dynamic range than float16, no GradScaler needed)
-    use_amp = device.type == "cuda"
+    # bfloat16 autocast (better dynamic range than float16, no GradScaler needed)
+    use_amp = device.type == "cuda" and bool(cfg["use_amp"])
     amp_dtype = torch.bfloat16
+    print(f"Mixed precision (bfloat16): {'enabled' if use_amp else 'disabled'}", flush=True)
     best_val_pearson = -1.0
     epochs_no_improve = 0
     early_stop_patience = int(cfg["early_stop_patience"])
