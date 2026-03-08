@@ -223,6 +223,8 @@ def train(cfg: dict):
     seed = cfg["seed"]
     if seed is None:
         seed = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
+    else:
+        seed = int(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
