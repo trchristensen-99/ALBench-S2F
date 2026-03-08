@@ -246,12 +246,21 @@ def _should_unfreeze_enformer(name: str, mode: str) -> bool:
 def _should_unfreeze_borzoi(name: str, mode: str) -> bool:
     """Determine if a Borzoi parameter should be unfrozen.
 
-    Borzoi stores the transformer as self.transformer (8 blocks).
+    Borzoi stores the transformer as self.transformer (8 blocks: 0-7).
+    Modes:
+      - "transformer": all 8 transformer blocks (126M params — often unstable)
+      - "transformer_last2": only blocks 6-7 (~31M params — much more stable)
+      - "all": entire encoder
     """
     if mode == "all":
         return True
     if mode == "transformer":
         return name.startswith("transformer.")
+    if mode == "transformer_last2":
+        for blk in (6, 7):
+            if name.startswith(f"transformer.{blk}."):
+                return True
+        return False
     return False
 
 
