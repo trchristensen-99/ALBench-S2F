@@ -182,9 +182,29 @@ def _load_enformer():
     return model, ENFORMER_EMBED_DIM
 
 
-def _load_borzoi():
-    import copy
+def _fix_borzoi_positions(model, seq_len: int = 1536):
+    """Recompute relative-position buffers for the actual transformer seq length.
 
+    The Borzoi Attention registers ``positions`` as a non-persistent buffer
+    computed at ``__init__`` time.  HuggingFace ``from_pretrained()`` can
+    corrupt these buffers (blocks 2-5 get NaN values because the buffer is
+    created on a meta / uninitialised device during weight loading).
+
+    Additionally, the original buffer is hard-coded for seq_len=4096
+    (matching the standard 524 288 bp input), but with 196 608 bp input the
+    transformer sequence length is 1536.  ``fast_relative_shift`` relies on
+    the positions tensor having exactly ``2*N - 1`` entries, so we recompute
+    it here for the correct N.
+    """
+    from borzoi_pytorch.pytorch_borzoi_transformer import get_positional_embed
+
+    for blk in model.transformer:
+        attn = blk[0].fn[1]  # Residual → Sequential[LN, Attention, Dropout]
+        device = attn.to_v.weight.device
+        attn.positions = get_positional_embed(seq_len, attn.num_rel_pos_features, device)
+
+
+def _load_borzoi():
     from borzoi_pytorch import Borzoi
 
     # Fix for transformers>=5.3 which expects all_tied_weights_keys
@@ -192,9 +212,9 @@ def _load_borzoi():
         Borzoi.all_tied_weights_keys = {}
 
     model = Borzoi.from_pretrained("johahi/borzoi-replicate-0")
-    # Deep copy to prevent safetensors memory-mapping from corrupting the
-    # HuggingFace cache when we modify weights during training.
-    model = copy.deepcopy(model)
+    # Fix corrupted / mismatched relative-position buffers.
+    # 196608 bp input → N = 196608 / 128 = 1536 at the transformer.
+    _fix_borzoi_positions(model, seq_len=BORZOI_SEQ_LEN // 128)
     return model, BORZOI_EMBED_DIM
 
 
