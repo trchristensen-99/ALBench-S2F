@@ -281,7 +281,10 @@ def _predict_test_sequences(
         can_t = torch.from_numpy(np.stack(can_batch)).float().to(device)
         rc_t = torch.from_numpy(np.stack(rc_batch)).float().to(device)
 
-        with torch.no_grad(), torch.amp.autocast("cuda", enabled=device.type == "cuda"):
+        with (
+            torch.no_grad(),
+            torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=device.type == "cuda"),
+        ):
             emb_can = forward_fn(encoder_model, can_t)
             emb_rc = forward_fn(encoder_model, rc_t)
             p_can = head(emb_can)
@@ -502,8 +505,9 @@ def train(cfg: dict):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Training loop ────────────────────────────────────────────────────────
+    # Use bfloat16 autocast (better dynamic range than float16, no GradScaler needed)
     use_amp = device.type == "cuda"
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    amp_dtype = torch.bfloat16
     best_val_pearson = -1.0
     epochs_no_improve = 0
     early_stop_patience = int(cfg["early_stop_patience"])
@@ -522,21 +526,27 @@ def train(cfg: dict):
             oh_batch = oh_batch.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
 
-            with torch.amp.autocast("cuda", enabled=use_amp):
+            with torch.amp.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
                 emb = forward_fn(encoder_model, oh_batch)
                 pred = head(emb)
                 loss = F.mse_loss(pred, labels) / grad_accum_steps
 
-            scaler.scale(loss).backward()
+            if torch.isnan(loss):
+                print(
+                    f"  [WARN] NaN loss at batch {batch_idx + 1}, skipping",
+                    flush=True,
+                )
+                optimizer.zero_grad(set_to_none=True)
+                continue
+
+            loss.backward()
             train_losses.append(loss.item() * grad_accum_steps)
 
             is_accum_step = (batch_idx + 1) % grad_accum_steps == 0
             is_last_batch = (batch_idx + 1) == n_train_batches
             if is_accum_step or is_last_batch:
-                scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(all_trainable, grad_clip)
-                scaler.step(optimizer)
-                scaler.update()
+                optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
 
             if (batch_idx + 1) % 500 == 0:
@@ -559,7 +569,7 @@ def train(cfg: dict):
                 can_batch = can_batch.to(device, non_blocking=True)
                 rc_batch = rc_batch.to(device, non_blocking=True)
 
-                with torch.amp.autocast("cuda", enabled=use_amp):
+                with torch.amp.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
                     emb_can = forward_fn(encoder_model, can_batch)
                     emb_rc = forward_fn(encoder_model, rc_batch)
                     p_can = head(emb_can)
