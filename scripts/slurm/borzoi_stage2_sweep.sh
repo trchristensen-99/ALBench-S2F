@@ -86,15 +86,15 @@ fi
 
 uv run --no-sync python experiments/train_foundation_stage2.py \
     ++model_name=borzoi \
-    ++stage1_result_dir="${BEST_S1_DIR}" \
+    ++stage1_result_dir=none \
     ++output_dir="${OUT_DIR}" \
     ++encoder_lr="${ELR}" \
     ++unfreeze_mode="${UFM}" \
     ++seed=42 \
     ++batch_size=4 \
     ++grad_accum_steps=2 \
-    ++epochs=15 \
-    ++early_stop_patience=5 \
+    ++epochs=20 \
+    ++early_stop_patience=7 \
     ++max_train_sequences=20000 \
     ++max_val_sequences=2000 \
     ++amp_mode=bfloat16

@@ -182,26 +182,81 @@ def _load_enformer():
     return model, ENFORMER_EMBED_DIM
 
 
-def _fix_borzoi_positions(model):
-    """Recompute relative-position buffers to fix NaN corruption.
+def _fix_borzoi_attention(model):
+    """Fix Borzoi attention: NaN positions + correct relative shift.
 
-    ``from_pretrained()`` can corrupt the non-persistent ``positions``
-    buffer in some transformer blocks (NaN from meta-device init).
-    We recompute at ``seq_len=4096`` (matching the original Borzoi
-    training) to restore valid values.
-
-    Note: with 196 608 bp input the actual transformer N = 1536, so the
-    ``fast_relative_shift`` stride trick accesses wrong relative positions.
-    This is the same behavior as during S1 cache building — the S1 head
-    was trained on these "mis-strided" embeddings, so we keep the same
-    behavior for S2 compatibility.
+    1. Recomputes NaN-corrupted position buffers (``from_pretrained``
+       leaves blocks 2-5 with NaN on PyTorch 2.10+).
+    2. Replaces ``fast_relative_shift`` (uses ``as_strided`` stride
+       tricks that are both incorrect for N≠4096 and give different
+       results across PyTorch versions) with a correct ``torch.gather``
+       implementation that works for any sequence length.
     """
     from borzoi_pytorch.pytorch_borzoi_transformer import get_positional_embed
 
+    # 1. Recompute NaN positions at seq_len=4096 (matching original training).
     for blk in model.transformer:
         attn = blk[0].fn[1]  # Residual → Sequential[LN, Attention, Dropout]
         device = attn.to_v.weight.device
         attn.positions = get_positional_embed(4096, attn.num_rel_pos_features, device)
+
+    # 2. Monkey-patch with correct relative shift (no as_strided).
+    from borzoi_pytorch.pytorch_borzoi_transformer import Attention
+    from einops import rearrange
+    from torch import einsum
+
+    def _safe_relative_shift_single(q, rel_k):
+        """Compute relative-position logits via gather (no stride tricks).
+
+        Args:
+            q: (N, d) query for one head
+            rel_k: (M, d) relative-position keys (M = 2*S-1)
+
+        Returns:
+            (N, N) relative logits where [i,j] = dot(q[i], rel_k[center + j - i])
+        """
+        N = q.shape[0]
+        M = rel_k.shape[0]
+        center = M // 2
+        raw = einsum("i d, j d -> i j", q, rel_k)  # (N, M)
+        # Build Toeplitz indices: out[i,j] = raw[i, center + (j - i)]
+        rows = torch.arange(N, device=q.device)
+        col_indices = center + rows.unsqueeze(0) - rows.unsqueeze(1)  # (N, N)
+        col_indices = col_indices.clamp(0, M - 1)
+        return torch.gather(raw, 1, col_indices)  # (N, N)
+
+    # Vmap over heads (inner) and batch (outer)
+    _safe_relative_shift = torch.vmap(torch.vmap(_safe_relative_shift_single), in_dims=(0, None))
+
+    def _patched_forward(self, x):
+        n, h = x.shape[-2], self.heads
+
+        q = self.to_q(x)
+        k = self.to_k(x)
+        v = self.to_v(x)
+
+        q, k, v = map(lambda t: rearrange(t, "b n (h d) -> b h n d", h=h), (q, k, v))
+        q = q * self.scale
+
+        content_logits = einsum("b h i d, b h j d -> b h i j", q + self.rel_content_bias, k)
+
+        # Slice center 2*n-1 positions (correct range for actual seq length)
+        pos_center = self.positions.shape[0] // 2  # 4095
+        positions = self.pos_dropout(self.positions[pos_center - (n - 1) : pos_center + n])
+        rel_k = self.to_rel_k(positions)
+        rel_k = rearrange(rel_k, "n (h d) -> h n d", h=h)
+        rel_logits = _safe_relative_shift(q + self.rel_pos_bias, rel_k)
+
+        logits = content_logits + rel_logits
+        attn = logits.softmax(dim=-1)
+        attn = self.attn_dropout(attn)
+
+        out = einsum("b h i j, b h j d -> b h i d", attn, v)
+        out = rearrange(out, "b h n d -> b n (h d)")
+        out = self.to_out(out)
+        return out
+
+    Attention.forward = _patched_forward
 
 
 def _load_borzoi():
@@ -212,8 +267,8 @@ def _load_borzoi():
         Borzoi.all_tied_weights_keys = {}
 
     model = Borzoi.from_pretrained("johahi/borzoi-replicate-0")
-    # Fix corrupted position buffers (NaN in blocks 2-5).
-    _fix_borzoi_positions(model)
+    # Fix NaN positions + replace broken fast_relative_shift.
+    _fix_borzoi_attention(model)
     return model, BORZOI_EMBED_DIM
 
 
