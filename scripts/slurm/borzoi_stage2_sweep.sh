@@ -1,11 +1,11 @@
 #!/bin/bash
 # Borzoi Stage 2 encoder fine-tuning sweep on K562 hashFrag.
 #
-# Grid: 2 encoder_lr x 2 unfreeze_mode = 4 configs (single seed each).
-#   0 -> elr=1e-5, unfreeze=transformer (8 transformer blocks only)
-#   1 -> elr=1e-4, unfreeze=transformer
-#   2 -> elr=1e-5, unfreeze=all (entire encoder)
-#   3 -> elr=1e-4, unfreeze=all
+# Grid: 3 encoder_lr x transformer-only = 3 configs (single seed each).
+# "all" unfreeze mode is unstable for Borzoi (zero-padded conv gradients).
+#   0 -> elr=1e-6, unfreeze=transformer
+#   1 -> elr=1e-5, unfreeze=transformer
+#   2 -> elr=1e-4, unfreeze=transformer
 #
 # Prerequisites:
 #   Stage 1 grid search must have at least one completed result in:
@@ -23,7 +23,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-2
 
 set -euo pipefail
 
@@ -63,9 +63,9 @@ fi
 echo "Best Stage 1 dir: ${BEST_S1_DIR}"
 
 # ── Sweep grid ──────────────────────────────────────────────────────────────
-ENCODER_LRS=(1e-5 1e-4 1e-5 1e-4)
-UNFREEZE_MODES=(transformer transformer all all)
-LABELS=(elr1e-5_transformer elr1e-4_transformer elr1e-5_all elr1e-4_all)
+ENCODER_LRS=(1e-6 1e-5 1e-4)
+UNFREEZE_MODES=(transformer transformer transformer)
+LABELS=(elr1e-6_transformer elr1e-5_transformer elr1e-4_transformer)
 
 IDX=${SLURM_ARRAY_TASK_ID}
 ELR=${ENCODER_LRS[$IDX]}
@@ -102,7 +102,7 @@ uv run --no-sync python experiments/train_foundation_stage2.py \
 echo "Task ${IDX} DONE — $(date)"
 
 # ── Summary (only on last task) ─────────────────────────────────────────────
-if [ "${IDX}" -eq 3 ]; then
+if [ "${IDX}" -eq 2 ]; then
     echo ""
     echo "============================================"
     echo "=== Borzoi Stage 2 SWEEP SUMMARY ==="
