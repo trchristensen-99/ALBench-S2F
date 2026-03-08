@@ -180,6 +180,10 @@ def _load_enformer():
 def _load_borzoi():
     from borzoi_pytorch import Borzoi
 
+    # Fix for transformers>=5.3 which expects all_tied_weights_keys
+    if not hasattr(Borzoi, "all_tied_weights_keys"):
+        Borzoi.all_tied_weights_keys = {}
+
     model = Borzoi.from_pretrained("johahi/borzoi-replicate-0")
     return model, BORZOI_EMBED_DIM
 
@@ -213,15 +217,13 @@ def _forward_borzoi(model, one_hot_batch):
 def _should_unfreeze_enformer(name: str, mode: str) -> bool:
     """Determine if an Enformer parameter should be unfrozen.
 
-    Enformer trunk structure: _trunk = Sequential(
-        [0] Rearrange, [1] stem, [2] conv_tower, [3] Rearrange,
-        [4] transformer (11 blocks), [5] crop, [6] final_pointwise
-    )
+    Enformer registers modules as direct attributes (not via _trunk Sequential),
+    so parameter names are: transformer.{block}.*, stem.*, conv_tower.*, etc.
     """
     if mode == "all":
         return True
     if mode == "transformer":
-        return name.startswith("_trunk.4.")
+        return name.startswith("transformer.")
     return False
 
 
