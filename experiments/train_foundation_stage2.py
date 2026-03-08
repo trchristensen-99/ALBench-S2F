@@ -412,7 +412,44 @@ def train(cfg: dict):
         raise ValueError(f"Unknown model_name: {model_name}")
 
     encoder_model.to(device)
+    encoder_model.eval()
     print(f"Encoder loaded in {time.time() - t0:.1f}s", flush=True)
+
+    # ── Diagnostic: verify forward pass works ──────────────────────────────
+    if model_name == "borzoi":
+        _dummy = torch.randn(1, 4, 600, device=device)
+        with torch.no_grad():
+            _emb_nograd = forward_fn(encoder_model, _dummy)
+            _ng_nan = torch.isnan(_emb_nograd).any().item()
+            print(
+                f"[DIAG] no_grad forward: nan={_ng_nan} "
+                f"range=[{_emb_nograd.min().item():.4f}, {_emb_nograd.max().item():.4f}]",
+                flush=True,
+            )
+        with torch.no_grad(), torch.amp.autocast("cuda"):
+            _emb_amp = forward_fn(encoder_model, _dummy)
+            _amp_nan = torch.isnan(_emb_amp).any().item()
+            print(
+                f"[DIAG] no_grad+fp16 forward: nan={_amp_nan} "
+                f"range=[{_emb_amp.float().min().item():.4f}, {_emb_amp.float().max().item():.4f}]",
+                flush=True,
+            )
+        # Test with requires_grad on transformer params
+        for n, p in encoder_model.named_parameters():
+            if n.startswith("transformer."):
+                p.requires_grad = True
+        _emb_grad = forward_fn(encoder_model, _dummy)
+        _g_nan = torch.isnan(_emb_grad).any().item()
+        print(
+            f"[DIAG] with_grad forward: nan={_g_nan} "
+            f"range=[{_emb_grad.min().item():.4f}, {_emb_grad.max().item():.4f}]",
+            flush=True,
+        )
+        # Reset requires_grad (will be properly set below)
+        for p in encoder_model.parameters():
+            p.requires_grad = False
+        del _dummy, _emb_nograd, _emb_amp, _emb_grad
+        torch.cuda.empty_cache()
 
     # ── Load S1 head ─────────────────────────────────────────────────────────
     hidden_dim = int(cfg["hidden_dim"])
