@@ -756,7 +756,7 @@ def generate_k562_bar_plot():
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + 0.008,
-                    f"{val:.2f}",
+                    f"{val:.3f}",
                     ha="center",
                     va="bottom",
                     fontsize=7,
