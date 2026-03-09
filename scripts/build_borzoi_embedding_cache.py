@@ -78,8 +78,15 @@ def _encode_and_save(
     device: torch.device,
     batch_size: int = 2,
     dtype: np.dtype = np.float16,
+    center_bins: int = 0,
 ) -> None:
-    """Encode sequences with Borzoi and save canonical + RC caches."""
+    """Encode sequences with Borzoi and save canonical + RC caches.
+
+    Args:
+        center_bins: If > 0, crop center N bins before mean-pooling instead of
+            using all 6144 bins. The 600bp MPRA insert maps to ~19 bins at 32bp
+            resolution in the center of the 6144-bin output.
+    """
     can_path = cache_dir / f"{prefix}_canonical.npy"
     rc_path = cache_dir / f"{prefix}_rc.npy"
 
@@ -94,7 +101,8 @@ def _encode_and_save(
     can_buf = np.lib.format.open_memmap(can_path, mode="w+", dtype=dtype, shape=(N, D))
     rc_buf = np.lib.format.open_memmap(rc_path, mode="w+", dtype=dtype, shape=(N, D))
 
-    for i in tqdm(range(0, N, batch_size), desc=f"  {prefix}"):
+    pool_desc = f"center {center_bins} bins" if center_bins > 0 else "all bins"
+    for i in tqdm(range(0, N, batch_size), desc=f"  {prefix} ({pool_desc})"):
         end = min(i + batch_size, N)
         batch_seqs = sequences[i:end]
 
@@ -119,9 +127,15 @@ def _encode_and_save(
             emb_can = model.get_embs_after_crop(can_padded)  # (B, 1536, 6144)
             emb_rc = model.get_embs_after_crop(rc_padded)
 
-        # Mean-pool over sequence dimension
-        emb_can = emb_can.mean(dim=2)  # (B, 1536)
-        emb_rc = emb_rc.mean(dim=2)
+        # Pool: center-crop or full mean-pool
+        if center_bins > 0:
+            total_bins = emb_can.shape[2]
+            start = (total_bins - center_bins) // 2
+            emb_can = emb_can[:, :, start : start + center_bins].mean(dim=2)
+            emb_rc = emb_rc[:, :, start : start + center_bins].mean(dim=2)
+        else:
+            emb_can = emb_can.mean(dim=2)  # (B, 1536)
+            emb_rc = emb_rc.mean(dim=2)
 
         emb_can_np = emb_can.cpu().float().numpy()
         emb_rc_np = emb_rc.cpu().float().numpy()
@@ -133,7 +147,7 @@ def _encode_and_save(
             can_buf[i:end] = emb_can_np.astype(dtype)
             rc_buf[i:end] = emb_rc_np.astype(dtype)
 
-    print(f"  {prefix}: saved {N} embeddings ({D}D) → {can_path.name}, {rc_path.name}")
+    print(f"  {prefix}: saved {N} embeddings ({D}D, {pool_desc}) → {can_path.name}, {rc_path.name}")
 
 
 def main():
@@ -145,6 +159,12 @@ def main():
         "--splits", nargs="+", default=["train", "val"], help="K562Dataset splits to cache."
     )
     parser.add_argument("--include-test", action="store_true")
+    parser.add_argument(
+        "--center-bins",
+        type=int,
+        default=0,
+        help="If > 0, crop center N bins before mean-pooling (instead of all 6144).",
+    )
     parser.add_argument("--gpu", type=int, default=0)
     args = parser.parse_args()
 
@@ -182,61 +202,32 @@ def main():
 
     cache_dir = Path(args.cache_dir)
     data_path = Path(args.data_path)
+    cb = args.center_bins
+    if cb > 0:
+        print(f"Center-crop mode: pooling center {cb} bins (of 6144)")
+
+    def _save(seqs, prefix):
+        _encode_and_save(model, seqs, cache_dir, prefix, device, args.batch_size, center_bins=cb)
 
     for split in args.splits:
         ds = K562Dataset(data_path=str(data_path), split=split)
         sequences = [ds.sequences[i] for i in range(len(ds))]
         print(f"\n{split}: {len(sequences):,} sequences")
-        _encode_and_save(
-            model,
-            sequences,
-            cache_dir,
-            split,
-            device,
-            args.batch_size,
-        )
+        _save(sequences, split)
 
     if args.include_test:
         test_dir = data_path / "test_sets"
         print("\nBuilding test set caches...")
 
         in_dist_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
-        _encode_and_save(
-            model,
-            in_dist_df["sequence"].tolist(),
-            cache_dir,
-            "test_in_dist",
-            device,
-            args.batch_size,
-        )
+        _save(in_dist_df["sequence"].tolist(), "test_in_dist")
 
         snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
-        _encode_and_save(
-            model,
-            snv_df["sequence_ref"].tolist(),
-            cache_dir,
-            "test_snv_ref",
-            device,
-            args.batch_size,
-        )
-        _encode_and_save(
-            model,
-            snv_df["sequence_alt"].tolist(),
-            cache_dir,
-            "test_snv_alt",
-            device,
-            args.batch_size,
-        )
+        _save(snv_df["sequence_ref"].tolist(), "test_snv_ref")
+        _save(snv_df["sequence_alt"].tolist(), "test_snv_alt")
 
         ood_df = pd.read_csv(test_dir / "test_ood_designed_k562.tsv", sep="\t")
-        _encode_and_save(
-            model,
-            ood_df["sequence"].tolist(),
-            cache_dir,
-            "test_ood",
-            device,
-            args.batch_size,
-        )
+        _save(ood_df["sequence"].tolist(), "test_ood")
 
     print(f"\nDone! Cache at {cache_dir}")
 
