@@ -660,23 +660,32 @@ def _extract_pearson(metrics_list: list[dict], test_key: str) -> list[float]:
 
 
 def generate_k562_bar_plot():
-    """6-model bar plot: DREAM-RNN, Malinois, NT, Enformer, Borzoi, AlphaGenome on full K562."""
+    """8-model bar plot comparing all methods on full K562 MPRA."""
     # ── Model definitions: (name, dir, json_name, color) ─────────────────────
-    # Colors: DREAM-RNN/Malinois in purple shades, foundation models in warm/cool
-    # mid-range, AlphaGenome in bright green (should visually pop).
+    # Train-from-scratch in purple, foundation S1 in muted, S2 in vivid, AG green.
     models = [
         ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
         ("Malinois", "malinois_k562_3seeds", "result.json", "#B07CC6"),
-        ("NTv3", "ntv3_k562_cached", "result.json", "#E8602C"),
-        ("Enformer", "enformer_k562_cached", "result.json", "#3A86C8"),
-        ("Borzoi", "borzoi_k562_cached", "result.json", "#DAA520"),
-        ("AlphaGenome", "stage2_k562_full_train", "test_metrics.json", "#2CA02C"),
+        ("Borzoi (S1)", "borzoi_k562_3seeds", "result.json", "#DAA520"),
+        ("Enformer (S1)", "enformer_k562_3seeds", "result.json", "#8FC4E8"),
+        # Enformer S2: use sweep best until 3-seed final finishes
+        # Falls back to sweep best if 3-seed final not yet available
+        ("Enformer (S2)", "enformer_k562_stage2_final/elr1e-4_all", "result.json", "#3A86C8"),
+        ("AlphaGenome (S2)", "stage2_k562_full_train", "test_metrics.json", "#2CA02C"),
     ]
 
     all_metrics = {}
     for name, dirname, json_name, _ in models:
         d = REPO / "outputs" / dirname
         all_metrics[name] = _load_bar_model_metrics(d, json_name)
+
+    # Fallback: if Enformer S2 3-seed not ready, use sweep best (single seed)
+    if not all_metrics.get("Enformer (S2)"):
+        fallback = REPO / "outputs" / "enformer_k562_stage2" / "sweep_elr1e-4_all"
+        fb_data = _load_bar_model_metrics(fallback, "result.json")
+        if fb_data:
+            all_metrics["Enformer (S2)"] = fb_data
+            print("  Enformer S2: using sweep best (1 seed) as fallback")
 
     counts = {name: len(m) for name, m in all_metrics.items()}
     print(f"  Bar plot data: {counts}")
@@ -715,24 +724,21 @@ def generate_k562_bar_plot():
     width = 0.8 / max(n_models, 1)
     offsets = np.linspace(-(n_models - 1) / 2 * width, (n_models - 1) / 2 * width, n_models)
 
-    fig, ax = plt.subplots(figsize=(12, 5.5))
+    fig, ax = plt.subplots(figsize=(14, 5.5))
 
     bar_groups = []
     offset_idx = 0
     for name, _, _, color in models:
         means = model_means[name]
-        stds = model_stds[name]
         if not any(v > 0 for v in means):
             continue
         bars = ax.bar(
             x + offsets[offset_idx],
             means,
             width,
-            yerr=stds,
             label=name,
             color=color,
             zorder=3,
-            capsize=2,
         )
         bar_groups.append((bars, means))
         offset_idx += 1
@@ -743,12 +749,12 @@ def generate_k562_bar_plot():
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + 0.008,
-                    f"{val:.3f}",
+                    f"{val:.2f}",
                     ha="center",
                     va="bottom",
-                    fontsize=7,
+                    fontsize=5.5,
                     fontweight="bold",
-                    rotation=45,
+                    rotation=60,
                 )
 
     ax.set_ylabel("Pearson R", fontsize=11)
@@ -756,7 +762,7 @@ def generate_k562_bar_plot():
     ax.set_xticklabels(labels, fontsize=10)
     ax.set_ylim(0, 1.05)
     ax.set_title("K562 MPRA (Gosai et al. 2024)", fontsize=13)
-    ax.legend(fontsize=9, loc="upper right", frameon=False, ncol=2)
+    ax.legend(fontsize=8, loc="upper right", frameon=False, ncol=2)
     ax.grid(axis="y", alpha=0.3, zorder=0)
 
     fig.tight_layout()
