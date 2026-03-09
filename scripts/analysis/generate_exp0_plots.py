@@ -665,7 +665,7 @@ def generate_k562_bar_plot():
     # Train-from-scratch in purple, foundation S1 in muted, S2 in vivid, AG green.
     models = [
         ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
-        ("Malinois", "malinois_k562_3seeds", "result.json", "#B07CC6"),
+        ("Malinois", "malinois_k562_basset_pretrained", "result.json", "#B07CC6"),
         ("NTv3", "ntv3_k562_stage2_final", "result.json", "#E8602C"),
         ("Borzoi", "borzoi_k562_cached_v2", "result.json", "#DAA520"),
         # Falls back to sweep best if 3-seed final not yet available
