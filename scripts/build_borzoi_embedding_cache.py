@@ -165,6 +165,21 @@ def main():
         p.requires_grad = False
     print(f"  Parameters: {sum(p.numel() for p in model.parameters()):,}")
 
+    # Verify positional embeddings are valid after loading
+    from borzoi_pytorch.pytorch_borzoi_transformer import Attention
+
+    for name, mod in model.named_modules():
+        if isinstance(mod, Attention):
+            if torch.isnan(mod.positions).any():
+                print(f"  WARNING: NaN in {name}.positions — recomputing...")
+                from borzoi_pytorch.pytorch_borzoi_transformer import get_positional_embed
+
+                mod.positions = get_positional_embed(
+                    4096, mod.num_rel_pos_features, mod.to_v.weight.device
+                ).to(device)
+            else:
+                print(f"  {name}.positions OK")
+
     cache_dir = Path(args.cache_dir)
     data_path = Path(args.data_path)
 

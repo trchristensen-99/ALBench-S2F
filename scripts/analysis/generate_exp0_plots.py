@@ -667,7 +667,7 @@ def generate_k562_bar_plot():
         ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
         ("Malinois", "malinois_k562_3seeds", "result.json", "#B07CC6"),
         ("NTv3", "ntv3_k562_stage2_final", "result.json", "#E8602C"),
-        ("Borzoi", "borzoi_k562_3seeds", "result.json", "#DAA520"),
+        ("Borzoi", "borzoi_k562_cached_v2", "result.json", "#DAA520"),
         # Falls back to sweep best if 3-seed final not yet available
         ("Enformer", "enformer_k562_stage2_final/elr1e-4_all", "result.json", "#3A86C8"),
         ("AlphaGenome", "stage2_k562_full_train", "test_metrics.json", "#2CA02C"),
@@ -677,6 +677,14 @@ def generate_k562_bar_plot():
     for name, dirname, json_name, _ in models:
         d = REPO / "outputs" / dirname
         all_metrics[name] = _load_bar_model_metrics(d, json_name)
+
+    # Fallback: if Borzoi v2 not ready, use original S1 results
+    if not all_metrics.get("Borzoi"):
+        fallback = REPO / "outputs" / "borzoi_k562_3seeds"
+        fb_data = _load_bar_model_metrics(fallback, "result.json")
+        if fb_data:
+            all_metrics["Borzoi"] = fb_data
+            print("  Borzoi: using original S1 results as fallback")
 
     # Fallback: if Enformer 3-seed not ready, use sweep best (single seed)
     if not all_metrics.get("Enformer"):

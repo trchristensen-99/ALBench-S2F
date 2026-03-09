@@ -63,7 +63,67 @@ DEFAULT_CONFIG = {
     "early_stop_patience": 15,
     "use_reverse_complement": True,
     "num_workers": 4,
+    "pretrained_weights": None,
 }
+
+
+# ── Basset pretrained weight loading ─────────────────────────────────────────
+# Weights from Zenodo (Kelley et al., 2016): Conv2d format, valid convolutions.
+# Only conv+BN layers are compatible (linear layers have different input size
+# due to valid vs padded convolutions: 2000 vs 2600 flatten features).
+_BASSET_CONV_MAP = {
+    # conv1
+    "0.weight": ("conv1.conv.weight", True),
+    "0.bias": ("conv1.conv.bias", False),
+    "1.weight": ("conv1.bn_layer.weight", False),
+    "1.bias": ("conv1.bn_layer.bias", False),
+    "1.running_mean": ("conv1.bn_layer.running_mean", False),
+    "1.running_var": ("conv1.bn_layer.running_var", False),
+    # conv2
+    "4.weight": ("conv2.conv.weight", True),
+    "4.bias": ("conv2.conv.bias", False),
+    "5.weight": ("conv2.bn_layer.weight", False),
+    "5.bias": ("conv2.bn_layer.bias", False),
+    "5.running_mean": ("conv2.bn_layer.running_mean", False),
+    "5.running_var": ("conv2.bn_layer.running_var", False),
+    # conv3
+    "8.weight": ("conv3.conv.weight", True),
+    "8.bias": ("conv3.conv.bias", False),
+    "9.weight": ("conv3.bn_layer.weight", False),
+    "9.bias": ("conv3.bn_layer.bias", False),
+    "9.running_mean": ("conv3.bn_layer.running_mean", False),
+    "9.running_var": ("conv3.bn_layer.running_var", False),
+}
+
+
+def _load_basset_pretrained(model: BassetBranched, weights_path: str) -> int:
+    """Load Basset pretrained conv weights (Kelley 2016) into BassetBranched.
+
+    Only loads conv1/conv2/conv3 + their BatchNorm layers. Linear layers are
+    skipped because the original Basset uses valid convolutions (flatten=2000)
+    while BassetBranched uses padded convolutions (flatten=2600).
+
+    Returns number of parameters loaded.
+    """
+    sd = torch.load(weights_path, map_location="cpu", weights_only=False)
+    model_sd = model.state_dict()
+    n_loaded = 0
+    for src_key, (dst_key, is_conv2d) in _BASSET_CONV_MAP.items():
+        if src_key not in sd:
+            print(f"  WARNING: {src_key} not found in pretrained weights")
+            continue
+        w = sd[src_key]
+        if is_conv2d:
+            w = w.squeeze(-1)  # Conv2d (out, in, K, 1) → Conv1d (out, in, K)
+        if w.shape != model_sd[dst_key].shape:
+            print(
+                f"  WARNING: shape mismatch {src_key} {w.shape} vs {dst_key} {model_sd[dst_key].shape}"
+            )
+            continue
+        model_sd[dst_key] = w
+        n_loaded += w.numel()
+    model.load_state_dict(model_sd)
+    return n_loaded
 
 
 # ── Dataset wrapper ──────────────────────────────────────────────────────────
@@ -251,6 +311,10 @@ def train_malinois(cfg: dict):
     ).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Model parameters: {n_params:,}")
+
+    if cfg["pretrained_weights"]:
+        n_loaded = _load_basset_pretrained(model, cfg["pretrained_weights"])
+        print(f"Loaded {n_loaded:,} pretrained conv parameters from {cfg['pretrained_weights']}")
 
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
