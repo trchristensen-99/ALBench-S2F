@@ -666,7 +666,7 @@ def generate_k562_bar_plot():
     models = [
         ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
         ("Malinois", "malinois_k562_3seeds", "result.json", "#B07CC6"),
-        ("NTv2", "ntv3_k562_stage2_final", "result.json", "#E8602C"),
+        ("NTv3", "ntv3_k562_stage2_final", "result.json", "#E8602C"),
         ("Borzoi", "borzoi_k562_3seeds", "result.json", "#DAA520"),
         # Falls back to sweep best if 3-seed final not yet available
         ("Enformer", "enformer_k562_stage2_final/elr1e-4_all", "result.json", "#3A86C8"),
