@@ -84,7 +84,7 @@ TOTAL_DIM = len(LAYERS) * EMBED_DIM_PER_LAYER  # 3072
 class NTMultiLayerExtractor:
     """Extract concatenated multi-layer embeddings from NT v2 250M."""
 
-    def __init__(self, max_positions: int = 128):
+    def __init__(self, max_positions: int = 256):
         parameters, forward_fn, tokenizer, config = get_pretrained_model(
             model_name="250M_multi_species_v2",
             embeddings_layers_to_save=LAYERS,
@@ -170,7 +170,7 @@ def main():
     from data.k562 import K562Dataset
 
     print(f"Loading NT v2 250M (multi-layer: {LAYERS})...")
-    extractor = NTMultiLayerExtractor(max_positions=128)
+    extractor = NTMultiLayerExtractor(max_positions=256)
     print(f"  Total embed dim: {TOTAL_DIM}")
 
     cache_dir = Path(args.cache_dir)
