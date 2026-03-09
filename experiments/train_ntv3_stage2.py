@@ -641,19 +641,21 @@ def train(cfg: dict):
         tokens = tokenizer.batch_np_tokenize(padded)
         return jnp.asarray(tokens)
 
-    def _encoder_forward(m_encoder, tokens):
-        """Encoder forward pass, handling species conditioning for post-trained."""
+    def _make_species_batch(batch_size):
+        """Build concrete species_tokens array outside JIT to avoid tracing."""
         if species_token is not None:
-            species_batch = jnp.tile(species_token, (tokens.shape[0],))
-            return m_encoder(tokens, species_tokens=species_batch)
-        return m_encoder(tokens)
+            return jnp.tile(species_token, (batch_size,))
+        return None
 
     @nnx.jit
-    def jit_train_step(model, cur_opt_state, tokens, targets):
+    def jit_train_step(model, cur_opt_state, tokens, targets, sp_tokens):
         """JIT train step: forward → backward → optimizer update (in-place)."""
 
         def _loss(m):
-            outs = _encoder_forward(m.encoder, tokens)
+            if sp_tokens is not None:
+                outs = m.encoder(tokens, species_tokens=sp_tokens)
+            else:
+                outs = m.encoder(tokens)
             embeddings = outs["embedding"]
             mask = jnp.expand_dims(tokens != pad_token_id, axis=-1)
             masked = embeddings * mask
@@ -671,9 +673,12 @@ def train(cfg: dict):
         return loss, new_opt_state
 
     @nnx.jit
-    def jit_eval_step(model, tokens):
+    def jit_eval_step(model, tokens, sp_tokens):
         """JIT eval step: forward only, deterministic (no dropout)."""
-        outs = _encoder_forward(model.encoder, tokens)
+        if sp_tokens is not None:
+            outs = model.encoder(tokens, species_tokens=sp_tokens)
+        else:
+            outs = model.encoder(tokens)
         embeddings = outs["embedding"]
         mask = jnp.expand_dims(tokens != pad_token_id, axis=-1)
         masked = embeddings * mask
@@ -685,14 +690,16 @@ def train(cfg: dict):
         """Tokenize (Python) → JIT train step."""
         tokens_jax = _tokenize_batch(batch["sequences"])
         targets_jax = jnp.array(batch["targets"])
+        sp_tokens = _make_species_batch(tokens_jax.shape[0])
         nonlocal opt_state
-        loss, opt_state = jit_train_step(combined, opt_state, tokens_jax, targets_jax)
+        loss, opt_state = jit_train_step(combined, opt_state, tokens_jax, targets_jax, sp_tokens)
         return float(loss)
 
     def eval_step(batch):
         """Tokenize (Python) → JIT eval step."""
         tokens_jax = _tokenize_batch(batch["sequences"])
-        return np.asarray(jit_eval_step(combined, tokens_jax)).reshape(-1)
+        sp_tokens = _make_species_batch(tokens_jax.shape[0])
+        return np.asarray(jit_eval_step(combined, tokens_jax, sp_tokens)).reshape(-1)
 
     # ── Training loop ────────────────────────────────────────────────────────
     best_val_pearson = -1.0
