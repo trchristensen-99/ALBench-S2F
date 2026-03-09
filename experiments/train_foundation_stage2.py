@@ -65,6 +65,7 @@ DEFAULT_CONFIG = {
     "grad_clip": 1.0,
     "num_workers": 4,
     "amp_mode": "bfloat16",  # "bfloat16", "fp16", or "off"
+    "save_encoder": False,  # skip encoder checkpoint to save disk (~1GB each)
 }
 
 # ── MPRA flanks as one-hot arrays ────────────────────────────────────────────
@@ -651,7 +652,10 @@ def train(cfg: dict):
         amp_dtype = torch.float32
         scaler = None
     print(f"Mixed precision: {amp_mode} (enabled={use_amp})", flush=True)
+    import copy
+
     best_val_pearson = -1.0
+    best_encoder_state = copy.deepcopy(encoder_model.state_dict())
     epochs_no_improve = 0
     early_stop_patience = int(cfg["early_stop_patience"])
     n_train_batches = len(train_loader)
@@ -756,14 +760,17 @@ def train(cfg: dict):
                 {"model_state_dict": head.state_dict(), "epoch": epoch, "seed": seed},
                 output_dir / "best_model.pt",
             )
-            torch.save(
-                {
-                    "model_state_dict": encoder_model.state_dict(),
-                    "epoch": epoch,
-                    "seed": seed,
-                },
-                output_dir / "best_encoder.pt",
-            )
+            if cfg.get("save_encoder", False):
+                torch.save(
+                    {
+                        "model_state_dict": encoder_model.state_dict(),
+                        "epoch": epoch,
+                        "seed": seed,
+                    },
+                    output_dir / "best_encoder.pt",
+                )
+            # Always keep best encoder state in memory for test eval
+            best_encoder_state = copy.deepcopy(encoder_model.state_dict())
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= early_stop_patience:
@@ -779,8 +786,13 @@ def train(cfg: dict):
     head.load_state_dict(ckpt["model_state_dict"])
     head.to(device)
 
-    enc_ckpt = torch.load(output_dir / "best_encoder.pt", map_location="cpu", weights_only=False)
-    encoder_model.load_state_dict(enc_ckpt["model_state_dict"])
+    if (output_dir / "best_encoder.pt").exists():
+        enc_ckpt = torch.load(
+            output_dir / "best_encoder.pt", map_location="cpu", weights_only=False
+        )
+        encoder_model.load_state_dict(enc_ckpt["model_state_dict"])
+    else:
+        encoder_model.load_state_dict(best_encoder_state)
     encoder_model.to(device)
 
     print("\n[eval] Evaluating on test sets ...", flush=True)
