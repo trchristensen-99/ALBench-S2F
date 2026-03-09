@@ -1,10 +1,11 @@
 """Nucleotide Transformer v3 650M embedding extraction wrapper for K562 MPRA sequences.
 
-Uses the InstaDeep nucleotide-transformer package (JAX/Flax NNX) with pretrained
-NTv3_650M_pre weights.
+Supports both pre-trained (NTv3_650M_pre) and post-trained (NTv3_650M_post) variants.
+The post-trained model requires species conditioning via ``species_tokens`` in the
+forward pass.
 
 Input: DNA sequence strings (200bp or 600bp, N-padded to 640bp for U-Net divisibility)
-Output: Mean-pooled embeddings of shape (batch, 512)
+Output: Mean-pooled embeddings of shape (batch, 1536)
 
 Sequences are tokenized at single-base resolution, passed through the U-Net +
 transformer architecture, and the final-layer embeddings are mean-pooled
@@ -15,7 +16,10 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import numpy as np
-from nucleotide_transformer_v3.pretrained import get_pretrained_ntv3_model
+from nucleotide_transformer_v3.pretrained import (
+    get_posttrained_ntv3_model,
+    get_pretrained_ntv3_model,
+)
 
 NTV3_650M_EMBED_DIM = 1536
 # U-Net uses 7 downsamples → sequences must be divisible by 2^7 = 128
@@ -38,18 +42,38 @@ class NTv3Wrapper:
 
     Uses JAX/Flax NNX (not nn.Module). All parameters are frozen by default
     since we only call the model without computing gradients.
+
+    Args:
+        model_name: Model identifier (``NTv3_650M_pre`` or ``NTv3_650M_post``).
+        model_variant: ``"pre"`` for pre-trained, ``"post"`` for post-trained.
+        species: Species name for post-trained conditioning (default ``"human"``).
+        use_bfloat16: Use bfloat16 for inference.
     """
 
     def __init__(
         self,
         model_name: str = "NTv3_650M_pre",
+        model_variant: str = "pre",
+        species: str = "human",
         use_bfloat16: bool = True,
     ):
         self.model_name = model_name
-        model, tokenizer, config = get_pretrained_ntv3_model(
-            model_name=model_name,
-            use_bfloat16=use_bfloat16,
-        )
+        self.model_variant = model_variant
+        self.species_token = None
+
+        if model_variant == "post":
+            model, tokenizer, config = get_posttrained_ntv3_model(
+                model_name=model_name,
+                use_bfloat16=use_bfloat16,
+            )
+            # Pre-compute species token once (shape (1,))
+            self.species_token = model.encode_species(species)
+        else:
+            model, tokenizer, config = get_pretrained_ntv3_model(
+                model_name=model_name,
+                use_bfloat16=use_bfloat16,
+            )
+
         self.model = model
         self.tokenizer = tokenizer
         self.config = config
@@ -69,7 +93,11 @@ class NTv3Wrapper:
         tokens = self.tokenizer.batch_np_tokenize(padded_seqs)
         tokens_jax = jnp.asarray(tokens)
 
-        outs = self.model(tokens_jax)
+        if self.model_variant == "post":
+            species_batch = jnp.tile(self.species_token, (tokens_jax.shape[0],))
+            outs = self.model(tokens_jax, species_tokens=species_batch)
+        else:
+            outs = self.model(tokens_jax)
         embeddings = outs["embedding"]  # (B, T, D)
 
         # Create padding mask (exclude pad tokens from mean)

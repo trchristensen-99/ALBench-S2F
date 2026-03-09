@@ -77,6 +77,8 @@ DEFAULT_CONFIG = {
     "num_workers": 4,
     "use_bfloat16": False,  # f32 for training stability; bf16 OK for inference
     "grad_clip": 1.0,
+    "model_variant": "pre",  # "pre" or "post" (post-trained, species-conditioned)
+    "model_name": None,  # auto-set from model_variant if None
 }
 
 # ── MPRA flanks ──────────────────────────────────────────────────────────────
@@ -288,13 +290,25 @@ def _make_label_fn(unfreeze_set: set[int], unfreeze_all_encoder: bool = False):
 
 
 # ── Forward pass ─────────────────────────────────────────────────────────────
-def _forward(encoder, tokenizer, head, sequences_str, seq_divisor, deterministic=True):
+def _forward(
+    encoder,
+    tokenizer,
+    head,
+    sequences_str,
+    seq_divisor,
+    deterministic=True,
+    species_token=None,
+):
     """Full forward: DNA strings → tokenize → encoder → mean-pool → head → scalar."""
     padded = [_pad_to_divisible(s, seq_divisor) for s in sequences_str]
     tokens = tokenizer.batch_np_tokenize(padded)
     tokens_jax = jnp.asarray(tokens)
 
-    outs = encoder(tokens_jax)
+    if species_token is not None:
+        species_batch = jnp.tile(species_token, (tokens_jax.shape[0],))
+        outs = encoder(tokens_jax, species_tokens=species_batch)
+    else:
+        outs = encoder(tokens_jax)
     embeddings = outs["embedding"]  # (B, T, D)
 
     # Mean-pool excluding padding tokens
@@ -315,6 +329,7 @@ def _predict_test_sequences(
     seq_divisor: int,
     use_flanks: bool,
     batch_size: int = 64,
+    species_token=None,
 ) -> np.ndarray:
     """RC-averaged predictions on raw 200bp test strings."""
     if not seqs_str:
@@ -342,8 +357,24 @@ def _predict_test_sequences(
     for i in range(0, len(full_fwd), batch_size):
         batch_fwd = full_fwd[i : i + batch_size]
         batch_rev = full_rev[i : i + batch_size]
-        p_fwd = _forward(encoder, tokenizer, head, batch_fwd, seq_divisor, deterministic=True)
-        p_rev = _forward(encoder, tokenizer, head, batch_rev, seq_divisor, deterministic=True)
+        p_fwd = _forward(
+            encoder,
+            tokenizer,
+            head,
+            batch_fwd,
+            seq_divisor,
+            deterministic=True,
+            species_token=species_token,
+        )
+        p_rev = _forward(
+            encoder,
+            tokenizer,
+            head,
+            batch_rev,
+            seq_divisor,
+            deterministic=True,
+            species_token=species_token,
+        )
         preds_fwd.append(np.asarray(p_fwd).reshape(-1))
         preds_rev.append(np.asarray(p_rev).reshape(-1))
 
@@ -358,17 +389,27 @@ def evaluate_all_test_sets(
     seq_divisor: int,
     use_flanks: bool,
     batch_size: int = 64,
+    species_token=None,
 ) -> dict[str, dict[str, float]]:
     """Evaluate on hashFrag in-dist / SNV / OOD test sets."""
     import pandas as pd
 
     metrics: dict[str, dict[str, float]] = {}
 
+    _pred_kw = dict(species_token=species_token)
+
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
     if in_path.exists():
         df = pd.read_csv(in_path, sep="\t")
         pred = _predict_test_sequences(
-            encoder, tokenizer, head, df["sequence"].tolist(), seq_divisor, use_flanks, batch_size
+            encoder,
+            tokenizer,
+            head,
+            df["sequence"].tolist(),
+            seq_divisor,
+            use_flanks,
+            batch_size,
+            **_pred_kw,
         )
         true = df["K562_log2FC"].to_numpy(dtype=np.float32)
         metrics["in_distribution"] = {
@@ -389,6 +430,7 @@ def evaluate_all_test_sets(
             seq_divisor,
             use_flanks,
             batch_size,
+            **_pred_kw,
         )
         alt_pred = _predict_test_sequences(
             encoder,
@@ -398,6 +440,7 @@ def evaluate_all_test_sets(
             seq_divisor,
             use_flanks,
             batch_size,
+            **_pred_kw,
         )
         alt_true = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
         metrics["snv_abs"] = {
@@ -419,7 +462,14 @@ def evaluate_all_test_sets(
     if ood_path.exists():
         df = pd.read_csv(ood_path, sep="\t")
         pred = _predict_test_sequences(
-            encoder, tokenizer, head, df["sequence"].tolist(), seq_divisor, use_flanks, batch_size
+            encoder,
+            tokenizer,
+            head,
+            df["sequence"].tolist(),
+            seq_divisor,
+            use_flanks,
+            batch_size,
+            **_pred_kw,
         )
         true = df["K562_log2FC"].to_numpy(dtype=np.float32)
         metrics["ood"] = {
@@ -453,12 +503,31 @@ def train(cfg: dict):
         print(f"Unfreezing transformer blocks: {sorted(unfreeze_set)}", flush=True)
 
     # ── Load NTv3 encoder ────────────────────────────────────────────────────
-    print("Loading NTv3 650M pretrained encoder ...", flush=True)
+    model_variant = str(cfg.get("model_variant", "pre"))
+    model_name = cfg.get("model_name")
+    if model_name is None or model_name == "None":
+        model_name = "NTv3_650M_post" if model_variant == "post" else "NTv3_650M_pre"
+
+    variant_label = "post-trained" if model_variant == "post" else "pre-trained"
+    print(f"Loading NTv3 650M {variant_label} encoder ({model_name}) ...", flush=True)
     t0 = time.time()
-    encoder, tokenizer, ntv3_config = get_pretrained_ntv3_model(
-        model_name="NTv3_650M_pre",
-        use_bfloat16=bool(cfg["use_bfloat16"]),
-    )
+
+    species_token = None
+    if model_variant == "post":
+        from nucleotide_transformer_v3.pretrained import get_posttrained_ntv3_model
+
+        encoder, tokenizer, ntv3_config = get_posttrained_ntv3_model(
+            model_name=model_name,
+            use_bfloat16=bool(cfg["use_bfloat16"]),
+        )
+        species_token = encoder.encode_species("human")  # shape (1,)
+        print(f"  Species token (human): {species_token}", flush=True)
+    else:
+        encoder, tokenizer, ntv3_config = get_pretrained_ntv3_model(
+            model_name=model_name,
+            use_bfloat16=bool(cfg["use_bfloat16"]),
+        )
+
     seq_divisor = 2**ntv3_config.num_downsamples
     print(f"Encoder loaded in {time.time() - t0:.1f}s  (seq_divisor={seq_divisor})", flush=True)
 
@@ -572,12 +641,19 @@ def train(cfg: dict):
         tokens = tokenizer.batch_np_tokenize(padded)
         return jnp.asarray(tokens)
 
+    def _encoder_forward(m_encoder, tokens):
+        """Encoder forward pass, handling species conditioning for post-trained."""
+        if species_token is not None:
+            species_batch = jnp.tile(species_token, (tokens.shape[0],))
+            return m_encoder(tokens, species_tokens=species_batch)
+        return m_encoder(tokens)
+
     @nnx.jit
     def jit_train_step(model, cur_opt_state, tokens, targets):
         """JIT train step: forward → backward → optimizer update (in-place)."""
 
         def _loss(m):
-            outs = m.encoder(tokens)
+            outs = _encoder_forward(m.encoder, tokens)
             embeddings = outs["embedding"]
             mask = jnp.expand_dims(tokens != pad_token_id, axis=-1)
             masked = embeddings * mask
@@ -597,7 +673,7 @@ def train(cfg: dict):
     @nnx.jit
     def jit_eval_step(model, tokens):
         """JIT eval step: forward only, deterministic (no dropout)."""
-        outs = model.encoder(tokens)
+        outs = _encoder_forward(model.encoder, tokens)
         embeddings = outs["embedding"]
         mask = jnp.expand_dims(tokens != pad_token_id, axis=-1)
         masked = embeddings * mask
@@ -701,6 +777,7 @@ def train(cfg: dict):
         seq_divisor,
         use_flanks,
         batch_size=batch_size,
+        species_token=species_token,
     )
 
     results = {

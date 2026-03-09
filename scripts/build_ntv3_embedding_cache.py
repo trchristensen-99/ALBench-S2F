@@ -147,13 +147,33 @@ def main():
     )
     parser.add_argument("--include-test", action="store_true", help="Also cache test sets.")
     parser.add_argument("--no-flanks", action="store_true", help="Use 200bp only, no MPRA flanks.")
+    parser.add_argument(
+        "--model-variant",
+        choices=["pre", "post"],
+        default="pre",
+        help="NTv3 variant: 'pre' (pre-trained) or 'post' (post-trained, species-conditioned).",
+    )
+    parser.add_argument(
+        "--model-name",
+        default=None,
+        help="Model name override (default: NTv3_650M_pre or NTv3_650M_post based on variant).",
+    )
     args = parser.parse_args()
 
     from data.k562 import K562Dataset
     from models.nt_v3_wrapper import NTv3Wrapper
 
-    print("Loading Nucleotide Transformer v3 650M (pre-trained)...")
-    ntv3 = NTv3Wrapper(model_name="NTv3_650M_pre", use_bfloat16=True)
+    model_name = args.model_name
+    if model_name is None:
+        model_name = "NTv3_650M_post" if args.model_variant == "post" else "NTv3_650M_pre"
+
+    variant_label = "post-trained" if args.model_variant == "post" else "pre-trained"
+    print(f"Loading Nucleotide Transformer v3 650M ({variant_label}: {model_name})...")
+    ntv3 = NTv3Wrapper(
+        model_name=model_name,
+        model_variant=args.model_variant,
+        use_bfloat16=True,
+    )
     print(f"  Embed dim: {ntv3.embed_dim}")
 
     cache_dir = Path(args.cache_dir)
