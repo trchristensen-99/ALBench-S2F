@@ -149,7 +149,7 @@ def main():
     parser.add_argument(
         "--embedding-layer", type=int, default=24, help="Transformer layer for embeddings."
     )
-    parser.add_argument("--max-positions", type=int, default=128, help="Max token positions.")
+    parser.add_argument("--max-positions", type=int, default=256, help="Max token positions.")
     args = parser.parse_args()
 
     from data.k562 import K562Dataset

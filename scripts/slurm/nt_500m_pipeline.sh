@@ -40,7 +40,7 @@ uv run --no-sync python scripts/build_nt_embedding_cache.py \
     --batch-size 32 \
     --model-name 500M_multi_species_v2 \
     --embedding-layer 29 \
-    --max-positions 128
+    --max-positions 256
 
 echo "Cache build DONE — $(date)"
 
