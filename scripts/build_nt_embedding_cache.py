@@ -145,14 +145,22 @@ def main():
     )
     parser.add_argument("--include-test", action="store_true", help="Also cache test sets.")
     parser.add_argument("--no-flanks", action="store_true", help="Use 200bp only, no MPRA flanks.")
+    parser.add_argument("--model-name", default="250M_multi_species_v2", help="NT model variant.")
+    parser.add_argument(
+        "--embedding-layer", type=int, default=24, help="Transformer layer for embeddings."
+    )
+    parser.add_argument("--max-positions", type=int, default=128, help="Max token positions.")
     args = parser.parse_args()
 
     from data.k562 import K562Dataset
     from models.nt_wrapper import NTWrapper
 
-    print("Loading Nucleotide Transformer v2 250M...")
-    # max_positions for 600bp with 6-mer tokenization: ~100 tokens + CLS + padding
-    nt = NTWrapper(model_name="250M_multi_species_v2", max_positions=128)
+    print(f"Loading Nucleotide Transformer {args.model_name}...")
+    nt = NTWrapper(
+        model_name=args.model_name,
+        embedding_layer=args.embedding_layer,
+        max_positions=args.max_positions,
+    )
     print(f"  Embed dim: {nt.embed_dim}")
 
     cache_dir = Path(args.cache_dir)
