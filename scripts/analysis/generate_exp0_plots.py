@@ -666,12 +666,11 @@ def generate_k562_bar_plot():
     models = [
         ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
         ("Malinois", "malinois_k562_3seeds", "result.json", "#B07CC6"),
-        ("Borzoi (S1)", "borzoi_k562_3seeds", "result.json", "#DAA520"),
-        ("Enformer (S1)", "enformer_k562_3seeds", "result.json", "#8FC4E8"),
-        # Enformer S2: use sweep best until 3-seed final finishes
+        ("NTv2", "ntv3_k562_stage2_final", "result.json", "#E8602C"),
+        ("Borzoi", "borzoi_k562_3seeds", "result.json", "#DAA520"),
         # Falls back to sweep best if 3-seed final not yet available
-        ("Enformer (S2)", "enformer_k562_stage2_final/elr1e-4_all", "result.json", "#3A86C8"),
-        ("AlphaGenome (S2)", "stage2_k562_full_train", "test_metrics.json", "#2CA02C"),
+        ("Enformer", "enformer_k562_stage2_final/elr1e-4_all", "result.json", "#3A86C8"),
+        ("AlphaGenome", "stage2_k562_full_train", "test_metrics.json", "#2CA02C"),
     ]
 
     all_metrics = {}
@@ -679,13 +678,13 @@ def generate_k562_bar_plot():
         d = REPO / "outputs" / dirname
         all_metrics[name] = _load_bar_model_metrics(d, json_name)
 
-    # Fallback: if Enformer S2 3-seed not ready, use sweep best (single seed)
-    if not all_metrics.get("Enformer (S2)"):
+    # Fallback: if Enformer 3-seed not ready, use sweep best (single seed)
+    if not all_metrics.get("Enformer"):
         fallback = REPO / "outputs" / "enformer_k562_stage2" / "sweep_elr1e-4_all"
         fb_data = _load_bar_model_metrics(fallback, "result.json")
         if fb_data:
-            all_metrics["Enformer (S2)"] = fb_data
-            print("  Enformer S2: using sweep best (1 seed) as fallback")
+            all_metrics["Enformer"] = fb_data
+            print("  Enformer: using sweep best (1 seed) as fallback")
 
     counts = {name: len(m) for name, m in all_metrics.items()}
     print(f"  Bar plot data: {counts}")
