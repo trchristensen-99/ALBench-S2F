@@ -751,17 +751,17 @@ def generate_k562_bar_plot():
                     f"{val:.2f}",
                     ha="center",
                     va="bottom",
-                    fontsize=5.5,
+                    fontsize=7,
                     fontweight="bold",
-                    rotation=60,
+                    rotation=45,
                 )
 
-    ax.set_ylabel("Pearson R", fontsize=11)
+    ax.set_ylabel("Pearson R", fontsize=13)
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=10)
-    ax.set_ylim(0, 1.05)
-    ax.set_title("K562 MPRA (Gosai et al. 2024)", fontsize=13)
-    ax.legend(fontsize=8, loc="upper right", frameon=False, ncol=2)
+    ax.set_xticklabels(labels, fontsize=12)
+    ax.set_ylim(0, 1.0)
+    ax.set_title("K562 MPRA (Gosai et al. 2024)", fontsize=15)
+    ax.legend(fontsize=10, loc="upper right", frameon=False, ncol=2)
     ax.grid(axis="y", alpha=0.3, zorder=0)
 
     fig.tight_layout()
