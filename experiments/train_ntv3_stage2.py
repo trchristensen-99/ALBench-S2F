@@ -258,7 +258,7 @@ def _load_s1_head_into_jax(
 
 
 # ── Label function for multi_transform ───────────────────────────────────────
-def _make_label_fn(unfreeze_set: set[int]):
+def _make_label_fn(unfreeze_set: set[int], unfreeze_all_encoder: bool = False):
     """Create a label function for optax.multi_transform parameter grouping."""
 
     def _label_fn(path, _leaf):
@@ -269,15 +269,12 @@ def _make_label_fn(unfreeze_set: set[int]):
         if "mlp_head" in s:
             return "head"
 
+        # Full encoder unfreezing: everything that isn't the head
+        if unfreeze_all_encoder:
+            return "encoder"
+
         # Transformer blocks — check if index is in unfreeze set
         if "transformer_blocks" in s:
-            for k in key_strs:
-                if k.isdigit():
-                    # Found the block index (first int after transformer_blocks)
-                    break
-            else:
-                return "frozen"
-            # Walk back to find if this int follows transformer_blocks
             for idx_k, k in enumerate(key_strs):
                 if k == "transformer_blocks" and idx_k + 1 < len(key_strs):
                     block_idx_str = key_strs[idx_k + 1]
@@ -446,8 +443,14 @@ def train(cfg: dict):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Parse unfreeze blocks
-    unfreeze_set = {int(b.strip()) for b in str(cfg["unfreeze_blocks"]).split(",")}
-    print(f"Unfreezing transformer blocks: {sorted(unfreeze_set)}", flush=True)
+    uf_spec = str(cfg["unfreeze_blocks"]).strip()
+    unfreeze_all_encoder = uf_spec.lower() == "all"
+    if unfreeze_all_encoder:
+        unfreeze_set = set(range(24))  # all transformer blocks
+        print("Unfreezing FULL encoder (all transformer + conv tower)", flush=True)
+    else:
+        unfreeze_set = {int(b.strip()) for b in uf_spec.split(",")}
+        print(f"Unfreezing transformer blocks: {sorted(unfreeze_set)}", flush=True)
 
     # ── Load NTv3 encoder ────────────────────────────────────────────────────
     print("Loading NTv3 650M pretrained encoder ...", flush=True)
@@ -487,7 +490,7 @@ def train(cfg: dict):
     wd = float(cfg["weight_decay"])
     grad_clip = float(cfg["grad_clip"])
 
-    label_fn = _make_label_fn(unfreeze_set)
+    label_fn = _make_label_fn(unfreeze_set, unfreeze_all_encoder)
     all_state = nnx.state(combined, nnx.Param)
     param_labels = jax.tree_util.tree_map_with_path(label_fn, all_state)
 
