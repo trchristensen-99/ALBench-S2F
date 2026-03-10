@@ -112,24 +112,37 @@ def main(cfg: DictConfig) -> None:
     train_can, train_rc = load_embedding_cache(cache_dir, "train")
     val_can, val_rc = load_embedding_cache(cache_dir, "val")
 
-    ds_train = YeastDataset(
-        data_path=str(cfg.yeast_data_path),
-        split="train",
-        context_mode=str(cfg.context_mode),
-    )
-    ds_val = YeastDataset(
-        data_path=str(cfg.yeast_data_path),
-        split="val",
-        context_mode=str(cfg.context_mode),
-    )
-    val_labels = ds_val.labels.astype(np.float32)
+    # Load labels: either from oracle pseudolabels or from YeastDataset
+    oracle_label_path = cfg.get("oracle_label_path", None)
+    if oracle_label_path:
+        oracle_dir = Path(str(oracle_label_path)).expanduser().resolve()
+        train_labels = np.load(oracle_dir / "train_oracle_labels.npz")["oracle_mean"].astype(
+            np.float32
+        )
+        val_labels = np.load(oracle_dir / "val_oracle_labels.npz")["oracle_mean"].astype(np.float32)
+        print(
+            f"  Using oracle labels from {oracle_dir} (train={len(train_labels)}, val={len(val_labels)})"
+        )
+    else:
+        ds_train = YeastDataset(
+            data_path=str(cfg.yeast_data_path),
+            split="train",
+            context_mode=str(cfg.context_mode),
+        )
+        train_labels = ds_train.labels.astype(np.float32)
+        ds_val = YeastDataset(
+            data_path=str(cfg.yeast_data_path),
+            split="val",
+            context_mode=str(cfg.context_mode),
+        )
+        val_labels = ds_val.labels.astype(np.float32)
 
     # Limit to cache size (cache may cover a subset of the full dataset)
     cache_size = len(train_can)
-    n_total = min(len(ds_train), cache_size)
-    if cache_size < len(ds_train):
+    n_total = min(len(train_labels), cache_size)
+    if cache_size < len(train_labels):
         print(
-            f"  Cache covers {cache_size:,} of {len(ds_train):,} sequences;"
+            f"  Cache covers {cache_size:,} of {len(train_labels):,} sequences;"
             f" scaling fractions applied to {cache_size:,}"
         )
     subset_seed = used_seed + int(fraction * 100_000)
@@ -189,7 +202,7 @@ def main(cfg: DictConfig) -> None:
 
         for start in range(0, len(perm), batch_size):
             idx = perm[start : start + batch_size]
-            tgt = jnp.array(ds_train.labels[idx])
+            tgt = jnp.array(train_labels[idx])
             org = jnp.zeros(len(idx), dtype=jnp.int32)
 
             rng, step_rng = jax.random.split(rng)
@@ -284,9 +297,15 @@ def main(cfg: DictConfig) -> None:
             ),
             use_private_only=bool(cfg.get("private_only_test", False)),
         )
+        if oracle_label_path:
+            test_labels = np.load(oracle_dir / "test_oracle_labels.npz")["oracle_mean"].astype(
+                np.float32
+            )
+        else:
+            test_labels = test_dataset.labels.astype(np.float32)
         test_metrics = evaluate_yeast_test_subsets(
             predictions=test_preds,
-            labels=test_dataset.labels.astype(np.float32),
+            labels=test_labels,
             subsets=test_subsets,
         )
 
@@ -295,6 +314,7 @@ def main(cfg: DictConfig) -> None:
         "n_samples": int(len(subset_idx)),
         "n_total": int(n_total),
         "seed": int(used_seed),
+        "label_source": "oracle" if oracle_label_path else "real",
         "eval_use_reverse_complement": bool(eval_use_reverse_complement),
         "best_val_pearson_r": float(best_val_pearson),
         "best_val_spearman_r": float(best_val_spearman),
