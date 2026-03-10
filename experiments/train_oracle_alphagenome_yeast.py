@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 import hydra
@@ -318,6 +319,13 @@ def main(cfg: DictConfig) -> None:
     _s2_max_seq_raw = cfg.get("second_stage_max_sequences", None)
     second_stage_max_sequences = int(_s2_max_seq_raw) if _s2_max_seq_raw is not None else None
     detach_backbone = bool(cfg.get("detach_backbone", True))
+
+    # Walltime guard: stop training at max_wall_fraction of max_wall_seconds
+    # to leave time for checkpoint saving and test evaluation.
+    _wall_raw = cfg.get("max_wall_seconds", None)
+    max_wall_seconds = int(_wall_raw) if _wall_raw is not None else None
+    max_wall_fraction = float(cfg.get("max_wall_fraction", 0.80))
+    _train_start_time = time.monotonic()
 
     _tags = ["oracle", "alphagenome", "yeast", str(cfg.head_arch), aug_mode]
     if second_stage_lr is not None:
@@ -703,6 +711,16 @@ def main(cfg: DictConfig) -> None:
             )
             break
 
+        if max_wall_seconds is not None:
+            elapsed = time.monotonic() - _train_start_time
+            if elapsed >= max_wall_seconds * max_wall_fraction:
+                print(
+                    f"Walltime guard: {elapsed / 3600:.1f}h elapsed "
+                    f"(>= {max_wall_fraction * 100:.0f}% of {max_wall_seconds / 3600:.1f}h). "
+                    f"Stopping S1 to leave time for eval."
+                )
+                break
+
     # ── Stage 2: unfreeze encoder, end-to-end fine-tuning ────────────────────
     if second_stage_lr is not None:
         print(
@@ -916,6 +934,16 @@ def main(cfg: DictConfig) -> None:
                     f"(no improvement for {second_stage_early_stop} epochs)"
                 )
                 break
+
+            if max_wall_seconds is not None:
+                elapsed = time.monotonic() - _train_start_time
+                if elapsed >= max_wall_seconds * max_wall_fraction:
+                    print(
+                        f"Walltime guard: {elapsed / 3600:.1f}h elapsed "
+                        f"(>= {max_wall_fraction * 100:.0f}% of {max_wall_seconds / 3600:.1f}h). "
+                        f"Stopping S2 to leave time for eval."
+                    )
+                    break
 
         print(f"\nFinal best val Pearson: {best_s2_pearson:.4f} (Stage 2)")
 
