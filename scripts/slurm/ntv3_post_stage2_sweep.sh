@@ -18,7 +18,7 @@
 #SBATCH --output=logs/%x-%A-%a.out
 #SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
-#SBATCH --qos=slow_nice
+#SBATCH --qos=default
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
@@ -92,7 +92,9 @@ uv run --no-sync python experiments/train_ntv3_stage2.py \
     ++unfreeze_blocks="${UF}" \
     ++model_variant=post \
     ++seed=42 \
-    ++batch_size=64 \
+    ++batch_size=16 \
+    ++grad_accum_steps=4 \
+    ++use_bfloat16=True \
     ++epochs=50 \
     ++early_stop_patience=10
 

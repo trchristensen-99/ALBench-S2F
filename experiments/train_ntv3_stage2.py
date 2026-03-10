@@ -77,6 +77,7 @@ DEFAULT_CONFIG = {
     "num_workers": 4,
     "use_bfloat16": False,  # f32 for training stability; bf16 OK for inference
     "grad_clip": 1.0,
+    "grad_accum_steps": 1,  # gradient accumulation micro-batches (effective bs = batch_size * accum)
     "model_variant": "pre",  # "pre" or "post" (post-trained, species-conditioned)
     "model_name": None,  # auto-set from model_variant if None
 }
@@ -563,7 +564,7 @@ def train(cfg: dict):
     all_state = nnx.state(combined, nnx.Param)
     param_labels = jax.tree_util.tree_map_with_path(label_fn, all_state)
 
-    optimizer = optax.multi_transform(
+    base_optimizer = optax.multi_transform(
         {
             "head": optax.chain(
                 optax.clip_by_global_norm(grad_clip),
@@ -577,6 +578,16 @@ def train(cfg: dict):
         },
         param_labels,
     )
+    grad_accum_steps = int(cfg.get("grad_accum_steps", 1))
+    if grad_accum_steps > 1:
+        optimizer = optax.MultiSteps(base_optimizer, every_k_schedule=grad_accum_steps)
+        print(
+            f"Gradient accumulation: {grad_accum_steps} micro-batches "
+            f"(effective batch_size={int(cfg['batch_size']) * grad_accum_steps})",
+            flush=True,
+        )
+    else:
+        optimizer = base_optimizer
     opt_state = optimizer.init(all_state)
 
     # Print per-group param counts
@@ -757,6 +768,11 @@ def train(cfg: dict):
             )
             # Save head as PyTorch checkpoint for compatibility
             _save_head_pt(combined.mlp_head, epoch, used_seed, output_dir / "best_head.pt")
+            # Save encoder state to disk (protects against preemption)
+            import pickle
+
+            with open(output_dir / "best_encoder_state.pkl", "wb") as _f:
+                pickle.dump(best_encoder_state, _f)
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= early_stop_patience:
@@ -768,11 +784,25 @@ def train(cfg: dict):
                 break
 
     # ── Restore best and evaluate on test sets ───────────────────────────────
+    # Try loading from disk if in-memory state is missing (e.g., after restart)
+    if best_encoder_state is None and (output_dir / "best_encoder_state.pkl").exists():
+        import pickle
+
+        print("Loading best encoder state from disk checkpoint ...", flush=True)
+        with open(output_dir / "best_encoder_state.pkl", "rb") as _f:
+            best_encoder_state = pickle.load(_f)
+        # Also load head from disk
+        best_head_state = None  # will use best_head.pt below
+
     if best_encoder_state is not None:
         best_enc_jax = jax.tree_util.tree_map(jnp.asarray, best_encoder_state)
-        best_hd_jax = jax.tree_util.tree_map(jnp.asarray, best_head_state)
         nnx.update(combined.encoder, best_enc_jax)
+    if best_head_state is not None:
+        best_hd_jax = jax.tree_util.tree_map(jnp.asarray, best_head_state)
         nnx.update(combined.mlp_head, best_hd_jax)
+    elif (output_dir / "best_head.pt").exists():
+        mlp_head = _load_s1_head_into_jax(output_dir, embed_dim, hidden_dim, dropout, rngs)
+        combined.mlp_head = mlp_head
 
     # Free training-only state to reclaim GPU memory for test eval compilation
     jax.clear_caches()
