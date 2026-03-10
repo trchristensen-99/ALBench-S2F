@@ -332,8 +332,13 @@ def _predict_test_sequences(
     use_flanks: bool,
     batch_size: int = 64,
     species_token=None,
+    jit_predict_fn=None,
 ) -> np.ndarray:
-    """RC-averaged predictions on raw 200bp test strings."""
+    """RC-averaged predictions on raw 200bp test strings.
+
+    If jit_predict_fn is provided, it is called as jit_predict_fn(tokens_jax, sp_tokens)
+    for JIT-compiled inference (much faster than eager mode for large models).
+    """
     if not seqs_str:
         return np.array([], dtype=np.float32)
 
@@ -355,28 +360,44 @@ def _predict_test_sequences(
         full_fwd.append(fwd)
         full_rev.append(_rc_str(fwd))
 
+    def _tokenize_seqs(seqs):
+        padded = [_pad_to_divisible(s, seq_divisor) for s in seqs]
+        return jnp.asarray(tokenizer.batch_np_tokenize(padded))
+
+    def _make_sp(n):
+        if species_token is not None:
+            return jnp.tile(species_token, (n,))
+        return None
+
     preds_fwd, preds_rev = [], []
     for i in range(0, len(full_fwd), batch_size):
         batch_fwd = full_fwd[i : i + batch_size]
         batch_rev = full_rev[i : i + batch_size]
-        p_fwd = _forward(
-            encoder,
-            tokenizer,
-            head,
-            batch_fwd,
-            seq_divisor,
-            deterministic=True,
-            species_token=species_token,
-        )
-        p_rev = _forward(
-            encoder,
-            tokenizer,
-            head,
-            batch_rev,
-            seq_divisor,
-            deterministic=True,
-            species_token=species_token,
-        )
+
+        if jit_predict_fn is not None:
+            tokens_fwd = _tokenize_seqs(batch_fwd)
+            p_fwd = jit_predict_fn(tokens_fwd, _make_sp(tokens_fwd.shape[0]))
+            tokens_rev = _tokenize_seqs(batch_rev)
+            p_rev = jit_predict_fn(tokens_rev, _make_sp(tokens_rev.shape[0]))
+        else:
+            p_fwd = _forward(
+                encoder,
+                tokenizer,
+                head,
+                batch_fwd,
+                seq_divisor,
+                deterministic=True,
+                species_token=species_token,
+            )
+            p_rev = _forward(
+                encoder,
+                tokenizer,
+                head,
+                batch_rev,
+                seq_divisor,
+                deterministic=True,
+                species_token=species_token,
+            )
         preds_fwd.append(np.asarray(p_fwd).reshape(-1))
         preds_rev.append(np.asarray(p_rev).reshape(-1))
 
@@ -392,13 +413,14 @@ def evaluate_all_test_sets(
     use_flanks: bool,
     batch_size: int = 64,
     species_token=None,
+    jit_predict_fn=None,
 ) -> dict[str, dict[str, float]]:
     """Evaluate on hashFrag in-dist / SNV / OOD test sets."""
     import pandas as pd
 
     metrics: dict[str, dict[str, float]] = {}
 
-    _pred_kw = dict(species_token=species_token)
+    _pred_kw = dict(species_token=species_token, jit_predict_fn=jit_predict_fn)
 
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
     if in_path.exists():
@@ -809,15 +831,25 @@ def train(cfg: dict):
         mlp_head = _load_s1_head_into_jax(output_dir, embed_dim, hidden_dim, dropout, rngs)
         combined.mlp_head = mlp_head
 
-    # Free training-only state to reclaim GPU memory for test eval compilation
-    jax.clear_caches()
-
-    # Use smaller batch size for test eval (avoids OOM during XLA compilation
-    # for post-trained 680M model after training fills GPU memory)
+    # Use smaller batch size for test eval to avoid OOM during XLA recompilation
     test_batch_size = min(batch_size, 16)
 
+    # JIT-compile a test-time forward function (avoids slow eager-mode eval)
+    @nnx.jit
+    def _jit_test_predict(tokens, sp_tokens):
+        if sp_tokens is not None:
+            outs = combined.encoder(tokens, species_tokens=sp_tokens)
+        else:
+            outs = combined.encoder(tokens)
+        embeddings = outs["embedding"]
+        mask = jnp.expand_dims(tokens != pad_token_id, axis=-1)
+        masked = embeddings * mask
+        lens = jnp.sum(mask, axis=1)
+        pooled = jnp.sum(masked, axis=1) / jnp.maximum(lens, 1)
+        return combined.mlp_head(pooled, deterministic=True)
+
     print(
-        f"\n[eval] Evaluating on test sets (batch_size={test_batch_size}) ...",
+        f"\n[eval] Evaluating on test sets (batch_size={test_batch_size}, JIT) ...",
         flush=True,
     )
     test_set_dir = data_path / "test_sets"
@@ -830,6 +862,7 @@ def train(cfg: dict):
         use_flanks,
         batch_size=test_batch_size,
         species_token=species_token,
+        jit_predict_fn=_jit_test_predict,
     )
 
     results = {
