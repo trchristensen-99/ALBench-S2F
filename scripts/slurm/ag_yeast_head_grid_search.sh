@@ -1,21 +1,29 @@
 #!/bin/bash
-# AlphaGenome yeast head hyperparameter grid search.
+# AlphaGenome yeast head hyperparameter grid search (v2: array job).
 # Sweeps lr × weight_decay × dropout on cached embeddings (27 configs).
 # Uses f=1.0, seed=42, frozen encoder (cached).
-# Each config trains in ~10-20 min → ~5-9h total on a single GPU.
+#
+# v1 was serial (all 27 configs in one job, ~14 min/epoch → too slow).
+# v2: array job, one config per task → finishes in ~2-4h per config.
+#
+# Grid: 3 lr × 3 wd × 3 dropout = 27 configs
+#   lr:      {0.0001, 0.0005, 0.001}
+#   wd:      {1e-6, 1e-4, 1e-3}
+#   dropout: {0.1, 0.3, 0.5}
 #
 # Submit:
 #   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/ag_yeast_head_grid_search.sh
 #
 #SBATCH --job-name=ag_yeast_grid
-#SBATCH --output=logs/%x-%A.out
-#SBATCH --error=logs/%x-%A.err
+#SBATCH --output=logs/%x-%A-%a.out
+#SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
 #SBATCH --qos=slow_nice
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=100G
 #SBATCH --time=12:00:00
+#SBATCH --array=0-26
 
 set -euo pipefail
 
@@ -31,92 +39,45 @@ export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_auto
 
 OUT_BASE="outputs/foundation_grid_search/alphagenome"
 
-echo "AG yeast head hyperparameter grid search"
-echo "Node: ${SLURMD_NODENAME}  Date: $(date)"
-
 # Grid: 3 lr × 3 wd × 3 dropout = 27 configs
 LRS=(0.0001 0.0005 0.001)
 WDS=(0.000001 0.0001 0.001)
 DROPOUTS=(0.1 0.3 0.5)
 
-TOTAL=$((${#LRS[@]} * ${#WDS[@]} * ${#DROPOUTS[@]}))
-COUNT=0
+N_LR=${#LRS[@]}
+N_WD=${#WDS[@]}
 
-for lr in "${LRS[@]}"; do
-  for wd in "${WDS[@]}"; do
-    for do_val in "${DROPOUTS[@]}"; do
-      COUNT=$((COUNT + 1))
-      TAG="lr${lr}_wd${wd}_do${do_val}"
-      OUT_DIR="${OUT_BASE}/${TAG}"
+LR_IDX=$((SLURM_ARRAY_TASK_ID / (N_WD * ${#DROPOUTS[@]})))
+WD_IDX=$(((SLURM_ARRAY_TASK_ID / ${#DROPOUTS[@]}) % N_WD))
+DO_IDX=$((SLURM_ARRAY_TASK_ID % ${#DROPOUTS[@]}))
 
-      # Skip if result already exists
-      if ls "${OUT_DIR}"/fraction_*/seed_*/result.json > /dev/null 2>&1; then
-        echo "[${COUNT}/${TOTAL}] SKIP: ${TAG} (already done)"
-        continue
-      fi
+LR=${LRS[$LR_IDX]}
+WD=${WDS[$WD_IDX]}
+DO=${DROPOUTS[$DO_IDX]}
+TAG="lr${LR}_wd${WD}_do${DO}"
+OUT_DIR="${OUT_BASE}/${TAG}"
 
-      echo ""
-      echo "[${COUNT}/${TOTAL}] AG yeast: lr=${lr} wd=${wd} dropout=${do_val}"
-      echo "Start: $(date)"
+echo "=== AG yeast head grid: ${TAG} (task ${SLURM_ARRAY_TASK_ID}/26) ==="
+echo "Node: ${SLURMD_NODENAME}  Date: $(date)"
+START_TIME=$(date +%s)
 
-      uv run --no-sync python experiments/exp0_yeast_scaling_alphagenome.py \
-        ++fraction=1.0 \
-        ++seed=42 \
-        ++output_dir="${OUT_DIR}" \
-        ++lr="${lr}" \
-        ++weight_decay="${wd}" \
-        ++dropout_rate="${do_val}" \
-        ++epochs=50 \
-        ++early_stop_patience=7 \
-        ++wandb_mode=offline \
-        ++test_subset_dir=data/yeast/test_subset_ids \
-        || echo "FAILED: ${TAG}"
+# Skip if result already exists
+if ls "${OUT_DIR}"/fraction_*/seed_*/result.json > /dev/null 2>&1; then
+    echo "SKIP: ${TAG} (already done)"
+    exit 0
+fi
 
-      echo "Done: $(date)"
-    done
-  done
-done
+uv run --no-sync python experiments/exp0_yeast_scaling_alphagenome.py \
+    ++fraction=1.0 \
+    ++seed=42 \
+    ++output_dir="${OUT_DIR}" \
+    ++lr="${LR}" \
+    ++weight_decay="${WD}" \
+    ++dropout_rate="${DO}" \
+    ++epochs=50 \
+    ++early_stop_patience=7 \
+    ++wandb_mode=offline \
+    ++test_subset_dir=data/yeast/test_subset_ids
 
-# Print summary table
-echo ""
-echo "============================================"
-echo "=== AG YEAST GRID SEARCH SUMMARY ==="
-echo "============================================"
-echo ""
-
-uv run --no-sync python -c "
-import json
-from pathlib import Path
-
-base = Path('${OUT_BASE}')
-results = []
-for d in sorted(base.iterdir()):
-    rfiles = list(d.glob('fraction_*/seed_*/result.json'))
-    if not rfiles:
-        continue
-    r = json.load(open(rfiles[0]))
-    tm = r.get('test_metrics', {})
-    results.append({
-        'config': d.name,
-        'val_pearson': r.get('best_val_pearson_r', 0),
-        'random': tm.get('random', {}).get('pearson_r', 0),
-        'snv_abs': tm.get('snv_abs', {}).get('pearson_r', 0),
-        'genomic': tm.get('genomic', {}).get('pearson_r', 0),
-    })
-
-results.sort(key=lambda x: x['random'], reverse=True)
-print(f\"{'Config':<35} {'Val':>8} {'Random':>8} {'SNV':>8} {'Genomic':>8}\")
-print('-' * 75)
-for r in results:
-    print(f\"{r['config']:<35} {r['val_pearson']:>8.4f} {r['random']:>8.4f} {r['snv_abs']:>8.4f} {r['genomic']:>8.4f}\")
-
-print()
-best = results[0]
-print(f\"Best config: {best['config']}\")
-print(f\"  Random Pearson:  {best['random']:.4f}\")
-print(f\"  SNV abs Pearson: {best['snv_abs']:.4f}\")
-print(f\"  Genomic Pearson: {best['genomic']:.4f}\")
-" || echo "Summary generation failed"
-
-echo ""
-echo "=== AG yeast grid search COMPLETE — $(date) ==="
+END_TIME=$(date +%s)
+echo "=== ${TAG} DONE at $(date) — wall time: $((END_TIME - START_TIME))s ==="

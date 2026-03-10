@@ -29,10 +29,11 @@ STYLE = {
     "DREAM-RNN (AlphaGenome Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
     "AlphaGenome (real labels, frozen)": dict(color="#4B7BE0", marker="s", ls="-"),
     "AlphaGenome (AlphaGenome Ensemble labels, frozen)": dict(color="#4B7BE0", marker="s", ls="--"),
-    # Yeast (trailing space in "real labels" key distinguishes from K562)
-    "DREAM-RNN (real labels) ": dict(color="#E05E4B", marker="o", ls="-"),
-    "DREAM-RNN (DREAM-RNN Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
-    "AlphaGenome frozen (partial)": dict(color="#4B7BE0", marker="s", ls="-"),
+    # Yeast
+    "DREAM-RNN (real)": dict(color="#E05E4B", marker="o", ls="-"),
+    "DREAM-RNN (oracle)": dict(color="#E05E4B", marker="o", ls="--"),
+    "AlphaGenome S1 (frozen)": dict(color="#4B7BE0", marker="s", ls="-"),
+    "AlphaGenome S2 (fine-tuned)": dict(color="#2CA02C", marker="D", ls="-"),
     # Short names (used in real-label-only plots)
     "DREAM-RNN": dict(color="#E05E4B", marker="o", ls="-"),
     "AlphaGenome": dict(color="#4B7BE0", marker="s", ls="-"),
@@ -42,8 +43,9 @@ STYLE = {
 _SHORT_LABELS = {
     "DREAM-RNN (real labels)": "DREAM-RNN",
     "AlphaGenome (real labels, frozen)": "AlphaGenome",
-    "DREAM-RNN (real labels) ": "DREAM-RNN",
-    "AlphaGenome frozen (partial)": "AlphaGenome",
+    "DREAM-RNN (real)": "DREAM-RNN",
+    "AlphaGenome S1 (frozen)": "AlphaGenome S1",
+    "AlphaGenome S2 (fine-tuned)": "AlphaGenome S2",
 }
 
 
@@ -444,48 +446,65 @@ def snap_yeast_fracs(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def generate_yeast_plots():
-    # Only include 6M runs (n_total=6065325); exclude old 100K runs
+    # DREAM-RNN real labels: prefer v2 (optimized HPs), fall back to original
+    _dream_real_dir = REPO / "outputs" / "exp0_yeast_scaling_v2"
+    if not _dream_real_dir.exists() or not list(_dream_real_dir.rglob("result.json")):
+        _dream_real_dir = REPO / "outputs" / "exp0_yeast_scaling"
+        print("  DREAM-RNN yeast: using original (pre-HP-optimization) results")
+    else:
+        print("  DREAM-RNN yeast: using v2 (optimized HP) results")
     dream_real = make_df(
-        load_results(
-            REPO / "outputs" / "exp0_yeast_scaling",
-            require_n_total=6065325,
-        ),
-        "DREAM-RNN (real labels) ",  # trailing space distinguishes from K562
+        load_results(_dream_real_dir, require_n_total=6065325),
+        "DREAM-RNN (real)",
         YEAST_METRICS,
     )
     dream_real = snap_yeast_fracs(dream_real)
 
+    # DREAM-RNN oracle labels: prefer v2, fall back to original
+    _dream_oracle_dir = REPO / "outputs" / "exp0_yeast_scaling_oracle_labels_v2"
+    if not _dream_oracle_dir.exists() or not list(_dream_oracle_dir.rglob("result.json")):
+        _dream_oracle_dir = REPO / "outputs" / "exp0_yeast_scaling_oracle_labels"
     dream_oracle = make_df(
-        load_results(
-            REPO / "outputs" / "exp0_yeast_scaling_oracle_labels",
-            require_n_total=6065325,
-        ),
-        "DREAM-RNN (DREAM-RNN Ensemble labels)",
+        load_results(_dream_oracle_dir, require_n_total=6065325),
+        "DREAM-RNN (oracle)",
         YEAST_METRICS,
     )
     dream_oracle = snap_yeast_fracs(dream_oracle)
 
-    # AlphaGenome frozen-encoder (partial — only fractions up to 0.05, 1 seed)
-    ag_frozen = make_df(
-        load_results(
-            REPO / "outputs" / "exp0_yeast_scaling_alphagenome",
-            require_n_total=6065325,
-        ),
-        "AlphaGenome frozen (partial)",
+    # AlphaGenome S1 frozen-encoder: prefer v2 (optimized head HPs), fall back
+    _ag_s1_dir = REPO / "outputs" / "exp0_yeast_scaling_ag_v2"
+    if not _ag_s1_dir.exists() or not list(_ag_s1_dir.rglob("result.json")):
+        _ag_s1_dir = REPO / "outputs" / "exp0_yeast_scaling_alphagenome"
+        print("  AG yeast S1: using original results")
+    else:
+        print("  AG yeast S1: using v2 (optimized head HP) results")
+    ag_s1 = make_df(
+        load_results(_ag_s1_dir, require_n_total=6065325),
+        "AlphaGenome S1 (frozen)",
         YEAST_METRICS,
     )
-    ag_frozen = snap_yeast_fracs(ag_frozen)
+    ag_s1 = snap_yeast_fracs(ag_s1)
+
+    # AlphaGenome S2 fine-tuned encoder (if available)
+    _ag_s2_dir = REPO / "outputs" / "exp0_yeast_scaling_ag_s2"
+    ag_s2 = make_df(
+        load_results(_ag_s2_dir, require_n_total=6065325) if _ag_s2_dir.exists() else [],
+        "AlphaGenome S2 (fine-tuned)",
+        YEAST_METRICS,
+    )
+    ag_s2 = snap_yeast_fracs(ag_s2)
 
     dfs_all = {}
     for label, df in [
-        ("DREAM-RNN (real labels) ", dream_real),
-        ("DREAM-RNN (DREAM-RNN Ensemble labels)", dream_oracle),
-        ("AlphaGenome frozen (partial)", ag_frozen),
+        ("DREAM-RNN (real)", dream_real),
+        ("DREAM-RNN (oracle)", dream_oracle),
+        ("AlphaGenome S1 (frozen)", ag_s1),
+        ("AlphaGenome S2 (fine-tuned)", ag_s2),
     ]:
         if not df.empty:
             dfs_all[label] = df
 
-    dfs_real = {k: v for k, v in dfs_all.items() if "Ensemble labels" not in k}
+    dfs_real = {k: v for k, v in dfs_all.items() if "oracle" not in k.lower()}
 
     print(f"\nYeast data: {', '.join(f'{k}: {len(v)} records' for k, v in dfs_all.items())}")
 
@@ -500,16 +519,12 @@ def generate_yeast_plots():
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     for ax, (metric, ylabel, title) in zip(axes.flatten(), panels):
         plot_scaling_panel(ax, dfs_all, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False)
-    fig.suptitle(
-        "Yeast — Exp 0 Scaling Curves: Real vs DREAM-RNN Ensemble Labels",
-        fontsize=14,
-        y=1.02,
-    )
+    fig.suptitle("Yeast — Exp 0 Scaling Curves (all conditions)", fontsize=14, y=1.02)
     _add_shared_legend(fig, axes, y_offset=-0.01)
     fig.tight_layout(rect=[0, 0.06, 1, 1])
-    fig.savefig(OUT_DIR / "yeast_real_vs_oracle_4panel.png", dpi=200, bbox_inches="tight")
+    fig.savefig(OUT_DIR / "yeast_all_conditions_4panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print("  Saved: yeast_real_vs_oracle_4panel.png")
+    print("  Saved: yeast_all_conditions_4panel.png")
 
     # 4-panel: REAL LABELS ONLY
     dfs_real_short = {_SHORT_LABELS.get(k, k): v for k, v in dfs_real.items()}
@@ -518,11 +533,7 @@ def generate_yeast_plots():
         plot_scaling_panel(
             ax, dfs_real_short, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False
         )
-    fig.suptitle(
-        "Yeast — Exp 0 Scaling Curves (real labels only)",
-        fontsize=14,
-        y=1.02,
-    )
+    fig.suptitle("Yeast — Exp 0 Scaling Curves (real labels)", fontsize=14, y=1.02)
     _add_shared_legend(fig, axes, y_offset=0.01)
     fig.tight_layout(rect=[0, 0.04, 1, 1])
     fig.savefig(OUT_DIR / "yeast_real_labels_4panel.png", dpi=200, bbox_inches="tight")
@@ -533,16 +544,12 @@ def generate_yeast_plots():
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     for ax, (metric, ylabel, title) in zip(axes, panels[:2]):
         plot_scaling_panel(ax, dfs_all, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False)
-    fig.suptitle(
-        "Yeast — Real vs DREAM-RNN Ensemble Labels",
-        fontsize=13,
-        y=1.02,
-    )
+    fig.suptitle("Yeast — All Conditions", fontsize=13, y=1.02)
     _add_shared_legend(fig, axes, y_offset=-0.06)
     fig.tight_layout(rect=[0, 0.10, 1, 1])
-    fig.savefig(OUT_DIR / "yeast_real_vs_oracle_2panel.png", dpi=200, bbox_inches="tight")
+    fig.savefig(OUT_DIR / "yeast_all_conditions_2panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print("  Saved: yeast_real_vs_oracle_2panel.png")
+    print("  Saved: yeast_all_conditions_2panel.png")
 
     # 2-panel: REAL LABELS ONLY (random + genomic)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
@@ -550,55 +557,12 @@ def generate_yeast_plots():
         plot_scaling_panel(
             ax, dfs_real_short, metric, ylabel, title, ylim=(-0.1, 1), show_legend=False
         )
-    fig.suptitle(
-        "Yeast — Scaling Curves (real labels)",
-        fontsize=13,
-        y=1.02,
-    )
+    fig.suptitle("Yeast — Scaling Curves (real labels)", fontsize=13, y=1.02)
     _add_shared_legend(fig, axes, y_offset=-0.02)
     fig.tight_layout(rect=[0, 0.06, 1, 1])
     fig.savefig(OUT_DIR / "yeast_real_labels_2panel.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print("  Saved: yeast_real_labels_2panel.png")
-
-    # Single-panel: val Pearson comparison
-    fig, ax = plt.subplots(figsize=(8, 5.5))
-    for label, df in dfs_all.items():
-        agg = aggregate(df, "val_pearson")
-        if agg.empty:
-            continue
-        style = STYLE[label]
-        x = agg["n_samples_mean"]
-        yerr = agg["std"].fillna(0)
-        means = agg["mean"]
-        yerr_lo = np.clip(yerr, 0, np.maximum(means, 0))
-        ax.errorbar(
-            x,
-            means,
-            yerr=[yerr_lo, yerr],
-            fmt=f"{style['ls']}{style['marker']}",
-            color=style["color"],
-            label=label,
-            capsize=4,
-            linewidth=2,
-            markersize=6,
-            zorder=3,
-        )
-    ax.set_xscale("log")
-    ax.xaxis.set_major_formatter(plt.FuncFormatter(_format_n_samples))
-    ax.set_xlabel("Number of training sequences", fontsize=10)
-    ax.set_ylabel("Pearson R", fontsize=10)
-    ax.set_title(
-        "Yeast — Validation Pearson: Real vs DREAM-RNN Ensemble Labels",
-        fontsize=11,
-    )
-    ax.set_ylim(0, 1)
-    ax.legend(fontsize=9, loc="lower right")
-    ax.grid(True, which="both", ls="--", alpha=0.35, zorder=0)
-    fig.tight_layout()
-    fig.savefig(OUT_DIR / "yeast_val_pearson_comparison.png", dpi=200, bbox_inches="tight")
-    plt.close(fig)
-    print("  Saved: yeast_val_pearson_comparison.png")
 
     # Save combined CSV
     all_yeast = pd.concat(dfs_all.values(), ignore_index=True)
@@ -608,19 +572,6 @@ def generate_yeast_plots():
     print("\n  Yeast Summary (mean test random Pearson R):")
     for label, df in dfs_all.items():
         agg = aggregate(df, "test_random")
-        if agg.empty:
-            continue
-        print(f"    {label}:")
-        for _, row in agg.iterrows():
-            ns = int(row["n_samples_mean"])
-            m = row["mean"]
-            s = row["std"]
-            n = int(row["n"])
-            print(f"      n={ns:,}: {m:.4f} +/- {s:.4f} (seeds={n})")
-
-    print("\n  Yeast Summary (mean val Pearson R):")
-    for label, df in dfs_all.items():
-        agg = aggregate(df, "val_pearson")
         if agg.empty:
             continue
         print(f"    {label}:")
