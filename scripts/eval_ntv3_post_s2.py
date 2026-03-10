@@ -38,10 +38,12 @@ jax.jit = _patched_jax_jit
 def evaluate_checkpoint(sweep_dir: Path, encoder, tokenizer, ntv3_config, species_token):
     """Load checkpoint from sweep_dir and run test eval."""
     # Deferred import: must come after JAX monkey-patch above
+    import torch
+
     from experiments.train_ntv3_stage2 import (
         _FLANK_3_STR,
         _FLANK_5_STR,
-        _load_s1_head_into_jax,
+        JaxMLPHead,
         _pad_to_divisible,
         _rc_str,
         _safe_corr,
@@ -61,9 +63,20 @@ def evaluate_checkpoint(sweep_dir: Path, encoder, tokenizer, ntv3_config, specie
     enc_jax = jax.tree_util.tree_map(jnp.asarray, enc_state)
     nnx.update(encoder, enc_jax)
 
-    # Load head
+    # Load head from best_head.pt (S2 checkpoint format)
+    print(f"  Loading head from {head_path.name} ...", flush=True)
     rngs = nnx.Rngs(0)
-    head = _load_s1_head_into_jax(sweep_dir, 1536, 512, 0.1, rngs)
+    ckpt = torch.load(head_path, map_location="cpu")
+    pt_state = ckpt["model_state_dict"]
+    head = JaxMLPHead(1536, 512, 0.1, rngs=rngs)
+    head.ln.scale.value = jnp.array(pt_state["net.0.weight"].numpy())
+    head.ln.bias.value = jnp.array(pt_state["net.0.bias"].numpy())
+    head.linear1.kernel.value = jnp.array(pt_state["net.1.weight"].numpy().T)
+    head.linear1.bias.value = jnp.array(pt_state["net.1.bias"].numpy())
+    head.linear2.kernel.value = jnp.array(pt_state["net.4.weight"].numpy().T)
+    head.linear2.bias.value = jnp.array(pt_state["net.4.bias"].numpy())
+    head.linear3.kernel.value = jnp.array(pt_state["net.7.weight"].numpy().T)
+    head.linear3.bias.value = jnp.array(pt_state["net.7.bias"].numpy())
 
     # Combine for JIT
     class _Combined(nnx.Module):

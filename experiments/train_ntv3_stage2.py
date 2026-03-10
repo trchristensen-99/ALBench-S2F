@@ -236,7 +236,10 @@ def _load_s1_head_into_jax(
     """Load Stage 1 PyTorch head checkpoint and convert to JAX MLPHead."""
     ckpt_path = s1_dir / "best_model.pt"
     if not ckpt_path.exists():
-        raise FileNotFoundError(f"Stage 1 checkpoint not found: {ckpt_path}")
+        # S2 saves as best_head.pt
+        ckpt_path = s1_dir / "best_head.pt"
+    if not ckpt_path.exists():
+        raise FileNotFoundError(f"Head checkpoint not found in: {s1_dir}")
 
     ckpt = torch.load(ckpt_path, map_location="cpu")
     pt_state = ckpt["model_state_dict"]
