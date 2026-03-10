@@ -666,11 +666,9 @@ def generate_k562_bar_plot():
     models = [
         ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
         ("Malinois", "malinois_k562_basset_pretrained", "result.json", "#B07CC6"),
-        ("NTv3", "ntv3_k562_stage2_final", "result.json", "#E8602C"),
-        ("NTv3-Borzoi", "ntv3_post_k562_3seeds", "result.json", "#F4A261"),
+        ("Nucleotide Transformer (v3)", "ntv3_post_k562_3seeds", "result.json", "#E8602C"),
         ("Borzoi", "borzoi_k562_cached_v2", "result.json", "#DAA520"),
-        # Falls back to sweep best if 3-seed final not yet available
-        ("Enformer", "enformer_k562_stage2_final/elr1e-4_all", "result.json", "#3A86C8"),
+        ("Enformer", "enformer_k562_3seeds", "result.json", "#3A86C8"),
         ("AlphaGenome", "stage2_k562_full_train", "test_metrics.json", "#2CA02C"),
     ]
 
@@ -687,13 +685,15 @@ def generate_k562_bar_plot():
             all_metrics["Borzoi"] = fb_data
             print("  Borzoi: using original S1 results as fallback")
 
-    # Fallback: if Enformer 3-seed not ready, use sweep best (single seed)
+    # Fallback: if Enformer 3-seed not ready, use grid search best (single seed)
     if not all_metrics.get("Enformer"):
-        fallback = REPO / "outputs" / "enformer_k562_stage2" / "sweep_elr1e-4_all"
-        fb_data = _load_bar_model_metrics(fallback, "result.json")
+        gs_dir = REPO / "outputs" / "foundation_grid_search" / "enformer"
+        fb_data = _load_bar_model_metrics(gs_dir, "result.json")
         if fb_data:
-            all_metrics["Enformer"] = fb_data
-            print("  Enformer: using sweep best (1 seed) as fallback")
+            # Pick only the best by val Pearson
+            best = max(fb_data, key=lambda m: m.get("in_distribution", {}).get("pearson_r", 0))
+            all_metrics["Enformer"] = [best]
+            print("  Enformer: using grid search best (1 seed) as fallback")
 
     counts = {name: len(m) for name, m in all_metrics.items()}
     print(f"  Bar plot data: {counts}")

@@ -78,6 +78,7 @@ DEFAULT_CONFIG = {
     "use_bfloat16": False,  # f32 for training stability; bf16 OK for inference
     "grad_clip": 1.0,
     "grad_accum_steps": 1,  # gradient accumulation micro-batches (effective bs = batch_size * accum)
+    "debug_max_steps": 0,  # if >0, stop after N train steps per epoch (for quick testing)
     "model_variant": "pre",  # "pre" or "post" (post-trained, species-conditioned)
     "model_name": None,  # auto-set from model_variant if None
 }
@@ -718,6 +719,7 @@ def train(cfg: dict):
     early_stop_patience = int(cfg["early_stop_patience"])
     best_encoder_state = None
     best_head_state = None
+    debug_max_steps = int(cfg.get("debug_max_steps", 0))
 
     for epoch in range(int(cfg["epochs"])):
         t_epoch = time.time()
@@ -732,6 +734,9 @@ def train(cfg: dict):
                     f"loss={loss_v:.4f}",
                     flush=True,
                 )
+            if debug_max_steps > 0 and (batch_idx + 1) >= debug_max_steps:
+                print(f"  [debug] Stopping epoch after {debug_max_steps} steps", flush=True)
+                break
 
         avg_train_loss = float(np.mean(train_losses)) if train_losses else float("nan")
 
