@@ -1,11 +1,13 @@
 #!/bin/bash
 # NTv3 650M post-trained Stage 2 encoder fine-tuning sweep.
 #
-# Grid: 2 encoder_lr × 2 unfreeze depths = 4 configs (single seed each).
-#   0 → elr=5e-4, last 4 blocks (8-11)
-#   1 → elr=5e-4, all 12 blocks (0-11)
-#   2 → elr=1e-3, last 4 blocks (8-11)
-#   3 → elr=1e-3, all 12 blocks (0-11)
+# Grid: 3 encoder_lr × 2 unfreeze depths = 6 configs (single seed each).
+#   0 → elr=1e-4, last 4 blocks (8-11)
+#   1 → elr=1e-4, all 12 blocks (0-11)
+#   2 → elr=5e-4, last 4 blocks (8-11)
+#   3 → elr=5e-4, all 12 blocks (0-11)
+#   4 → elr=1e-3, last 4 blocks (8-11)
+#   5 → elr=1e-3, all 12 blocks (0-11)
 #
 # Prerequisites:
 #   NTv3 post-trained grid search must have completed:
@@ -23,7 +25,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-5
 
 set -euo pipefail
 
@@ -63,10 +65,11 @@ fi
 echo "Best Stage 1 dir: ${BEST_S1_DIR}"
 
 # ── Sweep grid ──────────────────────────────────────────────────────────────
-ENCODER_LRS=(5e-4 5e-4 1e-3 1e-3)
+ENCODER_LRS=(1e-4 1e-4 5e-4 5e-4 1e-3 1e-3)
 UNFREEZE_SPECS=("8,9,10,11" "0,1,2,3,4,5,6,7,8,9,10,11" \
+                "8,9,10,11" "0,1,2,3,4,5,6,7,8,9,10,11" \
                 "8,9,10,11" "0,1,2,3,4,5,6,7,8,9,10,11")
-LABELS=(uf4 uf12 uf4 uf12)
+LABELS=(uf4 uf12 uf4 uf12 uf4 uf12)
 
 IDX=${SLURM_ARRAY_TASK_ID}
 ELR=${ENCODER_LRS[$IDX]}
@@ -101,7 +104,7 @@ uv run --no-sync python experiments/train_ntv3_stage2.py \
 echo "Task ${IDX} DONE — $(date)"
 
 # ── Summary (only on last task) ─────────────────────────────────────────────
-if [ "${IDX}" -eq 3 ]; then
+if [ "${IDX}" -eq 5 ]; then
     echo ""
     echo "============================================"
     echo "=== NTv3 POST-TRAINED Stage 2 SWEEP SUMMARY ==="
