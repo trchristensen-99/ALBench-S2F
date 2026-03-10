@@ -125,6 +125,11 @@ def run_fraction(
 
     test_metrics: dict[str, dict[str, float]] = {}
     if test_loader is not None and test_labels is not None and test_subsets is not None:
+        # Load best checkpoint (by val metric) for test evaluation
+        best_ckpt = checkpoint_dir / "best_model.pt"
+        if best_ckpt.exists():
+            model.load_checkpoint(str(best_ckpt))
+            print(f"  Loaded best checkpoint from {best_ckpt}")
         model.eval()
         preds: list[np.ndarray] = []
         with torch.no_grad():

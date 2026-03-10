@@ -55,9 +55,18 @@ def _subset_indices(n_total: int, fraction: float, seed: int) -> np.ndarray:
 
 def _gather_cached(
     indices: np.ndarray,
-    arr: np.ndarray,
+    train_arr: np.ndarray,
+    pool_arr: np.ndarray,
+    n_train: int,
 ) -> jnp.ndarray:
-    return jnp.array(arr[indices].astype(np.float32))
+    out = np.empty((len(indices), train_arr.shape[1], train_arr.shape[2]), dtype=np.float32)
+    train_mask = indices < n_train
+    if np.any(train_mask):
+        out[train_mask] = train_arr[indices[train_mask]].astype(np.float32)
+    if np.any(~train_mask):
+        pool_idx = indices[~train_mask] - n_train
+        out[~train_mask] = pool_arr[pool_idx].astype(np.float32)
+    return jnp.array(out)
 
 
 @hydra.main(
@@ -110,6 +119,7 @@ def main(cfg: DictConfig) -> None:
 
     cache_dir = Path(str(cfg.cache_dir)).expanduser().resolve()
     train_can, train_rc = load_embedding_cache(cache_dir, "train")
+    pool_can, pool_rc = load_embedding_cache(cache_dir, "pool")
     val_can, val_rc = load_embedding_cache(cache_dir, "val")
 
     # Load labels: either from oracle pseudolabels or from YeastDataset
@@ -119,9 +129,13 @@ def main(cfg: DictConfig) -> None:
         train_labels = np.load(oracle_dir / "train_oracle_labels.npz")["oracle_mean"].astype(
             np.float32
         )
+        pool_labels = np.load(oracle_dir / "train_pool_oracle_labels.npz")["oracle_mean"].astype(
+            np.float32
+        )
         val_labels = np.load(oracle_dir / "val_oracle_labels.npz")["oracle_mean"].astype(np.float32)
         print(
-            f"  Using oracle labels from {oracle_dir} (train={len(train_labels)}, val={len(val_labels)})"
+            f"  Using oracle labels from {oracle_dir}"
+            f" (train={len(train_labels)}, pool={len(pool_labels)}, val={len(val_labels)})"
         )
     else:
         ds_train = YeastDataset(
@@ -130,6 +144,12 @@ def main(cfg: DictConfig) -> None:
             context_mode=str(cfg.context_mode),
         )
         train_labels = ds_train.labels.astype(np.float32)
+        ds_pool = YeastDataset(
+            data_path=str(cfg.yeast_data_path),
+            split="pool",
+            context_mode=str(cfg.context_mode),
+        )
+        pool_labels = ds_pool.labels.astype(np.float32)
         ds_val = YeastDataset(
             data_path=str(cfg.yeast_data_path),
             split="val",
@@ -137,14 +157,12 @@ def main(cfg: DictConfig) -> None:
         )
         val_labels = ds_val.labels.astype(np.float32)
 
-    # Limit to cache size (cache may cover a subset of the full dataset)
-    cache_size = len(train_can)
-    n_total = min(len(train_labels), cache_size)
-    if cache_size < len(train_labels):
-        print(
-            f"  Cache covers {cache_size:,} of {len(train_labels):,} sequences;"
-            f" scaling fractions applied to {cache_size:,}"
-        )
+    # Combined train+pool for scaling
+    n_train = min(len(train_labels), len(train_can))
+    n_pool = min(len(pool_labels), len(pool_can))
+    all_labels = np.concatenate([train_labels[:n_train], pool_labels[:n_pool]])
+    n_total = len(all_labels)
+    print(f"  Train={n_train:,} + Pool={n_pool:,} = {n_total:,} total sequences")
     subset_seed = used_seed + int(fraction * 100_000)
     subset_idx = _subset_indices(n_total, fraction, subset_seed)
 
@@ -202,18 +220,18 @@ def main(cfg: DictConfig) -> None:
 
         for start in range(0, len(perm), batch_size):
             idx = perm[start : start + batch_size]
-            tgt = jnp.array(train_labels[idx])
+            tgt = jnp.array(all_labels[idx])
             org = jnp.zeros(len(idx), dtype=jnp.int32)
 
             rng, step_rng = jax.random.split(rng)
-            emb_can = _gather_cached(idx, train_can)
+            emb_can = _gather_cached(idx, train_can, pool_can, n_train)
             model._params, opt_state, loss = cached_train_step(
                 model._params, opt_state, step_rng, emb_can, tgt, org
             )
             losses.append(float(loss))
 
             rng, step_rng = jax.random.split(rng)
-            emb_rc = _gather_cached(idx, train_rc)
+            emb_rc = _gather_cached(idx, train_rc, pool_rc, n_train)
             model._params, opt_state, loss = cached_train_step(
                 model._params, opt_state, step_rng, emb_rc, tgt, org
             )
