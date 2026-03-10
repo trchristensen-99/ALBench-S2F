@@ -119,8 +119,15 @@ def main(cfg: DictConfig) -> None:
 
     cache_dir = Path(str(cfg.cache_dir)).expanduser().resolve()
     train_can, train_rc = load_embedding_cache(cache_dir, "train")
-    pool_can, pool_rc = load_embedding_cache(cache_dir, "pool")
     val_can, val_rc = load_embedding_cache(cache_dir, "val")
+
+    # Try loading pool cache (optional — may not exist)
+    has_pool = (cache_dir / "pool_canonical.npy").exists() or (cache_dir / "chunk_pool").exists()
+    if has_pool:
+        pool_can, pool_rc = load_embedding_cache(cache_dir, "pool")
+    else:
+        pool_can = pool_rc = np.empty((0, *train_can.shape[1:]), dtype=train_can.dtype)
+        print("  No pool embedding cache found; using train-only")
 
     # Load labels: either from oracle pseudolabels or from YeastDataset
     oracle_label_path = cfg.get("oracle_label_path", None)
@@ -129,10 +136,13 @@ def main(cfg: DictConfig) -> None:
         train_labels = np.load(oracle_dir / "train_oracle_labels.npz")["oracle_mean"].astype(
             np.float32
         )
-        pool_labels = np.load(oracle_dir / "train_pool_oracle_labels.npz")["oracle_mean"].astype(
-            np.float32
-        )
         val_labels = np.load(oracle_dir / "val_oracle_labels.npz")["oracle_mean"].astype(np.float32)
+        if has_pool:
+            pool_labels = np.load(oracle_dir / "train_pool_oracle_labels.npz")[
+                "oracle_mean"
+            ].astype(np.float32)
+        else:
+            pool_labels = np.empty(0, dtype=np.float32)
         print(
             f"  Using oracle labels from {oracle_dir}"
             f" (train={len(train_labels)}, pool={len(pool_labels)}, val={len(val_labels)})"
@@ -144,12 +154,15 @@ def main(cfg: DictConfig) -> None:
             context_mode=str(cfg.context_mode),
         )
         train_labels = ds_train.labels.astype(np.float32)
-        ds_pool = YeastDataset(
-            data_path=str(cfg.yeast_data_path),
-            split="pool",
-            context_mode=str(cfg.context_mode),
-        )
-        pool_labels = ds_pool.labels.astype(np.float32)
+        if has_pool:
+            ds_pool = YeastDataset(
+                data_path=str(cfg.yeast_data_path),
+                split="pool",
+                context_mode=str(cfg.context_mode),
+            )
+            pool_labels = ds_pool.labels.astype(np.float32)
+        else:
+            pool_labels = np.empty(0, dtype=np.float32)
         ds_val = YeastDataset(
             data_path=str(cfg.yeast_data_path),
             split="val",
