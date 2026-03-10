@@ -13,9 +13,13 @@
 #   4. Higher weight decay to regularize
 #   5. No-shift augmentation (RC only) as contrast
 #
-# 12 configs as array job. 50K configs ~15-20h, 100K configs ~25-35h (48h wall time).
-# S2 early_stop_patience=7 (v4 showed S2 peaks at epoch 3-4 then declines;
-# patience=10 wasted ~10 epochs of compute with no benefit).
+# 12 configs as array job. 50K configs ~8-12h, 100K configs ~15-20h (48h wall time).
+#
+# Speed optimizations vs v4:
+#   - batch_size 256→1024 (yeast T=3 tokens; bs=256 severely underutilizes H100)
+#   - early_stop_patience 10→7 (S2 peaks at epoch 3-4 then declines)
+#   - eval_use_reverse_complement=false during sweep (halves val cost; only
+#     need relative ranking, not absolute numbers)
 #
 # Submit:
 #   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/ag_yeast_s2_v5.sh
@@ -54,8 +58,9 @@ BASE_ARGS=(
   "++epochs=5"
   "++early_stop_patience=100"
   "++second_stage_epochs=50"
-  "++second_stage_batch_size=256"
+  "++second_stage_batch_size=1024"
   "++second_stage_early_stop_patience=7"
+  "++eval_use_reverse_complement=false"
 )
 
 # === Core grid: 2 max_seqs × 2 unfreeze × 2 lr = 8 configs ===
@@ -169,11 +174,11 @@ case "${SLURM_ARRAY_TASK_ID}" in
       "++second_stage_max_shift=0"
     ) ;;
   11)
-    # Lower LR with more data — slower convergence may avoid overfitting
-    TAG="100k_bb_lr1e4"
+    # Higher LR to match 4x larger batch size (linear scaling from v4's 5e-4 at bs=256)
+    TAG="100k_bb_lr1e3"
     EXTRA_ARGS=(
       "++output_dir=${OUT_BASE}/${TAG}"
-      "++second_stage_lr=1e-4"
+      "++second_stage_lr=1e-3"
       "++second_stage_weight_decay=1e-6"
       "++second_stage_max_sequences=100000"
       "++second_stage_unfreeze_mode=backbone"
