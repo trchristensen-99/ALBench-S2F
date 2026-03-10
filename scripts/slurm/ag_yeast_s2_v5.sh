@@ -13,7 +13,9 @@
 #   4. Higher weight decay to regularize
 #   5. No-shift augmentation (RC only) as contrast
 #
-# 12 configs as array job. Each takes ~20-30h (48h wall time).
+# 12 configs as array job. 50K configs ~15-20h, 100K configs ~25-35h (48h wall time).
+# S2 early_stop_patience=7 (v4 showed S2 peaks at epoch 3-4 then declines;
+# patience=10 wasted ~10 epochs of compute with no benefit).
 #
 # Submit:
 #   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/ag_yeast_s2_v5.sh
@@ -53,7 +55,7 @@ BASE_ARGS=(
   "++early_stop_patience=100"
   "++second_stage_epochs=50"
   "++second_stage_batch_size=256"
-  "++second_stage_early_stop_patience=10"
+  "++second_stage_early_stop_patience=7"
 )
 
 # === Core grid: 2 max_seqs × 2 unfreeze × 2 lr = 8 configs ===
