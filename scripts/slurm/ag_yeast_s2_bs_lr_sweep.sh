@@ -1,19 +1,26 @@
 #!/bin/bash
-# AG Yeast S2: batch size × LR interaction sweep.
+# AG Yeast S2: targeted batch size × LR interaction sweep.
 #
 # Purpose: Find optimal BS for final scaling experiments.
-#   - Large BS (1024) = fast sweeps but may sacrifice quality
-#   - Smaller BS (128-256) = slower but potentially better convergence
-#   - LR must be co-tuned with BS
+#   - LR must be co-tuned with BS (linear scaling rule)
+#   - Smaller BS needs smaller LR; larger BS tolerates higher LR
 #
 # Previous findings:
 #   - lr>=1e-3 diverges at bs=256 (NaN)
 #   - lr=3e-4 to 5e-4 is optimal at bs=256 (val~0.558)
-#   - BS sweep at lr=1e-3 showed clear degradation with larger BS
+#   - bs=128 + lr=3e-4 gave single best val (0.5588)
+#   - BS=1024 + lr=1e-3 was terrible (0.274)
 #   - S2 peaks at epoch 3-4 → 15 S2 epochs is plenty
 #
-# Grid: 4 BS × 3 LR = 12 configs, 15 S2 epochs (fast)
-# ~2-6h per config depending on batch size.
+# Targeted grid (not full cross-product — skip known-bad corners):
+#   BS=64:  lr={5e-5, 1e-4, 2e-4}      (small BS, small LR)
+#   BS=128: lr={1e-4, 2e-4, 3e-4}      (best region from v4)
+#   BS=256: lr={2e-4, 3e-4, 5e-4}      (well-characterized)
+#   BS=512: lr={3e-4, 5e-4}            (moderate BS, moderate LR)
+# = 11 configs total, 15 S2 epochs each
+#
+# Wall time: BS=64 is slowest (~6-8h), BS=512 fastest (~2h).
+# 24h covers worst case with margin.
 #
 # Submit:
 #   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/ag_yeast_s2_bs_lr_sweep.sh
@@ -23,11 +30,11 @@
 #SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
 #SBATCH --qos=slow_nice
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
-#SBATCH --array=0-11
+#SBATCH --array=0-10
 
 set -euo pipefail
 
@@ -44,18 +51,28 @@ export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_auto
 
 OUT_BASE="outputs/ag_yeast_s2_bs_lr_sweep"
 
-# Grid: 4 BS × 3 LR = 12 configs
-BATCH_SIZES=(128 256 512 1024)
-LRS=(1e-4 3e-4 5e-4)
+# Targeted grid: 11 configs (skip known-bad corners)
+case "${SLURM_ARRAY_TASK_ID}" in
+  # BS=64: small LRs
+  0) BS=64;  LR=5e-5 ;;
+  1) BS=64;  LR=1e-4 ;;
+  2) BS=64;  LR=2e-4 ;;
+  # BS=128: the sweet spot from v4
+  3) BS=128; LR=1e-4 ;;
+  4) BS=128; LR=2e-4 ;;
+  5) BS=128; LR=3e-4 ;;
+  # BS=256: well-characterized range
+  6) BS=256; LR=2e-4 ;;
+  7) BS=256; LR=3e-4 ;;
+  8) BS=256; LR=5e-4 ;;
+  # BS=512: moderate LRs only
+  9)  BS=512; LR=3e-4 ;;
+  10) BS=512; LR=5e-4 ;;
+  *)
+    echo "Unexpected SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+    exit 1 ;;
+esac
 
-N_BS=${#BATCH_SIZES[@]}
-N_LR=${#LRS[@]}
-
-BS_IDX=$((SLURM_ARRAY_TASK_ID % N_BS))
-LR_IDX=$((SLURM_ARRAY_TASK_ID / N_BS))
-
-BS=${BATCH_SIZES[$BS_IDX]}
-LR=${LRS[$LR_IDX]}
 TAG="bs${BS}_lr${LR}"
 
 echo "=== AG S2 BS×LR sweep: ${TAG} (task ${SLURM_ARRAY_TASK_ID}) ==="
