@@ -666,7 +666,12 @@ def generate_k562_bar_plot():
     models = [
         ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
         ("Malinois", "malinois_k562_basset_pretrained", "result.json", "#B07CC6"),
-        ("Nucleotide Transformer (v3)", "ntv3_post_k562_3seeds", "result.json", "#E8602C"),
+        (
+            "Nucleotide Transformer (v3)",
+            "ntv3_post_k562_stage2/sweep_elr1e-4_uf12",
+            "result_eval.json",
+            "#E8602C",
+        ),
         ("Borzoi", "borzoi_k562_cached_v2", "result.json", "#DAA520"),
         ("Enformer", "enformer_k562_3seeds", "result.json", "#3A86C8"),
         ("AlphaGenome", "stage2_k562_full_train", "test_metrics.json", "#2CA02C"),
@@ -760,9 +765,9 @@ def generate_k562_bar_plot():
                     f"{val:.3f}",
                     ha="center",
                     va="bottom",
-                    fontsize=7,
+                    fontsize=9,
                     fontweight="bold",
-                    rotation=45,
+                    rotation=30,
                 )
 
     ax.set_ylabel("Pearson R", fontsize=13)
