@@ -760,15 +760,14 @@ def train(cfg: dict):
                 {"model_state_dict": head.state_dict(), "epoch": epoch, "seed": seed},
                 output_dir / "best_model.pt",
             )
-            if cfg.get("save_encoder", False):
-                torch.save(
-                    {
-                        "model_state_dict": encoder_model.state_dict(),
-                        "epoch": epoch,
-                        "seed": seed,
-                    },
-                    output_dir / "best_encoder.pt",
-                )
+            torch.save(
+                {
+                    "model_state_dict": encoder_model.state_dict(),
+                    "epoch": epoch,
+                    "seed": seed,
+                },
+                output_dir / "best_encoder.pt",
+            )
             # Always keep best encoder state in memory for test eval
             best_encoder_state = copy.deepcopy(encoder_model.state_dict())
         else:
