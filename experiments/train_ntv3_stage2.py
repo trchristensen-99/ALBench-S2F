@@ -774,7 +774,17 @@ def train(cfg: dict):
         nnx.update(combined.encoder, best_enc_jax)
         nnx.update(combined.mlp_head, best_hd_jax)
 
-    print("\n[eval] Evaluating on test sets ...", flush=True)
+    # Free training-only state to reclaim GPU memory for test eval compilation
+    jax.clear_caches()
+
+    # Use smaller batch size for test eval (avoids OOM during XLA compilation
+    # for post-trained 680M model after training fills GPU memory)
+    test_batch_size = min(batch_size, 16)
+
+    print(
+        f"\n[eval] Evaluating on test sets (batch_size={test_batch_size}) ...",
+        flush=True,
+    )
     test_set_dir = data_path / "test_sets"
     test_metrics = evaluate_all_test_sets(
         combined.encoder,
@@ -783,7 +793,7 @@ def train(cfg: dict):
         test_set_dir,
         seq_divisor,
         use_flanks,
-        batch_size=batch_size,
+        batch_size=test_batch_size,
         species_token=species_token,
     )
 
