@@ -108,7 +108,14 @@ def _collate_to_600bp(batch):
 
 
 def _predict_k562_dataset(
-    predict_step_fn, params, state, dataset, batch_size=256, progress_file=None
+    predict_step_fn,
+    params,
+    state,
+    dataset,
+    batch_size=256,
+    progress_file=None,
+    checkpoint_path=None,
+    checkpoint_every=200,
 ):
     import time as _time
 
@@ -121,9 +128,25 @@ def _predict_k562_dataset(
         pin_memory=False,
     )
     n_batches = (len(dataset) + batch_size - 1) // batch_size
+
+    # Resume from batch-level checkpoint if available
     preds_all = []
+    skip_batches = 0
+    if checkpoint_path and Path(checkpoint_path).exists():
+        partial = np.load(checkpoint_path)
+        n_done = len(partial)
+        skip_batches = n_done // batch_size
+        preds_all = [partial[: skip_batches * batch_size]]
+        print(
+            f"    [RESUME] Loaded {n_done} preds from batch checkpoint "
+            f"(skipping {skip_batches}/{n_batches} batches)",
+            flush=True,
+        )
+
     t_start = _time.time()
     for batch_idx, batch in enumerate(loader):
+        if batch_idx < skip_batches:
+            continue
         seqs = batch["sequences"]
         actual = seqs.shape[0]
         if actual < batch_size:
@@ -135,12 +158,20 @@ def _predict_k562_dataset(
         preds_all.append((p_fwd + p_rev) / 2.0)
         if (batch_idx + 1) % 10 == 0 or batch_idx == 0:
             elapsed = _time.time() - t_start
-            rate = (batch_idx + 1) / elapsed
+            done = batch_idx + 1 - skip_batches
+            rate = done / elapsed if elapsed > 0 else 0
             eta = (n_batches - batch_idx - 1) / rate if rate > 0 else 0
             msg = f"batch {batch_idx + 1}/{n_batches} ({elapsed:.0f}s elapsed, {eta:.0f}s ETA)"
             print(f"    {msg}", flush=True)
             if progress_file:
                 Path(progress_file).write_text(msg + "\n")
+        # Save batch-level checkpoint periodically
+        if checkpoint_path and (batch_idx + 1) % checkpoint_every == 0:
+            np.save(checkpoint_path, np.concatenate(preds_all, axis=0))
+            print(
+                f"    [CKPT] Saved {len(np.concatenate(preds_all))} preds at batch {batch_idx + 1}",
+                flush=True,
+            )
     return np.concatenate(preds_all, axis=0)
 
 
@@ -244,14 +275,29 @@ def main(cfg: DictConfig) -> None:
         p = partial_dir / f"{name}.npy"
         if p.exists():
             arr = np.load(p)
-            print(f"  [RESUME] Loaded {name} from cache ({len(arr):,} preds)", flush=True)
-            return arr
+            if len(arr) == len(dataset):
+                print(f"  [RESUME] Loaded {name} from cache ({len(arr):,} preds)", flush=True)
+                return arr
+            print(
+                f"  [RESUME] Partial {name} found ({len(arr):,}/{len(dataset):,}), continuing…",
+                flush=True,
+            )
+        batch_ckpt = str(partial_dir / f"{name}_batches.npy")
         t0 = time.time()
         print(f"  Predicting {name} ({len(dataset):,} seqs) …", flush=True)
         preds = _predict_k562_dataset(
-            predict_step, model._params, model._state, dataset, batch_size, progress_file
+            predict_step,
+            model._params,
+            model._state,
+            dataset,
+            batch_size,
+            progress_file,
+            checkpoint_path=batch_ckpt,
+            checkpoint_every=200,
         ).astype(np.float32)
         np.save(p, preds)
+        # Clean up batch checkpoint after full split saved
+        Path(batch_ckpt).unlink(missing_ok=True)
         print(f"    done in {time.time() - t0:.0f}s — saved to {p.name}", flush=True)
         return preds
 
