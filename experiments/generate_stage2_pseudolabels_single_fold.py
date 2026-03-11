@@ -214,38 +214,46 @@ def main(cfg: DictConfig) -> None:
     snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
     ood_df = pd.read_csv(test_dir / "test_ood_designed_k562.tsv", sep="\t")
 
-    # ── Predict all splits ────────────────────────────────────────────────────
+    # ── Predict all splits (incremental saving for preemption resilience) ────
     import time
 
-    t0 = time.time()
-    print(f"  Predicting train+pool ({len(ds_train):,} seqs) …", flush=True)
-    train_preds = _predict_k562_dataset(
-        predict_step, model._params, model._state, ds_train, batch_size
-    ).astype(np.float32)
-    print(f"    done in {time.time() - t0:.0f}s", flush=True)
+    partial_dir = fold_preds_dir / f"fold_{fold_id}_partial"
+    partial_dir.mkdir(parents=True, exist_ok=True)
 
-    t0 = time.time()
-    print(f"  Predicting val ({len(ds_val):,} seqs) …", flush=True)
-    val_preds = _predict_k562_dataset(
-        predict_step, model._params, model._state, ds_val, batch_size
-    ).astype(np.float32)
-    print(f"    done in {time.time() - t0:.0f}s", flush=True)
+    def _load_or_predict_dataset(name, dataset):
+        p = partial_dir / f"{name}.npy"
+        if p.exists():
+            arr = np.load(p)
+            print(f"  [RESUME] Loaded {name} from cache ({len(arr):,} preds)", flush=True)
+            return arr
+        t0 = time.time()
+        print(f"  Predicting {name} ({len(dataset):,} seqs) …", flush=True)
+        preds = _predict_k562_dataset(
+            predict_step, model._params, model._state, dataset, batch_size
+        ).astype(np.float32)
+        np.save(p, preds)
+        print(f"    done in {time.time() - t0:.0f}s — saved to {p.name}", flush=True)
+        return preds
 
-    t0 = time.time()
-    print(f"  Predicting test sets …", flush=True)
-    in_dist_preds = _predict_strings(
-        predict_step, model._params, model._state, in_dist_df["sequence"].tolist(), batch_size
-    )
-    snv_ref_preds = _predict_strings(
-        predict_step, model._params, model._state, snv_df["sequence_ref"].tolist(), batch_size
-    )
-    snv_alt_preds = _predict_strings(
-        predict_step, model._params, model._state, snv_df["sequence_alt"].tolist(), batch_size
-    )
-    ood_preds = _predict_strings(
-        predict_step, model._params, model._state, ood_df["sequence"].tolist(), batch_size
-    )
-    print(f"    done in {time.time() - t0:.0f}s", flush=True)
+    def _load_or_predict_strings(name, seqs_str):
+        p = partial_dir / f"{name}.npy"
+        if p.exists():
+            arr = np.load(p)
+            print(f"  [RESUME] Loaded {name} from cache ({len(arr):,} preds)", flush=True)
+            return arr
+        t0 = time.time()
+        print(f"  Predicting {name} ({len(seqs_str):,} seqs) …", flush=True)
+        preds = _predict_strings(predict_step, model._params, model._state, seqs_str, batch_size)
+        np.save(p, preds)
+        print(f"    done in {time.time() - t0:.0f}s — saved to {p.name}", flush=True)
+        return preds
+
+    train_preds = _load_or_predict_dataset("train_preds", ds_train)
+    val_preds = _load_or_predict_dataset("val_preds", ds_val)
+    in_dist_preds = _load_or_predict_strings("in_dist_preds", in_dist_df["sequence"].tolist())
+    snv_ref_preds = _load_or_predict_strings("snv_ref_preds", snv_df["sequence_ref"].tolist())
+    snv_alt_preds = _load_or_predict_strings("snv_alt_preds", snv_df["sequence_alt"].tolist())
+    ood_preds = _load_or_predict_strings("ood_preds", ood_df["sequence"].tolist())
 
     # ── Quick sanity check ────────────────────────────────────────────────────
     val_labels = ds_val.labels.astype(np.float32)
@@ -268,6 +276,12 @@ def main(cfg: DictConfig) -> None:
         ood_preds=ood_preds,
     )
     print(f"Saved: {out_path} ({out_path.stat().st_size / 1e6:.1f} MB)", flush=True)
+
+    # Clean up partial files after successful final save
+    import shutil
+
+    shutil.rmtree(partial_dir, ignore_errors=True)
+    print(f"Cleaned up {partial_dir}", flush=True)
 
 
 if __name__ == "__main__":
