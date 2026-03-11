@@ -28,6 +28,7 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 source scripts/slurm/setup_hpc_deps.sh
 
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer= --xla_gpu_autotune_level=0"
+export PYTHONUNBUFFERED=1
 
 FOLD_ID=${SLURM_ARRAY_TASK_ID}
 echo "=== S2 pseudolabel gen: fold ${FOLD_ID} ==="

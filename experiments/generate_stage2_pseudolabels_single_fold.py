@@ -107,7 +107,9 @@ def _collate_to_600bp(batch):
     return {"sequences": x, "targets": y}
 
 
-def _predict_k562_dataset(predict_step_fn, params, state, dataset, batch_size=256):
+def _predict_k562_dataset(
+    predict_step_fn, params, state, dataset, batch_size=256, progress_file=None
+):
     import time as _time
 
     loader = DataLoader(
@@ -131,14 +133,14 @@ def _predict_k562_dataset(predict_step_fn, params, state, dataset, batch_size=25
         p_fwd = np.array(predict_step_fn(params, state, jnp.array(seqs))).reshape(-1)[:actual]
         p_rev = np.array(predict_step_fn(params, state, jnp.array(seqs_rev))).reshape(-1)[:actual]
         preds_all.append((p_fwd + p_rev) / 2.0)
-        if (batch_idx + 1) % 50 == 0 or batch_idx == 0:
+        if (batch_idx + 1) % 10 == 0 or batch_idx == 0:
             elapsed = _time.time() - t_start
             rate = (batch_idx + 1) / elapsed
             eta = (n_batches - batch_idx - 1) / rate if rate > 0 else 0
-            print(
-                f"    batch {batch_idx + 1}/{n_batches} ({elapsed:.0f}s elapsed, {eta:.0f}s ETA)",
-                flush=True,
-            )
+            msg = f"batch {batch_idx + 1}/{n_batches} ({elapsed:.0f}s elapsed, {eta:.0f}s ETA)"
+            print(f"    {msg}", flush=True)
+            if progress_file:
+                Path(progress_file).write_text(msg + "\n")
     return np.concatenate(preds_all, axis=0)
 
 
@@ -231,6 +233,7 @@ def main(cfg: DictConfig) -> None:
 
     partial_dir = fold_preds_dir / f"fold_{fold_id}_partial"
     partial_dir.mkdir(parents=True, exist_ok=True)
+    progress_file = str(partial_dir / "progress.txt")
 
     def _load_or_predict_dataset(name, dataset):
         p = partial_dir / f"{name}.npy"
@@ -241,7 +244,7 @@ def main(cfg: DictConfig) -> None:
         t0 = time.time()
         print(f"  Predicting {name} ({len(dataset):,} seqs) …", flush=True)
         preds = _predict_k562_dataset(
-            predict_step, model._params, model._state, dataset, batch_size
+            predict_step, model._params, model._state, dataset, batch_size, progress_file
         ).astype(np.float32)
         np.save(p, preds)
         print(f"    done in {time.time() - t0:.0f}s — saved to {p.name}", flush=True)
