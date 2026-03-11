@@ -108,6 +108,8 @@ def _collate_to_600bp(batch):
 
 
 def _predict_k562_dataset(predict_step_fn, params, state, dataset, batch_size=256):
+    import time as _time
+
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -116,8 +118,10 @@ def _predict_k562_dataset(predict_step_fn, params, state, dataset, batch_size=25
         collate_fn=_collate_to_600bp,
         pin_memory=False,
     )
+    n_batches = (len(dataset) + batch_size - 1) // batch_size
     preds_all = []
-    for batch in loader:
+    t_start = _time.time()
+    for batch_idx, batch in enumerate(loader):
         seqs = batch["sequences"]
         actual = seqs.shape[0]
         if actual < batch_size:
@@ -127,6 +131,14 @@ def _predict_k562_dataset(predict_step_fn, params, state, dataset, batch_size=25
         p_fwd = np.array(predict_step_fn(params, state, jnp.array(seqs))).reshape(-1)[:actual]
         p_rev = np.array(predict_step_fn(params, state, jnp.array(seqs_rev))).reshape(-1)[:actual]
         preds_all.append((p_fwd + p_rev) / 2.0)
+        if (batch_idx + 1) % 50 == 0 or batch_idx == 0:
+            elapsed = _time.time() - t_start
+            rate = (batch_idx + 1) / elapsed
+            eta = (n_batches - batch_idx - 1) / rate if rate > 0 else 0
+            print(
+                f"    batch {batch_idx + 1}/{n_batches} ({elapsed:.0f}s elapsed, {eta:.0f}s ETA)",
+                flush=True,
+            )
     return np.concatenate(preds_all, axis=0)
 
 
