@@ -153,6 +153,11 @@ def main(cfg: DictConfig) -> None:
     load_dotenv()
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(cfg.gpu))
 
+    # ── Device diagnostics ────────────────────────────────────────────────────
+    print(f"JAX backend: {jax.default_backend()}", flush=True)
+    print(f"JAX devices: {jax.devices()}", flush=True)
+    print(f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', 'NOT SET')}", flush=True)
+
     fold_id = int(cfg.fold_id)
     oracle_dir = Path(str(cfg.oracle_dir)).expanduser().resolve()
     output_dir = Path(str(cfg.output_dir)).expanduser().resolve()
