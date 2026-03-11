@@ -22,3 +22,6 @@ n_folds: 10
 # Batch size for full-encoder inference
 batch_size: 256
 num_workers: 8
+
+# Per-fold parallelization (set via ++fold_id=N for array jobs)
+fold_id: -1
