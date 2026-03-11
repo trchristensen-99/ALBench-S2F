@@ -291,6 +291,21 @@ def main(cfg: DictConfig) -> None:
     output_dir = Path(str(cfg.output_dir)).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Resume detection (for SLURM preemption / --requeue) ───────────────
+    _s2_progress_path = output_dir / "s2_progress.json"
+    _resume_s1_complete = (output_dir / "stage1_best" / "checkpoint").exists()
+    _resume_s2 = _s2_progress_path.exists()
+    _s2_resume_data: dict | None = None
+    if _resume_s2:
+        with _s2_progress_path.open() as _rpf:
+            _s2_resume_data = json.load(_rpf)
+        print(
+            f"[RESUME] S2 progress found: epoch {_s2_resume_data['s2_epoch']}, "
+            f"best_pearson={_s2_resume_data['best_s2_pearson']:.4f}"
+        )
+    elif _resume_s1_complete:
+        print("[RESUME] Stage-1 complete (stage1_best found). Skipping S1 training.")
+
     aug_mode = str(cfg.get("aug_mode", "no_shift"))
     if aug_mode not in ("full", "no_shift", "hybrid"):
         raise ValueError(f"aug_mode must be 'full', 'no_shift', or 'hybrid'; got {aug_mode!r}")
@@ -562,7 +577,10 @@ def main(cfg: DictConfig) -> None:
     lr_plateau_counter = 0
     _min_lr = float(cfg.lr) * 0.01
 
-    for epoch in range(int(cfg.epochs)):
+    _s1_epochs = 0 if (_resume_s1_complete or _resume_s2) else int(cfg.epochs)
+    if _s1_epochs == 0:
+        print("[RESUME] Skipping Stage-1 training loop.")
+    for epoch in range(_s1_epochs):
         # ── Cosine LR update (applied before each epoch) ──────────────────────
         if _use_cosine:
             max_epochs = max(int(cfg.epochs) - 1, 1)
@@ -851,7 +869,31 @@ def main(cfg: DictConfig) -> None:
         best_s2_spearman = best_val_spearman
         s2_no_improve = 0
 
-        for s2_epoch in range(second_stage_epochs):
+        # ── S2 resume from checkpoint after preemption ────────────────────
+        _s2_start_epoch = 0
+        if _resume_s2 and _s2_resume_data is not None:
+            import orbax.checkpoint as ocp
+
+            _s2_ckpt_path = (output_dir / "last_model_s2" / "checkpoint").resolve()
+            if _s2_ckpt_path.exists():
+                checkpointer = ocp.StandardCheckpointer()
+                loaded_params, _ = checkpointer.restore(_s2_ckpt_path)
+                model._params = jax.device_put(loaded_params)
+                best_s2_pearson = float(_s2_resume_data["best_s2_pearson"])
+                best_s2_spearman = float(_s2_resume_data["best_s2_spearman"])
+                s2_no_improve = int(_s2_resume_data["s2_no_improve"])
+                _s2_start_epoch = int(_s2_resume_data["s2_epoch"])
+                s2_opt_state = s2_optimizer.init(model._params)
+                print(
+                    f"  [RESUME] Loaded S2 epoch {_s2_start_epoch} checkpoint. "
+                    f"Resuming from epoch {_s2_start_epoch + 1}."
+                )
+            else:
+                print(
+                    "  [RESUME] s2_progress.json exists but no checkpoint found. Starting S2 fresh."
+                )
+
+        for s2_epoch in range(_s2_start_epoch, second_stage_epochs):
             if (
                 second_stage_unfreeze_mode == "gradual"
                 and second_stage_full_unfreeze_epoch is not None
@@ -927,6 +969,18 @@ def main(cfg: DictConfig) -> None:
                 s2_no_improve += 1
 
             model.save_checkpoint(str(output_dir / "last_model_s2"), save_full_model=True)
+
+            # Save S2 progress for resume after preemption / --requeue
+            with (output_dir / "s2_progress.json").open("w") as _pf:
+                json.dump(
+                    {
+                        "s2_epoch": s2_epoch + 1,
+                        "best_s2_pearson": float(best_s2_pearson),
+                        "best_s2_spearman": float(best_s2_spearman),
+                        "s2_no_improve": int(s2_no_improve),
+                    },
+                    _pf,
+                )
 
             if s2_no_improve >= second_stage_early_stop:
                 print(
