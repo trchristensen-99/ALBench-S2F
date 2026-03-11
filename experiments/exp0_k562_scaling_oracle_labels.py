@@ -2,7 +2,7 @@
 """Experiment 0 (K562): DREAM-RNN oracle-label scaling curve on hashFrag.
 
 Trains DREAM-RNN on oracle ensemble pseudolabels (instead of true labels)
-at various downsampling fractions, evaluating on true test labels.
+at various downsampling fractions, evaluating on both oracle and real test labels.
 """
 
 from __future__ import annotations
@@ -174,6 +174,73 @@ def _evaluate_k562_test_sets(
     return metrics
 
 
+def _evaluate_k562_test_sets_oracle(
+    model: torch.nn.Module,
+    device: torch.device,
+    test_set_dir: Path,
+    pseudolabel_dir: Path,
+) -> dict[str, dict[str, float]]:
+    """Evaluate against oracle pseudolabel targets on K562 test sets."""
+    metrics: dict[str, dict[str, float]] = {}
+
+    # In-distribution: predict sequences, compare to oracle_mean
+    in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
+    in_oracle = pseudolabel_dir / "test_in_dist_oracle_labels.npz"
+    if in_path.exists() and in_oracle.exists():
+        in_df = pd.read_csv(in_path, sep="\t")
+        in_pred = _predict_sequences(model, in_df["sequence"].astype(str).tolist(), device)
+        oracle = np.load(in_oracle)
+        in_true = oracle["oracle_mean"].astype(np.float32)
+        metrics["in_distribution"] = {
+            "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
+            "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
+            "mse": float(np.mean((in_pred - in_true) ** 2)),
+        }
+
+    # SNV: compare to oracle ref/alt/delta
+    snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    snv_oracle = pseudolabel_dir / "test_snv_oracle_labels.npz"
+    if snv_path.exists() and snv_oracle.exists():
+        snv_df = pd.read_csv(snv_path, sep="\t")
+        if len(snv_df) > 0:
+            ref_pred = _predict_sequences(
+                model, snv_df["sequence_ref"].astype(str).tolist(), device
+            )
+            alt_pred = _predict_sequences(
+                model, snv_df["sequence_alt"].astype(str).tolist(), device
+            )
+            oracle = np.load(snv_oracle)
+            alt_true = oracle["alt_oracle_mean"].astype(np.float32)
+            metrics["snv_abs"] = {
+                "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
+                "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
+                "mse": float(np.mean((alt_pred - alt_true) ** 2)),
+            }
+            delta_pred = alt_pred - ref_pred
+            delta_true = oracle["delta_oracle_mean"].astype(np.float32)
+            metrics["snv_delta"] = {
+                "pearson_r": _safe_corr(delta_pred, delta_true, pearsonr),
+                "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
+                "mse": float(np.mean((delta_pred - delta_true) ** 2)),
+            }
+
+    # OOD
+    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    ood_oracle = pseudolabel_dir / "test_ood_oracle_labels.npz"
+    if ood_path.exists() and ood_oracle.exists():
+        ood_df = pd.read_csv(ood_path, sep="\t")
+        ood_pred = _predict_sequences(model, ood_df["sequence"].astype(str).tolist(), device)
+        oracle = np.load(ood_oracle)
+        ood_true = oracle["oracle_mean"].astype(np.float32)
+        metrics["ood"] = {
+            "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
+            "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
+            "mse": float(np.mean((ood_pred - ood_true) ** 2)),
+        }
+
+    return metrics
+
+
 def _load_best_checkpoint(model: torch.nn.Module, checkpoint_dir: Path) -> None:
     best = checkpoint_dir / "best_model.pt"
     final = checkpoint_dir / "final_model.pt"
@@ -202,6 +269,7 @@ def run_fraction(
     device: torch.device,
     output_root: Path,
     test_set_dir: Path,
+    pseudolabel_dir: Path | None = None,
 ) -> dict:
     """Train DREAM-RNN on oracle-labeled subset at a given fraction."""
     n_total = len(train_dataset)
@@ -264,6 +332,14 @@ def run_fraction(
     _load_best_checkpoint(model, fraction_dir)
     model = model.to(device)
     test_metrics = _evaluate_k562_test_sets(model=model, device=device, test_set_dir=test_set_dir)
+    test_metrics_oracle: dict[str, dict[str, float]] = {}
+    if pseudolabel_dir is not None:
+        test_metrics_oracle = _evaluate_k562_test_sets_oracle(
+            model=model,
+            device=device,
+            test_set_dir=test_set_dir,
+            pseudolabel_dir=pseudolabel_dir,
+        )
 
     result = {
         "fraction": fraction,
@@ -276,6 +352,7 @@ def run_fraction(
         "best_val_loss": min(history["val_loss"]) if history["val_loss"] else float("inf"),
         "num_epochs_run": len(history["val_loss"]),
         "test_metrics": test_metrics,
+        "test_metrics_oracle": test_metrics_oracle,
     }
     (fraction_dir / "result.json").write_text(json.dumps(result, indent=2))
     return result
@@ -352,7 +429,15 @@ def main(cfg: DictConfig) -> None:
             all_results.append(json.loads(result_json.read_text()))
             continue
 
-        res = run_fraction(frac, train_dataset, val_loader, device, output_root, test_set_dir)
+        res = run_fraction(
+            frac,
+            train_dataset,
+            val_loader,
+            device,
+            output_root,
+            test_set_dir,
+            pseudolabel_dir,
+        )
         all_results.append(res)
         wandb.log(
             {

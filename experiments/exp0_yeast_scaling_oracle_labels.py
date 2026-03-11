@@ -2,7 +2,7 @@
 """Experiment 0 — Yeast oracle-label scaling curve.
 
 Trains DREAM-RNN on oracle ensemble pseudolabels (instead of true labels)
-at various downsampling fractions, evaluating on true test labels.
+at various downsampling fractions, evaluating on both oracle and real test labels.
 """
 
 from __future__ import annotations
@@ -74,6 +74,7 @@ def run_fraction(
     seq_len: int,
     test_loader: DataLoader | None = None,
     test_labels: np.ndarray | None = None,
+    test_oracle_labels: np.ndarray | None = None,
     test_subsets: dict[str, np.ndarray] | None = None,
 ) -> dict:
     """Train DREAM-RNN on oracle-labeled subset at a given fraction."""
@@ -140,6 +141,7 @@ def run_fraction(
     best_val_loss = min(history["val_loss"]) if history["val_loss"] else float("inf")
 
     test_metrics: dict[str, dict[str, float]] = {}
+    test_metrics_oracle: dict[str, dict[str, float]] = {}
     if test_loader is not None and test_labels is not None and test_subsets is not None:
         # Load best checkpoint (by val metric) for test evaluation
         best_ckpt = checkpoint_dir / "best_model.pt"
@@ -161,6 +163,12 @@ def run_fraction(
             labels=test_labels,
             subsets=test_subsets,
         )
+        if test_oracle_labels is not None:
+            test_metrics_oracle = evaluate_yeast_test_subsets(
+                predictions=test_predictions,
+                labels=test_oracle_labels,
+                subsets=test_subsets,
+            )
 
     result = {
         "fraction": fraction,
@@ -173,6 +181,7 @@ def run_fraction(
         "best_val_loss": best_val_loss,
         "num_epochs_run": len(history["val_loss"]),
         "test_metrics": test_metrics,
+        "test_metrics_oracle": test_metrics_oracle,
     }
 
     with (checkpoint_dir / "result.json").open("w", encoding="utf-8") as handle:
@@ -238,9 +247,10 @@ def main(cfg: DictConfig) -> None:
         pin_memory=bool(cfg.pin_memory),
     )
 
-    # Test uses true labels for evaluation.
+    # Test: evaluate against both real and oracle labels.
     test_loader: DataLoader | None = None
     test_labels: np.ndarray | None = None
+    test_oracle_labels: np.ndarray | None = None
     test_subsets: dict[str, np.ndarray] | None = None
     default_subset_dir = Path(str(cfg.data_path)) / "test_subset_ids"
     subset_dir = Path(str(cfg.test_subset_dir)) if cfg.test_subset_dir else default_subset_dir
@@ -265,6 +275,13 @@ def main(cfg: DictConfig) -> None:
             public_dir=public_dir,
             use_private_only=bool(cfg.private_only_test),
         )
+
+        # Load oracle labels for test set (if available).
+        test_oracle_npz = pseudolabel_dir / "test_oracle_labels.npz"
+        if test_oracle_npz.exists():
+            test_pl = np.load(test_oracle_npz)
+            test_oracle_labels = test_pl["oracle_mean"].astype(np.float32)
+            print(f"Loaded test oracle labels: {len(test_oracle_labels):,} sequences")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_root = Path(str(cfg.output_dir)) / f"seed_{used_seed}"
@@ -301,6 +318,7 @@ def main(cfg: DictConfig) -> None:
             seq_len=seq_len,
             test_loader=test_loader,
             test_labels=test_labels,
+            test_oracle_labels=test_oracle_labels,
             test_subsets=test_subsets,
         )
         all_results.append(result)
