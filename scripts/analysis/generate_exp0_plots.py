@@ -26,9 +26,9 @@ OUT_DIR = REPO / "results" / "exp0_plots"
 STYLE = {
     # K562
     "DREAM-RNN (real labels)": dict(color="#E05E4B", marker="o", ls="-"),
-    "DREAM-RNN (AlphaGenome Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
+    "DREAM-RNN (AG Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
     "AlphaGenome (real labels, frozen)": dict(color="#4B7BE0", marker="s", ls="-"),
-    "AlphaGenome (AlphaGenome Ensemble labels, frozen)": dict(color="#4B7BE0", marker="s", ls="--"),
+    "AlphaGenome (AG Ensemble labels, frozen)": dict(color="#4B7BE0", marker="s", ls="--"),
     # Yeast
     "DREAM-RNN (real)": dict(color="#E05E4B", marker="o", ls="-"),
     "DREAM-RNN (oracle)": dict(color="#E05E4B", marker="o", ls="--"),
@@ -112,9 +112,8 @@ def aggregate(df: pd.DataFrame, metric: str) -> pd.DataFrame:
 
 
 # ── Oracle ensemble baselines ─────────────────────────────────────────────────
-def load_k562_oracle_baselines() -> dict[str, float]:
+def _load_oracle_baselines(summary_path: Path) -> dict[str, float]:
     """Load the true ensemble prediction scores (not mean of individual folds)."""
-    summary_path = REPO / "outputs" / "oracle_pseudolabels_k562_ag" / "summary.json"
     if not summary_path.exists():
         return {}
     with open(summary_path) as f:
@@ -131,6 +130,18 @@ def load_k562_oracle_baselines() -> dict[str, float]:
         if v is not None:
             baselines[col] = float(v)
     return baselines
+
+
+def load_k562_oracle_baselines() -> dict[str, float]:
+    """Load S1 oracle ensemble baselines."""
+    return _load_oracle_baselines(REPO / "outputs" / "oracle_pseudolabels_k562_ag" / "summary.json")
+
+
+def load_k562_oracle_baselines_s2() -> dict[str, float]:
+    """Load S2 oracle ensemble baselines (if available)."""
+    return _load_oracle_baselines(
+        REPO / "outputs" / "oracle_pseudolabels_stage2_k562_ag" / "summary.json"
+    )
 
 
 # ── Plotting helpers ──────────────────────────────────────────────────────────
@@ -238,6 +249,8 @@ K562_FRACS = {0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00}
 
 
 def snap_k562_fracs(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
     df = df.copy()
     df["fraction"] = df["fraction"].apply(lambda f: min(K562_FRACS, key=lambda s: abs(s - f)))
     df = df[df["fraction"].isin(K562_FRACS)]
@@ -245,9 +258,13 @@ def snap_k562_fracs(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def generate_k562_plots():
-    oracle_baselines = load_k562_oracle_baselines()
+    oracle_baselines_s1 = load_k562_oracle_baselines()
+    oracle_baselines_s2 = load_k562_oracle_baselines_s2()
+    # Prefer S2 baselines if available, fall back to S1
+    oracle_baselines = oracle_baselines_s2 if oracle_baselines_s2 else oracle_baselines_s1
+    oracle_stage = "S2" if oracle_baselines_s2 else "S1"
     print(
-        f"  AlphaGenome Ensemble baselines: "
+        f"  AlphaGenome Ensemble baselines ({oracle_stage}): "
         f"{ {k: f'{v:.4f}' for k, v in oracle_baselines.items()} }"
     )
 
@@ -274,18 +291,24 @@ def generate_k562_plots():
         K562_METRICS,
     )
 
+    # Oracle-label scaling: prefer S2 pseudolabels if available, fall back to S1
+    _ag_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_s2_ag"
+    if not _ag_oracle_dir.exists() or not list(_ag_oracle_dir.rglob("result.json")):
+        _ag_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_ag"
     ag_oracle = make_df(
-        load_results(REPO / "outputs" / "exp0_k562_scaling_oracle_labels_ag"),
-        "AlphaGenome (AlphaGenome Ensemble labels, frozen)",
+        load_results(_ag_oracle_dir),
+        "AlphaGenome (AG Ensemble labels, frozen)",
         K562_METRICS,
     )
 
-    _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_v2"
+    _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_s2"
     if not _dream_oracle_dir.exists() or not list(_dream_oracle_dir.rglob("result.json")):
-        _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels"
+        _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_v2"
+        if not _dream_oracle_dir.exists() or not list(_dream_oracle_dir.rglob("result.json")):
+            _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels"
     dream_oracle = make_df(
         load_results(_dream_oracle_dir),
-        "DREAM-RNN (AlphaGenome Ensemble labels)",
+        "DREAM-RNN (AG Ensemble labels)",
         K562_METRICS,
     )
 
@@ -293,13 +316,13 @@ def generate_k562_plots():
     for label, df in [
         ("DREAM-RNN (real labels)", dream_real),
         ("AlphaGenome (real labels, frozen)", ag_real),
-        ("DREAM-RNN (AlphaGenome Ensemble labels)", dream_oracle),
-        ("AlphaGenome (AlphaGenome Ensemble labels, frozen)", ag_oracle),
+        ("DREAM-RNN (AG Ensemble labels)", dream_oracle),
+        ("AlphaGenome (AG Ensemble labels, frozen)", ag_oracle),
     ]:
         if not df.empty:
             dfs_all[label] = df
 
-    dfs_real = {k: v for k, v in dfs_all.items() if "Ensemble labels" not in k}
+    dfs_real = {k: v for k, v in dfs_all.items() if "Ensemble" not in k}
 
     print(f"K562 data: {', '.join(f'{k}: {len(v)} records' for k, v in dfs_all.items())}")
 
@@ -320,7 +343,7 @@ def generate_k562_plots():
             ylabel,
             title,
             oracle_baseline=oracle_baselines.get(metric),
-            oracle_baseline_label="AlphaGenome Ensemble",
+            oracle_baseline_label=f"AG Ensemble ({oracle_stage})",
             ylim=(-0.1, 1),
             show_legend=False,
         )
@@ -361,11 +384,11 @@ def generate_k562_plots():
             ylabel,
             title,
             oracle_baseline=oracle_baselines.get(metric),
-            oracle_baseline_label="AlphaGenome Ensemble",
+            oracle_baseline_label=f"AG Ensemble ({oracle_stage})",
             ylim=(-0.1, 1),
             show_legend=False,
         )
-    fig.suptitle("K562 MPRA — Real vs AlphaGenome Ensemble Labels", fontsize=13, y=1.02)
+    fig.suptitle("K562 MPRA — Real vs AG Ensemble Labels", fontsize=13, y=1.02)
     _add_shared_legend(fig, axes, ncol=3, y_offset=-0.06)
     fig.tight_layout(rect=[0, 0.10, 1, 1])
     fig.savefig(OUT_DIR / "k562_real_vs_oracle_2panel.png", dpi=200, bbox_inches="tight")
@@ -400,7 +423,7 @@ def generate_k562_plots():
         "Pearson R",
         "K562 In-distribution Scaling",
         oracle_baseline=oracle_baselines.get("test_id"),
-        oracle_baseline_label="AlphaGenome Ensemble",
+        oracle_baseline_label=f"AG Ensemble ({oracle_stage})",
         ylim=(-0.1, 1),
     )
     fig.tight_layout()
@@ -439,6 +462,8 @@ YEAST_FRACS = {0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00}
 
 
 def snap_yeast_fracs(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
     df = df.copy()
     df["fraction"] = df["fraction"].apply(lambda f: min(YEAST_FRACS, key=lambda s: abs(s - f)))
     df = df[df["fraction"].isin(YEAST_FRACS)]
