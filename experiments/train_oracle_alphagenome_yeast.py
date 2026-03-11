@@ -293,7 +293,9 @@ def main(cfg: DictConfig) -> None:
 
     # ── Resume detection (for SLURM preemption / --requeue) ───────────────
     _s2_progress_path = output_dir / "s2_progress.json"
-    _resume_s1_complete = (output_dir / "stage1_best" / "checkpoint").exists()
+    _resume_s1_complete = (output_dir / "stage1_best" / "checkpoint").exists() or (
+        output_dir / "last_model_s2" / "checkpoint"
+    ).exists()
     _resume_s2 = _s2_progress_path.exists()
     _s2_resume_data: dict | None = None
     if _resume_s2:
@@ -764,8 +766,9 @@ def main(cfg: DictConfig) -> None:
             else:
                 print(f"  WARNING: checkpoint directory not found at {ckpt_path}")
 
-        # Save full model (encoder + head) so Stage 2 can load it later if needed
-        model.save_checkpoint(str(output_dir / "stage1_best"), save_full_model=True)
+        # Save full model (encoder + head) — skip if resuming (best_model already exists)
+        if not _resume_s1_complete:
+            model.save_checkpoint(str(output_dir / "stage1_best"), save_full_model=True)
 
         if detach_backbone:
             model_s2 = _create_model(
@@ -777,6 +780,15 @@ def main(cfg: DictConfig) -> None:
             model_s2._state = model._state
             model = model_s2
             print("  Recreated model with detach_backbone=False for Stage 2.")
+
+        # Clean up stage1_best to free ~870 MB disk (no longer needed after model
+        # params are loaded into memory for S2).
+        _s1_best_dir = output_dir / "stage1_best"
+        if _s1_best_dir.exists():
+            import shutil
+
+            shutil.rmtree(_s1_best_dir, ignore_errors=True)
+            print("  Cleaned up stage1_best checkpoint (no longer needed).")
 
         if second_stage_unfreeze_mode not in ("encoder", "backbone", "gradual"):
             raise ValueError(
