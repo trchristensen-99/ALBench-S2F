@@ -59,4 +59,9 @@ uv run --no-sync python experiments/exp0_yeast_scaling_alphagenome.py \
     ++wandb_mode=offline \
     ++test_subset_dir=data/yeast/test_subset_ids
 
+# Clean up orbax checkpoints to save disk space (result.json has all metrics)
+RUN_DIR="${OUT_DIR}/fraction_${FRACTION}/seed_${SEED}"
+rm -rf "${RUN_DIR}/best_model" "${RUN_DIR}/last_model" "${RUN_DIR}/stage1_best" 2>/dev/null
+echo "  Cleaned up checkpoint dirs to save disk space"
+
 echo "=== DONE — $(date) ==="
