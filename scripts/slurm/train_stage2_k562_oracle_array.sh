@@ -40,9 +40,22 @@ export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer="
 echo "Starting Stage 2 oracle fold ${FOLD_ID}/9 on $(date)"
 echo "Node: ${SLURMD_NODENAME}"
 
+OUT_DIR="outputs/stage2_k562_oracle/fold_${FOLD_ID}"
+
+# Skip if already done
+if [ -f "${OUT_DIR}/test_metrics.json" ]; then
+    echo "SKIP: fold ${FOLD_ID} already done"
+    exit 0
+fi
+
 uv run --no-sync python experiments/train_stage2_k562_hashfrag.py \
     --config-name stage2_k562_oracle \
     ++fold_id="${FOLD_ID}" \
     ++stage1_dir="outputs/ag_hashfrag_oracle_cached/oracle_${FOLD_ID}" \
-    ++output_dir="outputs/stage2_k562_oracle/fold_${FOLD_ID}" \
+    ++output_dir="${OUT_DIR}" \
     ++wandb_mode=offline
+
+# Clean up last_model checkpoint to save disk space (best_model kept for pseudolabel gen)
+rm -rf "${OUT_DIR}/last_model" 2>/dev/null
+echo "Cleaned up last_model checkpoint to save disk space"
+echo "=== Fold ${FOLD_ID} DONE — $(date) ==="
