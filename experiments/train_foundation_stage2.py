@@ -403,14 +403,13 @@ def _predict_test_sequences(
         can_t = torch.from_numpy(np.stack(can_batch)).float().to(device)
         rc_t = torch.from_numpy(np.stack(rc_batch)).float().to(device)
 
-        with (
-            torch.no_grad(),
-            torch.amp.autocast("cuda", dtype=amp_dtype, enabled=use_amp),
-        ):
-            emb_can = forward_fn(encoder_model, can_t)
-            emb_rc = forward_fn(encoder_model, rc_t)
-            p_can = head(emb_can)
-            p_rc = head(emb_rc)
+        with torch.no_grad():
+            with torch.amp.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
+                emb_can = forward_fn(encoder_model, can_t)
+                emb_rc = forward_fn(encoder_model, rc_t)
+            # Head in fp32 to preserve inter-sample embedding differences
+            p_can = head(emb_can.float())
+            p_rc = head(emb_rc.float())
 
         preds_fwd.append(p_can.cpu().float().numpy())
         preds_rev.append(p_rc.cpu().float().numpy())
@@ -737,8 +736,11 @@ def train(cfg: dict):
 
             with torch.amp.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
                 emb = forward_fn(encoder_model, oh_batch)
-                pred = head(emb)
-                loss = F.mse_loss(pred, labels) / grad_accum_steps
+            # Head + loss in fp32: bfloat16 rounds away the tiny inter-sample
+            # embedding differences (cosine sim > 0.999 for Borzoi).
+            emb = emb.float()
+            pred = head(emb)
+            loss = F.mse_loss(pred, labels) / grad_accum_steps
 
             if torch.isnan(loss):
                 print(
@@ -792,8 +794,9 @@ def train(cfg: dict):
                 with torch.amp.autocast("cuda", dtype=amp_dtype, enabled=use_amp):
                     emb_can = forward_fn(encoder_model, can_batch)
                     emb_rc = forward_fn(encoder_model, rc_batch)
-                    p_can = head(emb_can)
-                    p_rc = head(emb_rc)
+                # Head in fp32 (same as training)
+                p_can = head(emb_can.float())
+                p_rc = head(emb_rc.float())
 
                 avg_pred = ((p_can + p_rc) / 2.0).cpu().float().numpy()
                 val_preds.append(avg_pred)
