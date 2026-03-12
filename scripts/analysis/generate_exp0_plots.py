@@ -458,6 +458,37 @@ YEAST_METRICS = {
 }
 
 YEAST_FRACS = {0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.50, 1.00}
+_YEAST_N_TOTAL = 6065325
+
+
+def load_yeast_s2_results(results_dir: Path) -> list[dict]:
+    """Load yeast AG S2 summary.json files into result.json-compatible records.
+
+    The S2 training script writes summary.json (not result.json) with a
+    different schema. This converts them so make_df() works unchanged.
+    """
+    records = []
+    for p in sorted(results_dir.rglob("summary.json")):
+        with open(p) as f:
+            d = json.load(f)
+        # Skip preliminary summaries without test metrics
+        if not d.get("test_metrics"):
+            continue
+        # Extract fraction from path: .../fraction_0.001/seed_42/summary.json
+        frac_part = p.parent.parent.name  # "fraction_0.001"
+        if not frac_part.startswith("fraction_"):
+            continue
+        frac = float(frac_part.replace("fraction_", ""))
+        record = {
+            "fraction": frac,
+            "n_total": _YEAST_N_TOTAL,
+            "n_samples": round(frac * _YEAST_N_TOTAL),
+            "best_val_pearson_r": d.get("best_val_pearson_r"),
+            "test_metrics": d.get("test_metrics", {}),
+            "_path": str(p),
+        }
+        records.append(record)
+    return records
 
 
 def snap_yeast_fracs(df: pd.DataFrame) -> pd.DataFrame:
@@ -510,9 +541,10 @@ def generate_yeast_plots():
     ag_s1 = snap_yeast_fracs(ag_s1)
 
     # AlphaGenome S2 fine-tuned encoder (if available)
+    # S2 writes summary.json (not result.json), so use dedicated loader
     _ag_s2_dir = REPO / "outputs" / "exp0_yeast_scaling_ag_s2"
     ag_s2 = make_df(
-        load_results(_ag_s2_dir, require_n_total=6065325) if _ag_s2_dir.exists() else [],
+        load_yeast_s2_results(_ag_s2_dir) if _ag_s2_dir.exists() else [],
         "AlphaGenome S2 (fine-tuned)",
         YEAST_METRICS,
     )
