@@ -680,7 +680,7 @@ def generate_k562_bar_plot():
             "#E8602C",
         ),
         ("Borzoi", "borzoi_k562_cached_v2", "result.json", "#DAA520"),
-        ("Enformer", "enformer_k562_3seeds", "result.json", "#3A86C8"),
+        ("Enformer", "enformer_k562_stage2/sweep_elr1e-4_all", "result.json", "#3A86C8"),
         ("AG (fold 1)", "stage2_k562_fold1", "test_metrics.json", "#66BB6A"),
         ("AG (all folds)", "stage2_k562_full_train", "test_metrics.json", "#1B5E20"),
     ]
@@ -698,15 +698,13 @@ def generate_k562_bar_plot():
             all_metrics["Borzoi"] = fb_data
             print("  Borzoi: using original S1 results as fallback")
 
-    # Fallback: if Enformer 3-seed not ready, use grid search best (single seed)
+    # Fallback: if Enformer S2 not ready, use S1 3-seed results
     if not all_metrics.get("Enformer"):
-        gs_dir = REPO / "outputs" / "foundation_grid_search" / "enformer"
-        fb_data = _load_bar_model_metrics(gs_dir, "result.json")
+        fallback = REPO / "outputs" / "enformer_k562_3seeds"
+        fb_data = _load_bar_model_metrics(fallback, "result.json")
         if fb_data:
-            # Pick only the best by val Pearson
-            best = max(fb_data, key=lambda m: m.get("in_distribution", {}).get("pearson_r", 0))
-            all_metrics["Enformer"] = [best]
-            print("  Enformer: using grid search best (1 seed) as fallback")
+            all_metrics["Enformer"] = fb_data
+            print("  Enformer: using S1 3-seed results as fallback")
 
     counts = {name: len(m) for name, m in all_metrics.items()}
     print(f"  Bar plot data: {counts}")
