@@ -681,21 +681,14 @@ def generate_k562_bar_plot():
         ),
         ("Borzoi", "borzoi_k562_cached_v2", "result.json", "#DAA520"),
         ("Enformer", "enformer_k562_3seeds", "result.json", "#3A86C8"),
-        ("AlphaGenome", "stage2_k562_fold1", "test_metrics.json", "#2CA02C"),
+        ("AG (fold 1)", "stage2_k562_fold1", "test_metrics.json", "#66BB6A"),
+        ("AG (all folds)", "stage2_k562_full_train", "test_metrics.json", "#1B5E20"),
     ]
 
     all_metrics = {}
     for name, dirname, json_name, _ in models:
         d = REPO / "outputs" / dirname
         all_metrics[name] = _load_bar_model_metrics(d, json_name)
-
-    # Fallback: if fold1 AG results not ready, use all_folds results
-    if not all_metrics.get("AlphaGenome"):
-        fallback = REPO / "outputs" / "stage2_k562_full_train"
-        fb_data = _load_bar_model_metrics(fallback, "test_metrics.json")
-        if fb_data:
-            all_metrics["AlphaGenome"] = fb_data
-            print("  AlphaGenome: using all_folds S2 results as fallback (fold1 not ready)")
 
     # Fallback: if Borzoi v2 not ready, use original S1 results
     if not all_metrics.get("Borzoi"):
