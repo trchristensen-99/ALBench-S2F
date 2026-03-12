@@ -18,7 +18,7 @@
 #SBATCH --output=logs/%x-%A-%a.out
 #SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
-#SBATCH --qos=slow_nice
+#SBATCH --qos=default
 #SBATCH --time=12:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
@@ -42,10 +42,22 @@ FOLD1_WEIGHTS="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-j
 S1_OUTPUT="outputs/ag_fold1_s1_cached"
 SWEEP_OUTPUT="outputs/stage2_k562_fold1_sweep"
 
-# Find the S1 checkpoint from the pipeline
-S1_RUN=$(find "$S1_OUTPUT/fraction_1.0000" -maxdepth 1 -name "run_*" -type d | sort | tail -1)
+# Wait for S1 checkpoint from the pipeline (polls every 60s, up to 4h).
+# This allows submitting without --dependency so GPU is allocated early.
+S1_RUN=""
+MAX_WAIT=14400  # 4 hours
+WAITED=0
+while [ $WAITED -lt $MAX_WAIT ]; do
+    S1_RUN=$(find "$S1_OUTPUT/fraction_1.0000" -maxdepth 1 -name "run_*" -type d 2>/dev/null | sort | tail -1)
+    if [ -n "$S1_RUN" ] && [ -d "$S1_RUN/best_model/checkpoint" ]; then
+        break
+    fi
+    echo "Waiting for S1 checkpoint... (${WAITED}s elapsed)"
+    sleep 60
+    WAITED=$((WAITED + 60))
+done
 if [ -z "$S1_RUN" ] || [ ! -d "$S1_RUN/best_model/checkpoint" ]; then
-    echo "ERROR: S1 checkpoint not found. Run ag_fold1_k562_pipeline.sh first."
+    echo "ERROR: S1 checkpoint not found after ${MAX_WAIT}s. Exiting."
     exit 1
 fi
 echo "S1 checkpoint: $S1_RUN"
