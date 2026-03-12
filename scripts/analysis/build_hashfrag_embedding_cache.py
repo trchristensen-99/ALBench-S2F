@@ -40,7 +40,9 @@ from data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM
 from models.alphagenome_heads import register_s2f_head
 from models.embedding_cache import build_embedding_cache
 
-WEIGHTS_PATH = "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1"
+_DEFAULT_WEIGHTS_PATH = (
+    "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1"
+)
 # Lightweight dummy head — only encoder output is needed; head params are irrelevant.
 _DUMMY_HEAD = "alphagenome_k562_head_boda_sum_512_512_v4"
 _DTYPE_MAP = {"float16": np.float16, "float32": np.float32}
@@ -117,6 +119,11 @@ def main() -> None:
     )
     p.add_argument("--batch_size", type=int, default=128)
     p.add_argument("--num_workers", type=int, default=8)
+    p.add_argument(
+        "--weights_path",
+        default=_DEFAULT_WEIGHTS_PATH,
+        help="Path to AlphaGenome checkpoint directory.",
+    )
     args = p.parse_args()
 
     dtype = _DTYPE_MAP[args.dtype]
@@ -137,14 +144,14 @@ def main() -> None:
         print(f"[build_hashfrag_cache] All splits already cached at {cache_dir}. Nothing to do.")
         return
 
-    print(f"[build_hashfrag_cache] Loading AlphaGenome model …")
+    print(f"[build_hashfrag_cache] Loading AlphaGenome model from {args.weights_path} …")
     register_s2f_head(
         head_name=_DUMMY_HEAD, arch="boda-sum-512-512", task_mode="human", num_tracks=1
     )
     model = create_model_with_heads(
         "all_folds",
         heads=[_DUMMY_HEAD],
-        checkpoint_path=WEIGHTS_PATH,
+        checkpoint_path=args.weights_path,
         use_encoder_output=True,
     )
 

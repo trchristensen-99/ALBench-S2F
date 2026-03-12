@@ -94,14 +94,15 @@ def make_df(records: list[dict], model: str, metric_keys: dict[str, str]) -> pd.
 
 
 def aggregate(df: pd.DataFrame, metric: str) -> pd.DataFrame:
+    """Aggregate per-fraction results using median + IQR/2 (robust to outliers with n=3)."""
     valid = df.dropna(subset=[metric])
     if valid.empty:
         return pd.DataFrame(columns=["fraction", "mean", "std", "n", "n_samples_mean"])
     agg = (
         valid.groupby("fraction")
         .agg(
-            mean=(metric, "mean"),
-            std=(metric, "std"),
+            mean=(metric, "median"),
+            std=(metric, lambda x: (x.quantile(0.75) - x.quantile(0.25)) / 2 if len(x) > 1 else 0),
             n=(metric, "count"),
             n_samples_mean=("n_samples", "mean"),
         )
@@ -172,13 +173,11 @@ def plot_scaling_panel(
         style = STYLE.get(label, dict(color="gray", marker="^", ls="-"))
         x = agg["n_samples_mean"]
         yerr = agg["std"].fillna(0)
-        # Clamp error bars so they don't extend below 0
         means = agg["mean"]
-        yerr_lo = np.clip(yerr, 0, np.maximum(means, 0))
         ax.errorbar(
             x,
             means,
-            yerr=[yerr_lo, yerr],
+            yerr=yerr,
             fmt=f"{style['ls']}{style['marker']}",
             color=style["color"],
             label=label,
@@ -436,7 +435,7 @@ def generate_k562_plots():
     all_k562.to_csv(OUT_DIR / "k562_all_results.csv", index=False)
 
     # Print summary table
-    print("\n  K562 Summary (mean test in-dist Pearson R):")
+    print("\n  K562 Summary (median test in-dist Pearson R):")
     for label, df in dfs_all.items():
         agg = aggregate(df, "test_id")
         if agg.empty:
@@ -447,7 +446,7 @@ def generate_k562_plots():
             m = row["mean"]
             s = row["std"]
             n = int(row["n"])
-            print(f"      n={ns:,}: {m:.4f} +/- {s:.4f} (seeds={n})")
+            print(f"      n={ns:,}: {m:.4f} ± {s:.4f} IQR/2 (seeds={n})")
 
 
 # ── Yeast plots ───────────────────────────────────────────────────────────────
@@ -594,7 +593,7 @@ def generate_yeast_plots():
     all_yeast.to_csv(OUT_DIR / "yeast_all_results.csv", index=False)
 
     # Print summary
-    print("\n  Yeast Summary (mean test random Pearson R):")
+    print("\n  Yeast Summary (median test random Pearson R):")
     for label, df in dfs_all.items():
         agg = aggregate(df, "test_random")
         if agg.empty:
@@ -605,7 +604,7 @@ def generate_yeast_plots():
             m = row["mean"]
             s = row["std"]
             n = int(row["n"])
-            print(f"      n={ns:,}: {m:.4f} +/- {s:.4f} (seeds={n})")
+            print(f"      n={ns:,}: {m:.4f} ± {s:.4f} IQR/2 (seeds={n})")
 
 
 # ── K562 bar plot (full-dataset 3-model comparison) ──────────────────────────
