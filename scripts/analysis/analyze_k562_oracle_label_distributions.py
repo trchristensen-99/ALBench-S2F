@@ -18,7 +18,7 @@ Run from repo root::
 
     python scripts/analysis/analyze_k562_oracle_label_distributions.py
 
-All outputs go to ``outputs/analysis/k562_oracle_label_distributions/``.
+All outputs go to ``results/exp0_plots/k562_oracle_dist/``.
 """
 
 from __future__ import annotations
@@ -382,7 +382,7 @@ def main() -> None:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("outputs/analysis/k562_oracle_label_distributions"),
+        default=Path("results/exp0_plots/k562_oracle_dist"),
         help="Output directory for plots, CSV, and summary JSON.",
     )
     args = parser.parse_args()
