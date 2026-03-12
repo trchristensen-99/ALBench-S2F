@@ -25,6 +25,6 @@ echo "Date: $(date)"
 
 uv run --no-sync python scripts/analysis/analyze_yeast_oracle_label_distributions.py \
     --pseudolabel-dir outputs/oracle_pseudolabels/yeast_dream_oracle_v2 \
-    --output-dir outputs/analysis/yeast_oracle_label_distributions_v2
+    --out-dir outputs/analysis/yeast_oracle_label_distributions_v2
 
 echo "=== DONE — $(date) ==="
