@@ -1,14 +1,14 @@
 #!/bin/bash
-# Borzoi Stage 2 fine-tuning with patched source (fixed fast_relative_shift).
+# Borzoi Stage 2 fine-tuning with fixed relative shift (autograd-safe).
 # Uses best S1 head from the v2 cache (corrected embeddings).
 #
-# 4 configs: encoder_lr × unfreeze_mode
-#   0 → elr=1e-5, transformer only
-#   1 → elr=1e-4, transformer only
-#   2 → elr=1e-5, all encoder
-#   3 → elr=1e-4, all encoder
-#
-# IMPORTANT: Run AFTER rebuild_borzoi_pipeline.sh completes (needs v2 S1 head).
+# 6 configs: encoder_lr × unfreeze_mode
+#   0 → elr=1e-5, transformer_last2 (blocks 6-7 only, ~31M params — stable)
+#   1 → elr=1e-4, transformer_last2
+#   2 → elr=1e-5, transformer (all 8 blocks, ~126M params)
+#   3 → elr=1e-4, transformer
+#   4 → elr=1e-5, all (entire encoder, ~186M params)
+#   5 → elr=1e-4, all
 #
 # Submit:
 #   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/borzoi_stage2_v2.sh
@@ -17,12 +17,12 @@
 #SBATCH --output=logs/%x-%A-%a.out
 #SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
-#SBATCH --qos=slow_nice
+#SBATCH --qos=default
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-5
 
 set -euo pipefail
 
@@ -61,9 +61,9 @@ fi
 echo "Best S1 dir: ${BEST_S1_DIR}"
 
 # ── Sweep grid ──────────────────────────────────────────────────────────────
-ENCODER_LRS=(1e-5 1e-4 1e-5 1e-4)
-UNFREEZE_MODES=(transformer transformer all all)
-LABELS=(elr1e-5_transformer elr1e-4_transformer elr1e-5_all elr1e-4_all)
+ENCODER_LRS=(1e-5 1e-4 1e-5 1e-4 1e-5 1e-4)
+UNFREEZE_MODES=(transformer_last2 transformer_last2 transformer transformer all all)
+LABELS=(elr1e-5_last2 elr1e-4_last2 elr1e-5_transformer elr1e-4_transformer elr1e-5_all elr1e-4_all)
 
 IDX=${SLURM_ARRAY_TASK_ID}
 ELR=${ENCODER_LRS[$IDX]}

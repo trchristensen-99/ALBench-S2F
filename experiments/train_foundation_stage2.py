@@ -206,28 +206,31 @@ def _fix_borzoi_attention(model):
     from einops import rearrange
     from torch import einsum
 
-    def _safe_relative_shift_single(q, rel_k):
-        """Compute relative-position logits via gather (no stride tricks).
+    def _safe_relative_shift_batched(q_bhnd, rel_k_hmd):
+        """Compute relative-position logits without vmap (autograd-safe).
 
         Args:
-            q: (N, d) query for one head
-            rel_k: (M, d) relative-position keys (M = 2*S-1)
+            q_bhnd: (B, H, N, d) queries (with rel_pos_bias already added)
+            rel_k_hmd: (H, M, d) relative-position keys (M = 2*N-1)
 
         Returns:
-            (N, N) relative logits where [i,j] = dot(q[i], rel_k[center + j - i])
+            (B, H, N, N) relative logits where [b,h,i,j] = dot(q[b,h,i], rel_k[h, center+j-i])
         """
-        N = q.shape[0]
-        M = rel_k.shape[0]
+        B, H, N, d = q_bhnd.shape
+        M = rel_k_hmd.shape[1]
         center = M // 2
-        raw = einsum("i d, j d -> i j", q, rel_k)  # (N, M)
-        # Build Toeplitz indices: out[i,j] = raw[i, center + (j - i)]
-        rows = torch.arange(N, device=q.device)
+
+        # raw[b,h,i,m] = dot(q[b,h,i,:], rel_k[h,m,:])
+        raw = einsum("b h i d, h m d -> b h i m", q_bhnd, rel_k_hmd)  # (B, H, N, M)
+
+        # Build Toeplitz indices: col_indices[i,j] = center + j - i
+        rows = torch.arange(N, device=q_bhnd.device)
         col_indices = center + rows.unsqueeze(0) - rows.unsqueeze(1)  # (N, N)
         col_indices = col_indices.clamp(0, M - 1)
-        return torch.gather(raw, 1, col_indices)  # (N, N)
 
-    # Vmap over heads (inner) and batch (outer)
-    _safe_relative_shift = torch.vmap(torch.vmap(_safe_relative_shift_single), in_dims=(0, None))
+        # Expand for gather: (1, 1, N, N) → (B, H, N, N)
+        idx = col_indices.unsqueeze(0).unsqueeze(0).expand(B, H, N, N)
+        return torch.gather(raw, 3, idx)  # (B, H, N, N)
 
     def _patched_forward(self, x):
         n, h = x.shape[-2], self.heads
@@ -246,7 +249,7 @@ def _fix_borzoi_attention(model):
         positions = self.pos_dropout(self.positions[pos_center - (n - 1) : pos_center + n])
         rel_k = self.to_rel_k(positions)
         rel_k = rearrange(rel_k, "n (h d) -> h n d", h=h)
-        rel_logits = _safe_relative_shift(q + self.rel_pos_bias, rel_k)
+        rel_logits = _safe_relative_shift_batched(q + self.rel_pos_bias, rel_k)
 
         logits = content_logits + rel_logits
         attn = logits.softmax(dim=-1)

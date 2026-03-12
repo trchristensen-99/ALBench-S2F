@@ -9,7 +9,7 @@
 #SBATCH --output=logs/%x-%A-%a.out
 #SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
-#SBATCH --qos=slow_nice
+#SBATCH --qos=default
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
