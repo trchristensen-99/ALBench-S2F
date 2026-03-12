@@ -66,6 +66,7 @@ DEFAULT_CONFIG = {
     "num_workers": 4,
     "amp_mode": "bfloat16",  # "bfloat16", "fp16", or "off"
     "save_encoder": False,  # skip encoder checkpoint to save disk (~1GB each)
+    "borzoi_center_bins": 32,  # pool center N bins (0 = all bins); Borzoi only
 }
 
 # ── MPRA flanks as one-hot arrays ────────────────────────────────────────────
@@ -291,18 +292,26 @@ def _forward_enformer(model, one_hot_batch):
     return center_emb.mean(dim=1)  # (B, 3072)
 
 
-def _forward_borzoi(model, one_hot_batch):
+def _forward_borzoi(model, one_hot_batch, center_bins: int = 0):
     """Forward pass through Borzoi: (B, 4, 600) -> (B, 1536).
 
-    Mean-pools all 6144 bins (matching S1 embedding cache).  This averages
-    out the constant background from the 99.7 % zero-padded input, giving
-    ~10x better signal-to-noise ratio than extracting center bins only.
+    Args:
+        center_bins: If > 0, pool only center N bins (where the 600bp insert
+            maps to ~19 bins at 32bp resolution). This concentrates gradient
+            signal on the actual sequence instead of diluting it across all
+            6144 bins of mostly zero-padding background.  Set to 0 to mean-pool
+            all bins (matches S1 embedding cache, but gradients are 200x weaker).
     """
     pad_total = BORZOI_SEQ_LEN - one_hot_batch.shape[2]
     pad_left = pad_total // 2
     pad_right = pad_total - pad_left
     padded = F.pad(one_hot_batch, (pad_left, pad_right), value=0.0)  # (B, 4, 196608)
     emb = model.get_embs_after_crop(padded)  # (B, 1536, 6144)
+    if center_bins > 0:
+        total = emb.shape[2]
+        c = total // 2
+        h = center_bins // 2
+        emb = emb[:, :, c - h : c + h]  # (B, 1536, center_bins)
     return emb.mean(dim=2)  # (B, 1536)
 
 
@@ -524,7 +533,13 @@ def train(cfg: dict):
         should_unfreeze = _should_unfreeze_enformer
     elif model_name == "borzoi":
         encoder_model, embed_dim = _load_borzoi()
-        forward_fn = _forward_borzoi
+        borzoi_cb = int(cfg.get("borzoi_center_bins", 0))
+        if borzoi_cb > 0:
+            print(f"Borzoi: center-bin pooling ({borzoi_cb} bins)", flush=True)
+
+        def forward_fn(model, batch):
+            return _forward_borzoi(model, batch, center_bins=borzoi_cb)
+
         should_unfreeze = _should_unfreeze_borzoi
     else:
         raise ValueError(f"Unknown model_name: {model_name}")
@@ -539,12 +554,20 @@ def train(cfg: dict):
     head = MLPHead(embed_dim, hidden_dim, dropout)
 
     s1_dir = cfg["stage1_result_dir"]
-    if s1_dir is not None:
+    # Skip S1 head for Borzoi center-bin mode: the S1 head was trained on
+    # all-bins mean-pool embeddings, which have a different distribution.
+    skip_s1 = model_name == "borzoi" and int(cfg.get("borzoi_center_bins", 0)) > 0
+    if s1_dir is not None and not skip_s1:
         s1_dir = Path(s1_dir).expanduser().resolve()
         ckpt = torch.load(s1_dir / "best_model.pt", map_location="cpu", weights_only=True)
         head.load_state_dict(ckpt["model_state_dict"])
         print(
             f"Loaded S1 head from {s1_dir / 'best_model.pt'} (epoch {ckpt.get('epoch', '?')})",
+            flush=True,
+        )
+    elif skip_s1:
+        print(
+            "[INFO] Skipping S1 head (center-bin pooling changes embedding distribution)",
             flush=True,
         )
     else:
@@ -763,14 +786,15 @@ def train(cfg: dict):
                 {"model_state_dict": head.state_dict(), "epoch": epoch, "seed": seed},
                 output_dir / "best_model.pt",
             )
-            torch.save(
-                {
-                    "model_state_dict": encoder_model.state_dict(),
-                    "epoch": epoch,
-                    "seed": seed,
-                },
-                output_dir / "best_encoder.pt",
-            )
+            if cfg.get("save_encoder", False):
+                torch.save(
+                    {
+                        "model_state_dict": encoder_model.state_dict(),
+                        "epoch": epoch,
+                        "seed": seed,
+                    },
+                    output_dir / "best_encoder.pt",
+                )
             # Always keep best encoder state in memory for test eval
             best_encoder_state = copy.deepcopy(encoder_model.state_dict())
         else:
