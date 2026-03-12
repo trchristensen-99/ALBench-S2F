@@ -12,7 +12,8 @@
 #SBATCH --qos=default
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
+#SBATCH --mem=90G
+#SBATCH --exclusive
 #SBATCH --time=12:00:00
 #SBATCH --array=0-2
 

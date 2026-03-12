@@ -48,7 +48,7 @@ S1_RUN=""
 MAX_WAIT=14400  # 4 hours
 WAITED=0
 while [ $WAITED -lt $MAX_WAIT ]; do
-    S1_RUN=$(find "$S1_OUTPUT/fraction_1.0000" -maxdepth 1 -name "run_*" -type d 2>/dev/null | sort | tail -1)
+    S1_RUN=$(find "$S1_OUTPUT/fraction_1.0000" -maxdepth 1 -name "run_*" -type d 2>/dev/null | sort | tail -1 || true)
     if [ -n "$S1_RUN" ] && [ -d "$S1_RUN/best_model/checkpoint" ]; then
         break
     fi

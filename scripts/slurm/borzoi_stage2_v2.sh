@@ -34,20 +34,21 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 source scripts/slurm/setup_hpc_deps.sh
 
-# ── Find best S1 head from v2 cache ─────────────────────────────────────────
-S1_BASE="outputs/borzoi_k562_cached_v2"
+# ── Find best S1 head from grid search ─────────────────────────────────────
+S1_BASE="outputs/foundation_grid_search/borzoi"
 BEST_S1_DIR=$(uv run --no-sync python -c "
 import json
 from pathlib import Path
 
 base = Path('${S1_BASE}')
 best_dir, best_val = None, -1.0
-for rfile in base.glob('seed_*/result.json'):
-    r = json.load(open(rfile))
-    vp = r.get('best_val_pearson_r', 0)
-    if vp > best_val:
-        best_val = vp
-        best_dir = str(rfile.parent)
+for d in base.iterdir():
+    for rfile in d.glob('seed_*/result.json'):
+        r = json.load(open(rfile))
+        vp = r.get('best_val_pearson_r', 0)
+        if vp > best_val:
+            best_val = vp
+            best_dir = str(rfile.parent)
 if best_dir:
     print(best_dir)
 else:
@@ -55,7 +56,7 @@ else:
 ")
 
 if [ "${BEST_S1_DIR}" = "NONE" ]; then
-    echo "ERROR: No Stage 1 results in ${S1_BASE} — run rebuild_borzoi_pipeline.sh first"
+    echo "ERROR: No Stage 1 results in ${S1_BASE}"
     exit 1
 fi
 echo "Best S1 dir: ${BEST_S1_DIR}"
