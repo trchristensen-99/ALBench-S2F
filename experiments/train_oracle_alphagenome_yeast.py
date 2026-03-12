@@ -719,11 +719,17 @@ def main(cfg: DictConfig) -> None:
             best_val_pearson = pear
             best_val_spearman = spear
             epochs_no_improve = 0
-            model.save_checkpoint(str(output_dir / "best_model"), save_full_model=False)
+            try:
+                model.save_checkpoint(str(output_dir / "best_model"), save_full_model=False)
+            except Exception as e:
+                print(f"  [WARN] best_model save failed: {e}")
         else:
             epochs_no_improve += 1
 
-        model.save_checkpoint(str(output_dir / "last_model"), save_full_model=False)
+        try:
+            model.save_checkpoint(str(output_dir / "last_model"), save_full_model=False)
+        except Exception as e:
+            print(f"  [WARN] last_model save failed: {e}")
 
         if epochs_no_improve >= early_stop_patience:
             print(
@@ -975,12 +981,20 @@ def main(cfg: DictConfig) -> None:
                 best_s2_pearson = s2_pear
                 best_s2_spearman = s2_spear
                 s2_no_improve = 0
-                model.save_checkpoint(str(output_dir / "best_model"), save_full_model=True)
-                print(f"  New best (Stage 2): {best_s2_pearson:.4f}")
+                try:
+                    model.save_checkpoint(str(output_dir / "best_model"), save_full_model=True)
+                    print(f"  New best (Stage 2): {best_s2_pearson:.4f}")
+                except Exception as e:
+                    print(
+                        f"  New best (Stage 2): {best_s2_pearson:.4f} [WARN: checkpoint save failed: {e}]"
+                    )
             else:
                 s2_no_improve += 1
 
-            model.save_checkpoint(str(output_dir / "last_model_s2"), save_full_model=True)
+            try:
+                model.save_checkpoint(str(output_dir / "last_model_s2"), save_full_model=True)
+            except Exception as e:
+                print(f"  [WARN] last_model_s2 save failed: {e}")
 
             # Save S2 progress for resume after preemption / --requeue
             with (output_dir / "s2_progress.json").open("w") as _pf:
@@ -1019,6 +1033,23 @@ def main(cfg: DictConfig) -> None:
     final_best_val_spearman = float(
         best_val_spearman if second_stage_lr is None else best_s2_spearman
     )
+
+    # Write preliminary summary with val metrics BEFORE test eval
+    # (ensures we capture at least val metrics even if test eval or checkpoint save fails)
+    _prelim_summary = {
+        "seed": int(used_seed),
+        "aug_mode": str(aug_mode),
+        "second_stage_enabled": bool(second_stage_lr is not None),
+        "eval_use_reverse_complement": bool(eval_use_reverse_complement),
+        "second_stage_unfreeze_mode": str(second_stage_unfreeze_mode),
+        "second_stage_max_shift": int(second_stage_max_shift),
+        "best_val_pearson_r": final_best_val_pearson,
+        "best_val_spearman_r": final_best_val_spearman,
+        "test_metrics": {},
+    }
+    with (output_dir / "summary.json").open("w", encoding="utf-8") as f:
+        json.dump(_prelim_summary, f, indent=2)
+    print("Saved preliminary summary.json (val metrics only)", flush=True)
 
     test_metrics: dict[str, dict[str, float]] = {}
     subset_dir = (
