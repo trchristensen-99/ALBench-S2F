@@ -293,9 +293,11 @@ def main(cfg: DictConfig) -> None:
 
     # ── Resume detection (for SLURM preemption / --requeue) ───────────────
     _s2_progress_path = output_dir / "s2_progress.json"
-    _resume_s1_complete = (output_dir / "stage1_best" / "checkpoint").exists() or (
-        output_dir / "last_model_s2" / "checkpoint"
-    ).exists()
+    _resume_s1_complete = (
+        (output_dir / "stage1_best" / "checkpoint").exists()
+        or (output_dir / "last_model_s2" / "checkpoint").exists()
+        or (output_dir / "best_model" / "checkpoint").exists()
+    )
     _resume_s2 = _s2_progress_path.exists()
     _s2_resume_data: dict | None = None
     if _resume_s2:
