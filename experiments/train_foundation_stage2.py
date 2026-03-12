@@ -67,6 +67,8 @@ DEFAULT_CONFIG = {
     "amp_mode": "bfloat16",  # "bfloat16", "fp16", or "off"
     "save_encoder": False,  # skip encoder checkpoint to save disk (~1GB each)
     "borzoi_center_bins": 32,  # pool center N bins (0 = all bins); Borzoi only
+    "head_warmup_epochs": 0,  # train head with encoder frozen before unfreezing
+    "normalize_embeddings": False,  # L2-normalize encoder embeddings before head
 }
 
 # ── MPRA flanks as one-hot arrays ────────────────────────────────────────────
@@ -292,7 +294,7 @@ def _forward_enformer(model, one_hot_batch):
     return center_emb.mean(dim=1)  # (B, 3072)
 
 
-def _forward_borzoi(model, one_hot_batch, center_bins: int = 0):
+def _forward_borzoi(model, one_hot_batch, center_bins: int = 0, normalize: bool = False):
     """Forward pass through Borzoi: (B, 4, 600) -> (B, 1536).
 
     Args:
@@ -301,6 +303,10 @@ def _forward_borzoi(model, one_hot_batch, center_bins: int = 0):
             signal on the actual sequence instead of diluting it across all
             6144 bins of mostly zero-padding background.  Set to 0 to mean-pool
             all bins (matches S1 embedding cache, but gradients are 200x weaker).
+        normalize: If True, L2-normalize embeddings. This removes the dominant
+            common component (~0.9999 cosine similarity) and makes inter-sequence
+            differences the primary signal, preventing encoder updates from
+            overwhelming the tiny task-relevant variation.
     """
     pad_total = BORZOI_SEQ_LEN - one_hot_batch.shape[2]
     pad_left = pad_total // 2
@@ -312,7 +318,10 @@ def _forward_borzoi(model, one_hot_batch, center_bins: int = 0):
         c = total // 2
         h = center_bins // 2
         emb = emb[:, :, c - h : c + h]  # (B, 1536, center_bins)
-    return emb.mean(dim=2)  # (B, 1536)
+    emb = emb.mean(dim=2)  # (B, 1536)
+    if normalize:
+        emb = F.normalize(emb, p=2, dim=-1)
+    return emb
 
 
 # ── Selective unfreezing ─────────────────────────────────────────────────────
@@ -534,11 +543,14 @@ def train(cfg: dict):
     elif model_name == "borzoi":
         encoder_model, embed_dim = _load_borzoi()
         borzoi_cb = int(cfg.get("borzoi_center_bins", 0))
+        borzoi_norm = bool(cfg.get("normalize_embeddings", False))
         if borzoi_cb > 0:
             print(f"Borzoi: center-bin pooling ({borzoi_cb} bins)", flush=True)
+        if borzoi_norm:
+            print("Borzoi: L2-normalizing embeddings", flush=True)
 
         def forward_fn(model, batch):
-            return _forward_borzoi(model, batch, center_bins=borzoi_cb)
+            return _forward_borzoi(model, batch, center_bins=borzoi_cb, normalize=borzoi_norm)
 
         should_unfreeze = _should_unfreeze_borzoi
     else:
@@ -686,9 +698,30 @@ def train(cfg: dict):
     early_stop_patience = int(cfg["early_stop_patience"])
     n_train_batches = len(train_loader)
     all_trainable = list(head.parameters()) + encoder_params
+    head_warmup_epochs = int(cfg.get("head_warmup_epochs", 0))
+    if head_warmup_epochs > 0:
+        print(
+            f"Head warmup: {head_warmup_epochs} epochs with encoder frozen (encoder_lr=0)",
+            flush=True,
+        )
 
     for epoch in range(int(cfg["epochs"])):
         t_epoch = time.time()
+
+        # Head warmup: freeze encoder for the first N epochs so the head
+        # learns to extract signal from stable (pre-trained) embeddings
+        # before encoder updates start shifting the embedding space.
+        is_warmup = epoch < head_warmup_epochs
+        if is_warmup:
+            optimizer.param_groups[1]["lr"] = 0.0
+            for p in encoder_params:
+                p.requires_grad = False
+        elif epoch == head_warmup_epochs and head_warmup_epochs > 0:
+            optimizer.param_groups[1]["lr"] = encoder_lr
+            for p in encoder_params:
+                p.requires_grad = True
+            print(f"  [Warmup done] Unfreezing encoder (lr={encoder_lr})", flush=True)
+
         # Keep encoder in eval mode: disables dropout/BN updates for numerical
         # stability with 196K zero-padded input. Gradients still flow through
         # unfrozen params (requires_grad=True is independent of train/eval mode).
@@ -768,6 +801,17 @@ def train(cfg: dict):
 
         val_preds_arr = np.concatenate(val_preds)
         val_trues_arr = np.concatenate(val_trues)
+
+        # Diagnostic: print val prediction stats to help debug constant outputs
+        pred_std = float(np.std(val_preds_arr))
+        if pred_std < 1e-6:
+            print(
+                f"  [DIAG] Val preds constant: mean={val_preds_arr.mean():.6f} "
+                f"std={pred_std:.2e} min={val_preds_arr.min():.6f} "
+                f"max={val_preds_arr.max():.6f}",
+                flush=True,
+            )
+
         val_pearson = _safe_corr(val_preds_arr, val_trues_arr, pearsonr)
         val_spearman = _safe_corr(val_preds_arr, val_trues_arr, spearmanr)
         epoch_time = time.time() - t_epoch
