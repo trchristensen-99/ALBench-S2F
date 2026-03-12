@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import json
 import os
+import pickle
+import signal
 import time
 from pathlib import Path
 
@@ -290,6 +292,20 @@ def main(cfg: DictConfig) -> None:
     used_seed = set_seed(int(cfg.seed) if cfg.seed is not None else None)
     output_dir = Path(str(cfg.output_dir)).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── SIGTERM handler for clean shutdown on SLURM preemption ────────────
+    # Use --signal=B:TERM@120 in SBATCH to get 120s warning before kill.
+    _sigterm_received = False
+
+    def _sigterm_handler(signum, frame):
+        nonlocal _sigterm_received
+        _sigterm_received = True
+        print(
+            f"\n[SIGTERM] Received signal {signum}. Will save checkpoint at end of current epoch.",
+            flush=True,
+        )
+
+    signal.signal(signal.SIGTERM, _sigterm_handler)
 
     # ── Resume detection (for SLURM preemption / --requeue) ───────────────
     _s2_progress_path = output_dir / "s2_progress.json"
@@ -733,6 +749,13 @@ def main(cfg: DictConfig) -> None:
         except Exception as e:
             print(f"  [WARN] last_model save failed: {e}")
 
+        if _sigterm_received:
+            print(
+                f"[SIGTERM] Clean shutdown after S1 epoch {epoch + 1}. Exiting.",
+                flush=True,
+            )
+            break
+
         if epochs_no_improve >= early_stop_patience:
             print(
                 f"Early stopping at epoch {epoch + 1} (no improvement for {early_stop_patience} epochs)"
@@ -903,11 +926,22 @@ def main(cfg: DictConfig) -> None:
                 best_s2_spearman = float(_s2_resume_data["best_s2_spearman"])
                 s2_no_improve = int(_s2_resume_data["s2_no_improve"])
                 _s2_start_epoch = int(_s2_resume_data["s2_epoch"])
-                s2_opt_state = s2_optimizer.init(model._params)
-                print(
-                    f"  [RESUME] Loaded S2 epoch {_s2_start_epoch} checkpoint. "
-                    f"Resuming from epoch {_s2_start_epoch + 1}."
-                )
+                # Restore optimizer state if saved, else reinitialize
+                _opt_state_path = output_dir / "last_model_s2" / "opt_state.pkl"
+                if _opt_state_path.exists():
+                    with open(_opt_state_path, "rb") as _of:
+                        s2_opt_state = jax.device_put(pickle.load(_of))
+                    print(
+                        f"  [RESUME] Loaded S2 epoch {_s2_start_epoch} checkpoint "
+                        f"+ optimizer state. Resuming from epoch {_s2_start_epoch + 1}."
+                    )
+                else:
+                    s2_opt_state = s2_optimizer.init(model._params)
+                    print(
+                        f"  [RESUME] Loaded S2 epoch {_s2_start_epoch} checkpoint "
+                        f"(optimizer state not found, reinitializing). "
+                        f"Resuming from epoch {_s2_start_epoch + 1}."
+                    )
             else:
                 print(
                     "  [RESUME] s2_progress.json exists but no checkpoint found. Starting S2 fresh."
@@ -995,6 +1029,10 @@ def main(cfg: DictConfig) -> None:
 
             try:
                 model.save_checkpoint(str(output_dir / "last_model_s2"), save_full_model=True)
+                # Save optimizer state for resume (preserves Adam momentum/variance)
+                _opt_save_path = output_dir / "last_model_s2" / "opt_state.pkl"
+                with open(_opt_save_path, "wb") as _of:
+                    pickle.dump(jax.device_get(s2_opt_state), _of)
             except Exception as e:
                 print(f"  [WARN] last_model_s2 save failed: {e}")
 
@@ -1009,6 +1047,14 @@ def main(cfg: DictConfig) -> None:
                     },
                     _pf,
                 )
+
+            if _sigterm_received:
+                print(
+                    f"[SIGTERM] Clean shutdown after epoch {s2_epoch + 1}. "
+                    f"Checkpoint saved. Exiting.",
+                    flush=True,
+                )
+                break
 
             if s2_no_improve >= second_stage_early_stop:
                 print(

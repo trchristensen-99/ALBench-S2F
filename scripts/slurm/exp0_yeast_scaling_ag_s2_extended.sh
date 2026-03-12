@@ -24,6 +24,7 @@
 #SBATCH --qos=slow_nice
 #SBATCH --time=7-00:00:00
 #SBATCH --requeue
+#SBATCH --signal=B:TERM@120
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
