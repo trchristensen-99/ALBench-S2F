@@ -14,8 +14,8 @@
 #SBATCH --output=logs/%x-%A-%a.out
 #SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
-#SBATCH --qos=default
-#SBATCH --time=12:00:00
+#SBATCH --qos=slow_nice
+#SBATCH --time=48:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
