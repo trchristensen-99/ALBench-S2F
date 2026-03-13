@@ -7,6 +7,9 @@ from albench.reservoir.fixed_pool import FixedPoolSampler
 from albench.reservoir.gc_matched import GCMatchedSampler
 from albench.reservoir.genomic import GenomicSampler
 from albench.reservoir.in_silico_evolution import InSilicoEvolutionSampler
+from albench.reservoir.in_silico_evolution_generative import (
+    InSilicoEvolutionGenerativeSampler,
+)
 from albench.reservoir.motif_grammar import MotifGrammarSampler
 from albench.reservoir.motif_planted import MotifPlantedSampler
 from albench.reservoir.partial_mutagenesis import PartialMutagenesisSampler
@@ -20,12 +23,13 @@ __all__ = [
     "EvoAugStructuralSampler",
     "GCMatchedSampler",
     "GenomicSampler",
-    "RandomSampler",
-    "FixedPoolSampler",
+    "InSilicoEvolutionGenerativeSampler",
     "InSilicoEvolutionSampler",
     "MotifGrammarSampler",
     "MotifPlantedSampler",
     "PartialMutagenesisSampler",
+    "RandomSampler",
+    "FixedPoolSampler",
     "RecombinationSampler",
     "TFMotifShuffleSampler",
 ]

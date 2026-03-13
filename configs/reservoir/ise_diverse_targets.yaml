@@ -1,0 +1,10 @@
+_target_: albench.reservoir.in_silico_evolution_generative.InSilicoEvolutionGenerativeSampler
+seed: ${seed}
+n_evolution_rounds: 5
+mutation_rate: 0.05
+population_size: 50
+elite_fraction: 0.2
+evolution_mode: diverse_targets
+activity_distribution: uniform
+activity_range: [-1.0, 2.0]
+temperature: 1.0

@@ -16,7 +16,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
-#SBATCH --array=0-16
+#SBATCH --array=0-19
 
 set -euo pipefail
 
@@ -40,13 +40,14 @@ SEED="${SEED:-42}"
 RESERVOIRS=(random genomic prm_1pct prm_5pct prm_10pct prm_uniform_1_10 \
             dinuc_shuffle gc_matched motif_planted recombination_uniform recombination_2pt \
             prm_20pct prm_50pct motif_grammar motif_grammar_tight \
-            evoaug_structural evoaug_heavy)
+            evoaug_structural evoaug_heavy \
+            ise_maximize ise_diverse_targets ise_target_high)
 RESERVOIR=${RESERVOIRS[$SLURM_ARRAY_TASK_ID]}
 
 echo "=== Experiment 1.1: Scaling Laws ==="
 echo "Task: ${TASK}, Student: ${STUDENT}, Oracle: ${ORACLE}, Reservoir: ${RESERVOIR}"
 echo "Node: $SLURMD_NODENAME  Date: $(date)"
-echo "Array task: ${SLURM_ARRAY_TASK_ID}/16"
+echo "Array task: ${SLURM_ARRAY_TASK_ID}/19"
 
 # Build output dir: includes oracle suffix when non-default
 if [[ "${ORACLE}" == "default" ]]; then

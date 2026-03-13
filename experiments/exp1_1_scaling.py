@@ -69,6 +69,38 @@ HP_GRIDS = {
         "learning_rate": [3e-4, 1e-3],
         "batch_size": [128, 256],
     },
+    # S2: joint encoder + head fine-tuning (encoder_lr is the encoder LR;
+    # head LR is fixed at 1e-3 based on Exp 0 s2c results)
+    "alphagenome_k562_s2": {
+        "learning_rate": [1e-4],  # encoder LR (head_lr=1e-3 fixed)
+        "batch_size": [128],
+    },
+    "alphagenome_yeast_s2": {
+        "learning_rate": [1e-4, 5e-5],
+        "batch_size": [64, 128],
+    },
+}
+
+# S2 config: which encoder blocks to unfreeze (from Exp 0 best: blocks 4,5)
+S2_CONFIG = {
+    "k562": {
+        "unfreeze_blocks": [4, 5],
+        "head_lr": 1e-3,
+        "weight_decay": 1e-6,
+        "max_shift": 15,
+        "epochs": 30,
+        "early_stop_patience": 7,
+        "warmup_epochs": 3,  # head-only warmup before unfreezing encoder
+    },
+    "yeast": {
+        "unfreeze_blocks": [4, 5],
+        "head_lr": 1e-3,
+        "weight_decay": 1e-6,
+        "max_shift": 0,  # no shift aug for yeast (80bp is the full region)
+        "epochs": 30,
+        "early_stop_patience": 7,
+        "warmup_epochs": 3,
+    },
 }
 
 TASK_CONFIGS = {
@@ -764,6 +796,220 @@ def _train_ag_s1_student(
     return _AGS1Student()
 
 
+def _train_ag_s2_student(
+    task: str,
+    sequences: list[str],
+    labels: np.ndarray,
+    encoder_lr: float,
+    batch_size: int,
+    seed: int,
+) -> SequenceModel:
+    """Train an AG S2 student (joint encoder + head fine-tuning).
+
+    Uses differential learning rates: encoder_lr for unfrozen encoder blocks,
+    head_lr (from S2_CONFIG) for the head, and zero for frozen layers.
+    """
+    import jax
+    import jax.numpy as jnp
+    import optax
+    from alphagenome_ft import create_model_with_heads
+
+    from models.alphagenome_heads import register_s2f_head
+    from models.embedding_cache import reinit_head_params
+
+    s2_cfg = S2_CONFIG[task]
+    head_lr = s2_cfg["head_lr"]
+    wd = s2_cfg["weight_decay"]
+    unfreeze_blocks = s2_cfg["unfreeze_blocks"]
+    epochs = s2_cfg["epochs"]
+    patience = s2_cfg["early_stop_patience"]
+    warmup_epochs = s2_cfg["warmup_epochs"]
+
+    task_cfg = TASK_CONFIGS[task]
+    head_name = f"s2f_exp1_s2_{task}_{seed}"
+    num_tracks = 18 if task == "yeast" else 1
+    register_s2f_head(
+        head_name=head_name,
+        arch="boda-flatten",
+        task_mode=task_cfg["task_mode"],
+        num_tracks=num_tracks,
+        dropout_rate=0.1,
+    )
+
+    weights_path = os.environ.get(
+        "ALPHAGENOME_WEIGHTS",
+        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+    )
+    model = create_model_with_heads(
+        "all_folds",
+        heads=[head_name],
+        checkpoint_path=weights_path,
+        use_encoder_output=True,
+        detach_backbone=False,  # allow encoder gradients for S2
+    )
+    num_tokens = 5 if task == "k562" else 3
+    reinit_head_params(model, head_name, num_tokens=num_tokens, dim=1536, rng=seed)
+
+    # Per-group optimizer: head / encoder (unfrozen blocks) / frozen
+    unfreeze_set = {f"downres_block_{b}" for b in unfreeze_blocks}
+
+    def _label_fn(path, _leaf):
+        key_strs = [p.key if hasattr(p, "key") else str(p) for p in path]
+        s = "/".join(str(k) for k in key_strs)
+        if head_name in s:
+            return "head"
+        elif "sequence_encoder" in s:
+            for block_name in unfreeze_set:
+                if block_name in s:
+                    return "encoder"
+            return "frozen"
+        return "frozen"
+
+    param_labels = jax.tree_util.tree_map_with_path(_label_fn, model._params)
+
+    # During warmup: encoder gets zero updates
+    def _make_optimizer(enc_lr: float):
+        return optax.multi_transform(
+            {
+                "head": optax.adamw(learning_rate=head_lr, weight_decay=wd),
+                "encoder": optax.adamw(learning_rate=enc_lr, weight_decay=wd),
+                "frozen": optax.set_to_zero(),
+            },
+            param_labels,
+        )
+
+    optimizer = _make_optimizer(0.0)  # start with frozen encoder (warmup)
+    opt_state = optimizer.init(model._params)
+
+    # Prepare one-hot encoding function
+    mapping = {"A": 0, "C": 1, "G": 2, "T": 3}
+    if task == "k562":
+        from data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM
+
+        flank_5 = MPRA_UPSTREAM[-200:]
+        flank_3 = MPRA_DOWNSTREAM[:200]
+
+        def _encode_one(seq_str: str) -> np.ndarray:
+            seq_str = seq_str.upper()
+            if len(seq_str) < 200:
+                pad = 200 - len(seq_str)
+                seq_str = "N" * (pad // 2) + seq_str + "N" * (pad - pad // 2)
+            elif len(seq_str) > 200:
+                start = (len(seq_str) - 200) // 2
+                seq_str = seq_str[start : start + 200]
+            full = flank_5 + seq_str + flank_3
+            out = np.zeros((600, 4), dtype=np.float32)
+            for i, c in enumerate(full):
+                if c in mapping:
+                    out[i, mapping[c]] = 1.0
+            return out
+    else:
+        yeast_f5 = "GCTAGCGCCGATATCCTAACGAAGTCACTACTACGTACTGCCCTGCACGATAGC"
+        yeast_f3 = (
+            "CCTGCAGCAGACGTCGACACGCGTCGTAAAGTGACGTTGTCCGAAACCCTT"
+            "GCATTCGACACCAAACATTCTCTCAGTGCGTGCCCATGAAC"
+        )
+
+        def _encode_one(seq_str: str) -> np.ndarray:
+            seq_str = seq_str.upper()
+            core = seq_str[:150] if len(seq_str) >= 150 else seq_str
+            full_str = yeast_f5 + core + yeast_f3
+            out = np.zeros((384, 4), dtype=np.float32)
+            start = max(0, (384 - len(full_str)) // 2)
+            for i, c in enumerate(full_str):
+                if i + start < 384 and c in mapping:
+                    out[i + start, mapping[c]] = 1.0
+            return out
+
+    # Pre-encode all training sequences (one-hot, not embeddings)
+    logger.info(f"  Encoding {len(sequences):,} sequences to one-hot...")
+    all_onehot = np.stack([_encode_one(s) for s in sequences])
+
+    @jax.jit
+    def train_step(params, current_opt_state, seqs, targets):
+        def loss_func(p):
+            preds = model._predict(
+                p,
+                model._state,
+                seqs,
+                jnp.zeros(len(seqs), dtype=jnp.int32),
+                negative_strand_mask=jnp.zeros(len(seqs), dtype=bool),
+                strand_reindexing=None,
+            )[head_name]
+            pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
+            if task == "yeast" and pred.ndim == 2 and pred.shape[1] == 18:
+                # Yeast: softmax → expected bin index
+                probs = jax.nn.softmax(pred, axis=1)
+                pred = (probs * jnp.arange(18)).sum(axis=1)
+            return jnp.mean((pred - targets) ** 2)
+
+        loss, grads = jax.value_and_grad(loss_func)(params)
+        updates, next_opt_state = optimizer.update(grads, current_opt_state, params)
+        return optax.apply_updates(params, updates), next_opt_state, loss
+
+    @jax.jit
+    def predict_step(params, seqs):
+        preds = model._predict(
+            params,
+            model._state,
+            seqs,
+            jnp.zeros(len(seqs), dtype=jnp.int32),
+            negative_strand_mask=jnp.zeros(len(seqs), dtype=bool),
+            strand_reindexing=None,
+        )[head_name]
+        pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
+        if task == "yeast" and pred.ndim == 2 and pred.shape[1] == 18:
+            probs = jax.nn.softmax(pred, axis=1)
+            pred = (probs * jnp.arange(18)).sum(axis=1)
+        return pred
+
+    # Training loop
+    n_train = len(sequences)
+    rng_perm = np.random.default_rng(seed)
+    best_loss = float("inf")
+    patience_counter = 0
+
+    for epoch in range(epochs):
+        # Switch from warmup to full S2 after warmup_epochs
+        if epoch == warmup_epochs:
+            logger.info(f"  S2: Unfreezing encoder blocks {unfreeze_blocks} (epoch {epoch + 1})")
+            optimizer = _make_optimizer(encoder_lr)
+            opt_state = optimizer.init(model._params)
+
+        perm = rng_perm.permutation(n_train)
+        epoch_losses = []
+        for start in range(0, n_train, batch_size):
+            idx = perm[start : start + batch_size]
+            seqs = jnp.array(all_onehot[idx])
+            targets = jnp.array(labels[idx])
+            model._params, opt_state, loss = train_step(model._params, opt_state, seqs, targets)
+            epoch_losses.append(float(loss))
+
+        epoch_loss = float(np.mean(epoch_losses))
+        if epoch_loss < best_loss - 1e-5:
+            best_loss = epoch_loss
+            best_params = jax.device_get(model._params)
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience and epoch >= warmup_epochs:
+                logger.info(f"  AG S2 early stop at epoch {epoch + 1}")
+                break
+
+    # Return a SequenceModel wrapper using best params
+    class _AGS2Student(SequenceModel):
+        def predict(self, seqs: list[str]) -> np.ndarray:
+            x = np.stack([_encode_one(s) for s in seqs])
+            preds = []
+            for i in range(0, len(seqs), 64):
+                batch_x = jnp.array(x[i : i + 64])
+                p = predict_step(best_params, batch_x)
+                preds.append(np.array(p).reshape(-1))
+            return np.concatenate(preds)
+
+    return _AGS2Student()
+
+
 # ---------------------------------------------------------------------------
 # Student training
 # ---------------------------------------------------------------------------
@@ -804,6 +1050,8 @@ def _train_student(
         return student
     elif student_type in ("alphagenome_k562_s1", "alphagenome_yeast_s1"):
         return _train_ag_s1_student(task, sequences, labels, lr, batch_size, seed)
+    elif student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
+        return _train_ag_s2_student(task, sequences, labels, lr, batch_size, seed)
     else:
         raise ValueError(f"Unknown student type: {student_type}")
 
@@ -850,9 +1098,27 @@ def run_scaling_experiment(
     logger.info(f"Loading oracle for task={task}, oracle_type={oracle_type}...")
     oracle = _load_oracle(task, oracle_type=oracle_type)
 
-    # Load pool for genomic/PRM samplers
+    # Load pool for reservoir types that need base/pool sequences
+    _NEEDS_POOL = {
+        "genomic",
+        "gc_matched",
+        "dinuc_shuffle",
+        "prm_1pct",
+        "prm_5pct",
+        "prm_10pct",
+        "prm_20pct",
+        "prm_50pct",
+        "prm_uniform_1_10",
+        "recombination_uniform",
+        "recombination_2pt",
+        "evoaug_structural",
+        "evoaug_heavy",
+        "ise_maximize",
+        "ise_diverse_targets",
+        "ise_target_high",
+    }
     pool_seqs, pool_labels = None, None
-    if reservoir_name in ("genomic", "prm_1pct", "prm_5pct", "prm_10pct", "prm_uniform_1_10"):
+    if reservoir_name in _NEEDS_POOL:
         logger.info("Loading genomic pool sequences...")
         pool_seqs, pool_labels = _load_pool_sequences(task)
         logger.info(f"Pool size: {len(pool_seqs):,}")
@@ -881,12 +1147,13 @@ def run_scaling_experiment(
         # Dispatch by reservoir type.
         # Pool-based samplers need base_sequences or pool_sequences.
         # Generative samplers only need task and n_sequences.
-        _MUTAGENESIS_BASED = {
+        _POOL_MUTAGENESIS = {
             "recombination_uniform",
             "recombination_2pt",
             "evoaug_structural",
             "evoaug_heavy",
         }
+        _ISE_TYPES = {"ise_maximize", "ise_diverse_targets", "ise_target_high"}
 
         if reservoir_name == "random":
             sequences, meta = reservoir.generate(n_train, task=task)
@@ -902,8 +1169,14 @@ def run_scaling_experiment(
             sequences, meta = reservoir.generate(n_train, pool_sequences=pool_seqs, task=task)
         elif reservoir_name.startswith("prm"):
             sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
-        elif reservoir_name in _MUTAGENESIS_BASED or reservoir_name.startswith("recombination"):
+        elif reservoir_name in _POOL_MUTAGENESIS or reservoir_name.startswith("recombination"):
             sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
+        elif reservoir_name in _ISE_TYPES:
+            # In-silico evolution: student_model=None → fallback mutagenesis
+            # (no student available at sequence generation time in scaling law mode)
+            sequences, meta = reservoir.generate(
+                n_train, base_sequences=pool_seqs, task=task, student_model=None
+            )
         elif reservoir_name in ("motif_planted", "motif_grammar", "motif_grammar_tight"):
             sequences, meta = reservoir.generate(n_train, task=task)
         else:
@@ -1034,7 +1307,13 @@ def main():
     parser.add_argument(
         "--student",
         required=True,
-        choices=["dream_rnn", "alphagenome_k562_s1", "alphagenome_yeast_s1"],
+        choices=[
+            "dream_rnn",
+            "alphagenome_k562_s1",
+            "alphagenome_yeast_s1",
+            "alphagenome_k562_s2",
+            "alphagenome_yeast_s2",
+        ],
     )
     parser.add_argument("--reservoir", nargs="+", required=True, help="Reservoir strategy name(s)")
     parser.add_argument(
