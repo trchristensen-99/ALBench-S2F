@@ -680,7 +680,8 @@ def generate_k562_bar_plot():
             "#E8602C",
         ),
         ("Borzoi", "borzoi_k562_cached_v2", "result.json", "#DAA520"),
-        ("Enformer", "enformer_k562_stage2/sweep_elr1e-4_all", "result.json", "#3A86C8"),
+        # Prefer 3-seed final, fall back to sweep (1 seed), then S1
+        ("Enformer", "enformer_k562_stage2_final/elr1e-4_all", "result.json", "#3A86C8"),
         ("AG (fold 1)", "stage2_k562_fold1", "test_metrics.json", "#66BB6A"),
         ("AG (all folds)", "stage2_k562_full_train", "test_metrics.json", "#1B5E20"),
     ]
@@ -698,7 +699,13 @@ def generate_k562_bar_plot():
             all_metrics["Borzoi"] = fb_data
             print("  Borzoi: using original S1 results as fallback")
 
-    # Fallback: if Enformer S2 not ready, use S1 3-seed results
+    # Fallback: if Enformer S2 final not ready, try sweep (1 seed), then S1
+    if not all_metrics.get("Enformer"):
+        fallback = REPO / "outputs" / "enformer_k562_stage2" / "sweep_elr1e-4_all"
+        fb_data = _load_bar_model_metrics(fallback, "result.json")
+        if fb_data:
+            all_metrics["Enformer"] = fb_data
+            print("  Enformer: using S2 sweep (1 seed) as fallback")
     if not all_metrics.get("Enformer"):
         fallback = REPO / "outputs" / "enformer_k562_3seeds"
         fb_data = _load_bar_model_metrics(fallback, "result.json")
