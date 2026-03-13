@@ -1116,6 +1116,7 @@ def run_scaling_experiment(
         "ise_maximize",
         "ise_diverse_targets",
         "ise_target_high",
+        "snv",
     }
     pool_seqs, pool_labels = None, None
     if reservoir_name in _NEEDS_POOL:
@@ -1167,15 +1168,18 @@ def run_scaling_experiment(
             )
         elif reservoir_name == "gc_matched":
             sequences, meta = reservoir.generate(n_train, pool_sequences=pool_seqs, task=task)
-        elif reservoir_name.startswith("prm"):
+        elif reservoir_name.startswith("prm") or reservoir_name == "snv":
             sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
         elif reservoir_name in _POOL_MUTAGENESIS or reservoir_name.startswith("recombination"):
             sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
         elif reservoir_name in _ISE_TYPES:
-            # In-silico evolution: student_model=None → fallback mutagenesis
-            # (no student available at sequence generation time in scaling law mode)
+            # In-silico evolution: use oracle as fitness function.
+            # In scaling law mode there's no trained student, so we use the
+            # oracle (e.g. AlphaGenome for K562) which has strong pretrained
+            # representations. This makes ISE a "generate sequences optimized
+            # by the oracle" strategy — valid for single-round experiments.
             sequences, meta = reservoir.generate(
-                n_train, base_sequences=pool_seqs, task=task, student_model=None
+                n_train, base_sequences=pool_seqs, task=task, student_model=oracle
             )
         elif reservoir_name in ("motif_planted", "motif_grammar", "motif_grammar_tight"):
             sequences, meta = reservoir.generate(n_train, task=task)
