@@ -356,9 +356,12 @@ def _load_k562_dream_oracle():
     oracle_dir = REPO / "outputs" / "oracle_dream_rnn_k562_ensemble"
     runs = []
     for run_dir in sorted(oracle_dir.glob("oracle_*")):
-        ckpt = run_dir / "best_model.pt"
-        if ckpt.exists():
-            runs.append(ckpt)
+        best = run_dir / "best_model.pt"
+        last = run_dir / "last_model.pt"
+        if best.exists():
+            runs.append(best)
+        elif last.exists():
+            runs.append(last)
 
     if not runs:
         raise FileNotFoundError(f"No K562 DREAM-RNN oracle checkpoints in {oracle_dir}")
@@ -366,6 +369,23 @@ def _load_k562_dream_oracle():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     models = []
     for ckpt_path in runs:
+        try:
+            state = torch.load(ckpt_path, map_location="cpu")
+        except Exception:
+            # Try fallback (last_model.pt if best was corrupted, or vice versa)
+            alt = ckpt_path.parent / (
+                "last_model.pt" if ckpt_path.name == "best_model.pt" else "best_model.pt"
+            )
+            if alt.exists():
+                try:
+                    state = torch.load(alt, map_location="cpu")
+                    logger.warning(f"Loaded fallback {alt.name} for {ckpt_path.parent.name}")
+                except Exception:
+                    logger.warning(f"Skipping corrupt checkpoint: {ckpt_path.parent.name}")
+                    continue
+            else:
+                logger.warning(f"Skipping corrupt checkpoint: {ckpt_path.parent.name}")
+                continue
         m = create_dream_rnn(
             input_channels=5,
             sequence_length=200,
@@ -375,7 +395,6 @@ def _load_k562_dream_oracle():
             dropout_cnn=0.1,
             dropout_lstm=0.1,
         )
-        state = torch.load(ckpt_path, map_location="cpu")
         m.load_state_dict(state["model_state_dict"], strict=True)
         m.to(device).eval()
         models.append(m)
