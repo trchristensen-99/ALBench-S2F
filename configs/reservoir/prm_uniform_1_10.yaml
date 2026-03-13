@@ -1,5 +1,6 @@
 _target_: albench.reservoir.partial_mutagenesis.PartialMutagenesisSampler
 seed: ${seed}
-mutation_rate_distribution: fixed
-mutation_rate: 0.05
+mutation_rate_distribution: uniform
+min_rate: 0.01
+max_rate: 0.10
 track_mutations: true

@@ -1,0 +1,7 @@
+sweep:
+  learning_rate: [1.0e-4, 3.0e-4, 1.0e-3]
+  batch_size: [64, 128]
+head_architecture: flatten_512_512
+encoder_frozen: true
+n_replicates: 3
+select_best_by: val_pearson_r

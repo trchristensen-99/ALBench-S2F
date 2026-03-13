@@ -1,0 +1,8 @@
+# BLOCKED: awaiting S2v2 sweep results
+# Will be populated with optimal config once sweep completes
+sweep:
+  learning_rate: []  # TBD
+  batch_size: []     # TBD
+encoder_frozen: false
+n_replicates: 3
+select_best_by: val_pearson_r

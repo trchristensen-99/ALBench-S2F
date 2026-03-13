@@ -1,0 +1,5 @@
+name: alphagenome_yeast_s2
+_target_: albench.student.alphagenome_student.AlphaGenomeStudent
+encoder_frozen: false
+# BLOCKED: config TBD from S2v2 sweep results
+# Will need: s1_warmup_epochs, s2_encoder_lr, unfreeze_mode, shift_augmentation

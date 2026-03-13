@@ -1,0 +1,5 @@
+sweep:
+  learning_rate: [0.001, 0.003, 0.005, 0.01]
+  batch_size: [512, 1024]
+n_replicates: 3
+select_best_by: val_pearson_r

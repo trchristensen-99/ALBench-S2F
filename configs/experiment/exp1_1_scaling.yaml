@@ -1,0 +1,15 @@
+name: exp1_1_scaling
+description: "Reservoir sampling scaling laws with random acquisition"
+
+training_sizes: [1000, 5000, 10000, 20000, 50000, 100000, 200000, 500000]
+
+hp_sweep:
+  enabled: true
+  n_replicates: 3
+
+output_dir: outputs/exp1_1
+
+wandb:
+  project: albench-s2f
+  group: exp1_1
+  tags: [exp1, scaling]

@@ -1,0 +1,4 @@
+name: alphagenome_k562_s1
+_target_: albench.student.alphagenome_student.AlphaGenomeStudent
+encoder_frozen: true
+head_architecture: flatten_512_512
