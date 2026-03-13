@@ -116,7 +116,11 @@ def main() -> None:
             dropout_cnn=0.1,
             dropout_lstm=0.1,
         )
-        state = torch.load(ckpt, map_location="cpu")
+        try:
+            state = torch.load(ckpt, map_location="cpu")
+        except RuntimeError as e:
+            print(f"Skipping corrupt checkpoint {ckpt}: {e}")
+            continue
         m.load_state_dict(state["model_state_dict"], strict=True)
         m.to(device).eval()
         models.append(m)
