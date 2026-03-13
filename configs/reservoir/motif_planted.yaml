@@ -1,0 +1,5 @@
+_target_: albench.reservoir.motif_planted.MotifPlantedSampler
+seed: ${seed}
+min_motifs: 1
+max_motifs: 3
+motif_set: auto

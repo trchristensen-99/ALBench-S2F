@@ -1,0 +1,3 @@
+_target_: albench.reservoir.gc_matched.GCMatchedSampler
+seed: ${seed}
+n_gc_bins: 50

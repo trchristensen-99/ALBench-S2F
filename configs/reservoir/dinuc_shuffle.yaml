@@ -1,0 +1,2 @@
+_target_: albench.reservoir.random_sampler.RandomSampler
+seed: ${seed}

@@ -411,7 +411,7 @@ def main() -> None:
         npzs = sorted(d.glob("*_oracle.npz"))
         print(f"{name}: {len(npzs)} oracle test sets in {d}")
         for p in npzs:
-            data = dict(np.load(p))
+            data = dict(np.load(p, allow_pickle=True))
             n = len(next(iter(data.values())))
             print(f"  {p.name}: {n:,} entries, keys={list(data.keys())}")
 

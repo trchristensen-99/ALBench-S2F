@@ -880,12 +880,22 @@ def run_scaling_experiment(
 
         if reservoir_name == "random":
             sequences, meta = reservoir.generate(n_train, task=task)
+        elif reservoir_name == "dinuc_shuffle":
+            sequences, meta = reservoir.generate(
+                n_train, task=task, method="dinuc_shuffle", reference_sequences=pool_seqs
+            )
         elif reservoir_name == "genomic":
             sequences, meta = reservoir.generate(
                 n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
             )
+        elif reservoir_name == "gc_matched":
+            sequences, meta = reservoir.generate(n_train, pool_sequences=pool_seqs, task=task)
         elif reservoir_name.startswith("prm"):
             sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
+        elif reservoir_name.startswith("recombination"):
+            sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
+        elif reservoir_name == "motif_planted":
+            sequences, meta = reservoir.generate(n_train, task=task)
         else:
             sequences, meta = reservoir.generate(n_train, task=task)
 
