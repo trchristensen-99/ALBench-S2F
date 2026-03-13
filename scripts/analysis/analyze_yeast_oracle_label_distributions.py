@@ -158,7 +158,123 @@ def plot_distribution_hist(
     ax.legend(fontsize=9)
     ax.grid(alpha=0.25)
 
-    fig.suptitle("Yeast: true expression label distributions by split", fontsize=12)
+    fig.suptitle("Yeast: true expression label distributions by split (raw scales)", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _zscore(x: np.ndarray) -> np.ndarray:
+    """Z-score normalize, handling edge cases."""
+    x = x[np.isfinite(x)].astype(np.float64)
+    s = np.std(x)
+    if s == 0:
+        return x - np.mean(x)
+    return ((x - np.mean(x)) / s).astype(np.float32)
+
+
+def plot_distribution_hist_normalized(
+    train: np.ndarray,
+    id_test: np.ndarray,
+    ood_test: np.ndarray,
+    out_png: Path,
+) -> None:
+    """Z-score normalized histograms for shape comparison across scales.
+
+    Train/val labels are raw activity (mean~11, std~2.4) while test labels are
+    MAUDE-calibrated (mean~0.16, std~0.75).  Z-scoring removes the location/scale
+    difference so distribution shapes can be compared directly.
+    """
+    train_z = _zscore(train)
+    id_z = _zscore(id_test)
+    ood_z = _zscore(ood_test)
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.5), sharey=False)
+    bins = 80
+
+    # Panel 1: train vs ID test (z-scored)
+    ax = axes[0]
+    ax.hist(
+        train_z,
+        bins=bins,
+        alpha=0.4,
+        density=True,
+        label=f"train (n={len(train_z):,})",
+        color=SPLIT_COLORS["train"],
+    )
+    ax.hist(
+        id_z,
+        bins=bins,
+        alpha=0.5,
+        density=True,
+        label=f"ID test (n={len(id_z):,})",
+        color=SPLIT_COLORS["ID test (random)"],
+    )
+    ax.set_xlabel("Z-scored expression")
+    ax.set_ylabel("Density")
+    ax.set_title("Train vs ID test (z-scored)")
+    ax.legend(fontsize=9)
+    ax.grid(alpha=0.25)
+
+    # Panel 2: ID vs OOD test (z-scored)
+    ax = axes[1]
+    ax.hist(
+        id_z,
+        bins=bins,
+        alpha=0.5,
+        density=True,
+        label=f"ID test (n={len(id_z):,})",
+        color=SPLIT_COLORS["ID test (random)"],
+    )
+    ax.hist(
+        ood_z,
+        bins=bins,
+        alpha=0.5,
+        density=True,
+        label=f"OOD test (n={len(ood_z):,})",
+        color=SPLIT_COLORS["OOD test (genomic)"],
+    )
+    ax.set_xlabel("Z-scored expression")
+    ax.set_title("ID vs OOD test (z-scored)")
+    ax.legend(fontsize=9)
+    ax.grid(alpha=0.25)
+
+    # Panel 3: all three overlaid (z-scored)
+    ax = axes[2]
+    ax.hist(
+        train_z,
+        bins=bins,
+        alpha=0.35,
+        density=True,
+        label="train",
+        color=SPLIT_COLORS["train"],
+    )
+    ax.hist(
+        id_z,
+        bins=bins,
+        alpha=0.45,
+        density=True,
+        label="ID test",
+        color=SPLIT_COLORS["ID test (random)"],
+    )
+    ax.hist(
+        ood_z,
+        bins=bins,
+        alpha=0.45,
+        density=True,
+        label="OOD test",
+        color=SPLIT_COLORS["OOD test (genomic)"],
+    )
+    ax.set_xlabel("Z-scored expression")
+    ax.set_title("All splits (z-scored)")
+    ax.legend(fontsize=9)
+    ax.grid(alpha=0.25)
+
+    fig.suptitle(
+        "Yeast: z-score normalized expression distributions\n"
+        "(train = raw activity; test = MAUDE-calibrated — normalized for shape comparison)",
+        fontsize=11,
+    )
     fig.tight_layout()
     fig.savefig(out_png, dpi=180, bbox_inches="tight")
     plt.close(fig)
@@ -442,9 +558,15 @@ def main() -> None:
             "pseudolabel_dir": str(pl_dir),
         },
         "true": {k: _summary_stats(v) for k, v in true_data.items()},
+        "label_scale_note": (
+            "Train/val labels are raw activity counts (mean~11.1, std~2.4, range 0-17). "
+            "Test labels are MAUDE-calibrated expression (mean~0.16, std~0.75, range -1.4 to 1.7). "
+            "These are on fundamentally different scales; use z-score normalized plots for "
+            "shape comparison across train/test splits."
+        ),
     }
 
-    # ── distribution histogram (train + ID + OOD) ───────────────────────────
+    # ── distribution histograms (train + ID + OOD) ──────────────────────────
     plot_distribution_hist(
         train_labels,
         test_labels[idx_id],
@@ -452,6 +574,14 @@ def main() -> None:
         out_dir / "true_train_test_id_ood_hist.png",
     )
     print("Wrote: true_train_test_id_ood_hist.png")
+
+    plot_distribution_hist_normalized(
+        train_labels,
+        test_labels[idx_id],
+        test_labels[idx_ood],
+        out_dir / "true_train_test_id_ood_hist_zscore.png",
+    )
+    print("Wrote: true_train_test_id_ood_hist_zscore.png")
 
     # ── oracle analysis (if pseudolabels available) ──────────────────────────
     metrics: dict[str, dict] = {}
