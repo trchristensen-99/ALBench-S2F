@@ -1090,10 +1090,21 @@ def run_scaling_experiment(
         test_set_dir = REPO / task_cfg["test_set_dir"]
 
     if not test_set_dir.exists():
-        logger.warning(
-            f"Test set dir {test_set_dir} does not exist. "
-            "Test evaluation will be skipped for missing NPZ files."
-        )
+        # Fall back to default test sets (AG labels for K562, DREAM for yeast).
+        # This means training labels come from one oracle but test labels from another,
+        # which is valid: test labels serve as a fixed ground-truth benchmark.
+        fallback_dir = REPO / task_cfg["test_set_dir"]
+        if fallback_dir.exists():
+            logger.warning(
+                f"Test set dir {test_set_dir} not found. "
+                f"Falling back to default test sets: {fallback_dir}"
+            )
+            test_set_dir = fallback_dir
+        else:
+            logger.warning(
+                f"Test set dir {test_set_dir} does not exist. "
+                "Test evaluation will be skipped for missing NPZ files."
+            )
 
     logger.info(f"Loading oracle for task={task}, oracle_type={oracle_type}...")
     oracle = _load_oracle(task, oracle_type=oracle_type)
