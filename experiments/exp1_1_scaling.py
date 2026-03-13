@@ -1366,8 +1366,8 @@ def main():
             },
         )
         wandb.define_metric("test/*/pearson_r", step_metric="n_train")
-    except ImportError:
-        logger.info("wandb not available — skipping logging")
+    except (ImportError, Exception) as e:
+        logger.info(f"wandb not available — skipping logging ({e})")
 
     all_results = []
     for reservoir_name in args.reservoir:
