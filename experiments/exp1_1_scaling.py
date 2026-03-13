@@ -412,14 +412,17 @@ def _load_k562_dream_oracle():
         return np.concatenate([oh, rc], axis=0)
 
     class _DREAMOracleK562(SequenceModel):
-        def predict(self, sequences: list[str]) -> np.ndarray:
+        def predict(self, sequences: list[str], batch_size: int = 512) -> np.ndarray:
             encoded = np.stack([_encode_k562(s) for s in sequences])
-            x = torch.from_numpy(encoded).float().to(device)
             all_preds = []
             for m in models:
-                with torch.no_grad():
-                    p = m.predict(x, use_reverse_complement=True)
-                    all_preds.append(p.cpu().numpy().reshape(-1))
+                fold_preds = []
+                for i in range(0, len(encoded), batch_size):
+                    batch = torch.from_numpy(encoded[i : i + batch_size]).float().to(device)
+                    with torch.no_grad():
+                        p = m.predict(batch, use_reverse_complement=True)
+                        fold_preds.append(p.cpu().numpy().reshape(-1))
+                all_preds.append(np.concatenate(fold_preds))
             return np.stack(all_preds).mean(axis=0).astype(np.float32)
 
     logger.info(f"Loaded K562 DREAM-RNN oracle with {len(models)} folds")
@@ -454,20 +457,24 @@ def _load_yeast_dream_oracle():
     from data.utils import one_hot_encode
 
     class _DREAMOracle(SequenceModel):
-        def predict(self, sequences: list[str]) -> np.ndarray:
+        def predict(self, sequences: list[str], batch_size: int = 512) -> np.ndarray:
             encoded = []
             for seq in sequences:
                 base = one_hot_encode(seq, add_singleton_channel=False)
                 rc = np.zeros((1, len(seq)), dtype=np.float32)
                 singleton = np.zeros((1, len(seq)), dtype=np.float32)
                 encoded.append(np.concatenate([base, rc, singleton], axis=0))
-            x = torch.from_numpy(np.stack(encoded)).float().to(device)
+            encoded = np.stack(encoded)
 
             all_preds = []
             for m in models:
-                with torch.no_grad():
-                    p = m.predict(x, use_reverse_complement=True)
-                    all_preds.append(p.cpu().numpy().reshape(-1))
+                fold_preds = []
+                for i in range(0, len(encoded), batch_size):
+                    batch = torch.from_numpy(encoded[i : i + batch_size]).float().to(device)
+                    with torch.no_grad():
+                        p = m.predict(batch, use_reverse_complement=True)
+                        fold_preds.append(p.cpu().numpy().reshape(-1))
+                all_preds.append(np.concatenate(fold_preds))
             return np.stack(all_preds).mean(axis=0).astype(np.float32)
 
     logger.info(f"Loaded yeast DREAM oracle with {len(models)} folds")
