@@ -1,3 +1,2 @@
 _target_: albench.reservoir.genomic.GenomicSampler
-chromosomes: [chr7, chr13]
 seed: ${seed}
