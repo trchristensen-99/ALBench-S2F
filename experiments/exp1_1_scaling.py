@@ -1279,11 +1279,35 @@ def run_scaling_experiment(
         else:
             sequences, meta = reservoir.generate(n_train, task=task)
 
-        # Label with oracle
-        logger.info(f"Labeling {len(sequences):,} sequences with oracle...")
-        label_start = time.perf_counter()
-        labels = oracle.predict(sequences)
-        logger.info(f"Oracle labeling took {time.perf_counter() - label_start:.1f}s")
+        # Label with oracle (with caching to avoid re-labeling on retrain)
+        label_cache_dir = output_base / reservoir_name / f"n{n_train}"
+        label_cache_dir.mkdir(parents=True, exist_ok=True)
+        label_cache_path = label_cache_dir / "oracle_labels.npz"
+
+        if label_cache_path.exists():
+            logger.info(f"Loading cached oracle labels from {label_cache_path}")
+            cached = np.load(label_cache_path, allow_pickle=True)
+            cached_seqs = cached["sequences"].tolist()
+            labels = cached["labels"]
+            if len(cached_seqs) == len(sequences) and cached_seqs == sequences:
+                logger.info(f"Cache hit: {len(labels):,} labels loaded")
+            else:
+                logger.warning("Cache mismatch (sequences differ). Re-labeling with oracle...")
+                label_start = time.perf_counter()
+                labels = oracle.predict(sequences)
+                logger.info(f"Oracle labeling took {time.perf_counter() - label_start:.1f}s")
+                np.savez_compressed(
+                    label_cache_path, sequences=np.array(sequences, dtype=object), labels=labels
+                )
+        else:
+            logger.info(f"Labeling {len(sequences):,} sequences with oracle...")
+            label_start = time.perf_counter()
+            labels = oracle.predict(sequences)
+            logger.info(f"Oracle labeling took {time.perf_counter() - label_start:.1f}s")
+            np.savez_compressed(
+                label_cache_path, sequences=np.array(sequences, dtype=object), labels=labels
+            )
+            logger.info(f"Cached oracle labels to {label_cache_path}")
 
         # Validation split (10% of generated data)
         n_val = max(100, int(0.1 * n_train))
