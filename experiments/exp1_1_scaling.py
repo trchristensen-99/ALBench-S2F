@@ -726,8 +726,15 @@ def _train_ag_s1_student(
     lr: float,
     batch_size: int,
     seed: int,
+    pre_encoded_embs: np.ndarray | None = None,
 ) -> SequenceModel:
-    """Train an AG S1 student (frozen encoder, head-only)."""
+    """Train an AG S1 student (frozen encoder, head-only).
+
+    Args:
+        pre_encoded_embs: If provided, skip encoding and use these embeddings
+            directly. Shape ``(N, T, 1536)`` in float16. This avoids re-encoding
+            the same sequences for each HP config / replicate.
+    """
     import jax
     import jax.numpy as jnp
     import optax
@@ -743,10 +750,14 @@ def _train_ag_s1_student(
     # Re-init head for each training run (fresh weights)
     reinit_head_params(model, ag["head_name"], num_tokens=ag["num_tokens"], dim=1536, rng=seed)
 
-    # Encode training sequences
-    logger.info(f"  Encoding {len(sequences):,} sequences with AG encoder...")
-    train_embs = _encode_sequences_for_ag(sequences, task, encoder_fn)
-    logger.info(f"  Embeddings shape: {train_embs.shape}")
+    # Use pre-encoded embeddings if available, otherwise encode now
+    if pre_encoded_embs is not None:
+        train_embs = pre_encoded_embs
+        logger.info(f"  Using pre-encoded embeddings: {train_embs.shape}")
+    else:
+        logger.info(f"  Encoding {len(sequences):,} sequences with AG encoder...")
+        train_embs = _encode_sequences_for_ag(sequences, task, encoder_fn)
+        logger.info(f"  Embeddings shape: {train_embs.shape}")
 
     # Setup optimizer
     optimizer = optax.adamw(learning_rate=lr, weight_decay=1e-6)
@@ -1042,6 +1053,7 @@ def _train_student(
     lr: float,
     batch_size: int,
     seed: int,
+    pre_encoded_embs: np.ndarray | None = None,
 ) -> SequenceModel:
     """Train a student model and return it."""
     if student_type == "dream_rnn":
@@ -1068,7 +1080,15 @@ def _train_student(
         student.fit(sequences, labels)
         return student
     elif student_type in ("alphagenome_k562_s1", "alphagenome_yeast_s1"):
-        return _train_ag_s1_student(task, sequences, labels, lr, batch_size, seed)
+        return _train_ag_s1_student(
+            task,
+            sequences,
+            labels,
+            lr,
+            batch_size,
+            seed,
+            pre_encoded_embs=pre_encoded_embs,
+        )
     elif student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
         return _train_ag_s2_student(task, sequences, labels, lr, batch_size, seed)
     else:
@@ -1233,6 +1253,18 @@ def run_scaling_experiment(
         val_seqs = [sequences[i] for i in val_idx]
         val_labels = labels[val_idx]
 
+        # Pre-encode embeddings once for AG S1 (avoid redundant encoder passes)
+        train_embs_cached = None
+        if student_type in ("alphagenome_k562_s1", "alphagenome_yeast_s1"):
+            ag = _get_ag_model_and_encoder(task)
+            logger.info(f"  Pre-encoding {len(train_seqs):,} training sequences for AG S1...")
+            enc_start = time.perf_counter()
+            train_embs_cached = _encode_sequences_for_ag(train_seqs, task, ag["encoder_fn"])
+            logger.info(
+                f"  Pre-encoding took {time.perf_counter() - enc_start:.1f}s, "
+                f"shape={train_embs_cached.shape}"
+            )
+
         best_hp = None
         best_val_r = -1.0
 
@@ -1262,6 +1294,7 @@ def run_scaling_experiment(
                         lr=hp["learning_rate"],
                         batch_size=hp["batch_size"],
                         seed=rep_seed,
+                        pre_encoded_embs=train_embs_cached,
                     )
 
                     # Validation evaluation
