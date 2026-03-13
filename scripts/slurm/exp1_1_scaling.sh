@@ -1,10 +1,14 @@
 #!/bin/bash
 # Experiment 1.1: Reservoir sampling scaling laws.
 # Array job: one task per reservoir strategy.
-# Trains DREAM-RNN students at 8 training sizes with HP sweep.
+#
+# Splits training sizes into tiers to fit within SLURM time limits:
+#   TIER=small (default): n <= 50,000  — full HP sweep, ~11h
+#   TIER=large:           n = 100k–500k — reduced HP sweep + early stopping, ~40h
 #
 # Usage:
-#   TASK=k562 STUDENT=dream_rnn sbatch scripts/slurm/exp1_1_scaling.sh
+#   TASK=k562 STUDENT=dream_rnn ORACLE=dream_rnn sbatch scripts/slurm/exp1_1_scaling.sh
+#   TASK=k562 STUDENT=dream_rnn ORACLE=dream_rnn TIER=large sbatch scripts/slurm/exp1_1_scaling.sh
 #   TASK=yeast STUDENT=dream_rnn sbatch scripts/slurm/exp1_1_scaling.sh
 #
 #SBATCH --job-name=exp1_1_scaling
@@ -36,6 +40,7 @@ STUDENT="${STUDENT:-dream_rnn}"
 ORACLE="${ORACLE:-default}"
 N_REPLICATES="${N_REPLICATES:-3}"
 SEED="${SEED:-42}"
+TIER="${TIER:-small}"
 
 RESERVOIRS=(random genomic prm_1pct prm_5pct prm_10pct prm_uniform_1_10 \
             dinuc_shuffle gc_matched motif_planted recombination_uniform recombination_2pt \
@@ -47,6 +52,7 @@ RESERVOIR=${RESERVOIRS[$SLURM_ARRAY_TASK_ID]}
 
 echo "=== Experiment 1.1: Scaling Laws ==="
 echo "Task: ${TASK}, Student: ${STUDENT}, Oracle: ${ORACLE}, Reservoir: ${RESERVOIR}"
+echo "Tier: ${TIER}"
 echo "Node: $SLURMD_NODENAME  Date: $(date)"
 echo "Array task: ${SLURM_ARRAY_TASK_ID}/20"
 
@@ -57,6 +63,28 @@ else
     OUT_DIR="outputs/exp1_1/${TASK}/${STUDENT}_${ORACLE}"
 fi
 
+# Tier-specific settings
+if [[ "${TIER}" == "large" ]]; then
+    # Large sizes: reduced sweep + early stopping + fewer ensemble members
+    # n=100k (~6h) + n=200k (~12h) + n=500k (~20h with speedups) ≈ 38h
+    TRAINING_SIZES="100000 200000 500000"
+    EPOCHS=50
+    EARLY_STOP=10
+    ENSEMBLE_SIZE=3
+else
+    # Small sizes: full sweep, full epochs
+    # n=1k..50k ≈ 11h total
+    TRAINING_SIZES="1000 5000 10000 20000 50000"
+    EPOCHS=80
+    EARLY_STOP=""
+    ENSEMBLE_SIZE=5
+fi
+
+EXTRA_ARGS=""
+if [[ -n "${EARLY_STOP}" ]]; then
+    EXTRA_ARGS="${EXTRA_ARGS} --early-stop-patience ${EARLY_STOP}"
+fi
+
 uv run --no-sync python experiments/exp1_1_scaling.py \
     --task "${TASK}" \
     --student "${STUDENT}" \
@@ -64,6 +92,10 @@ uv run --no-sync python experiments/exp1_1_scaling.py \
     --reservoir "${RESERVOIR}" \
     --n-replicates "${N_REPLICATES}" \
     --seed "${SEED}" \
-    --output-dir "${OUT_DIR}"
+    --output-dir "${OUT_DIR}" \
+    --training-sizes ${TRAINING_SIZES} \
+    --epochs "${EPOCHS}" \
+    --ensemble-size "${ENSEMBLE_SIZE}" \
+    ${EXTRA_ARGS}
 
 echo "Done: $(date)"

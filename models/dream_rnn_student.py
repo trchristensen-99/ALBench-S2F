@@ -28,6 +28,8 @@ class TrainConfig:
     lr_lstm: float = 0.005
     weight_decay: float = 0.01
     pct_start: float = 0.3
+    early_stopping_patience: int | None = None
+    num_workers: int = 2
 
 
 class _InMemorySequenceDataset(Dataset):
@@ -161,8 +163,24 @@ class DREAMRNNStudent(SequenceModel):
         y = torch.from_numpy(labels.astype(np.float32))
 
         dataset = _InMemorySequenceDataset(x, y)
-        loader = DataLoader(dataset, batch_size=self.train_config.batch_size, shuffle=True)
-        val_loader = DataLoader(dataset, batch_size=self.train_config.batch_size, shuffle=False)
+        nw = self.train_config.num_workers
+        loader = DataLoader(
+            dataset,
+            batch_size=self.train_config.batch_size,
+            shuffle=True,
+            pin_memory=True,
+            num_workers=nw,
+            persistent_workers=nw > 0,
+            drop_last=True,
+        )
+        val_loader = DataLoader(
+            dataset,
+            batch_size=self.train_config.batch_size,
+            shuffle=False,
+            pin_memory=True,
+            num_workers=nw,
+            persistent_workers=nw > 0,
+        )
 
         for model in self.models:
             optimizer, scheduler = create_optimizer_and_scheduler(
@@ -186,7 +204,7 @@ class DREAMRNNStudent(SequenceModel):
                 scheduler=scheduler,
                 checkpoint_dir=None,
                 use_reverse_complement=True,
-                early_stopping_patience=None,
+                early_stopping_patience=self.train_config.early_stopping_patience,
                 metric_for_best="pearson_r",
                 use_amp=True,
                 use_compile=False,

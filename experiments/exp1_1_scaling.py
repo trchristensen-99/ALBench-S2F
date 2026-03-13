@@ -81,6 +81,27 @@ HP_GRIDS = {
     },
 }
 
+# For large training sizes (n >= LARGE_N_THRESHOLD), use only the fastest HP
+# configs to stay within SLURM time limits. These keep the largest batch size
+# from the full grid so epoch time is minimized, while still covering the LR
+# range.  Falls back to full HP_GRIDS when the student isn't listed here.
+LARGE_N_THRESHOLD = 100_000
+
+HP_GRIDS_LARGE_N = {
+    "dream_rnn": {
+        "learning_rate": [0.003, 0.005],
+        "batch_size": [1024],  # drop bs=512 — 2× fewer batches/epoch
+    },
+    "alphagenome_k562_s1": {
+        "learning_rate": [3e-4, 1e-3],
+        "batch_size": [256],  # drop bs=128
+    },
+    "alphagenome_yeast_s1": {
+        "learning_rate": [3e-4, 1e-3],
+        "batch_size": [256],
+    },
+}
+
 # S2 config: which encoder blocks to unfreeze (from Exp 0 best: blocks 4,5)
 S2_CONFIG = {
     "k562": {
@@ -1061,6 +1082,9 @@ def _train_student(
     batch_size: int,
     seed: int,
     pre_encoded_embs: np.ndarray | None = None,
+    ensemble_size: int = 5,
+    epochs: int = 80,
+    early_stopping_patience: int | None = None,
 ) -> SequenceModel:
     """Train a student model and return it."""
     if student_type == "dream_rnn":
@@ -1076,12 +1100,13 @@ def _train_student(
             input_channels=cfg["input_channels"],
             sequence_length=cfg["sequence_length"],
             task_mode=cfg["task_mode"],
-            ensemble_size=5,
+            ensemble_size=ensemble_size,
             train_config=TrainConfig(
                 batch_size=batch_size,
                 lr=lr,
                 lr_lstm=lr,
-                epochs=80,
+                epochs=epochs,
+                early_stopping_patience=early_stopping_patience,
             ),
         )
         student.fit(sequences, labels)
@@ -1117,6 +1142,9 @@ def run_scaling_experiment(
     output_base: Path,
     seed: int = 42,
     oracle_type: str = "default",
+    ensemble_size: int = 5,
+    epochs: int = 80,
+    early_stopping_patience: int | None = None,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel
@@ -1181,16 +1209,24 @@ def run_scaling_experiment(
         pool_seqs, pool_labels = _load_pool_sequences(task)
         logger.info(f"Pool size: {len(pool_seqs):,}")
 
-    # HP grid
-    if hp_sweep and student_type in HP_GRIDS:
-        grid = HP_GRIDS[student_type]
-        hp_configs = [dict(zip(grid.keys(), vals)) for vals in itertools.product(*grid.values())]
-    else:
-        # Default single config
-        if student_type.startswith("alphagenome"):
-            hp_configs = [{"learning_rate": 1e-3, "batch_size": 128}]
+    def _build_hp_configs(n_train: int) -> list[dict]:
+        """Build HP grid, using faster configs for large training sizes."""
+        if not hp_sweep:
+            if student_type.startswith("alphagenome"):
+                return [{"learning_rate": 1e-3, "batch_size": 128}]
+            return [{"learning_rate": 0.005, "batch_size": 1024}]
+
+        # Use large-N grid for big training sizes (drops slow batch sizes)
+        if n_train >= LARGE_N_THRESHOLD and student_type in HP_GRIDS_LARGE_N:
+            grid = HP_GRIDS_LARGE_N[student_type]
+        elif student_type in HP_GRIDS:
+            grid = HP_GRIDS[student_type]
         else:
-            hp_configs = [{"learning_rate": 0.005, "batch_size": 1024}]
+            if student_type.startswith("alphagenome"):
+                return [{"learning_rate": 1e-3, "batch_size": 128}]
+            return [{"learning_rate": 0.005, "batch_size": 1024}]
+
+        return [dict(zip(grid.keys(), vals)) for vals in itertools.product(*grid.values())]
 
     results: list[RunResult] = []
 
@@ -1272,6 +1308,9 @@ def run_scaling_experiment(
                 f"shape={train_embs_cached.shape}"
             )
 
+        hp_configs = _build_hp_configs(n_train)
+        logger.info(f"HP configs for n={n_train:,}: {len(hp_configs)} configs")
+
         best_hp = None
         best_val_r = -1.0
 
@@ -1302,6 +1341,9 @@ def run_scaling_experiment(
                         batch_size=hp["batch_size"],
                         seed=rep_seed,
                         pre_encoded_embs=train_embs_cached,
+                        ensemble_size=ensemble_size,
+                        epochs=epochs,
+                        early_stopping_patience=early_stopping_patience,
                     )
 
                     # Validation evaluation
@@ -1401,6 +1443,24 @@ def main():
     parser.add_argument("--no-hp-sweep", action="store_true")
     parser.add_argument("--output-dir", type=str, default=None)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--ensemble-size",
+        type=int,
+        default=5,
+        help="Number of ensemble members per DREAM-RNN student (default: 5)",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=80,
+        help="Max training epochs for DREAM-RNN (default: 80)",
+    )
+    parser.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=None,
+        help="Early stopping patience (epochs without improvement). Default: None (no early stop)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -1455,6 +1515,9 @@ def main():
             output_base=output_base,
             seed=args.seed,
             oracle_type=args.oracle,
+            ensemble_size=args.ensemble_size,
+            epochs=args.epochs,
+            early_stopping_patience=args.early_stop_patience,
         )
         all_results.extend(results)
 
