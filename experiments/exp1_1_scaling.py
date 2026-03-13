@@ -456,7 +456,7 @@ def _load_yeast_dream_oracle():
 
     from models.dream_rnn import create_dream_rnn
 
-    oracle_dir = REPO / "outputs" / "oracle_dream_rnn_yeast_kfold_v2"
+    oracle_dir = REPO / "outputs" / "oracle_dream_rnn_yeast_kfold_v256_rcaug"
     runs = []
     for run_dir in sorted(oracle_dir.glob("oracle_*")):
         ckpt = run_dir / "best_model.pt"
