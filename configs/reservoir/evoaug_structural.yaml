@@ -1,0 +1,13 @@
+_target_: albench.reservoir.evoaug_structural.EvoAugStructuralSampler
+seed: ${seed}
+p_deletion: 0.3
+p_insertion: 0.3
+p_inversion: 0.2
+p_translocation: 0.15
+p_tandem_dup: 0.1
+p_point_mutation: 0.3
+max_indel_size: 20
+max_inversion_size: 30
+point_mutation_rate: 0.02
+min_events: 1
+max_events: 3

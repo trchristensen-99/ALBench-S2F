@@ -878,6 +878,16 @@ def run_scaling_experiment(
         # Generate sequences via reservoir
         reservoir = _load_reservoir(reservoir_name, seed=seed)
 
+        # Dispatch by reservoir type.
+        # Pool-based samplers need base_sequences or pool_sequences.
+        # Generative samplers only need task and n_sequences.
+        _MUTAGENESIS_BASED = {
+            "recombination_uniform",
+            "recombination_2pt",
+            "evoaug_structural",
+            "evoaug_heavy",
+        }
+
         if reservoir_name == "random":
             sequences, meta = reservoir.generate(n_train, task=task)
         elif reservoir_name == "dinuc_shuffle":
@@ -892,9 +902,9 @@ def run_scaling_experiment(
             sequences, meta = reservoir.generate(n_train, pool_sequences=pool_seqs, task=task)
         elif reservoir_name.startswith("prm"):
             sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
-        elif reservoir_name.startswith("recombination"):
+        elif reservoir_name in _MUTAGENESIS_BASED or reservoir_name.startswith("recombination"):
             sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
-        elif reservoir_name == "motif_planted":
+        elif reservoir_name in ("motif_planted", "motif_grammar", "motif_grammar_tight"):
             sequences, meta = reservoir.generate(n_train, task=task)
         else:
             sequences, meta = reservoir.generate(n_train, task=task)
