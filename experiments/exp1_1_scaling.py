@@ -1236,82 +1236,147 @@ def run_scaling_experiment(
 
     results: list[RunResult] = []
 
+    # ── Pre-label all training sizes to cache oracle labels ──────────────
+    # This allows freeing the oracle from GPU before student training,
+    # which is critical when oracle (JAX AG, ~80GB) and student (PyTorch
+    # DREAM, ~15GB) together exceed the 93GB H100 GPU memory.
+    _ISE_TYPES_PRE = {"ise_maximize", "ise_diverse_targets", "ise_target_high"}
+    _POOL_MUTAGENESIS_PRE = {
+        "recombination_uniform",
+        "recombination_2pt",
+        "evoaug_structural",
+        "evoaug_heavy",
+    }
+    for n_train in training_sizes:
+        label_cache_dir = output_base / reservoir_name / f"n{n_train}"
+        label_cache_path = label_cache_dir / "oracle_labels.npz"
+        if label_cache_path.exists():
+            continue  # Already cached
+        logger.info(f"[pre-label] Generating + labeling n={n_train:,} for {reservoir_name}")
+        label_cache_dir.mkdir(parents=True, exist_ok=True)
+        _res = _load_reservoir(reservoir_name, seed=seed)
+        if reservoir_name == "random":
+            _seqs, _ = _res.generate(n_train, task=task)
+        elif reservoir_name == "dinuc_shuffle":
+            _seqs, _ = _res.generate(
+                n_train, task=task, method="dinuc_shuffle", reference_sequences=pool_seqs
+            )
+        elif reservoir_name == "genomic":
+            _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
+        elif reservoir_name == "gc_matched":
+            _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, task=task)
+        elif reservoir_name.startswith("prm") or reservoir_name == "snv":
+            _seqs, _ = _res.generate(n_train, base_sequences=pool_seqs, task=task)
+        elif reservoir_name in _POOL_MUTAGENESIS_PRE or reservoir_name.startswith("recombination"):
+            _seqs, _ = _res.generate(n_train, base_sequences=pool_seqs, task=task)
+        elif reservoir_name in _ISE_TYPES_PRE:
+            _seqs, _ = _res.generate(
+                n_train, base_sequences=pool_seqs, task=task, student_model=oracle
+            )
+        else:
+            _seqs, _ = _res.generate(n_train, task=task)
+        _labels = oracle.predict(_seqs)
+        np.savez_compressed(
+            label_cache_path, sequences=np.array(_seqs, dtype=object), labels=_labels
+        )
+        logger.info(f"[pre-label] Cached {len(_seqs):,} labels to {label_cache_path}")
+        del _seqs, _labels, _res
+
+    # Free oracle from GPU to make room for student training
+    logger.info("Freeing oracle model from GPU memory...")
+    del oracle
+    oracle = None
+    import gc
+
+    gc.collect()
+    try:
+        import jax
+
+        jax.clear_caches()
+        # Force JAX to release GPU memory
+        backend = jax.lib.xla_bridge.get_backend()
+        for buf in backend.live_buffers():
+            buf.delete()
+    except Exception:
+        pass
+    try:
+        import torch
+
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+    logger.info("Oracle freed. Proceeding with student training from cached labels.")
+
     for n_train in training_sizes:
         logger.info(f"\n{'=' * 60}")
         logger.info(f"Training size: {n_train:,}")
         logger.info(f"{'=' * 60}")
 
-        # Generate sequences via reservoir
-        reservoir = _load_reservoir(reservoir_name, seed=seed)
-
-        # Dispatch by reservoir type.
-        # Pool-based samplers need base_sequences or pool_sequences.
-        # Generative samplers only need task and n_sequences.
-        _POOL_MUTAGENESIS = {
-            "recombination_uniform",
-            "recombination_2pt",
-            "evoaug_structural",
-            "evoaug_heavy",
-        }
-        _ISE_TYPES = {"ise_maximize", "ise_diverse_targets", "ise_target_high"}
-
-        if reservoir_name == "random":
-            sequences, meta = reservoir.generate(n_train, task=task)
-        elif reservoir_name == "dinuc_shuffle":
-            sequences, meta = reservoir.generate(
-                n_train, task=task, method="dinuc_shuffle", reference_sequences=pool_seqs
-            )
-        elif reservoir_name == "genomic":
-            sequences, meta = reservoir.generate(
-                n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
-            )
-        elif reservoir_name == "gc_matched":
-            sequences, meta = reservoir.generate(n_train, pool_sequences=pool_seqs, task=task)
-        elif reservoir_name.startswith("prm") or reservoir_name == "snv":
-            sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
-        elif reservoir_name in _POOL_MUTAGENESIS or reservoir_name.startswith("recombination"):
-            sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
-        elif reservoir_name in _ISE_TYPES:
-            # In-silico evolution: use oracle as fitness function.
-            # In scaling law mode there's no trained student, so we use the
-            # oracle (e.g. AlphaGenome for K562) which has strong pretrained
-            # representations. This makes ISE a "generate sequences optimized
-            # by the oracle" strategy — valid for single-round experiments.
-            sequences, meta = reservoir.generate(
-                n_train, base_sequences=pool_seqs, task=task, student_model=oracle
-            )
-        elif reservoir_name in ("motif_planted", "motif_grammar", "motif_grammar_tight"):
-            sequences, meta = reservoir.generate(n_train, task=task)
-        else:
-            sequences, meta = reservoir.generate(n_train, task=task)
-
-        # Label with oracle (with caching to avoid re-labeling on retrain)
+        # Load sequences + labels from pre-labeling cache, or generate on the fly
         label_cache_dir = output_base / reservoir_name / f"n{n_train}"
         label_cache_dir.mkdir(parents=True, exist_ok=True)
         label_cache_path = label_cache_dir / "oracle_labels.npz"
 
         if label_cache_path.exists():
-            logger.info(f"Loading cached oracle labels from {label_cache_path}")
+            # Pre-labeling phase already cached sequences + labels
+            logger.info(f"Loading cached sequences + labels from {label_cache_path}")
             cached = np.load(label_cache_path, allow_pickle=True)
-            cached_seqs = cached["sequences"].tolist()
+            sequences = cached["sequences"].tolist()
             labels = cached["labels"]
-            if len(cached_seqs) == len(sequences) and cached_seqs == sequences:
-                logger.info(f"Cache hit: {len(labels):,} labels loaded")
-            else:
-                logger.warning("Cache mismatch (sequences differ). Re-labeling with oracle...")
-                label_start = time.perf_counter()
-                labels = oracle.predict(sequences)
-                logger.info(f"Oracle labeling took {time.perf_counter() - label_start:.1f}s")
-                np.savez_compressed(
-                    label_cache_path, sequences=np.array(sequences, dtype=object), labels=labels
-                )
+            logger.info(f"Cache hit: {len(labels):,} sequences + labels loaded")
         else:
+            # No cache — generate sequences and label with oracle (must still be alive)
+            if oracle is None:
+                raise RuntimeError(
+                    f"No label cache at {label_cache_path} and oracle already freed. "
+                    "Pre-labeling should have cached this. Delete output dir and rerun."
+                )
+            reservoir = _load_reservoir(reservoir_name, seed=seed)
+            _POOL_MUTAGENESIS = {
+                "recombination_uniform",
+                "recombination_2pt",
+                "evoaug_structural",
+                "evoaug_heavy",
+            }
+            _ISE_TYPES = {"ise_maximize", "ise_diverse_targets", "ise_target_high"}
+
+            if reservoir_name == "random":
+                sequences, meta = reservoir.generate(n_train, task=task)
+            elif reservoir_name == "dinuc_shuffle":
+                sequences, meta = reservoir.generate(
+                    n_train, task=task, method="dinuc_shuffle", reference_sequences=pool_seqs
+                )
+            elif reservoir_name == "genomic":
+                sequences, meta = reservoir.generate(
+                    n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
+                )
+            elif reservoir_name == "gc_matched":
+                sequences, meta = reservoir.generate(n_train, pool_sequences=pool_seqs, task=task)
+            elif reservoir_name.startswith("prm") or reservoir_name == "snv":
+                sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
+            elif reservoir_name in _POOL_MUTAGENESIS or reservoir_name.startswith("recombination"):
+                sequences, meta = reservoir.generate(n_train, base_sequences=pool_seqs, task=task)
+            elif reservoir_name in _ISE_TYPES:
+                sequences, meta = reservoir.generate(
+                    n_train, base_sequences=pool_seqs, task=task, student_model=oracle
+                )
+            elif reservoir_name in (
+                "motif_planted",
+                "motif_grammar",
+                "motif_grammar_tight",
+            ):
+                sequences, meta = reservoir.generate(n_train, task=task)
+            else:
+                sequences, meta = reservoir.generate(n_train, task=task)
+
             logger.info(f"Labeling {len(sequences):,} sequences with oracle...")
             label_start = time.perf_counter()
             labels = oracle.predict(sequences)
             logger.info(f"Oracle labeling took {time.perf_counter() - label_start:.1f}s")
             np.savez_compressed(
-                label_cache_path, sequences=np.array(sequences, dtype=object), labels=labels
+                label_cache_path,
+                sequences=np.array(sequences, dtype=object),
+                labels=labels,
             )
             logger.info(f"Cached oracle labels to {label_cache_path}")
 
