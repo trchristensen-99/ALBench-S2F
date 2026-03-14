@@ -284,7 +284,7 @@ def _load_k562_ag_oracle():
     head_name = "boda_flatten_v4"
     register_s2f_head(
         head_name=head_name,
-        arch="boda-flatten",
+        arch="boda-flatten-512-512",
         task_mode="human",
         num_tracks=1,
         dropout_rate=0.0,
@@ -456,7 +456,7 @@ def _load_yeast_dream_oracle():
 
     from models.dream_rnn import create_dream_rnn
 
-    oracle_dir = REPO / "outputs" / "oracle_dream_rnn_yeast_kfold_v256_rcaug"
+    oracle_dir = REPO / "outputs" / "oracle_dream_rnn_yeast_kfold_v2"
     runs = []
     for run_dir in sorted(oracle_dir.glob("oracle_*")):
         ckpt = run_dir / "best_model.pt"
@@ -523,7 +523,7 @@ def _load_yeast_ag_oracle():
     head_name = "yeast_oracle_head"
     register_s2f_head(
         head_name=head_name,
-        arch="boda-flatten",
+        arch="boda-flatten-512-512",
         task_mode="yeast",
         num_tracks=18,
         dropout_rate=0.0,
@@ -650,7 +650,7 @@ def _get_ag_model_and_encoder(task: str):
 
     register_s2f_head(
         head_name=head_name,
-        arch="boda-flatten",
+        arch="boda-flatten-512-512",
         task_mode=task_mode,
         num_tracks=num_tracks,
         dropout_rate=0.1,
@@ -888,7 +888,7 @@ def _train_ag_s2_student(
     num_tracks = 18 if task == "yeast" else 1
     register_s2f_head(
         head_name=head_name,
-        arch="boda-flatten",
+        arch="boda-flatten-512-512",
         task_mode=task_cfg["task_mode"],
         num_tracks=num_tracks,
         dropout_rate=0.1,
