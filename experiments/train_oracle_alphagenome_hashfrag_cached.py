@@ -402,7 +402,7 @@ def main(cfg: DictConfig) -> None:
         if pear > best_val_pearson:
             best_val_pearson = pear
             epochs_no_improve = 0
-            model.save_checkpoint(str(output_dir / "best_model"), save_full_model=False)
+            model.save_checkpoint(str(output_dir / "best_model"), save_full_model=True)
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= early_stop_patience:
@@ -413,7 +413,7 @@ def main(cfg: DictConfig) -> None:
                 )
                 break
 
-        model.save_checkpoint(str(output_dir / "last_model"), save_full_model=False)
+        model.save_checkpoint(str(output_dir / "last_model"), save_full_model=True)
 
     # ── Post-training evaluation on test sets (full encoder) ─────────────────
     print("\n[eval] Loading best checkpoint for test evaluation …", flush=True)

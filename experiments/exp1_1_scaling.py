@@ -281,13 +281,13 @@ def _load_k562_ag_oracle():
     f5_enc = _encode_flanks(flank_5)
     f3_enc = _encode_flanks(flank_3)
 
-    head_name = "boda_flatten_v4"
+    head_name = "alphagenome_k562_head_hashfrag_boda_flatten_512_512_v4"
     register_s2f_head(
         head_name=head_name,
         arch="boda-flatten-512-512",
         task_mode="human",
         num_tracks=1,
-        dropout_rate=0.0,
+        dropout_rate=0.1,
     )
     weights_path = os.environ.get(
         "ALPHAGENOME_WEIGHTS",
@@ -520,13 +520,13 @@ def _load_yeast_ag_oracle():
     if not ckpt_dirs:
         raise FileNotFoundError(f"No yeast AG oracle checkpoints in {oracle_dir}")
 
-    head_name = "yeast_oracle_head"
+    head_name = "ag_yeast_boda_flatten_512_512_v4"
     register_s2f_head(
         head_name=head_name,
         arch="boda-flatten-512-512",
         task_mode="yeast",
         num_tracks=18,
-        dropout_rate=0.0,
+        dropout_rate=0.1,
     )
     weights_path = os.environ.get(
         "ALPHAGENOME_WEIGHTS",
