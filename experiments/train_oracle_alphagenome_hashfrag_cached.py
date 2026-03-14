@@ -413,7 +413,7 @@ def main(cfg: DictConfig) -> None:
                 )
                 break
 
-        model.save_checkpoint(str(output_dir / "last_model"), save_full_model=True)
+        # Skip last_model save to conserve disk (best_model is sufficient)
 
     # ── Post-training evaluation on test sets (full encoder) ─────────────────
     print("\n[eval] Loading best checkpoint for test evaluation …", flush=True)
