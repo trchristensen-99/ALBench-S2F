@@ -469,7 +469,13 @@ def _load_yeast_dream_oracle():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     models = []
     for ckpt_path in runs:
-        m = create_dream_rnn(input_channels=6, sequence_length=150, task_mode="yeast")
+        m = create_dream_rnn(
+            input_channels=6,
+            sequence_length=150,
+            task_mode="yeast",
+            cnn_filters=256,
+            hidden_dim=320,
+        )
         state = torch.load(ckpt_path, map_location="cpu")
         m.load_state_dict(state["model_state_dict"], strict=True)
         m.to(device).eval()
