@@ -87,8 +87,16 @@ class DREAMRNNStudent(SequenceModel):
         self, sequences: Sequence[str], singleton_flag: float = 0.0
     ) -> torch.Tensor:
         """Encode sequence strings into model input tensors."""
+        target_len = self.sequence_length
         encoded: list[np.ndarray] = []
         for seq in sequences:
+            seq = seq.upper()
+            if len(seq) < target_len:
+                pad = target_len - len(seq)
+                seq = "N" * (pad // 2) + seq + "N" * (pad - pad // 2)
+            elif len(seq) > target_len:
+                start = (len(seq) - target_len) // 2
+                seq = seq[start : start + target_len]
             base = one_hot_encode(seq, add_singleton_channel=False)
             rc = np.zeros((1, len(seq)), dtype=np.float32)
             if self.input_channels == 6:
