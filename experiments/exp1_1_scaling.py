@@ -1333,6 +1333,9 @@ def run_scaling_experiment(
             )
 
         hp_configs = _build_hp_configs(n_train)
+        # Filter out configs where batch_size > training samples (causes 0 steps with drop_last)
+        actual_n_train = len(train_seqs)
+        hp_configs = [hp for hp in hp_configs if hp["batch_size"] <= actual_n_train]
         logger.info(f"HP configs for n={n_train:,}: {len(hp_configs)} configs")
 
         best_hp = None
