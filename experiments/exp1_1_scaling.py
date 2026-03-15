@@ -1189,6 +1189,100 @@ def run_scaling_experiment(
     logger.info(f"Loading oracle for task={task}, oracle_type={oracle_type}...")
     oracle = _load_oracle(task, oracle_type=oracle_type)
 
+    # ── ISE fitness model support ─────────────────────────────────────
+    # Reservoir names like "ise_maximize_dream10" or "ise_maximize_ag100"
+    # use a pre-trained fitness model instead of the oracle for ISE.
+    # Parse: base_ise_name = "ise_maximize", fitness_spec = "dream10"
+    _ISE_FITNESS_SUFFIXES = {"dream10", "dream100", "ag10", "ag100"}
+
+    def _parse_ise_reservoir(name: str) -> tuple[str, str | None]:
+        """Return (base_reservoir_name, fitness_spec_or_None)."""
+        for suffix in _ISE_FITNESS_SUFFIXES:
+            if name.endswith(f"_{suffix}"):
+                base = name[: -(len(suffix) + 1)]
+                return base, suffix
+        return name, None
+
+    base_reservoir, ise_fitness_spec = _parse_ise_reservoir(reservoir_name)
+
+    def _load_ise_fitness_model(spec: str):
+        """Load a pre-trained ISE fitness model."""
+        model_map = {
+            "dream10": f"outputs/ise_fitness_models/{task}/dream_rnn_10pct",
+            "dream100": f"outputs/ise_fitness_models/{task}/dream_rnn_100pct",
+            "ag10": f"outputs/ise_fitness_models/{task}/ag_s1_10pct",
+            "ag100": f"outputs/ise_fitness_models/{task}/ag_s1_100pct",
+        }
+        model_dir = REPO / model_map[spec]
+        if not model_dir.exists():
+            raise FileNotFoundError(
+                f"ISE fitness model not found at {model_dir}. "
+                "Run experiments/train_ise_fitness_models.py first."
+            )
+
+        if spec.startswith("dream"):
+            return _load_dream_fitness_model(model_dir, task)
+        else:
+            return _load_ag_s1_fitness_model(model_dir, task)
+
+    def _load_dream_fitness_model(model_dir: Path, task: str):
+        """Load a single DREAM-RNN as ISE fitness predictor."""
+        import torch
+
+        from models.dream_rnn_student import create_dream_rnn
+
+        task_cfg = TASK_CONFIGS[task]
+        ckpt_path = model_dir / "model.pt"
+        state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        model = create_dream_rnn(
+            input_channels=task_cfg["input_channels"],
+            sequence_length=task_cfg["sequence_length"],
+            task_mode=task_cfg["task_mode"],
+        )
+        model.load_state_dict(state["model_state_dict"])
+        model.eval()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model.to(device)
+
+        from models.dream_rnn_student import DREAMRNNStudent
+
+        # Wrap in a lightweight predictor
+        wrapper = DREAMRNNStudent(
+            input_channels=task_cfg["input_channels"],
+            sequence_length=task_cfg["sequence_length"],
+            task_mode=task_cfg["task_mode"],
+            ensemble_size=1,
+        )
+        wrapper.models = [model]
+        wrapper.device = device
+        logger.info(f"Loaded DREAM-RNN ISE fitness model from {ckpt_path}")
+        return wrapper
+
+    def _load_ag_s1_fitness_model(model_dir: Path, task: str):
+        """Load a single AG-S1 head as ISE fitness predictor."""
+        import pickle
+
+        params_path = model_dir / "head_params.pkl"
+        with open(params_path, "rb") as f:
+            trained_params = pickle.load(f)
+
+        ag = _get_ag_model_and_encoder(task)
+
+        class _AGS1Fitness:
+            def predict(self, sequences: list[str]) -> np.ndarray:
+                embs = _encode_sequences_for_ag(sequences, task, ag["encoder_fn"])
+                preds = ag["head_fn"](trained_params, embs)
+                return np.array(preds).squeeze()
+
+        logger.info(f"Loaded AG-S1 ISE fitness model from {params_path}")
+        return _AGS1Fitness()
+
+    # Determine ISE fitness model (None means use oracle)
+    ise_fitness_model = None
+    if ise_fitness_spec is not None:
+        logger.info(f"Loading ISE fitness model: {ise_fitness_spec}")
+        ise_fitness_model = _load_ise_fitness_model(ise_fitness_spec)
+
     # Load pool for reservoir types that need base/pool sequences
     _NEEDS_POOL = {
         "genomic",
@@ -1210,7 +1304,8 @@ def run_scaling_experiment(
         "snv",
     }
     pool_seqs, pool_labels = None, None
-    if reservoir_name in _NEEDS_POOL:
+    _needs_pool = reservoir_name in _NEEDS_POOL or base_reservoir in _NEEDS_POOL
+    if _needs_pool:
         logger.info("Loading genomic pool sequences...")
         pool_seqs, pool_labels = _load_pool_sequences(task)
         logger.info(f"Pool size: {len(pool_seqs):,}")
@@ -1247,6 +1342,9 @@ def run_scaling_experiment(
         "evoaug_structural",
         "evoaug_heavy",
     }
+    # For ISE fitness-model variants, use the base reservoir config
+    _res_config_name = base_reservoir if base_reservoir != reservoir_name else reservoir_name
+
     for n_train in training_sizes:
         label_cache_dir = output_base / reservoir_name / f"n{n_train}"
         label_cache_path = label_cache_dir / "oracle_labels.npz"
@@ -1254,24 +1352,28 @@ def run_scaling_experiment(
             continue  # Already cached
         logger.info(f"[pre-label] Generating + labeling n={n_train:,} for {reservoir_name}")
         label_cache_dir.mkdir(parents=True, exist_ok=True)
-        _res = _load_reservoir(reservoir_name, seed=seed)
-        if reservoir_name == "random":
+        _res = _load_reservoir(_res_config_name, seed=seed)
+        if _res_config_name == "random":
             _seqs, _ = _res.generate(n_train, task=task)
-        elif reservoir_name == "dinuc_shuffle":
+        elif _res_config_name == "dinuc_shuffle":
             _seqs, _ = _res.generate(
                 n_train, task=task, method="dinuc_shuffle", reference_sequences=pool_seqs
             )
-        elif reservoir_name == "genomic":
+        elif _res_config_name == "genomic":
             _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
-        elif reservoir_name == "gc_matched":
+        elif _res_config_name == "gc_matched":
             _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, task=task)
-        elif reservoir_name.startswith("prm") or reservoir_name == "snv":
+        elif _res_config_name.startswith("prm") or _res_config_name == "snv":
             _seqs, _ = _res.generate(n_train, base_sequences=pool_seqs, task=task)
-        elif reservoir_name in _POOL_MUTAGENESIS_PRE or reservoir_name.startswith("recombination"):
+        elif _res_config_name in _POOL_MUTAGENESIS_PRE or _res_config_name.startswith(
+            "recombination"
+        ):
             _seqs, _ = _res.generate(n_train, base_sequences=pool_seqs, task=task)
-        elif reservoir_name in _ISE_TYPES_PRE:
+        elif _res_config_name in _ISE_TYPES_PRE:
+            # Use ISE fitness model if specified, otherwise oracle
+            _ise_predictor = ise_fitness_model if ise_fitness_model is not None else oracle
             _seqs, _ = _res.generate(
-                n_train, base_sequences=pool_seqs, task=task, student_model=oracle
+                n_train, base_sequences=pool_seqs, task=task, student_model=_ise_predictor
             )
         else:
             _seqs, _ = _res.generate(n_train, task=task)
