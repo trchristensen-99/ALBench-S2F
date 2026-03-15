@@ -180,22 +180,59 @@
 | Yeast DREAM oracle size mismatch | Default `cnn_filters=160` vs trained `256` | Explicit architecture params | `73f0b8d` |
 | Disk quota exceeded | last_model saves (~1.7GB each) | Removed last_model saves | `20f4ac2` |
 | CUDA OOM (DREAM×AG) | AG oracle + DREAM student > 93GB | Pre-label + free oracle GPU | `8581720` |
-| Corrupt NPZ caches | Zero-byte files from disk-full | Deleted 25 corrupt files | Manual |
-| Yeast SNV: 0 mutations | `round(0.005 * 80) = 0` | Clamp n_mut ≥ 1 | Uncommitted |
+| Corrupt NPZ caches | Zero-byte files from disk-full | Deleted 25+ corrupt files | Manual |
+| Yeast SNV: 0 mutations | `round(0.005 * 80) = 0` | Clamp n_mut ≥ 1 | `a5bed73` |
+| DiversityAcquisition O(N*k²) | Full distance matrix recomputed each step | Incremental min-distance | `a5bed73` |
+| No result skip on resubmit | exp1_1 redid completed runs | Check result.json before training | `b7da632` |
+
+---
+
+## Preliminary Reservoir Rankings (K562 AG-S1×AG, 1566 results)
+
+### OOD Pearson R — most differentiated metric
+
+| Rank | n=1,000 | n=10,000 | n=50,000 | n=500,000 |
+|------|---------|----------|----------|-----------|
+| 1 | ise_maximize (0.911) | ise_maximize (0.940) | ise_maximize (0.945) | motif_planted (0.947) |
+| 2 | motif_planted (0.905) | motif_planted (0.935) | motif_grammar (0.944) | motif_grammar_tight (0.947) |
+| 3 | motif_grammar (0.904) | motif_grammar_tight (0.933) | motif_grammar_tight (0.943) | prm_10pct (0.946) |
+
+**Key finding**: ISE and motif-based reservoirs consistently dominate OOD generalization. Gap narrows at large N but is substantial at small N (~0.91 vs ~0.87 for random at n=1k).
+
+In-dist performance is nearly saturated — all strategies within ~0.002 of each other.
+
+### Yeast DREAM×DREAM preliminary (352 results, partial)
+
+At n=50k: `recombination_uniform` (0.914 OOD) strongly dominates, followed by `dinuc_shuffle` (0.898), `prm_5pct` (0.873).
+
+### Top-3 Reservoirs for Exp 1.2 (tentative)
+
+| Task | Top-3 Reservoirs | Rationale |
+|------|-----------------|-----------|
+| K562 | ise_maximize, motif_planted, motif_grammar | Dominate OOD at all sizes |
+| Yeast | recombination_uniform, dinuc_shuffle, prm_5pct | Best OOD at n=50k (pending more data) |
+
+---
+
+## Exp 1.3 Analysis (preliminary)
+
+Ran on K562 AG-S1×AG at n=50,000 (21 strategies). Output at `outputs/exp1_3/k562_ag_s1_ag/`:
+- `analysis_summary.json`, `gc_distribution.png`, `expression_distribution.png`, `motif_heatmap.png`, `jaccard_heatmap.png`
+- Embedding analysis pending (needs cache dir)
 
 ---
 
 ## Next Steps
 
-### Immediate (while 1.1 runs)
-1. Monitor HPC jobs, resubmit failures
-2. Push yeast SNV fix + new code to HPC
-3. Run exp1_3 analysis on partial K562 AG-S1×AG results (95% complete)
+### Immediate
+1. Monitor HPC jobs (24 running, 16 pending — all 8 configs covered)
+2. Run exp1_3 on more configs as they complete
+3. Generate scaling plots for each completed config
 
 ### After 1.1 completes
-4. Identify top-3 reservoir strategies per task
-5. Launch exp1_2 acquisition benchmarking (7 strategies × 3 regimes × top reservoirs)
-6. Implement BatchBALD/BAIT if needed
+4. Finalize top-3 reservoirs per task from full data
+5. Launch exp1_2 acquisition benchmarking (9 strategies × 3 regimes × top reservoirs)
+6. Full exp1_3 cross-strategy analysis
 
 ### Stretch goals
 7. Mixed reservoir pools for 1.2
