@@ -1,0 +1,38 @@
+name: exp1_2_acquisition
+description: "Acquisition function benchmarking for active learning"
+
+# Data regimes (initial_size -> train initial student, batch_size -> selected by acquisition)
+regimes:
+  small:
+    initial_size: 1000
+    batch_size: 20000
+  medium:
+    initial_size: 10000
+    batch_size: 50000
+  large:
+    initial_size: 50000
+    batch_size: 100000
+
+# Pool size = pool_ratio * batch_size
+pool_ratio: 10
+
+# Acquisition functions to benchmark
+acquisitions:
+  - random          # baseline: uniform random selection
+  - uncertainty     # select most uncertain candidates
+  - diversity       # greedy farthest-point in embedding space
+  - badge           # k-means++ on uncertainty-scaled embeddings
+  - combined        # weighted uncertainty + diversity + activity prior
+  - ensemble        # ensemble disagreement
+  - prior_knowledge # sequence-prior (activity + motif + GC)
+
+hp_sweep:
+  enabled: true
+  n_replicates: 3
+
+output_dir: outputs/exp1_2
+
+wandb:
+  project: albench-s2f
+  group: exp1_2
+  tags: [exp1, acquisition]

@@ -1,120 +1,203 @@
-# Experiment 1: Reservoir Sampling + Acquisition Benchmarking — Status
+# Experiment 1: Reservoir Sampling + Acquisition Benchmarking — Status Report
 
-**Last updated**: 2026-03-13
+**Last updated**: 2026-03-15
+**Overall scope**: 3 sub-experiments (1.1 scaling laws, 1.2 acquisition benchmarking, 1.3 sequence analysis)
 
-## Overview
+---
 
-Experiment 1 benchmarks how different reservoir sampling strategies (sequence generation)
-and acquisition functions (subset selection) affect student model performance at various
-training set sizes. Experiment 1.1 focuses on scaling laws with random acquisition.
+## Experiment 1.1: Reservoir Sampling Scaling Laws
 
-## Oracle Architecture Bias Control (2×2 Design)
+**Design**: 2×2 factorial — {DREAM-RNN, AG-S1} students × {AG, DREAM-RNN} oracles × {K562, yeast} tasks
+**Reservoirs**: 21 types per config
+**Training sizes**: Small tier (1k, 5k, 10k, 20k, 50k) + Large tier (100k, 200k, 500k)
+**Expected results per config**: ~1,638 (21 reservoirs × ~78 per reservoir)
+**Expected total**: ~13,104 across 8 configs
+**Status**: **Running on HPC (~23% complete)**
 
-**Concern**: Same-architecture oracle (e.g., DREAM-RNN student × DREAM-RNN oracle) may be
-unrealistically easy, while cross-architecture (e.g., DREAM-RNN student × AG oracle) may be
-too hard. Real experimental labels fall somewhere between.
+### Overall Completion
 
-**Design**: Full 2×2 comparison on "random" reservoir to bracket difficulty.
+| Config | Task | Results | Est. % | Status |
+|--------|------|---------|--------|--------|
+| AG-S1 × AG | K562 | 1,566 | ~95% | Nearly complete (4 reservoirs missing large-N) |
+| AG-S1 × DREAM | K562 | 642 | ~40% | Running + resubmitted |
+| DREAM × DREAM | K562 | 424 | ~26% | Running + resubmitted |
+| DREAM × AG | K562 | 104 | ~6% | Resubmitted (CUDA OOM fix deployed) |
+| DREAM × DREAM | Yeast | 280 | ~17% | Running + resubmitted |
+| DREAM × AG | Yeast | 0 | 0% | Submitted, pending |
+| AG-S1 × AG | Yeast | 0 | 0% | Submitted, pending |
+| AG-S1 × DREAM | Yeast | 0 | 0% | Submitted, pending |
+| **Total** | | **3,016** | **~23%** | |
 
-### K562 (2 students × 2 oracles × random reservoir)
+### Key Results So Far
 
-| Student | AG Oracle | DREAM-RNN Oracle |
-|---------|-----------|-----------------|
-| DREAM-RNN | Cross-arch (main) | Same-arch control |
-| AG S1 | Same-arch control | Cross-arch |
+**K562: AG-S1 × AG** (genomic reservoir, test Pearson r):
 
-### Yeast (2 students × 2 oracles × random reservoir)
+| n_train | in_dist | OOD | SNV_abs | SNV_delta |
+|---------|---------|-----|---------|-----------|
+| 1,000 | 0.945 | 0.839 | 0.938 | 0.878 |
+| 5,000 | 0.970 | 0.871 | 0.966 | 0.917 |
+| 50,000 | 0.983 | 0.920 | 0.980 | 0.946 |
+| 500,000 | 0.986 | 0.946 | 0.984 | 0.953 |
 
-| Student | DREAM-RNN Oracle | AG Oracle |
-|---------|-----------------|-----------|
-| DREAM-RNN | Same-arch (main) | Cross-arch control |
-| AG S1 | Cross-arch | Same-arch control |
+**K562: DREAM × DREAM** (random reservoir):
 
-## Implementation Status
+| n_train | in_dist | OOD |
+|---------|---------|-----|
+| 1,000 | 0.332 | 0.015 |
+| 10,000 | 0.545 | 0.059 |
+| 50,000 | 0.793 | 0.350 |
 
-### Step 0: Oracle-labeled test sets — DONE
-- `scripts/prepare_exp1_test_sets.py` — AG-oracle test NPZs in `data/k562/test_sets/`
-- `experiments/generate_oracle_pseudolabels_k562_dream.py` — DREAM-oracle test NPZs in `data/k562/test_sets_dream/`
-- `experiments/generate_oracle_pseudolabels_yeast_ag.py` — AG-oracle test NPZs in `data/yeast/test_sets_ag/`
-- **NOT YET RUN**: Needs HPC submission
+**Yeast: DREAM × DREAM** (random reservoir):
 
-### Step 1: Phase 1 reservoir samplers — DONE
-- `albench/reservoir/random_sampler.py` — uniform random + dinucleotide shuffle (vectorized)
-- `albench/reservoir/genomic.py` — fixed pool genomic sampler
-- `albench/reservoir/partial_mutagenesis.py` — PRM with 4 mutation rate distributions
+| n_train | in_dist | OOD |
+|---------|---------|-----|
+| 1,000 | 0.609 | 0.164 |
+| 10,000 | 0.855 | 0.463 |
+| 50,000 | 0.942 | 0.823 |
 
-### Step 2: Experiment runner — DONE
-- `experiments/exp1_1_scaling.py` — CLI with `--oracle {default,ag,dream_rnn}` and `--student {dream_rnn,alphagenome_k562_s1,alphagenome_yeast_s1}`
-- AG S1 student: on-the-fly encoding + head-only training (no pre-caching needed)
-- Oracle routing: all 4 task×oracle combos supported (K562/yeast × AG/DREAM-RNN)
-- Oracle-specific test set directories (auto-selected based on oracle type)
+### Emerging Insights
 
-### Step 3: Configs — DONE
+1. **AG encoder dominance**: 0.945 in-dist at n=1k vs DREAM needing 50k to reach 0.793
+2. **Oracle quality > data quantity**: AG labels boost DREAM from 0.33→0.88 at n=1k
+3. **OOD bottleneck is student architecture**, not oracle quality
+4. **Reservoir effects appear secondary** to student/oracle architecture effects
 
-### Step 4: SLURM templates — DONE
-- `scripts/slurm/exp1_1_scaling.sh` — array job, supports `ORACLE` and `STUDENT` env vars
-- `scripts/slurm/train_oracle_dream_rnn_k562_ensemble.sh` — 10-fold K562 DREAM-RNN oracle
-- `scripts/slurm/train_oracle_alphagenome_yeast_ensemble.sh` — 10-fold yeast AG oracle
-- `scripts/slurm/generate_k562_dream_pseudolabels.sh` — K562 DREAM-RNN pseudolabels
-- `scripts/slurm/generate_yeast_ag_pseudolabels.sh` — yeast AG pseudolabels
-- `scripts/slurm/launch_exp1_1.sh` — full pipeline with dependency chaining
+### Known Issues
 
-### Step 5: Visualization — DONE
-- `albench/visualization/scaling_plots.py` — single and 4-panel scaling curve plots
+| Issue | Status |
+|-------|--------|
+| HP grid smaller than plan (4 configs vs 6-8) | Accepted for now — extending would invalidate existing results |
+| K562 random test set (10k sequences) | Generation script exists, not yet verified running in eval |
+| Yeast SNV reservoir: 0 mutations at 80bp | **Fixed** — `n_mut` now clamped to ≥1 |
+| CUDA OOM on DREAM×AG configs | **Fixed** — pre-labeling + oracle GPU free |
 
-### Step 6: Validation — DONE (local)
-- [x] All imports pass (oracle routing, student types, reservoir samplers)
-- [x] Ruff lint + format clean
-- [ ] HPC smoke test (after push)
+---
 
-## Pipeline for HPC submission
+## Experiment 1.2: Acquisition Function Benchmarking
 
-```bash
-bash scripts/slurm/launch_exp1_1.sh all
-```
+**Design**: Single AL round — initial labeled set → generate reservoir pool → acquisition selects batch → retrain student on combined data → evaluate
+**Regimes**: small (init=1k, batch=20k), medium (init=10k, batch=50k), large (init=50k, batch=100k)
+**Pool ratio**: 10× (pool_size = 10 × batch_size)
+**Blocked on**: Exp 1.1 completion (need top-3 reservoir strategies)
+**Status**: **Infrastructure ready, not yet running**
 
-This submits:
-1. **Phase 1**: K562 + Yeast main experiments (6 reservoirs × default oracles)
-2. **Phase 2a**: Oracle ensemble training (K562 DREAM-RNN 10-fold, yeast AG 10-fold)
-3. **Phase 2b**: Pseudolabel generation (depends on 2a)
-4. **Phase 2c**: 2×2 oracle comparison (random reservoir, 8 scaling curves total)
+### Acquisition Strategies
 
-## HP sweep
+| Strategy | File | Status | Notes |
+|----------|------|--------|-------|
+| Random | `random_acq.py` | Done | Baseline |
+| Uncertainty | `uncertainty.py` | Done | Uses `student.uncertainty()` |
+| Diversity (LCMD) | `diversity.py` | Done | Greedy farthest-point in embedding space |
+| BADGE | `badge.py` | **NEW** | k-means++ on uncertainty-scaled embeddings |
+| Combined | `combined.py` | Done | Weighted uncertainty + diversity + activity prior |
+| Ensemble disagreement | `ensemble_acq.py` | Done | Variance across ensemble members |
+| Prior knowledge | `prior_knowledge.py` | Done | Activity/motif/GC priors |
 
-| Student | Grid | Configs |
-|---------|------|---------|
-| DREAM-RNN | lr ∈ {0.003, 0.005} × bs ∈ {512, 1024} | 4 |
-| AG K562 S1 | lr ∈ {3e-4, 1e-3} × bs ∈ {128, 256} | 4 |
-| AG Yeast S1 | lr ∈ {3e-4, 1e-3} × bs ∈ {128, 256} | 4 |
+### Missing Acquisition Strategies (deferred)
 
-Training sizes: `[1000, 5000, 10000, 20000, 50000, 100000, 200000, 500000]`
-Replicates: 3 per HP config per training size
+| Strategy | Priority | Notes |
+|----------|----------|-------|
+| BatchBALD | Medium | Greedy mutual information maximization |
+| BAIT | Medium | Fisher information-based selection |
+| k-means diversity | Low | Alternative to LCMD; add as config variant |
+| k-mer diversity | Low | k-mer frequency vector diversity |
+| Expected error reduction | Low | Most computationally expensive |
+| Reinforcement learning | Low | Stretch goal |
 
-## Reservoir strategies (Phase 1)
+### Infrastructure
 
-| Strategy | Config | Description |
-|----------|--------|-------------|
-| Random | `random.yaml` | Uniform random nucleotides |
-| Genomic | `genomic.yaml` | Sample from training pool |
-| PRM 1% | `prm_1pct.yaml` | Fixed 1% mutation rate |
-| PRM 5% | `prm_5pct.yaml` | Fixed 5% mutation rate |
-| PRM 10% | `prm_10pct.yaml` | Fixed 10% mutation rate |
-| PRM uniform | `prm_uniform_1_10.yaml` | Uniform 1-10% mutation rate |
+| Component | File | Status |
+|-----------|------|--------|
+| Experiment runner | `experiments/exp1_2_acquisition.py` | **NEW** — ~480 lines, imports from exp1_1 |
+| SLURM template | `scripts/slurm/exp1_2_acquisition.sh` | **NEW** — array job per regime |
+| Config | `configs/experiment/exp1_2_acquisition.yaml` | **NEW** |
+| BADGE config | `configs/acquisition/badge.yaml` | **NEW** |
 
-## Computational estimate
+### Design Notes
 
-| Component | GPU-hours |
-|-----------|-----------|
-| Phase 1: DREAM-RNN × 6 reservoirs (K562 + yeast) | ~96 |
-| Phase 2a: Oracle training (10-fold × 2 architectures) | ~60 |
-| Phase 2b: Pseudolabel generation | ~8 |
-| Phase 2c: 2×2 comparison (8 curves × random reservoir) | ~40 |
-| **Total** | **~200** |
+- Experiment runner reuses all infrastructure from `exp1_1_scaling.py` (oracle loading, student training, evaluation, HP grids)
+- Same pre-labeling optimization: cache oracle labels for initial set + reservoir pool, free oracle GPU before student training
+- Initial student trained on initial set for acquisition functions that need it (uncertainty, diversity, BADGE, etc.)
+- Random acquisition still trains initial student for consistency
+- Result caching: skips completed runs
 
-## Next steps
+---
 
-1. **Commit and push** all Exp 1 code
-2. **Pull on HPC** and submit `launch_exp1_1.sh all`
-3. Monitor Phase 1 jobs, check early results at small training sizes
-4. When Phase 2 completes: analyze same-arch vs cross-arch oracle gap
-5. Generate comparison plots with `albench/visualization/scaling_plots.py`
+## Experiment 1.3: Sequence Property Analysis
+
+**Design**: Post-hoc analysis of sequences from 1.1/1.2 — what properties distinguish informative from uninformative selections?
+**Blocked on**: Exp 1.1/1.2 results (can run on partial results)
+**Status**: **Analysis script ready, not yet run**
+
+### Analyses Implemented
+
+| Analysis | Status | Notes |
+|----------|--------|-------|
+| Sequence composition (GC, dinucs, k-mers, homopolymers) | Done | Violin plot output |
+| Expression properties (distribution, enrichment, range coverage) | Done | Density histogram output |
+| TF motif analysis (counts, diversity) | Done (substring matching) | TODO: FIMO integration for PWM scoring |
+| Embedding space (UMAP/PCA, pairwise distance) | Done | Falls back to PCA if umap-learn unavailable |
+| Inter-strategy overlap (Jaccard similarity) | Done | Heatmap output |
+
+### Infrastructure
+
+| Component | File | Status |
+|-----------|------|--------|
+| Analysis script | `experiments/exp1_3_analysis.py` | **NEW** — loads from exp1_1 oracle_labels.npz cache files |
+| CLI | argparse | `--results-dir`, `--task`, `--output-dir`, `--strategies`, `--n-train` |
+| Output | JSON + PNG | `analysis_summary.json` + 4-5 matplotlib figures |
+
+---
+
+## Cross-Cutting Issues
+
+### Alignment with Original Plan
+
+| Feature | Plan | Actual | Gap |
+|---------|------|--------|-----|
+| DREAM-RNN HP grid | 8 configs (4 lr × 2 bs) | 4 configs (2 lr × 2 bs) | Missing lr=0.001 and lr=0.01 |
+| AG K562 HP grid | 6 configs (3 lr × 2 bs) | 4 configs (2 lr × 2 bs) | Missing lr=1e-4, bs=64 |
+| K562 random test set | 10k random 200bp seqs | Generation script exists | Not verified in evaluation |
+| Yeast high-activity test set | Deferred in plan | Not available | Could generate via ISE |
+| Phase 3 reservoirs | UGM, Zoonomia, D3/Evo2 | Not implemented | Low priority per plan |
+| Mixed reservoir pools | Described in 1.2 plan | Not implemented | Future work |
+| Batch size constraint | "at least 512" for DREAM-RNN | ≥512 enforced | Aligned |
+
+### Resource Status
+
+- **Disk**: 83 GB / ~94 GB quota (tight)
+- **QoS**: `slow_nice` on `gpuq` — 48h wall time, 20 concurrent jobs
+- **Estimated 1.1 completion**: 3-5 more days
+
+---
+
+## Issues & Fixes Log
+
+| Issue | Root Cause | Fix | Commit |
+|-------|-----------|-----|--------|
+| AG-S1 student crash | `arch="boda-flatten"` not recognized | Changed to `"boda-flatten-512-512"` | `228248a` |
+| AG oracle checkpoints empty | `save_full_model=False` | Changed to `True` + aligned head names | `8b69414` |
+| Yeast DREAM oracle size mismatch | Default `cnn_filters=160` vs trained `256` | Explicit architecture params | `73f0b8d` |
+| Disk quota exceeded | last_model saves (~1.7GB each) | Removed last_model saves | `20f4ac2` |
+| CUDA OOM (DREAM×AG) | AG oracle + DREAM student > 93GB | Pre-label + free oracle GPU | `8581720` |
+| Corrupt NPZ caches | Zero-byte files from disk-full | Deleted 25 corrupt files | Manual |
+| Yeast SNV: 0 mutations | `round(0.005 * 80) = 0` | Clamp n_mut ≥ 1 | Uncommitted |
+
+---
+
+## Next Steps
+
+### Immediate (while 1.1 runs)
+1. Monitor HPC jobs, resubmit failures
+2. Push yeast SNV fix + new code to HPC
+3. Run exp1_3 analysis on partial K562 AG-S1×AG results (95% complete)
+
+### After 1.1 completes
+4. Identify top-3 reservoir strategies per task
+5. Launch exp1_2 acquisition benchmarking (7 strategies × 3 regimes × top reservoirs)
+6. Implement BatchBALD/BAIT if needed
+
+### Stretch goals
+7. Mixed reservoir pools for 1.2
+8. FIMO integration for 1.3 motif analysis
+9. Phase 3 reservoirs (UGM, generative models)

@@ -1,8 +1,8 @@
 # Single nucleotide variant reservoir: exactly 1 point mutation per sequence.
 # Matches the SNV test set distribution.
 # Rate 0.005 gives round(0.005 * 200) = 1 mutation for K562 (200bp).
-# For yeast (80bp region), this gives round(0.005 * 80) = 0, so yeast uses
-# rate 0.0125 instead → round(0.0125 * 80) = 1.
+# For yeast (80bp region), round(0.005 * 80) = 0, but the sampler clamps
+# n_mutations to at least 1, so this rate works for both tasks.
 _target_: albench.reservoir.partial_mutagenesis.PartialMutagenesisSampler
 seed: ${seed}
 mutation_rate_distribution: fixed

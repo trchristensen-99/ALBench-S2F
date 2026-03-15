@@ -147,6 +147,10 @@ class PartialMutagenesisSampler(ReservoirSampler):
                     n_mut = min(int(self._rng.poisson(rates[i] * region_len)), region_len)
                 else:
                     n_mut = min(max(0, int(round(rates[i] * region_len))), region_len)
+                # Ensure at least 1 mutation: prevents round-to-zero for short
+                # sequences (e.g. yeast 80bp with rate 0.005 → round(0.4) = 0).
+                if n_mut == 0 and region_len > 0:
+                    n_mut = 1
 
                 if n_mut == 0:
                     mutated = region
