@@ -50,7 +50,7 @@ ALL_REGIMES=(small medium large)
 REGIME="${REGIME:-${ALL_REGIMES[$SLURM_ARRAY_TASK_ID]}}"
 
 # All acquisition functions
-ACQUISITIONS="random uncertainty diversity badge batchbald combined ensemble prior_knowledge"
+ACQUISITIONS="random uncertainty diversity badge bait batchbald combined ensemble prior_knowledge"
 
 echo "=== Experiment 1.2: Acquisition Function Benchmarking ==="
 echo "Task: ${TASK}, Student: ${STUDENT}, Oracle: ${ORACLE}"

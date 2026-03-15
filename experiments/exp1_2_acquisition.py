@@ -76,6 +76,7 @@ def _populate_registry() -> None:
         return
     from albench.acquisition import (
         BADGEAcquisition,
+        BAITAcquisition,
         BatchBALDAcquisition,
         CombinedAcquisition,
         DiversityAcquisition,
@@ -91,6 +92,7 @@ def _populate_registry() -> None:
             "uncertainty": UncertaintyAcquisition,
             "diversity": DiversityAcquisition,
             "badge": BADGEAcquisition,
+            "bait": BAITAcquisition,
             "batchbald": BatchBALDAcquisition,
             "combined": CombinedAcquisition,
             "ensemble": EnsembleAcquisition,

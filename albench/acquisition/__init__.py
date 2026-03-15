@@ -1,6 +1,7 @@
 """Acquisition implementations."""
 
 from albench.acquisition.badge import BADGEAcquisition
+from albench.acquisition.bait import BAITAcquisition
 from albench.acquisition.base import AcquisitionFunction
 from albench.acquisition.batchbald import BatchBALDAcquisition
 from albench.acquisition.combined import CombinedAcquisition
@@ -13,6 +14,7 @@ from albench.acquisition.uncertainty import UncertaintyAcquisition
 __all__ = [
     "AcquisitionFunction",
     "BADGEAcquisition",
+    "BAITAcquisition",
     "BatchBALDAcquisition",
     "CombinedAcquisition",
     "DiversityAcquisition",

@@ -1422,6 +1422,20 @@ def run_scaling_experiment(
                 )
                 run_dir.mkdir(parents=True, exist_ok=True)
 
+                # Skip if result already exists (resume-friendly)
+                result_path = run_dir / "result.json"
+                if result_path.exists():
+                    logger.info(
+                        f"  Skipping completed: HP {hp_idx + 1}/{len(hp_configs)}, "
+                        f"rep {rep + 1}/{n_replicates} ({result_path})"
+                    )
+                    try:
+                        cached_result = json.loads(result_path.read_text())
+                        hp_val_rs.append(cached_result.get("val_pearson_r", 0.0))
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+                    continue
+
                 logger.info(
                     f"  HP {hp_idx + 1}/{len(hp_configs)}, "
                     f"rep {rep + 1}/{n_replicates}, "
