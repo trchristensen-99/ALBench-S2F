@@ -23,8 +23,6 @@ import optax
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from alphagenome_ft import create_model_with_heads
-
 from data.k562 import K562Dataset
 from data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM
 from models.alphagenome_heads import register_s2f_head
@@ -98,29 +96,28 @@ def train_and_evaluate(
     print(f"AG {model_version} S1 (lr={LR})")
     print(sep)
 
-    # Register head and load model
-    head_name = f"ag_{model_version}_s1"
-    register_s2f_head(
-        head_name=head_name,
-        arch="boda-flatten-512-512",
-        task_mode="human",
-        num_tracks=1,
-        dropout_rate=DROPOUT,
+    # Use the working infrastructure from exp1_1_scaling
+    import os
+
+    os.environ["ALPHAGENOME_WEIGHTS"] = weights_dir
+
+    # Clear the cached AG model so it reloads with new weights
+    from experiments.exp1_1_scaling import (
+        _AG_MODEL_CACHE,
+        _encode_sequences_for_ag,
+        _get_ag_model_and_encoder,
     )
-    # Always use "all_folds" as model_version (defines architecture),
-    # but load weights from the specific checkpoint dir. The fold_1
-    # checkpoint has the same architecture, just different pretrained weights.
-    model = create_model_with_heads(
-        "all_folds",
-        heads=[head_name],
-        checkpoint_path=weights_dir,
-        detach_backbone=True,
-    )
+
+    _AG_MODEL_CACHE.clear()
+
+    ag = _get_ag_model_and_encoder("k562")
+    model = ag["model"]
+    head_name = ag["head_name"]
 
     # Encode full train set
     print("Encoding train set...", flush=True)
     t0 = time.time()
-    all_embs = encode_batch(model, model._params, train_seqs)
+    all_embs = _encode_sequences_for_ag(train_seqs, "k562", ag["encoder_fn"])
     print(f"  Shape: {all_embs.shape}, time: {time.time() - t0:.0f}s")
 
     t_embs = all_embs[train_mask].astype(np.float32)
@@ -136,10 +133,8 @@ def train_and_evaluate(
     for seed in SEEDS:
         print(f"\n  Seed {seed}...", flush=True)
         reinit_head_params(model, head_name, num_tokens=5, dim=1536, rng=seed)
-        from models.embedding_cache import build_head_only_predict_fn, build_head_only_train_fn
-
-        head_train_fn = build_head_only_train_fn(model, head_name)
-        head_predict_fn = build_head_only_predict_fn(model, head_name)
+        head_train_fn = ag["head_train_fn"]
+        head_predict_fn = ag["head_predict_fn"]
         optimizer = optax.adamw(learning_rate=LR, weight_decay=WD)
         opt_state = optimizer.init(model._params)
 
@@ -215,19 +210,14 @@ def train_and_evaluate(
 
     class _AGS1Student:
         def predict(self, sequences: list[str]) -> np.ndarray:
-            embs = encode_batch(model, best_overall_params, sequences)
+            embs = _encode_sequences_for_ag(sequences, "k562", ag["encoder_fn"])
             preds = []
             for i in range(0, len(embs), BATCH_SIZE):
                 end = min(i + BATCH_SIZE, len(embs))
-                preds.append(
-                    np.array(
-                        eval_step(
-                            best_overall_params,
-                            jnp.array(embs[i:end].astype(np.float32)),
-                            jnp.zeros(end - i, dtype=jnp.int32),
-                        )
-                    )
-                )
+                emb = jnp.array(embs[i:end].astype(np.float32))
+                org = jnp.zeros(emb.shape[0], dtype=jnp.int32)
+                p = eval_step(best_overall_params, emb, org)
+                preds.append(np.array(p))
             return np.concatenate(preds)
 
     test_metrics = evaluate_on_exp1_test_panel(_AGS1Student(), "k562", Path("data/k562/test_sets"))
