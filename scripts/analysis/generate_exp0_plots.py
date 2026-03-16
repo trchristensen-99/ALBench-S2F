@@ -840,7 +840,12 @@ def generate_k562_s1_bar_plot():
     models = [
         ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
         ("Malinois", "malinois_k562_basset_pretrained", "result.json", "#B07CC6"),
-        ("NTv3", "ntv3_post_k562_3seeds", "result.json", "#E8602C"),
+        (
+            "NTv3",
+            "foundation_grid_search/ntv3_post/lr0.0005_wd1e-6_do0.1",
+            "result.json",
+            "#E8602C",
+        ),
         ("Borzoi", "borzoi_k562_3seeds", "result.json", "#DAA520"),
         ("Enformer", "enformer_k562_3seeds", "result.json", "#3A86C8"),
         (
