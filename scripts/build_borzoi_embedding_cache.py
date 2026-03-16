@@ -166,6 +166,12 @@ def main():
         help="If > 0, crop center N bins before mean-pooling (instead of all 6144).",
     )
     parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument(
+        "--shard-idx", type=int, default=0, help="Shard index (0-based) for parallel cache builds."
+    )
+    parser.add_argument(
+        "--n-shards", type=int, default=1, help="Total number of shards (1 = no sharding)."
+    )
     args = parser.parse_args()
 
     import os
@@ -213,7 +219,22 @@ def main():
         ds = K562Dataset(data_path=str(data_path), split=split)
         sequences = [ds.sequences[i] for i in range(len(ds))]
         print(f"\n{split}: {len(sequences):,} sequences")
-        _save(sequences, split)
+
+        # Sharding: split sequences across parallel workers
+        if args.n_shards > 1:
+            N = len(sequences)
+            shard_size = (N + args.n_shards - 1) // args.n_shards
+            start = args.shard_idx * shard_size
+            end = min(start + shard_size, N)
+            sequences = sequences[start:end]
+            prefix = f"{split}_shard{args.shard_idx}"
+            print(
+                f"  Shard {args.shard_idx}/{args.n_shards}: indices {start}-{end} ({len(sequences):,})"
+            )
+        else:
+            prefix = split
+
+        _save(sequences, prefix)
 
     if args.include_test:
         test_dir = data_path / "test_sets"
