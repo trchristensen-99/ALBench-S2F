@@ -15,6 +15,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
+# ── Citra-specific: dual cuDNN for PyTorch (v9) + JAX (v8.6) ────────
+CUDNN9_PATH="$(.venv/bin/python -c "import nvidia.cudnn; print(nvidia.cudnn.__path__[0])")/lib"
+CUDNN8_PATH="$PWD/.cudnn86"
+PTXAS_DIR="$PWD/.venv/lib/python3.11/site-packages/nvidia/cuda_nvcc/bin"
+export LD_LIBRARY_PATH="${CUDNN9_PATH}:${CUDNN8_PATH}:${LD_LIBRARY_PATH:-}"
+export PATH="${PTXAS_DIR}:${PATH}"
+
+PYTHON=".venv/bin/python"
 CACHE_DIR="outputs/ntv3_post_k562_cached/embedding_cache"
 BATCH_SIZE=16
 
@@ -23,55 +31,64 @@ echo "Cache dir: $CACHE_DIR"
 echo "Date: $(date)"
 mkdir -p logs "$CACHE_DIR"
 
-N_GPUS=$(python -c "import torch; print(torch.cuda.device_count())" 2>/dev/null || echo 0)
-echo "Available GPUs: $N_GPUS"
+# ── Auto-detect free GPUs (< 1GB used) ──────────────────────────────
+readarray -t FREE_GPUS < <(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits | \
+    awk -F', ' '$2 < 1000 {print $1}')
+N_FREE=${#FREE_GPUS[@]}
+echo "Free GPUs (${N_FREE}): ${FREE_GPUS[*]}"
 
-if [ "$N_GPUS" -eq 0 ]; then
-    echo "ERROR: No GPUs detected."
+if [ "$N_FREE" -eq 0 ]; then
+    echo "ERROR: No free GPUs detected."
     exit 1
 fi
 
-# ── Phase 1: Build embedding caches (parallel across GPUs) ───────────
-# GPU 0: train (largest, ~294K seqs — bottleneck)
-# GPU 1: val (~37K seqs)
-# GPU 2: test sets (~135K seqs total)
-# If fewer GPUs, run sequentially.
+GPU0=${FREE_GPUS[0]}
+GPU1=${FREE_GPUS[1]:-$GPU0}
+GPU2=${FREE_GPUS[2]:-$GPU0}
+
+# ── Phase 1: Build embedding caches (parallel across free GPUs) ──────
+# Stagger launches: train first (largest), then val+test after 30s
+# to avoid simultaneous model loading OOM.
 
 echo ""
 echo "=== Phase 1: Embedding cache (train + val + test) ==="
 
-CUDA_VISIBLE_DEVICES=0 python scripts/build_ntv3_embedding_cache.py \
+# Start train on first free GPU
+CUDA_VISIBLE_DEVICES=$GPU0 $PYTHON scripts/build_ntv3_embedding_cache.py \
     --model-variant post \
     --cache-dir "$CACHE_DIR" \
     --batch-size "$BATCH_SIZE" \
     --splits train \
     2>&1 | tee logs/ntv3_post_cache_train.log &
 PID_TRAIN=$!
-echo "  Train started on GPU 0 (PID $PID_TRAIN)"
+echo "  Train started on GPU $GPU0 (PID $PID_TRAIN)"
 
-if [ "$N_GPUS" -ge 2 ]; then
-    CUDA_VISIBLE_DEVICES=1 python scripts/build_ntv3_embedding_cache.py \
+# Stagger: wait for model to load before launching next GPU
+sleep 30
+
+if [ "$N_FREE" -ge 2 ]; then
+    CUDA_VISIBLE_DEVICES=$GPU1 $PYTHON scripts/build_ntv3_embedding_cache.py \
         --model-variant post \
         --cache-dir "$CACHE_DIR" \
         --batch-size "$BATCH_SIZE" \
         --splits val \
         2>&1 | tee logs/ntv3_post_cache_val.log &
     PID_VAL=$!
-    echo "  Val started on GPU 1 (PID $PID_VAL)"
+    echo "  Val started on GPU $GPU1 (PID $PID_VAL)"
+    sleep 30
 else
     PID_VAL=""
 fi
 
-if [ "$N_GPUS" -ge 3 ]; then
-    CUDA_VISIBLE_DEVICES=2 python scripts/build_ntv3_embedding_cache.py \
+if [ "$N_FREE" -ge 3 ]; then
+    CUDA_VISIBLE_DEVICES=$GPU2 $PYTHON scripts/build_ntv3_embedding_cache.py \
         --model-variant post \
         --cache-dir "$CACHE_DIR" \
         --batch-size "$BATCH_SIZE" \
-        --splits val \
         --include-test \
         2>&1 | tee logs/ntv3_post_cache_test.log &
     PID_TEST=$!
-    echo "  Test sets started on GPU 2 (PID $PID_TEST)"
+    echo "  Test sets started on GPU $GPU2 (PID $PID_TEST)"
 else
     PID_TEST=""
 fi
@@ -86,12 +103,11 @@ echo "  Train done."
 
 # If test wasn't run in parallel, run it now
 if [ -z "${PID_TEST:-}" ]; then
-    echo "  Running val + test sequentially..."
-    CUDA_VISIBLE_DEVICES=0 python scripts/build_ntv3_embedding_cache.py \
+    echo "  Running test sequentially..."
+    CUDA_VISIBLE_DEVICES=$GPU0 $PYTHON scripts/build_ntv3_embedding_cache.py \
         --model-variant post \
         --cache-dir "$CACHE_DIR" \
         --batch-size "$BATCH_SIZE" \
-        --splits val \
         --include-test \
         2>&1 | tee logs/ntv3_post_cache_test.log
 fi
@@ -109,10 +125,10 @@ SEEDS=(42 123 456)
 PIDS=()
 for i in "${!SEEDS[@]}"; do
     SEED=${SEEDS[$i]}
-    GPU=$((i % N_GPUS))
+    GPU=${FREE_GPUS[$((i % N_FREE))]}
     OUT_DIR="outputs/ntv3_post_k562_3seeds/seed_${SEED}"
 
-    CUDA_VISIBLE_DEVICES=$GPU python experiments/train_foundation_cached.py \
+    CUDA_VISIBLE_DEVICES=$GPU $PYTHON experiments/train_foundation_cached.py \
         ++model_name=ntv3_post \
         ++cache_dir="$CACHE_DIR" \
         ++embed_dim=1536 \
@@ -139,7 +155,7 @@ echo ""
 echo "=== Results ==="
 for d in outputs/ntv3_post_k562_3seeds/seed_*/; do
     if [ -f "$d/result.json" ]; then
-        python -c "
+        $PYTHON -c "
 import json
 d = json.load(open('${d}result.json'))
 tm = d.get('test_metrics', d)

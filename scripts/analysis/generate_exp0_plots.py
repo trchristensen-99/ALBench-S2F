@@ -840,17 +840,17 @@ def generate_k562_s1_bar_plot():
     models = [
         ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
         ("Malinois", "malinois_k562_basset_pretrained", "result.json", "#B07CC6"),
-        ("NT v3 (pre)", "ntv3_k562_3seeds", "result.json", "#E8602C"),
-        ("Borzoi (S1)", "borzoi_k562_3seeds", "result.json", "#DAA520"),
-        ("Enformer (S1)", "enformer_k562_3seeds", "result.json", "#3A86C8"),
+        ("NTv3", "ntv3_post_k562_3seeds", "result.json", "#E8602C"),
+        ("Borzoi", "borzoi_k562_3seeds", "result.json", "#DAA520"),
+        ("Enformer", "enformer_k562_3seeds", "result.json", "#3A86C8"),
         (
-            "AG fold 1 (S1)",
+            "AG fold 1",
             "ag_hashfrag_oracle_cached/oracle_0",
             "test_metrics.json",
             "#66BB6A",
         ),
         (
-            "AG all folds (S1)",
+            "AG all folds",
             "ag_hashfrag_oracle_cached",
             "test_metrics.json",
             "#1B5E20",
@@ -886,11 +886,11 @@ def generate_k562_s1_bar_plot():
                             print(f"  DREAM-RNN: loaded {len(metrics)} from {fb_dir.name}")
                             break
             all_metrics[name] = metrics
-        elif name == "AG fold 1 (S1)":
+        elif name == "AG fold 1":
             # Single fold: load just this fold's test_metrics.json
             metrics = _load_bar_model_metrics(d, json_name)
             all_metrics[name] = metrics
-        elif name == "AG all folds (S1)":
+        elif name == "AG all folds":
             # All folds: load test_metrics.json from each oracle_*/
             metrics = []
             for fold_dir in sorted(d.glob("oracle_*")):
@@ -909,11 +909,11 @@ def generate_k562_s1_bar_plot():
             print("  Malinois: using sweep results as fallback")
 
     # Fallback for Borzoi: try cached v2
-    if not all_metrics.get("Borzoi (S1)"):
+    if not all_metrics.get("Borzoi"):
         fallback = REPO / "outputs" / "borzoi_k562_cached_v2"
         fb_data = _load_bar_model_metrics(fallback, "result.json")
         if fb_data:
-            all_metrics["Borzoi (S1)"] = fb_data
+            all_metrics["Borzoi"] = fb_data
             print("  Borzoi: using cached_v2 as fallback")
 
     counts = {name: len(m) for name, m in all_metrics.items()}
