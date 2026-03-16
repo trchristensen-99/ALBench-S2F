@@ -1302,6 +1302,11 @@ def run_scaling_experiment(
         "ise_diverse_targets",
         "ise_target_high",
         "snv",
+        "activity_stratified",
+        "activity_stratified_oracle",
+        "motif_density_2",
+        "motif_density_3",
+        "motif_density_5",
     }
     pool_seqs, pool_labels = None, None
     _needs_pool = reservoir_name in _NEEDS_POOL or base_reservoir in _NEEDS_POOL
@@ -1375,6 +1380,12 @@ def run_scaling_experiment(
             _seqs, _ = _res.generate(
                 n_train, base_sequences=pool_seqs, task=task, student_model=_ise_predictor
             )
+        elif _res_config_name == "activity_stratified":
+            _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, student_model=oracle)
+        elif _res_config_name == "activity_stratified_oracle":
+            _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
+        elif _res_config_name.startswith("motif_density"):
+            _seqs, _ = _res.generate(n_train, task=task)
         else:
             _seqs, _ = _res.generate(n_train, task=task)
         _labels = oracle.predict(_seqs)

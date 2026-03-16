@@ -1,0 +1,4 @@
+_target_: albench.reservoir.motif_density.MotifDensitySampler
+seed: ${seed}
+n_motifs: 3
+motif_set: auto
