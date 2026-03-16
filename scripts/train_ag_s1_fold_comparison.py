@@ -141,7 +141,7 @@ def train_and_evaluate(
         @jax.jit
         def train_step(params, opt_state, rng_key, emb, targets, org_idx):
             def loss_fn(p):
-                preds = head_train_fn(p, emb, org_idx, rng_key)
+                preds = head_train_fn(p, rng_key, emb, org_idx)
                 return jnp.mean((preds.squeeze() - targets) ** 2)
 
             loss, grads = jax.value_and_grad(loss_fn)(params)
