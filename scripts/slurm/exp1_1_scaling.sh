@@ -78,10 +78,10 @@ if [[ "${TIER}" == "large" ]]; then
     EARLY_STOP=10
     ENSEMBLE_SIZE=3
 else
-    # Small sizes: full sweep, full epochs
+    # Small sizes: full sweep, early stopping saves time at larger N
     TRAINING_SIZES="1000 5000 10000 20000 50000"
     EPOCHS=80
-    EARLY_STOP=""
+    EARLY_STOP=10
     ENSEMBLE_SIZE=5
 fi
 
