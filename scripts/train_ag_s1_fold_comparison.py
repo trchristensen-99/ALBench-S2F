@@ -24,7 +24,6 @@ import optax
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from alphagenome_ft import create_model_with_heads
-from alphagenome_ft.custom_model import build_head_only_predict_fn, build_head_only_train_fn
 
 from data.k562 import K562Dataset
 from data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM
@@ -134,6 +133,8 @@ def train_and_evaluate(
     for seed in SEEDS:
         print(f"\n  Seed {seed}...", flush=True)
         reinit_head_params(model, head_name, num_tokens=5, dim=1536, rng=seed)
+        from models.embedding_cache import build_head_only_predict_fn, build_head_only_train_fn
+
         head_train_fn = build_head_only_train_fn(model, head_name)
         head_predict_fn = build_head_only_predict_fn(model, head_name)
         optimizer = optax.adamw(learning_rate=LR, weight_decay=WD)
