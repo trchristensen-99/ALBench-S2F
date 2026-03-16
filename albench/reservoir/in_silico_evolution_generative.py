@@ -223,6 +223,7 @@ class InSilicoEvolutionGenerativeSampler(ReservoirSampler):
         base_sequences: list[str] | np.ndarray,
         task: str = "k562",
         student_model: Predictor | None = None,
+        batch_size: int = 1000,
     ) -> tuple[list[str], pd.DataFrame]:
         """Generate evolved sequences using student model as fitness function.
 
@@ -232,6 +233,8 @@ class InSilicoEvolutionGenerativeSampler(ReservoirSampler):
             task: ``"k562"`` or ``"yeast"``.
             student_model: A model with ``predict(list[str]) -> np.ndarray``.
                 If None, falls back to random mutagenesis.
+            batch_size: Number of lineages to evolve in parallel.
+                Larger = fewer predict() calls = faster on GPU.
 
         Returns:
             Tuple of (evolved_sequences, metadata_df).
@@ -249,42 +252,112 @@ class InSilicoEvolutionGenerativeSampler(ReservoirSampler):
         sequences: list[str] = []
         meta_records: list[dict[str, Any]] = []
 
-        for idx in range(n_sequences):
-            seed_region = self._extract_region(base_sequences[parent_indices[idx]], task)
+        # Process lineages in batches for efficient GPU utilization.
+        # Instead of 1 predict() call per lineage per round (very slow),
+        # batch all populations across lineages into single predict() calls.
+        for batch_start in range(0, n_sequences, batch_size):
+            batch_end = min(batch_start + batch_size, n_sequences)
+            n_batch = batch_end - batch_start
 
-            # Determine target for this lineage
-            if self.evolution_mode == "diverse_targets":
-                target = self._sample_target()
-            elif self.evolution_mode == "target":
-                target = self.target_activity
-            else:
-                target = None
+            # Determine targets for this batch
+            targets: list[float | None] = []
+            for _ in range(n_batch):
+                if self.evolution_mode == "diverse_targets":
+                    targets.append(self._sample_target())
+                elif self.evolution_mode == "target":
+                    targets.append(self.target_activity)
+                else:
+                    targets.append(None)
 
-            best_region, evo_meta = self._evolve_one_lineage(
-                seed_region, student_model, task, target
+            # Initialize populations: n_batch lineages, each with population_size members
+            # populations[i] = list of region strings for lineage i
+            populations: list[list[str]] = []
+            for i in range(n_batch):
+                seed_region = self._extract_region(
+                    base_sequences[parent_indices[batch_start + i]], task
+                )
+                pop = [seed_region]
+                for _ in range(self.population_size - 1):
+                    pop.append(self._mutate_region(seed_region))
+                populations.append(pop)
+
+            # Track best per lineage
+            best_seqs = [p[0] for p in populations]
+            best_fitness = np.full(n_batch, float("-inf"))
+
+            for _round in range(self.n_evolution_rounds):
+                # Flatten all populations into one predict() call
+                all_seqs: list[str] = []
+                for pop in populations:
+                    all_seqs.extend(self._wrap_region(r, task) for r in pop)
+
+                all_preds = student_model.predict(all_seqs)
+
+                # Reshape back: (n_batch, population_size)
+                preds_2d = all_preds.reshape(n_batch, self.population_size)
+
+                # Process each lineage
+                new_populations: list[list[str]] = []
+                for i in range(n_batch):
+                    fitness = self._fitness(preds_2d[i], targets[i])
+
+                    # Track best
+                    round_best = int(np.argmax(fitness))
+                    if fitness[round_best] > best_fitness[i]:
+                        best_fitness[i] = fitness[round_best]
+                        best_seqs[i] = populations[i][round_best]
+
+                    # Selection
+                    n_elite = max(1, int(self.elite_fraction * self.population_size))
+                    if self.temperature > 0:
+                        logits = fitness / max(self.temperature, 1e-8)
+                        logits -= logits.max()
+                        probs = np.exp(logits)
+                        probs /= probs.sum()
+                        elite_idx = self._rng.choice(
+                            self.population_size, size=n_elite, replace=False, p=probs
+                        )
+                    else:
+                        elite_idx = np.argsort(fitness)[-n_elite:]
+
+                    elites = [populations[i][j] for j in elite_idx]
+
+                    # Reproduce
+                    new_pop = list(elites)
+                    while len(new_pop) < self.population_size:
+                        parent = elites[self._rng.integers(0, len(elites))]
+                        new_pop.append(self._mutate_region(parent))
+                    new_populations.append(new_pop)
+
+                populations = new_populations
+
+            # Collect results for this batch
+            for i in range(n_batch):
+                full_seq = self._wrap_region(best_seqs[i], task)
+                sequences.append(full_seq)
+                meta_records.append(
+                    {
+                        "seq_idx": batch_start + i,
+                        "method": f"in_silico_evolution_{self.evolution_mode}",
+                        "source": "evolved",
+                        "parent_idx": int(parent_indices[batch_start + i]),
+                        "evolution_mode": self.evolution_mode,
+                        "final_fitness": float(best_fitness[i]),
+                        "target_activity": targets[i],
+                    }
+                )
+
+            logger.info(
+                f"  Evolved {batch_end}/{n_sequences} sequences "
+                f"({n_batch} lineages x {self.population_size} pop x "
+                f"{self.n_evolution_rounds} rounds)"
             )
-            full_seq = self._wrap_region(best_region, task)
-            sequences.append(full_seq)
-
-            meta_records.append(
-                {
-                    "seq_idx": idx,
-                    "method": f"in_silico_evolution_{self.evolution_mode}",
-                    "source": "evolved",
-                    "parent_idx": int(parent_indices[idx]),
-                    "evolution_mode": self.evolution_mode,
-                    **evo_meta,
-                }
-            )
-
-            if (idx + 1) % 100 == 0:
-                logger.info(f"  Evolved {idx + 1}/{n_sequences} sequences")
 
         meta = pd.DataFrame(meta_records)
-        if "final_prediction" in meta.columns:
+        if "final_fitness" in meta.columns:
             logger.info(
                 f"In-silico evolution ({self.evolution_mode}): {n_sequences:,} sequences, "
-                f"mean prediction={meta['final_prediction'].mean():.4f}"
+                f"mean fitness={meta['final_fitness'].mean():.4f}"
             )
         return sequences, meta
 
