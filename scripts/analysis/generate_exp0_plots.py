@@ -650,6 +650,31 @@ _K562_TEST_SIZES = {
 }
 
 
+_KEY_ALIASES = {
+    "in_distribution": "in_dist",
+    "snv_abs": "snv_abs",
+    "snv_delta": "snv_delta",
+    "ood": "ood",
+}
+
+
+def _normalize_metric_keys(tm: dict) -> dict:
+    """Normalize test metric keys so both naming conventions work.
+
+    Some result files use ``in_distribution``, others use ``in_dist``.
+    Standardize to the long form (``in_distribution``) for the bar plots.
+    """
+    normalized: dict = {}
+    for k, v in tm.items():
+        # Map short → long
+        long_key = {v2: k2 for k2, v2 in _KEY_ALIASES.items()}.get(k, k)
+        normalized[long_key] = v
+        # Also keep the original key
+        if k not in normalized:
+            normalized[k] = v
+    return normalized
+
+
 def _load_bar_model_metrics(results_dir: Path, json_name: str = "result.json") -> list[dict]:
     """Load test_metrics from all result JSON files in a directory tree."""
     metrics_list = []
@@ -657,6 +682,7 @@ def _load_bar_model_metrics(results_dir: Path, json_name: str = "result.json") -
         with open(p) as f:
             d = json.load(f)
         tm = d.get("test_metrics", d)  # test_metrics.json has metrics at top level
+        tm = _normalize_metric_keys(tm)
         if "in_distribution" in tm:
             metrics_list.append(tm)
     return metrics_list
@@ -834,7 +860,33 @@ def generate_k562_s1_bar_plot():
     all_metrics: dict[str, list[dict]] = {}
     for name, dirname, json_name, _ in models:
         d = REPO / "outputs" / dirname
-        if name == "AG fold 1 (S1)":
+        if name == "DREAM-RNN":
+            # DREAM-RNN: load from scaling results at fraction=1.0
+            metrics = _load_bar_model_metrics(d, json_name)
+            if not metrics:
+                # Fallback: exp0_k562_scaling_v2, fraction=1.0
+                for fb_dir in [
+                    REPO / "outputs" / "exp0_k562_scaling_v2",
+                    REPO / "outputs" / "exp0_k562_scaling",
+                ]:
+                    if fb_dir.exists():
+                        for seed_dir in sorted(fb_dir.iterdir()):
+                            frac_dir = seed_dir / "fraction_1.0"
+                            if not frac_dir.exists():
+                                # Try finding fraction 1.0 in result.json
+                                for rj in seed_dir.rglob("result.json"):
+                                    rd = json.loads(rj.read_text())
+                                    if abs(rd.get("fraction", 0) - 1.0) < 0.01:
+                                        tm = _normalize_metric_keys(rd.get("test_metrics", rd))
+                                        if "in_distribution" in tm:
+                                            metrics.append(tm)
+                            else:
+                                metrics.extend(_load_bar_model_metrics(frac_dir, "result.json"))
+                        if metrics:
+                            print(f"  DREAM-RNN: loaded {len(metrics)} from {fb_dir.name}")
+                            break
+            all_metrics[name] = metrics
+        elif name == "AG fold 1 (S1)":
             # Single fold: load just this fold's test_metrics.json
             metrics = _load_bar_model_metrics(d, json_name)
             all_metrics[name] = metrics
