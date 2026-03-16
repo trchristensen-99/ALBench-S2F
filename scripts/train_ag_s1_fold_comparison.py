@@ -107,8 +107,11 @@ def train_and_evaluate(
         num_tracks=1,
         dropout_rate=DROPOUT,
     )
+    # Always use "all_folds" as model_version (defines architecture),
+    # but load weights from the specific checkpoint dir. The fold_1
+    # checkpoint has the same architecture, just different pretrained weights.
     model = create_model_with_heads(
-        model_version,
+        "all_folds",
         heads=[head_name],
         checkpoint_path=weights_dir,
         detach_backbone=True,
