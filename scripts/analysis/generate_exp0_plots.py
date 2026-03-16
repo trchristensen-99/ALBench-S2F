@@ -797,12 +797,167 @@ def generate_k562_bar_plot():
     print("  Saved: k562_full_dataset_bar.png")
 
 
+# ── K562 S1-only bar plot (frozen encoder comparison) ─────────────────────────
+
+
+def generate_k562_s1_bar_plot():
+    """Bar plot comparing ONLY Stage 1 (frozen encoder) results on K562.
+
+    Includes from-scratch baselines (DREAM-RNN, Malinois) and frozen-encoder
+    foundation models (Enformer S1, Borzoi S1, NT v2, AG fold-1 S1, AG
+    all-folds S1). No Stage 2 (unfrozen encoder) results.
+    """
+    print("\n── K562 S1-only bar plot ──")
+
+    # (name, output_dir, json_name, color)
+    # Purple = from-scratch, orange/gold/blue = foundation S1, green = AG S1
+    models = [
+        ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
+        ("Malinois", "malinois_k562_basset_pretrained", "result.json", "#B07CC6"),
+        ("NT v2 (250M)", "_archived_results/nt_k562_500m", "result.json", "#E8602C"),
+        ("Borzoi (S1)", "borzoi_k562_3seeds", "result.json", "#DAA520"),
+        ("Enformer (S1)", "enformer_k562_3seeds", "result.json", "#3A86C8"),
+        (
+            "AG fold 1 (S1)",
+            "ag_hashfrag_oracle_cached/oracle_0",
+            "test_metrics.json",
+            "#66BB6A",
+        ),
+        (
+            "AG all folds (S1)",
+            "ag_hashfrag_oracle_cached",
+            "test_metrics.json",
+            "#1B5E20",
+        ),
+    ]
+
+    all_metrics: dict[str, list[dict]] = {}
+    for name, dirname, json_name, _ in models:
+        d = REPO / "outputs" / dirname
+        if name == "AG fold 1 (S1)":
+            # Single fold: load just this fold's test_metrics.json
+            metrics = _load_bar_model_metrics(d, json_name)
+            all_metrics[name] = metrics
+        elif name == "AG all folds (S1)":
+            # All folds: load test_metrics.json from each oracle_*/
+            metrics = []
+            for fold_dir in sorted(d.glob("oracle_*")):
+                fold_metrics = _load_bar_model_metrics(fold_dir, json_name)
+                metrics.extend(fold_metrics)
+            all_metrics[name] = metrics
+        else:
+            all_metrics[name] = _load_bar_model_metrics(d, json_name)
+
+    # Fallback for Malinois: try sweep dir
+    if not all_metrics.get("Malinois"):
+        fallback = REPO / "outputs" / "malinois_k562_sweep" / "lr0.001_wd1e-3"
+        fb_data = _load_bar_model_metrics(fallback, "result.json")
+        if fb_data:
+            all_metrics["Malinois"] = fb_data
+            print("  Malinois: using sweep results as fallback")
+
+    # Fallback for Borzoi: try cached v2
+    if not all_metrics.get("Borzoi (S1)"):
+        fallback = REPO / "outputs" / "borzoi_k562_cached_v2"
+        fb_data = _load_bar_model_metrics(fallback, "result.json")
+        if fb_data:
+            all_metrics["Borzoi (S1)"] = fb_data
+            print("  Borzoi: using cached_v2 as fallback")
+
+    counts = {name: len(m) for name, m in all_metrics.items()}
+    print(f"  S1 bar plot data: {counts}")
+
+    if all(n == 0 for n in counts.values()):
+        print("  Skipping S1 bar plot: no results yet")
+        return
+
+    # ── Build per-metric arrays ───────────────────────────────────────────────
+    test_keys = [
+        ("in_distribution", "Reference"),
+        ("snv_abs", "SNV"),
+        ("snv_delta", "SNV effect (delta)"),
+        ("ood", "Synthetic design"),
+    ]
+
+    labels = []
+    model_means: dict[str, list[float]] = {name: [] for name, *_ in models}
+    model_stds: dict[str, list[float]] = {name: [] for name, *_ in models}
+
+    for key, display in test_keys:
+        n_seqs = _K562_TEST_SIZES.get(key, "?")
+        labels.append(f"{display}\n(n={n_seqs:,})")
+
+        for name, *_ in models:
+            vals = _extract_pearson(all_metrics.get(name, []), key)
+            model_means[name].append(np.mean(vals) if vals else 0)
+            model_stds[name].append(np.std(vals) if len(vals) > 1 else 0)
+
+    active_models = [
+        (name, color) for name, _, _, color in models if any(v > 0 for v in model_means[name])
+    ]
+    n_active = len(active_models)
+    if n_active == 0:
+        print("  Skipping S1 bar plot: no non-zero results")
+        return
+
+    x = np.arange(len(labels))
+    width = 0.8 / max(n_active, 1)
+    offsets = np.linspace(-(n_active - 1) / 2 * width, (n_active - 1) / 2 * width, n_active)
+
+    fig, ax = plt.subplots(figsize=(14, 5.5))
+
+    bar_groups = []
+    for i, (name, color) in enumerate(active_models):
+        means = model_means[name]
+        stds = model_stds[name]
+        bars = ax.bar(
+            x + offsets[i],
+            means,
+            width,
+            yerr=stds if any(s > 0 for s in stds) else None,
+            label=name,
+            color=color,
+            zorder=3,
+            capsize=3,
+        )
+        bar_groups.append((bars, means))
+
+    for bars, means in bar_groups:
+        for bar, val in zip(bars, means):
+            if val > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.008,
+                    f"{val:.3f}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    fontweight="bold",
+                    rotation=30,
+                )
+
+    ax.set_ylabel("Pearson R", fontsize=13)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=12)
+    ax.set_ylim(0, 1.0)
+    ax.set_title("K562 MPRA — Stage 1 (Frozen Encoder) Comparison", fontsize=15)
+    ax.legend(fontsize=9, loc="upper right", frameon=False, ncol=2)
+    ax.grid(axis="y", alpha=0.3, zorder=0)
+
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "k562_s1_only_bar.png", dpi=200, bbox_inches="tight")
+    fig.savefig(OUT_DIR / "k562_s1_only_bar.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved: k562_s1_only_bar.png / .pdf")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {OUT_DIR}\n")
     generate_k562_plots()
     generate_k562_bar_plot()
+    generate_k562_s1_bar_plot()
     generate_yeast_plots()
     print(f"\nAll plots saved to: {OUT_DIR}")
 
