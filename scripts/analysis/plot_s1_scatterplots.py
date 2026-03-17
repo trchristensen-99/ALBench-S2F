@@ -36,7 +36,7 @@ MODELS = [
         "#7B2D8E",
     ),
     ("Enformer", "enformer_k562_3seeds/seed_598125057", "#3A86C8"),
-    ("Malinois", "malinois_k562_with_preds/seed_42", "#B07CC6"),
+    ("Malinois", "malinois_k562_with_preds/seed_42/seed_42", "#B07CC6"),
     ("Borzoi", "borzoi_k562_3seeds/seed_824292012", "#DAA520"),
     (
         "NTv3",
