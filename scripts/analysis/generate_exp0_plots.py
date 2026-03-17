@@ -692,6 +692,10 @@ def _extract_pearson(metrics_list: list[dict], test_key: str) -> list[float]:
     return [m[test_key]["pearson_r"] for m in metrics_list if test_key in m]
 
 
+def _extract_mse(metrics_list: list[dict], test_key: str) -> list[float]:
+    return [m[test_key]["mse"] for m in metrics_list if test_key in m and "mse" in m[test_key]]
+
+
 def generate_k562_bar_plot():
     """8-model bar plot comparing all methods on full K562 MPRA."""
     # ── Model definitions: (name, dir, json_name, color) ─────────────────────
@@ -996,6 +1000,133 @@ def generate_k562_s1_bar_plot():
     print("  Saved: k562_s1_only_bar.png / .pdf")
 
 
+def generate_k562_s1_mse_bar_plot():
+    """MSE version of the S1 bar plot — same models, MSE metric."""
+    print("\n── K562 S1-only MSE bar plot ──")
+
+    # Reuse same model definitions and loading logic from Pearson bar plot
+    models = [
+        ("DREAM-RNN", "dream_rnn_k562_3seeds", "result.json", "#7B2D8E"),
+        ("Malinois", "malinois_k562_basset_pretrained", "result.json", "#B07CC6"),
+        (
+            "NTv3",
+            "foundation_grid_search/ntv3_post/lr0.0005_wd1e-6_do0.1",
+            "result.json",
+            "#E8602C",
+        ),
+        ("Borzoi", "borzoi_k562_3seeds", "result.json", "#DAA520"),
+        ("Enformer", "enformer_k562_3seeds", "result.json", "#3A86C8"),
+        ("AG fold 1", "ag_fold_1_k562_s1_full", "result.json", "#66BB6A"),
+        ("AG all folds", "ag_all_folds_k562_s1_full", "result.json", "#1B5E20"),
+    ]
+
+    all_metrics: dict[str, list[dict]] = {}
+    for name, dirname, json_name, _ in models:
+        d = REPO / "outputs" / dirname
+        if name == "DREAM-RNN":
+            metrics = _load_bar_model_metrics(d, json_name)
+            if not metrics:
+                for fb_dir in [
+                    REPO / "outputs" / "exp0_k562_scaling_v2",
+                    REPO / "outputs" / "exp0_k562_scaling",
+                ]:
+                    if fb_dir.exists():
+                        for seed_dir in sorted(fb_dir.iterdir()):
+                            for rj in seed_dir.rglob("result.json"):
+                                rd = json.loads(rj.read_text())
+                                if abs(rd.get("fraction", 0) - 1.0) < 0.01:
+                                    tm = _normalize_metric_keys(rd.get("test_metrics", rd))
+                                    if "in_distribution" in tm:
+                                        metrics.append(tm)
+                        if metrics:
+                            break
+            all_metrics[name] = metrics
+        elif name in ("AG fold 1", "AG all folds"):
+            all_metrics[name] = _load_bar_model_metrics(d, json_name)
+        else:
+            all_metrics[name] = _load_bar_model_metrics(d, json_name)
+
+    if not all_metrics.get("Malinois"):
+        fallback = REPO / "outputs" / "malinois_k562_sweep" / "lr0.001_wd1e-3"
+        fb_data = _load_bar_model_metrics(fallback, "result.json")
+        if fb_data:
+            all_metrics["Malinois"] = fb_data
+
+    counts = {name: len(m) for name, m in all_metrics.items()}
+    print(f"  MSE bar plot data: {counts}")
+
+    test_keys = [
+        ("in_distribution", "Reference"),
+        ("snv_abs", "SNV"),
+        ("snv_delta", "SNV effect (delta)"),
+        ("ood", "Synthetic design"),
+    ]
+
+    labels = []
+    model_means: dict[str, list[float]] = {name: [] for name, *_ in models}
+
+    for key, display in test_keys:
+        n_seqs = _K562_TEST_SIZES.get(key, "?")
+        labels.append(f"{display}\n(n={n_seqs:,})")
+        for name, *_ in models:
+            vals = _extract_mse(all_metrics.get(name, []), key)
+            model_means[name].append(np.mean(vals) if vals else 0)
+
+    active_models = [
+        (name, color) for name, _, _, color in models if any(v > 0 for v in model_means[name])
+    ]
+    n_active = len(active_models)
+    if n_active == 0:
+        print("  Skipping MSE bar plot: no results")
+        return
+
+    x = np.arange(len(labels))
+    width = 0.8 / max(n_active, 1)
+    offsets = np.linspace(-(n_active - 1) / 2 * width, (n_active - 1) / 2 * width, n_active)
+
+    fig, ax = plt.subplots(figsize=(14, 5.5))
+
+    bar_groups = []
+    for i, (name, color) in enumerate(active_models):
+        means = model_means[name]
+        bars = ax.bar(
+            x + offsets[i],
+            means,
+            width,
+            label=name,
+            color=color,
+            zorder=3,
+        )
+        bar_groups.append((bars, means))
+
+    for bars, means in bar_groups:
+        for bar, val in zip(bars, means):
+            if val > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + 0.02,
+                    f"{val:.2f}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    fontweight="bold",
+                    rotation=30,
+                )
+
+    ax.set_ylabel("MSE", fontsize=13)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=12)
+    ax.set_title("K562 MPRA — Stage 1 (Frozen Encoder) MSE Comparison", fontsize=15)
+    ax.legend(fontsize=9, loc="upper right", frameon=False, ncol=2)
+    ax.grid(axis="y", alpha=0.3, zorder=0)
+
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / "k562_s1_only_mse_bar.png", dpi=200, bbox_inches="tight")
+    fig.savefig(OUT_DIR / "k562_s1_only_mse_bar.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved: k562_s1_only_mse_bar.png / .pdf")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1003,6 +1134,7 @@ def main():
     generate_k562_plots()
     generate_k562_bar_plot()
     generate_k562_s1_bar_plot()
+    generate_k562_s1_mse_bar_plot()
     generate_yeast_plots()
     print(f"\nAll plots saved to: {OUT_DIR}")
 
