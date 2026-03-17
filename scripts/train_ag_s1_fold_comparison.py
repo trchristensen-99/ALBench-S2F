@@ -206,21 +206,63 @@ def train_and_evaluate(
     print(f"\n  Best overall val: {best_overall_val:.4f}")
     print("  Evaluating on test sets...", flush=True)
 
-    from evaluation.exp1_eval import evaluate_on_exp1_test_panel
+    import pandas as pd
+    from scipy.stats import pearsonr, spearmanr
 
-    class _AGS1Student:
-        def predict(self, sequences: list[str]) -> np.ndarray:
-            embs = _encode_sequences_for_ag(sequences, "k562", ag["encoder_fn"])
-            preds = []
-            for i in range(0, len(embs), BATCH_SIZE):
-                end = min(i + BATCH_SIZE, len(embs))
-                emb = jnp.array(embs[i:end].astype(np.float32))
-                org = jnp.zeros(emb.shape[0], dtype=jnp.int32)
-                p = eval_step(best_overall_params, emb, org)
-                preds.append(np.array(p))
-            return np.concatenate(preds)
+    def _predict_seqs(sequences: list[str]) -> np.ndarray:
+        embs = _encode_sequences_for_ag(sequences, "k562", ag["encoder_fn"])
+        preds = []
+        for i in range(0, len(embs), BATCH_SIZE):
+            end = min(i + BATCH_SIZE, len(embs))
+            emb = jnp.array(embs[i:end].astype(np.float32))
+            org = jnp.zeros(emb.shape[0], dtype=jnp.int32)
+            p = eval_step(best_overall_params, emb, org)
+            preds.append(np.array(p))
+        return np.concatenate(preds)
 
-    test_metrics = evaluate_on_exp1_test_panel(_AGS1Student(), "k562", Path("data/k562/test_sets"))
+    def _corr(pred, true, fn):
+        mask = np.isfinite(pred) & np.isfinite(true)
+        return float(fn(pred[mask], true[mask])[0]) if mask.sum() >= 3 else 0.0
+
+    # Evaluate against REAL experimental labels (K562_log2FC from TSVs)
+    test_dir = REPO / "data" / "k562" / "test_sets"
+    test_metrics: dict = {}
+
+    in_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
+    in_pred = _predict_seqs(in_df["sequence"].tolist())
+    in_true = in_df["K562_log2FC"].to_numpy(dtype=np.float32)
+    test_metrics["in_distribution"] = {
+        "pearson_r": _corr(in_pred, in_true, pearsonr),
+        "spearman_r": _corr(in_pred, in_true, spearmanr),
+        "mse": float(np.mean((in_pred - in_true) ** 2)),
+        "n": len(in_true),
+    }
+
+    snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
+    ref_pred = _predict_seqs(snv_df["sequence_ref"].tolist())
+    alt_pred = _predict_seqs(snv_df["sequence_alt"].tolist())
+    alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+    test_metrics["snv_abs"] = {
+        "pearson_r": _corr(alt_pred, alt_true, pearsonr),
+        "spearman_r": _corr(alt_pred, alt_true, spearmanr),
+        "n": len(alt_true),
+    }
+    delta_pred = alt_pred - ref_pred
+    delta_true = snv_df["delta_log2FC"].to_numpy(dtype=np.float32)
+    test_metrics["snv_delta"] = {
+        "pearson_r": _corr(delta_pred, delta_true, pearsonr),
+        "spearman_r": _corr(delta_pred, delta_true, spearmanr),
+        "n": len(delta_true),
+    }
+
+    ood_df = pd.read_csv(test_dir / "test_ood_designed_k562.tsv", sep="\t")
+    ood_pred = _predict_seqs(ood_df["sequence"].tolist())
+    ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
+    test_metrics["ood"] = {
+        "pearson_r": _corr(ood_pred, ood_true, pearsonr),
+        "spearman_r": _corr(ood_pred, ood_true, spearmanr),
+        "n": len(ood_true),
+    }
 
     for k, v in test_metrics.items():
         print(f"    {k}: pearson_r={v['pearson_r']:.4f}")
