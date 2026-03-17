@@ -16,6 +16,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from data.utils import one_hot_encode
 from models.dream_rnn import create_dream_rnn
 
+
+def _standardize_to_200bp(sequence: str) -> str:
+    """Center-pad/truncate to 200bp."""
+    target_len = 200
+    curr_len = len(sequence)
+    if curr_len == target_len:
+        return sequence
+    if curr_len < target_len:
+        pad_needed = target_len - curr_len
+        left_pad = pad_needed // 2
+        right_pad = pad_needed - left_pad
+        return "N" * left_pad + sequence + "N" * right_pad
+    start = (curr_len - target_len) // 2
+    return sequence[start : start + target_len]
+
+
 REPO = Path(__file__).resolve().parents[1]
 
 
@@ -37,7 +53,12 @@ def main():
         with torch.no_grad():
             for i in range(0, len(sequences), 256):
                 batch = sequences[i : i + 256]
-                oh = np.stack([one_hot_encode(s, add_singleton_channel=False) for s in batch])
+                oh = np.stack(
+                    [
+                        one_hot_encode(_standardize_to_200bp(s), add_singleton_channel=False)
+                        for s in batch
+                    ]
+                )
                 x = torch.from_numpy(oh).float().to(device)
                 p = model.predict(x, use_reverse_complement=True)
                 preds.append(p.cpu().numpy().squeeze())
