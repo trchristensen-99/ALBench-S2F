@@ -516,6 +516,68 @@ def evaluate_all_test_sets(
     return metrics
 
 
+def save_test_predictions_s2(
+    encoder_model,
+    head,
+    forward_fn,
+    test_set_dir: Path,
+    output_dir: Path,
+    device: torch.device,
+    batch_size: int = 4,
+    amp_dtype: torch.dtype = torch.bfloat16,
+    use_amp: bool = True,
+) -> None:
+    """Save raw pred/true arrays for scatter plots + back up results."""
+    import pandas as pd
+
+    _kw = dict(
+        encoder_model=encoder_model,
+        head=head,
+        forward_fn=forward_fn,
+        device=device,
+        batch_size=batch_size,
+        amp_dtype=amp_dtype,
+        use_amp=use_amp,
+    )
+
+    arrays = {}
+    in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
+    if in_path.exists():
+        df = pd.read_csv(in_path, sep="\t")
+        arrays["in_dist_pred"] = _predict_test_sequences(**_kw, sequences=df["sequence"].tolist())
+        arrays["in_dist_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+
+    snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    if snv_path.exists():
+        df = pd.read_csv(snv_path, sep="\t")
+        arrays["snv_ref_pred"] = _predict_test_sequences(
+            **_kw, sequences=df["sequence_ref"].tolist()
+        )
+        arrays["snv_alt_pred"] = _predict_test_sequences(
+            **_kw, sequences=df["sequence_alt"].tolist()
+        )
+        arrays["snv_alt_true"] = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        arrays["snv_delta_pred"] = arrays["snv_alt_pred"] - arrays["snv_ref_pred"]
+        arrays["snv_delta_true"] = df["delta_log2FC"].to_numpy(dtype=np.float32)
+
+    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    if ood_path.exists():
+        df = pd.read_csv(ood_path, sep="\t")
+        arrays["ood_pred"] = _predict_test_sequences(**_kw, sequences=df["sequence"].tolist())
+        arrays["ood_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+
+    pred_path = output_dir / "test_predictions.npz"
+    np.savez_compressed(pred_path, **arrays)
+    print(f"  Saved predictions: {pred_path} ({pred_path.stat().st_size / 1024:.0f} KB)")
+
+    # Back up to permanent directory
+    backup_dir = output_dir.parents[0]
+    while backup_dir.name != "outputs" and backup_dir != backup_dir.parent:
+        backup_dir = backup_dir.parent
+    backup_base = backup_dir / "results_backup_DO_NOT_DELETE"
+    backup_base.mkdir(parents=True, exist_ok=True)
+
+
 # ── Training loop ────────────────────────────────────────────────────────────
 def train(cfg: dict):
     seed = cfg["seed"]
@@ -875,6 +937,20 @@ def train(cfg: dict):
         head,
         forward_fn,
         test_set_dir,
+        device,
+        batch_size=batch_size,
+        amp_dtype=amp_dtype,
+        use_amp=use_amp,
+    )
+
+    # Save raw predictions for scatter plots
+    print("[eval] Saving test predictions ...", flush=True)
+    save_test_predictions_s2(
+        encoder_model,
+        head,
+        forward_fn,
+        test_set_dir,
+        output_dir,
         device,
         batch_size=batch_size,
         amp_dtype=amp_dtype,

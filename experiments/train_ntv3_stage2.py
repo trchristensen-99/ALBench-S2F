@@ -509,6 +509,64 @@ def evaluate_all_test_sets(
     return metrics
 
 
+def _save_ntv3_s2_predictions(
+    encoder,
+    tokenizer,
+    head,
+    test_set_dir,
+    output_dir,
+    seq_divisor,
+    use_flanks,
+    batch_size=4,
+    species_token=None,
+    jit_predict_fn=None,
+):
+    """Save raw pred/true arrays for scatter plots."""
+    import pandas as pd
+
+    _kw = dict(
+        seq_divisor=seq_divisor,
+        use_flanks=use_flanks,
+        batch_size=batch_size,
+        species_token=species_token,
+        jit_predict_fn=jit_predict_fn,
+    )
+    arrays = {}
+
+    in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
+    if in_path.exists():
+        df = pd.read_csv(in_path, sep="\t")
+        arrays["in_dist_pred"] = _predict_test_sequences(
+            encoder, tokenizer, head, df["sequence"].tolist(), **_kw
+        )
+        arrays["in_dist_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+
+    snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    if snv_path.exists():
+        df = pd.read_csv(snv_path, sep="\t")
+        arrays["snv_ref_pred"] = _predict_test_sequences(
+            encoder, tokenizer, head, df["sequence_ref"].tolist(), **_kw
+        )
+        arrays["snv_alt_pred"] = _predict_test_sequences(
+            encoder, tokenizer, head, df["sequence_alt"].tolist(), **_kw
+        )
+        arrays["snv_alt_true"] = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        arrays["snv_delta_pred"] = arrays["snv_alt_pred"] - arrays["snv_ref_pred"]
+        arrays["snv_delta_true"] = df["delta_log2FC"].to_numpy(dtype=np.float32)
+
+    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    if ood_path.exists():
+        df = pd.read_csv(ood_path, sep="\t")
+        arrays["ood_pred"] = _predict_test_sequences(
+            encoder, tokenizer, head, df["sequence"].tolist(), **_kw
+        )
+        arrays["ood_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+
+    pred_path = output_dir / "test_predictions.npz"
+    np.savez_compressed(pred_path, **arrays)
+    print(f"  Saved predictions: {pred_path} ({pred_path.stat().st_size / 1024:.0f} KB)")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 def train(cfg: dict):
     from nucleotide_transformer_v3.pretrained import get_pretrained_ntv3_model
@@ -861,6 +919,21 @@ def train(cfg: dict):
         tokenizer,
         combined.mlp_head,
         test_set_dir,
+        seq_divisor,
+        use_flanks,
+        batch_size=test_batch_size,
+        species_token=species_token,
+        jit_predict_fn=_jit_test_predict,
+    )
+
+    # Save raw predictions for scatter plots
+    print("[eval] Saving test predictions ...", flush=True)
+    _save_ntv3_s2_predictions(
+        combined.encoder,
+        tokenizer,
+        combined.mlp_head,
+        test_set_dir,
+        output_dir,
         seq_divisor,
         use_flanks,
         batch_size=test_batch_size,

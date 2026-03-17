@@ -230,6 +230,45 @@ def evaluate_all_test_sets(
     return metrics
 
 
+def _save_ag_s2_predictions(model, predict_step_fn, test_set_dir: Path, output_dir: Path):
+    """Save raw pred/true arrays for scatter plots."""
+    params, state = model._params, model._state
+    arrays = {}
+
+    in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
+    if in_path.exists():
+        df = pd.read_csv(in_path, sep="\t")
+        arrays["in_dist_pred"] = _predict_sequences(
+            predict_step_fn, params, state, df["sequence"].tolist()
+        )
+        arrays["in_dist_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+
+    snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    if snv_path.exists():
+        df = pd.read_csv(snv_path, sep="\t")
+        arrays["snv_ref_pred"] = _predict_sequences(
+            predict_step_fn, params, state, df["sequence_ref"].tolist()
+        )
+        arrays["snv_alt_pred"] = _predict_sequences(
+            predict_step_fn, params, state, df["sequence_alt"].tolist()
+        )
+        arrays["snv_alt_true"] = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        arrays["snv_delta_pred"] = arrays["snv_alt_pred"] - arrays["snv_ref_pred"]
+        arrays["snv_delta_true"] = df["delta_log2FC"].to_numpy(dtype=np.float32)
+
+    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    if ood_path.exists():
+        df = pd.read_csv(ood_path, sep="\t")
+        arrays["ood_pred"] = _predict_sequences(
+            predict_step_fn, params, state, df["sequence"].tolist()
+        )
+        arrays["ood_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+
+    pred_path = output_dir / "test_predictions.npz"
+    np.savez_compressed(pred_path, **arrays)
+    print(f"  Saved predictions: {pred_path} ({pred_path.stat().st_size / 1024:.0f} KB)")
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 
@@ -543,6 +582,10 @@ def main(cfg: DictConfig) -> None:
 
     test_set_dir = Path(str(cfg.k562_data_path)) / "test_sets"
     test_metrics = evaluate_all_test_sets(model, predict_step, test_set_dir)
+
+    # Save raw predictions for scatter plots
+    print("[eval] Saving test predictions ...", flush=True)
+    _save_ag_s2_predictions(model, predict_step, test_set_dir, output_dir)
 
     results = {
         "seed": used_seed,
