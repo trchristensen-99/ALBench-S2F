@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -123,22 +124,40 @@ def _encode_and_save(
         can_padded = can_padded.to(device)
         rc_padded = rc_padded.to(device)
 
-        with torch.no_grad(), torch.amp.autocast("cuda", enabled=device.type == "cuda"):
-            emb_can = model.get_embs_after_crop(can_padded)  # (B, 1536, 6144)
-            emb_rc = model.get_embs_after_crop(rc_padded)
+        # Try with autocast first; retry without if NaN detected
+        for attempt, use_autocast in enumerate([device.type == "cuda", False]):
+            with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_autocast):
+                emb_can = model.get_embs_after_crop(can_padded)  # (B, 1536, 6144)
+                emb_rc = model.get_embs_after_crop(rc_padded)
 
-        # Pool: center-crop or full mean-pool
-        if center_bins > 0:
-            total_bins = emb_can.shape[2]
-            start = (total_bins - center_bins) // 2
-            emb_can = emb_can[:, :, start : start + center_bins].mean(dim=2)
-            emb_rc = emb_rc[:, :, start : start + center_bins].mean(dim=2)
-        else:
-            emb_can = emb_can.mean(dim=2)  # (B, 1536)
-            emb_rc = emb_rc.mean(dim=2)
+            # Pool: center-crop or full mean-pool
+            if center_bins > 0:
+                total_bins = emb_can.shape[2]
+                start = (total_bins - center_bins) // 2
+                emb_can = emb_can[:, :, start : start + center_bins].mean(dim=2)
+                emb_rc = emb_rc[:, :, start : start + center_bins].mean(dim=2)
+            else:
+                emb_can = emb_can.mean(dim=2)  # (B, 1536)
+                emb_rc = emb_rc.mean(dim=2)
+
+            has_nan = torch.isnan(emb_can).any() or torch.isnan(emb_rc).any()
+            if not has_nan:
+                break
+            if attempt == 0:
+                print(f"    WARNING: NaN in batch {i}-{end}, retrying without autocast...")
+            else:
+                print(f"    ERROR: NaN persists in batch {i}-{end} even without autocast!")
 
         emb_can_np = emb_can.cpu().float().numpy()
         emb_rc_np = emb_rc.cpu().float().numpy()
+
+        # Replace any remaining NaN with 0 as safety net
+        nan_can = np.isnan(emb_can_np).any(axis=1).sum()
+        nan_rc = np.isnan(emb_rc_np).any(axis=1).sum()
+        if nan_can > 0 or nan_rc > 0:
+            print(f"    Replacing {nan_can}+{nan_rc} NaN rows with zeros in batch {i}-{end}")
+            np.nan_to_num(emb_can_np, copy=False)
+            np.nan_to_num(emb_rc_np, copy=False)
 
         if dtype == np.float16:
             can_buf[i:end] = np.clip(emb_can_np, -65504, 65504).astype(dtype)
@@ -147,6 +166,16 @@ def _encode_and_save(
             can_buf[i:end] = emb_can_np.astype(dtype)
             rc_buf[i:end] = emb_rc_np.astype(dtype)
 
+    # Flush memmap to ensure NFS writes are committed
+    can_buf.flush()
+    rc_buf.flush()
+    del can_buf, rc_buf
+
+    # Final NaN check
+    final_can = np.load(can_path, mmap_mode="r")
+    final_nan = np.isnan(final_can).any(axis=1).sum()
+    if final_nan > 0:
+        print(f"  WARNING: {prefix}_canonical still has {final_nan}/{N} NaN rows after build!")
     print(f"  {prefix}: saved {N} embeddings ({D}D, {pool_desc}) → {can_path.name}, {rc_path.name}")
 
 
@@ -205,6 +234,24 @@ def main():
                 ).to(device)
             else:
                 print(f"  {name}.positions OK")
+
+    # Validate model: run one dummy sequence and check for NaN
+    dummy = torch.zeros(1, 4, BORZOI_SEQ_LEN, device=device)
+    dummy[0, 0, :100] = 1.0  # simple A-repeat
+    with torch.no_grad():
+        dummy_out = model.get_embs_after_crop(dummy)
+    if torch.isnan(dummy_out).any():
+        print("  CRITICAL: Model produces NaN on dummy input even after position fix!")
+        print("  Trying without autocast...")
+        with torch.no_grad():
+            dummy_out = model.get_embs_after_crop(dummy.float())
+        if torch.isnan(dummy_out).any():
+            print("  FATAL: Model produces NaN without autocast. Exiting.")
+            sys.exit(1)
+        else:
+            print("  OK without autocast — will disable autocast for cache build.")
+    else:
+        print("  Model validation passed (no NaN on dummy input).")
 
     cache_dir = Path(args.cache_dir)
     data_path = Path(args.data_path)

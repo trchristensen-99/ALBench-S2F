@@ -304,6 +304,9 @@ def train(cfg: dict):
             pred = model(emb)
             loss = criterion(pred, labels)
 
+            if torch.isnan(loss):
+                continue  # skip NaN batches (from corrupted cache rows)
+
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
