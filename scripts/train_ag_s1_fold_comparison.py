@@ -268,7 +268,31 @@ def train_and_evaluate(
     }
 
     for k, v in test_metrics.items():
-        print(f"    {k}: pearson_r={v['pearson_r']:.4f}")
+        print(f"    {k}: pearson_r={v['pearson_r']:.4f}, mse={v.get('mse', '?')}")
+
+    # Save predictions for scatter plots (pred vs true for each test set)
+    predictions_path = out_dir / "test_predictions.npz"
+    np.savez_compressed(
+        predictions_path,
+        in_dist_pred=in_pred,
+        in_dist_true=in_true,
+        snv_alt_pred=alt_pred,
+        snv_alt_true=alt_true,
+        snv_ref_pred=ref_pred,
+        snv_delta_pred=delta_pred,
+        snv_delta_true=delta_true,
+        ood_pred=ood_pred,
+        ood_true=ood_true,
+    )
+    print(f"  Saved predictions: {predictions_path}")
+
+    # Save model checkpoint for future re-evaluation
+    import pickle
+
+    ckpt_path = out_dir / "best_params.pkl"
+    with open(ckpt_path, "wb") as f:
+        pickle.dump(best_overall_params, f)
+    print(f"  Saved checkpoint: {ckpt_path}")
 
     result = {
         "model_version": model_version,
