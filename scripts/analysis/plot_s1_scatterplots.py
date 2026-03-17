@@ -30,7 +30,11 @@ OUT_DIR = REPO / "results" / "exp0_plots"
 MODELS = [
     ("AG all folds", "ag_all_folds_k562_s1_full", "#1B5E20"),
     ("AG fold 1", "ag_fold_1_k562_s1_full", "#66BB6A"),
-    ("DREAM-RNN", "dream_rnn_k562_with_preds/seed_42", "#7B2D8E"),
+    (
+        "DREAM-RNN",
+        "dream_rnn_k562_with_preds/seed_42/seed_42/fraction_1.0000",
+        "#7B2D8E",
+    ),
     ("Enformer", "enformer_k562_3seeds/seed_598125057", "#3A86C8"),
     ("Malinois", "malinois_k562_with_preds/seed_42", "#B07CC6"),
     ("Borzoi", "borzoi_k562_3seeds/seed_824292012", "#DAA520"),
