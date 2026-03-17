@@ -53,13 +53,15 @@ def main():
         with torch.no_grad():
             for i in range(0, len(sequences), 256):
                 batch = sequences[i : i + 256]
-                oh = np.stack(
-                    [
-                        one_hot_encode(_standardize_to_200bp(s), add_singleton_channel=False)
-                        for s in batch
-                    ]
-                )
-                x = torch.from_numpy(oh).float().to(device)
+                # K562 DREAM-RNN uses 5 channels: 4 ACGT + 1 RC flag (=1.0)
+                oh_list = []
+                for s in batch:
+                    oh = one_hot_encode(
+                        _standardize_to_200bp(s), add_singleton_channel=False
+                    )  # (4, 200)
+                    rc_channel = np.ones((1, oh.shape[1]), dtype=np.float32)
+                    oh_list.append(np.concatenate([oh, rc_channel], axis=0))  # (5, 200)
+                x = torch.from_numpy(np.stack(oh_list)).float().to(device)
                 p = model.predict(x, use_reverse_complement=True)
                 preds.append(p.cpu().numpy().squeeze())
         return np.concatenate(preds)
