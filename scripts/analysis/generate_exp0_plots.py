@@ -850,14 +850,14 @@ def generate_k562_s1_bar_plot():
         ("Enformer", "enformer_k562_3seeds", "result.json", "#3A86C8"),
         (
             "AG fold 1",
-            "ag_hashfrag_oracle_cached/oracle_0",
-            "test_metrics.json",
+            "ag_fold_1_k562_s1_full",
+            "result.json",
             "#66BB6A",
         ),
         (
             "AG all folds",
-            "ag_hashfrag_oracle_cached",
-            "test_metrics.json",
+            "ag_all_folds_k562_s1_full",
+            "result.json",
             "#1B5E20",
         ),
     ]
@@ -891,49 +891,8 @@ def generate_k562_s1_bar_plot():
                             print(f"  DREAM-RNN: loaded {len(metrics)} from {fb_dir.name}")
                             break
             all_metrics[name] = metrics
-        elif name == "AG fold 1":
-            # Single fold: load just this fold's test_metrics.json
-            metrics = _load_bar_model_metrics(d, json_name)
-            all_metrics[name] = metrics
-        elif name == "AG all folds":
-            # Use oracle ENSEMBLE metrics (predictions averaged across folds
-            # before evaluation), not individual fold metrics averaged after.
-            summary_path = REPO / "outputs" / "oracle_pseudolabels_k562_ag" / "summary.json"
-            if summary_path.exists():
-                s = json.loads(summary_path.read_text())
-                # Convert summary format to test_metrics format
-                ensemble_tm = {
-                    "in_distribution": {
-                        "pearson_r": s["test_in_distribution"]["ensemble_pearson_r"],
-                        "spearman_r": s["test_in_distribution"]["ensemble_spearman_r"],
-                        "n": s["test_in_distribution"]["n"],
-                    },
-                    "snv_abs": {
-                        "pearson_r": s["test_snv_alt"]["ensemble_pearson_r"],
-                        "spearman_r": s["test_snv_alt"]["ensemble_spearman_r"],
-                        "n": s["test_snv_alt"]["n"],
-                    },
-                    "snv_delta": {
-                        "pearson_r": s["test_snv_delta"]["ensemble_pearson_r"],
-                        "spearman_r": s["test_snv_delta"]["ensemble_spearman_r"],
-                        "n": s["test_snv_delta"]["n"],
-                    },
-                    "ood": {
-                        "pearson_r": s["test_ood"]["ensemble_pearson_r"],
-                        "spearman_r": s["test_ood"]["ensemble_spearman_r"],
-                        "n": s["test_ood"]["n"],
-                    },
-                }
-                all_metrics[name] = [ensemble_tm]
-                print(f"  AG all folds: using ensemble metrics from {summary_path.name}")
-            else:
-                # Fallback: average individual fold metrics
-                metrics = []
-                for fold_dir in sorted(d.glob("oracle_*")):
-                    fold_metrics = _load_bar_model_metrics(fold_dir, json_name)
-                    metrics.extend(fold_metrics)
-                all_metrics[name] = metrics
-                print(f"  AG all folds: fallback to {len(metrics)} individual fold metrics")
+        elif name in ("AG fold 1", "AG all folds"):
+            all_metrics[name] = _load_bar_model_metrics(d, json_name)
         else:
             all_metrics[name] = _load_bar_model_metrics(d, json_name)
 
