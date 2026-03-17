@@ -245,6 +245,7 @@ def train_and_evaluate(
     test_metrics["snv_abs"] = {
         "pearson_r": _corr(alt_pred, alt_true, pearsonr),
         "spearman_r": _corr(alt_pred, alt_true, spearmanr),
+        "mse": float(np.mean((alt_pred - alt_true) ** 2)),
         "n": len(alt_true),
     }
     delta_pred = alt_pred - ref_pred
@@ -252,6 +253,7 @@ def train_and_evaluate(
     test_metrics["snv_delta"] = {
         "pearson_r": _corr(delta_pred, delta_true, pearsonr),
         "spearman_r": _corr(delta_pred, delta_true, spearmanr),
+        "mse": float(np.mean((delta_pred - delta_true) ** 2)),
         "n": len(delta_true),
     }
 
@@ -261,6 +263,7 @@ def train_and_evaluate(
     test_metrics["ood"] = {
         "pearson_r": _corr(ood_pred, ood_true, pearsonr),
         "spearman_r": _corr(ood_pred, ood_true, spearmanr),
+        "mse": float(np.mean((ood_pred - ood_true) ** 2)),
         "n": len(ood_true),
     }
 
