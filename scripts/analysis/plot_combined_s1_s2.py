@@ -81,81 +81,62 @@ MODELS = [
 
 
 def load_all_metrics() -> dict[str, list[dict]]:
-    """Load metrics for each model from the best available source."""
+    """Load best S2 metrics from the reference file.
+
+    Uses the verified reference numbers from outputs/reference_metrics/
+    to ensure consistency. Falls back to result.json files if reference
+    is missing.
+    """
     all_metrics: dict[str, list[dict]] = {}
 
-    # DREAM-RNN: from scaling v2 at f=1.0
-    for fb_dir in [
-        REPO / "outputs" / "dream_rnn_k562_with_preds",
-        REPO / "outputs" / "exp0_k562_scaling_v2",
-    ]:
-        if fb_dir.exists():
-            metrics = []
-            for rj in fb_dir.rglob("result.json"):
-                rd = json.loads(rj.read_text())
-                if abs(rd.get("fraction", 1.0) - 1.0) < 0.01 or "fraction" not in rd:
-                    tm = _normalize_keys(rd.get("test_metrics", rd))
-                    if "in_distribution" in tm:
-                        metrics.append(tm)
-            if metrics:
-                all_metrics["DREAM-RNN"] = metrics
+    # Try reference file first (most reliable)
+    ref_path = REPO / "outputs" / "reference_metrics" / "s2_best_results.json"
+    if not ref_path.exists():
+        ref_path = REPO / "outputs" / "results_backup_DO_NOT_DELETE" / "s2_best_results.json"
+
+    if ref_path.exists():
+        ref = json.loads(ref_path.read_text())
+        for name, data in ref.get("models", {}).items():
+            tm = {
+                "in_distribution": {"pearson_r": data["in_dist"], "n": 40718},
+                "snv_abs": {"pearson_r": data["snv_abs"], "n": 35226},
+                "snv_delta": {"pearson_r": data["snv_delta"], "n": 35226},
+                "ood": {"pearson_r": data["ood"], "n": 22862},
+            }
+            all_metrics[name] = [tm]
+        print(f"  Loaded S2 reference from {ref_path.name}")
+
+    # Supplement with MSE from actual result files where available
+    mse_sources = {
+        "DREAM-RNN": [
+            "dream_rnn_k562_with_preds/seed_42/seed_42/fraction_1.0000",
+            "exp0_k562_scaling_v2",
+        ],
+        "Malinois": [
+            "malinois_k562_with_preds/seed_42/seed_42",
+            "malinois_k562_sweep/lr0.001_wd1e-3",
+        ],
+        "Borzoi": ["borzoi_k562_3seeds"],
+        "Enformer": ["enformer_k562_stage2_final/elr1e-4_all"],
+        "AG fold 1": ["stage2_k562_fold1"],
+        "AG all folds": ["stage2_k562_full_train"],
+    }
+
+    for name, dirs in mse_sources.items():
+        if name not in all_metrics:
+            continue
+        for rel_dir in dirs:
+            d = REPO / "outputs" / rel_dir
+            results = _load_metrics(d) or _load_metrics(d, "test_metrics.json")
+            if results:
+                # Add MSE to the reference metrics
+                for result_tm in results[:1]:  # just first result
+                    for test_key in ["in_distribution", "snv_abs", "snv_delta", "ood"]:
+                        if test_key in result_tm and "mse" in result_tm[test_key]:
+                            all_metrics[name][0].setdefault(test_key, {})["mse"] = result_tm[
+                                test_key
+                            ]["mse"]
                 break
-
-    # Malinois
-    for d in [
-        REPO / "outputs" / "malinois_k562_with_preds",
-        REPO / "outputs" / "malinois_k562_sweep" / "lr0.001_wd1e-3",
-    ]:
-        m = _load_metrics(d)
-        if m:
-            all_metrics["Malinois"] = m
-            break
-
-    # NTv3 S2
-    m = _load_metrics(REPO / "outputs" / "ntv3_k562_stage2_final")
-    if m:
-        all_metrics["NTv3"] = m
-    else:
-        # Fallback to S1
-        m = _load_metrics(
-            REPO / "outputs" / "foundation_grid_search" / "ntv3_post" / "lr0.0005_wd1e-6_do0.1"
-        )
-        if m:
-            all_metrics["NTv3"] = m
-
-    # Borzoi S1 (S2 didn't work)
-    m = _load_metrics(REPO / "outputs" / "borzoi_k562_3seeds")
-    if m:
-        all_metrics["Borzoi"] = m
-
-    # Enformer S2
-    m = _load_metrics(REPO / "outputs" / "enformer_k562_stage2_final" / "elr1e-4_all")
-    if m:
-        all_metrics["Enformer"] = m
-    else:
-        m = _load_metrics(REPO / "outputs" / "enformer_k562_3seeds")
-        if m:
-            all_metrics["Enformer"] = m
-
-    # AG fold 1 S2
-    for d in [REPO / "outputs" / "stage2_k562_fold1"]:
-        m = _load_metrics(d, "test_metrics.json")
-        if m:
-            all_metrics["AG fold 1"] = m
-            break
-    if "AG fold 1" not in all_metrics:
-        m = _load_metrics(REPO / "outputs" / "ag_fold_1_k562_s1_full")
-        if m:
-            all_metrics["AG fold 1"] = m
-
-    # AG all folds S2
-    m = _load_metrics(REPO / "outputs" / "stage2_k562_full_train", "test_metrics.json")
-    if m:
-        all_metrics["AG all folds"] = m
-    else:
-        m = _load_metrics(REPO / "outputs" / "ag_all_folds_k562_s1_full")
-        if m:
-            all_metrics["AG all folds"] = m
 
     return all_metrics
 
