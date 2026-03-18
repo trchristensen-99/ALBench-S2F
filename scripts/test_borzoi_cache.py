@@ -68,6 +68,10 @@ def main():
 
     from borzoi_pytorch import Borzoi
 
+    # Fix for transformers>=5.3
+    if not hasattr(Borzoi, "all_tied_weights_keys"):
+        Borzoi.all_tied_weights_keys = {}
+
     device = torch.device("cuda")
     model = Borzoi.from_pretrained("johahi/borzoi-replicate-0")
     model.eval().to(device)
