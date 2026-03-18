@@ -544,18 +544,14 @@ def save_test_predictions_s2(
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
     if in_path.exists():
         df = pd.read_csv(in_path, sep="\t")
-        arrays["in_dist_pred"] = _predict_test_sequences(**_kw, sequences=df["sequence"].tolist())
+        arrays["in_dist_pred"] = _predict_test_sequences(df["sequence"].tolist(), **_kw)
         arrays["in_dist_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
 
     snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
     if snv_path.exists():
         df = pd.read_csv(snv_path, sep="\t")
-        arrays["snv_ref_pred"] = _predict_test_sequences(
-            **_kw, sequences=df["sequence_ref"].tolist()
-        )
-        arrays["snv_alt_pred"] = _predict_test_sequences(
-            **_kw, sequences=df["sequence_alt"].tolist()
-        )
+        arrays["snv_ref_pred"] = _predict_test_sequences(df["sequence_ref"].tolist(), **_kw)
+        arrays["snv_alt_pred"] = _predict_test_sequences(df["sequence_alt"].tolist(), **_kw)
         arrays["snv_alt_true"] = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
         arrays["snv_delta_pred"] = arrays["snv_alt_pred"] - arrays["snv_ref_pred"]
         arrays["snv_delta_true"] = df["delta_log2FC"].to_numpy(dtype=np.float32)
@@ -563,7 +559,7 @@ def save_test_predictions_s2(
     ood_path = test_set_dir / "test_ood_designed_k562.tsv"
     if ood_path.exists():
         df = pd.read_csv(ood_path, sep="\t")
-        arrays["ood_pred"] = _predict_test_sequences(**_kw, sequences=df["sequence"].tolist())
+        arrays["ood_pred"] = _predict_test_sequences(df["sequence"].tolist(), **_kw)
         arrays["ood_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
 
     pred_path = output_dir / "test_predictions.npz"
