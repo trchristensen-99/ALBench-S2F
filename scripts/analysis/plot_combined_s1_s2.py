@@ -103,40 +103,17 @@ def load_all_metrics() -> dict[str, list[dict]]:
                 "snv_delta": {"pearson_r": data["snv_delta"], "n": 35226},
                 "ood": {"pearson_r": data["ood"], "n": 22862},
             }
+            # Add MSE from reference if available
+            for test_key, mse_key in [
+                ("in_distribution", "mse_in_dist"),
+                ("snv_abs", "mse_snv"),
+                ("snv_delta", "mse_snvd"),
+                ("ood", "mse_ood"),
+            ]:
+                if mse_key in data:
+                    tm[test_key]["mse"] = data[mse_key]
             all_metrics[name] = [tm]
         print(f"  Loaded S2 reference from {ref_path.name}")
-
-    # Supplement with MSE from actual result files where available
-    mse_sources = {
-        "DREAM-RNN": [
-            "dream_rnn_k562_with_preds/seed_42/seed_42/fraction_1.0000",
-            "exp0_k562_scaling_v2",
-        ],
-        "Malinois": [
-            "malinois_k562_with_preds/seed_42/seed_42",
-            "malinois_k562_sweep/lr0.001_wd1e-3",
-        ],
-        "Borzoi": ["borzoi_k562_3seeds"],
-        "Enformer": ["enformer_k562_stage2_final/elr1e-4_all"],
-        "AG fold 1": ["stage2_k562_fold1"],
-        "AG all folds": ["stage2_k562_full_train"],
-    }
-
-    for name, dirs in mse_sources.items():
-        if name not in all_metrics:
-            continue
-        for rel_dir in dirs:
-            d = REPO / "outputs" / rel_dir
-            results = _load_metrics(d) or _load_metrics(d, "test_metrics.json")
-            if results:
-                # Add MSE to the reference metrics
-                for result_tm in results[:1]:  # just first result
-                    for test_key in ["in_distribution", "snv_abs", "snv_delta", "ood"]:
-                        if test_key in result_tm and "mse" in result_tm[test_key]:
-                            all_metrics[name][0].setdefault(test_key, {})["mse"] = result_tm[
-                                test_key
-                            ]["mse"]
-                break
 
     return all_metrics
 
