@@ -14,7 +14,11 @@ from scipy.stats import pearsonr, spearmanr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from experiments.train_foundation_stage2 import _predict_test_sequences, _safe_corr
+from experiments.train_foundation_stage2 import (
+    _forward_enformer,
+    _predict_test_sequences,
+    _safe_corr,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -44,11 +48,10 @@ def main():
     head.to(device).eval()
     print(f"Head loaded (epoch {ckpt.get('epoch', '?')})")
 
-    def forward_fn(encoder_out, head_input):
-        return head(head_input)
-
     def pred(sequences):
-        return _predict_test_sequences(encoder, head, forward_fn, sequences, device, batch_size=4)
+        return _predict_test_sequences(
+            encoder, head, _forward_enformer, sequences, device, batch_size=4
+        )
 
     # In-dist
     print("Predicting in_dist...")
