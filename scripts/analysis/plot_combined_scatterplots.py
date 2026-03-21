@@ -31,7 +31,7 @@ MODELS = [
         "dream_rnn_k562_with_preds/seed_42/seed_42/fraction_1.0000",
         "#7B2D8E",
     ),  # from-scratch
-    ("Enformer", "enformer_k562_stage2_v2/run_0", "#3A86C8"),  # S2
+    ("Enformer", "enformer_k562_stage2_final_v2/run_0", "#3A86C8"),  # S2
     ("Malinois", "malinois_k562_with_preds/seed_42/seed_42", "#B07CC6"),  # from-scratch
     ("Borzoi", "borzoi_k562_3seeds/seed_824292012", "#DAA520"),  # S1 (S2 failed)
     (
