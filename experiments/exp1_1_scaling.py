@@ -651,7 +651,7 @@ def _get_ag_model_and_encoder(task: str):
         task_mode = "human"
     else:
         head_name = "exp1_s1_yeast"
-        num_tokens, num_tracks = 3, 18
+        num_tokens, num_tracks = 3, 1  # 1 track: predicting single scalar expression
         task_mode = "yeast"
 
     register_s2f_head(
