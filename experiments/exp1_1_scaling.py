@@ -58,12 +58,12 @@ DEFAULT_TRAINING_SIZES = [1000, 5000, 10000, 20000, 50000, 100000, 200000, 50000
 
 HP_GRIDS = {
     "dream_rnn": {
-        "learning_rate": [0.003, 0.005],
-        "batch_size": [512, 1024],
+        "learning_rate": [0.005],
+        "batch_size": [128, 512],
     },
     "dream_cnn": {
-        "learning_rate": [0.003, 0.005],
-        "batch_size": [1024, 2048],
+        "learning_rate": [0.005],
+        "batch_size": [512, 1024],
     },
     "alphagenome_k562_s1": {
         "learning_rate": [3e-4, 1e-3],
@@ -93,12 +93,12 @@ LARGE_N_THRESHOLD = 100_000
 
 HP_GRIDS_LARGE_N = {
     "dream_rnn": {
-        "learning_rate": [0.003, 0.005],
-        "batch_size": [1024],  # drop bs=512 — 2× fewer batches/epoch
+        "learning_rate": [0.005],
+        "batch_size": [128],  # bs=128 is best from grid search
     },
     "dream_cnn": {
         "learning_rate": [0.005],
-        "batch_size": [2048],  # CNN can handle larger batches, 4× faster
+        "batch_size": [1024],
     },
     "alphagenome_k562_s1": {
         "learning_rate": [3e-4, 1e-3],
@@ -1099,6 +1099,8 @@ def _train_student(
     ensemble_size: int = 5,
     epochs: int = 80,
     early_stopping_patience: int | None = None,
+    val_sequences: list[str] | None = None,
+    val_labels: np.ndarray | None = None,
 ) -> SequenceModel:
     """Train a student model and return it."""
     if student_type == "dream_rnn":
@@ -1123,7 +1125,7 @@ def _train_student(
                 early_stopping_patience=early_stopping_patience,
             ),
         )
-        student.fit(sequences, labels)
+        student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
         return student
     elif student_type in ("alphagenome_k562_s1", "alphagenome_yeast_s1"):
         return _train_ag_s1_student(
@@ -1157,7 +1159,7 @@ def _train_student(
                 early_stopping_patience=early_stopping_patience,
             ),
         )
-        student.fit(sequences, labels)
+        student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
         return student
     elif student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
         return _train_ag_s2_student(task, sequences, labels, lr, batch_size, seed)
@@ -1693,6 +1695,8 @@ def run_scaling_experiment(
                         ensemble_size=ensemble_size,
                         epochs=epochs,
                         early_stopping_patience=early_stopping_patience,
+                        val_sequences=val_seqs,
+                        val_labels=val_labels,
                     )
 
                     # Validation evaluation

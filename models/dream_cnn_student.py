@@ -141,15 +141,38 @@ class DREAMCNNStudent(SequenceModel):
                 embeds.append(pooled.cpu().numpy())
         return np.mean(np.stack(embeds, axis=0), axis=0)
 
-    def fit(self, sequences: list[str], labels: np.ndarray) -> None:
-        """Train all ensemble members."""
+    def fit(
+        self,
+        sequences: list[str],
+        labels: np.ndarray,
+        val_sequences: list[str] | None = None,
+        val_labels: np.ndarray | None = None,
+    ) -> None:
+        """Train all ensemble members.
+
+        If val_sequences/val_labels are provided, they are used for early
+        stopping and best-model selection. Otherwise a 10% random split of
+        the training data is used.
+        """
         x = self._encode_sequences(sequences)
         y = torch.from_numpy(labels.astype(np.float32))
 
-        dataset = _InMemorySequenceDataset(x, y)
+        if val_sequences is not None and val_labels is not None:
+            x_val = self._encode_sequences(val_sequences)
+            y_val = torch.from_numpy(val_labels.astype(np.float32))
+        else:
+            # Internal 10% split
+            n_val = max(50, int(0.1 * len(x)))
+            perm = torch.randperm(len(x))
+            val_idx, train_idx = perm[:n_val], perm[n_val:]
+            x_val, y_val = x[val_idx], y[val_idx]
+            x, y = x[train_idx], y[train_idx]
+
+        train_dataset = _InMemorySequenceDataset(x, y)
+        val_dataset = _InMemorySequenceDataset(x_val, y_val)
         nw = self.train_config.num_workers
         loader = DataLoader(
-            dataset,
+            train_dataset,
             batch_size=self.train_config.batch_size,
             shuffle=True,
             pin_memory=True,
@@ -158,7 +181,7 @@ class DREAMCNNStudent(SequenceModel):
             drop_last=True,
         )
         val_loader = DataLoader(
-            dataset,
+            val_dataset,
             batch_size=self.train_config.batch_size,
             shuffle=False,
             pin_memory=True,
