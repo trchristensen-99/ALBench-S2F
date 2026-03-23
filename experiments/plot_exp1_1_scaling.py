@@ -187,6 +187,26 @@ def _extract_metric(result: dict[str, Any], test_set: str, metric: str) -> float
     return None
 
 
+def _hp_label(hp_key: str) -> str:
+    """Convert a serialized HP config JSON string to a short readable label."""
+    try:
+        hp = json.loads(hp_key)
+    except (json.JSONDecodeError, TypeError):
+        return hp_key
+    parts = []
+    if "learning_rate" in hp:
+        lr = hp["learning_rate"]
+        parts.append(f"lr={lr:.0e}" if lr < 0.01 else f"lr={lr:g}")
+    if "batch_size" in hp:
+        parts.append(f"bs={hp['batch_size']}")
+    return ", ".join(parts) if parts else hp_key
+
+
+# Colors for distinguishing HP configs within a reservoir
+HP_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf"]
+HP_MARKERS = ["o", "s", "^", "v", "D", "P", "X", "h"]
+
+
 def _select_best_hp(
     results: list[dict[str, Any]],
     test_set: str,
@@ -284,7 +304,7 @@ def plot_per_reservoir(
         fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 5.5 * nrows), squeeze=False)
         axes_flat = axes.flatten()
 
-        style = _get_reservoir_style(reservoir, res_idx)
+        _get_reservoir_style(reservoir, res_idx)
 
         for panel_idx, ts in enumerate(test_sets):
             ax = axes_flat[panel_idx]
@@ -306,21 +326,42 @@ def plot_per_reservoir(
 
             sizes_sorted = sorted(analysis.keys())
 
-            # Scatter all HP configs (semi-transparent)
+            # Collect all unique HP keys across sizes for consistent color assignment
+            all_hp_keys: list[str] = []
             for n in sizes_sorted:
-                for _hp_key, vals in analysis[n]["all_hp_values"]:
+                for hp_key, _vals in analysis[n]["all_hp_values"]:
+                    if hp_key not in all_hp_keys:
+                        all_hp_keys.append(hp_key)
+
+            # Plot each HP config with a distinct color/marker
+            hp_plotted: set[str] = set()
+            for n in sizes_sorted:
+                for hp_key, vals in analysis[n]["all_hp_values"]:
+                    hp_idx = all_hp_keys.index(hp_key)
+                    hp_color = HP_COLORS[hp_idx % len(HP_COLORS)]
+                    hp_marker = HP_MARKERS[hp_idx % len(HP_MARKERS)]
+                    is_best = hp_key == analysis[n]["best_hp_key"]
+                    label = None
+                    if hp_key not in hp_plotted:
+                        label = _hp_label(hp_key)
+                        if is_best:
+                            label += " *"
+                        hp_plotted.add(hp_key)
                     for v in vals:
                         ax.scatter(
                             n,
                             v,
-                            color=style["color"],
-                            alpha=0.2,
-                            s=20,
+                            color=hp_color,
+                            marker=hp_marker,
+                            alpha=0.5 if is_best else 0.25,
+                            s=35 if is_best else 20,
                             edgecolors="none",
-                            zorder=1,
+                            zorder=2 if is_best else 1,
+                            label=label,
                         )
+                        label = None  # only label once per HP
 
-            # Best HP line
+            # Best HP line (mean +/- std across replicates)
             best_sizes = np.array(sizes_sorted)
             best_means = np.array(
                 [float(np.mean(analysis[n]["metric_values"])) for n in sizes_sorted]
@@ -333,20 +374,21 @@ def plot_per_reservoir(
                 best_sizes,
                 best_means,
                 yerr=best_stds,
-                color=style["color"],
-                marker=style["marker"],
+                color="black",
+                marker="None",
                 linewidth=2,
-                markersize=7,
                 capsize=3,
                 capthick=1.5,
-                label="Best HP",
+                label="Best HP mean",
                 zorder=3,
+                linestyle="-",
             )
 
             ax.set_xscale("log")
             ax.set_xlabel("Training Set Size", fontsize=11)
             ax.set_ylabel(metric_label, fontsize=11)
             ax.set_title(TEST_SET_LABELS.get(ts, ts), fontsize=12, fontweight="bold")
+            ax.legend(fontsize=8, loc="lower right")
             ax.grid(True, alpha=0.3)
             ax.tick_params(labelsize=10)
 
@@ -403,19 +445,21 @@ def plot_multi_reservoir_comparison(
 
             sizes_sorted = sorted(analysis.keys())
 
-            # Plot individual HP configs as faint scatter points
+            # Plot individual HP configs as scatter points (distinguishable)
             for n in sizes_sorted:
                 all_hp = analysis[n].get("all_hp_values", [])
+                best_hp_key = analysis[n].get("best_hp_key")
                 for hp_key, hp_vals in all_hp:
+                    is_best = hp_key == best_hp_key
                     for v in hp_vals:
                         ax.scatter(
                             n,
                             v,
                             color=style["color"],
                             marker=style["marker"],
-                            s=12,
-                            alpha=0.15,
-                            zorder=1,
+                            s=20 if is_best else 12,
+                            alpha=0.4 if is_best else 0.2,
+                            zorder=2 if is_best else 1,
                             edgecolors="none",
                         )
 
