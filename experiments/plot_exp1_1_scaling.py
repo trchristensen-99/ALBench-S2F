@@ -402,6 +402,24 @@ def plot_multi_reservoir_comparison(
                 continue
 
             sizes_sorted = sorted(analysis.keys())
+
+            # Plot individual HP configs as faint scatter points
+            for n in sizes_sorted:
+                all_hp = analysis[n].get("all_hp_values", [])
+                for hp_key, hp_vals in all_hp:
+                    for v in hp_vals:
+                        ax.scatter(
+                            n,
+                            v,
+                            color=style["color"],
+                            marker=style["marker"],
+                            s=12,
+                            alpha=0.15,
+                            zorder=1,
+                            edgecolors="none",
+                        )
+
+            # Plot best-HP line on top
             means = np.array([float(np.mean(analysis[n]["metric_values"])) for n in sizes_sorted])
             stds = np.array([float(np.std(analysis[n]["metric_values"])) for n in sizes_sorted])
 
