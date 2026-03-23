@@ -496,7 +496,7 @@ def plot_heatmap(
     fig, axes = plt.subplots(
         1,
         n_panels,
-        figsize=(5 * n_panels + 1, max(4, 0.45 * n_res + 2)),
+        figsize=(6 * n_panels + 1, max(5, 0.55 * n_res + 2)),
         squeeze=False,
     )
     axes_flat = axes.flatten()
@@ -544,8 +544,7 @@ def plot_heatmap(
                 else:
                     mid = (vmin + vmax) / 2
                     text_color = "white" if val > mid else "black"
-                    # Shorter format for crowded heatmaps
-                    fmt = f"{val:.2f}" if n_res > 15 else f"{val:.3f}"
+                    fmt = f"{val:.3f}"
                     ax.text(
                         j,
                         i,
