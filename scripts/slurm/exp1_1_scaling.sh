@@ -72,11 +72,12 @@ fi
 
 # Tier-specific settings
 if [[ "${TIER}" == "large" ]]; then
-    # Large sizes: reduced sweep + early stopping + fewer ensemble members
+    # Large sizes: transfer HP from n=50k + early stopping + fewer ensemble members
     TRAINING_SIZES="100000 200000 500000"
     EPOCHS=50
     EARLY_STOP=10
     ENSEMBLE_SIZE=3
+    TRANSFER_HP=50000
 else
     # Small sizes: full sweep, early stopping saves time at larger N
     TRAINING_SIZES="1000 5000 10000 20000 50000"
@@ -88,6 +89,9 @@ fi
 EXTRA_ARGS=""
 if [[ -n "${EARLY_STOP}" ]]; then
     EXTRA_ARGS="${EXTRA_ARGS} --early-stop-patience ${EARLY_STOP}"
+fi
+if [[ -n "${TRANSFER_HP:-}" ]]; then
+    EXTRA_ARGS="${EXTRA_ARGS} --transfer-hp-from ${TRANSFER_HP}"
 fi
 
 # Run all reservoirs in this group sequentially (they share the oracle + pool)

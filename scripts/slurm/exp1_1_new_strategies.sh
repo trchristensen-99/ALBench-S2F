@@ -81,7 +81,7 @@ uv run --no-sync python experiments/exp1_1_scaling.py \
     --ensemble-size 5 \
     --early-stop-patience 10
 
-# Run large tier (100k-500k)
+# Run large tier (100k-500k) with HP transfer from n=50k
 echo "--- Large tier (100k-500k) ---"
 uv run --no-sync python experiments/exp1_1_scaling.py \
     --task "${TASK}" \
@@ -94,6 +94,7 @@ uv run --no-sync python experiments/exp1_1_scaling.py \
     --training-sizes 100000 200000 500000 \
     --epochs 50 \
     --ensemble-size 3 \
-    --early-stop-patience 10
+    --early-stop-patience 10 \
+    --transfer-hp-from 50000
 
 echo "Done: $(date)"

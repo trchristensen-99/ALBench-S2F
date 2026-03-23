@@ -1151,6 +1151,7 @@ def run_scaling_experiment(
     ensemble_size: int = 5,
     epochs: int = 80,
     early_stopping_patience: int | None = None,
+    transfer_hp_from: int | None = None,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel
@@ -1321,12 +1322,50 @@ def run_scaling_experiment(
         pool_seqs, pool_labels = _load_pool_sequences(task)
         logger.info(f"Pool size: {len(pool_seqs):,}")
 
+    def _find_best_hp_from_results(ref_n: int) -> dict | None:
+        """Find best HP config from completed results at reference N."""
+        from collections import defaultdict
+
+        ref_dir = output_base / base_reservoir / str(ref_n)
+        if not ref_dir.exists():
+            return None
+        hp_val_rs: dict[str, list[float]] = defaultdict(list)
+        hp_configs_map: dict[str, dict] = {}
+        for rj in ref_dir.rglob("result.json"):
+            try:
+                r = json.loads(rj.read_text())
+                hp_key = json.dumps(r["hp_config"], sort_keys=True)
+                hp_configs_map[hp_key] = r["hp_config"]
+                hp_val_rs[hp_key].append(r.get("val_pearson_r", 0.0))
+            except Exception:
+                continue
+        if not hp_val_rs:
+            return None
+        best_key = max(hp_val_rs, key=lambda k: np.mean(hp_val_rs[k]))
+        best_hp = hp_configs_map[best_key]
+        mean_val = np.mean(hp_val_rs[best_key])
+        logger.info(
+            f"HP transfer from n={ref_n:,}: {best_hp} "
+            f"(val_r={mean_val:.4f}, {len(hp_val_rs[best_key])} runs)"
+        )
+        return best_hp
+
     def _build_hp_configs(n_train: int) -> list[dict]:
         """Build HP grid, using faster configs for large training sizes."""
         if not hp_sweep:
             if student_type.startswith("alphagenome"):
                 return [{"learning_rate": 1e-3, "batch_size": 128}]
             return [{"learning_rate": 0.005, "batch_size": 1024}]
+
+        # HP transfer: for sizes >= reference, use best HP from reference N
+        if transfer_hp_from and n_train >= transfer_hp_from:
+            best_hp = _find_best_hp_from_results(transfer_hp_from)
+            if best_hp is not None:
+                logger.info(f"Using transferred HP for n={n_train:,}: {best_hp}")
+                return [best_hp]
+            logger.warning(
+                f"No results at n={transfer_hp_from:,} for HP transfer, falling back to grid"
+            )
 
         # Use large-N grid for big training sizes (drops slow batch sizes)
         if n_train >= LARGE_N_THRESHOLD and student_type in HP_GRIDS_LARGE_N:
@@ -1739,6 +1778,14 @@ def main():
         default=None,
         help="Early stopping patience (epochs without improvement). Default: None (no early stop)",
     )
+    parser.add_argument(
+        "--transfer-hp-from",
+        type=int,
+        default=None,
+        help="Transfer best HP from this N (e.g. 50000) instead of sweeping at larger N. "
+        "Reads result.json files at the reference N to find the HP with best mean val_r, "
+        "then uses only that HP for all sizes >= transfer-hp-from.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -1796,6 +1843,7 @@ def main():
             ensemble_size=args.ensemble_size,
             epochs=args.epochs,
             early_stopping_patience=args.early_stop_patience,
+            transfer_hp_from=args.transfer_hp_from,
         )
         all_results.extend(results)
 

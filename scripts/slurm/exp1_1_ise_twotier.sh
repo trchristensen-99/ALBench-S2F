@@ -107,6 +107,7 @@ uv run --no-sync python experiments/exp1_1_scaling.py \
     --training-sizes 100000 200000 500000 \
     --epochs 50 \
     --ensemble-size 3 \
-    --early-stop-patience 10
+    --early-stop-patience 10 \
+    --transfer-hp-from 50000
 
 echo "Done: $(date)"
