@@ -219,5 +219,5 @@ class DREAMCNNStudent(SequenceModel):
                 early_stopping_patience=self.train_config.early_stopping_patience,
                 metric_for_best="pearson_r",
                 use_amp=True,
-                use_compile=False,
+                use_compile=True,
             )

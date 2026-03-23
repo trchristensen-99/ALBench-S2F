@@ -64,6 +64,13 @@ echo "Node: $SLURMD_NODENAME  Date: $(date)"
 
 OUT_DIR="outputs/exp0_oracle_scaling_v4/${TASK}/${STUDENT}"
 
+# Fewer epochs for large N (val plateaus by epoch ~40-50)
+if [[ "${N_TRAIN}" -ge 100000 ]]; then
+    EPOCHS=50
+else
+    EPOCHS=80
+fi
+
 uv run --no-sync python experiments/exp1_1_scaling.py \
     --task "${TASK}" \
     --student "${STUDENT}" \
@@ -73,7 +80,7 @@ uv run --no-sync python experiments/exp1_1_scaling.py \
     --seed "${SEED}" \
     --output-dir "${OUT_DIR}" \
     --training-sizes "${N_TRAIN}" \
-    --epochs 80 \
+    --epochs "${EPOCHS}" \
     --ensemble-size 3 \
     --early-stop-patience 10
 
