@@ -61,6 +61,10 @@ HP_GRIDS = {
         "learning_rate": [0.003, 0.005],
         "batch_size": [512, 1024],
     },
+    "dream_cnn": {
+        "learning_rate": [0.003, 0.005],
+        "batch_size": [512, 1024],
+    },
     "alphagenome_k562_s1": {
         "learning_rate": [3e-4, 1e-3],
         "batch_size": [128, 256],
@@ -91,6 +95,10 @@ HP_GRIDS_LARGE_N = {
     "dream_rnn": {
         "learning_rate": [0.003, 0.005],
         "batch_size": [1024],  # drop bs=512 — 2× fewer batches/epoch
+    },
+    "dream_cnn": {
+        "learning_rate": [0.003, 0.005],
+        "batch_size": [1024],
     },
     "alphagenome_k562_s1": {
         "learning_rate": [3e-4, 1e-3],
@@ -1127,6 +1135,30 @@ def _train_student(
             seed,
             pre_encoded_embs=pre_encoded_embs,
         )
+    elif student_type == "dream_cnn":
+        from models.dream_cnn_student import DREAMCNNStudent
+        from models.dream_cnn_student import TrainConfig as CNNTrainConfig
+
+        cfg = TASK_CONFIGS[task]
+        np.random.seed(seed)
+        import torch
+
+        torch.manual_seed(seed)
+
+        student = DREAMCNNStudent(
+            in_channels=4,  # DREAM-CNN uses 4-channel one-hot (no RC flag)
+            sequence_length=cfg["sequence_length"],
+            task_mode=cfg["task_mode"],
+            ensemble_size=ensemble_size,
+            train_config=CNNTrainConfig(
+                batch_size=batch_size,
+                lr=lr,
+                epochs=epochs,
+                early_stopping_patience=early_stopping_patience,
+            ),
+        )
+        student.fit(sequences, labels)
+        return student
     elif student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
         return _train_ag_s2_student(task, sequences, labels, lr, batch_size, seed)
     else:
@@ -1742,6 +1774,7 @@ def main():
         required=True,
         choices=[
             "dream_rnn",
+            "dream_cnn",
             "alphagenome_k562_s1",
             "alphagenome_yeast_s1",
             "alphagenome_k562_s2",
