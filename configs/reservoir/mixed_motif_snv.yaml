@@ -1,0 +1,7 @@
+_target_: albench.reservoir.mixed_pool.MixedPoolSampler
+seed: ${seed}
+component_configs:
+  - name: motif_planted
+    fraction: 0.5
+  - name: snv
+    fraction: 0.5

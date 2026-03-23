@@ -1,0 +1,3 @@
+_target_: albench.reservoir.curriculum.CurriculumSampler
+seed: ${seed}
+difficulty_mode: distance_from_mean

@@ -1,0 +1,3 @@
+_target_: albench.reservoir.curriculum.CurriculumSampler
+seed: ${seed}
+difficulty_mode: random_baseline

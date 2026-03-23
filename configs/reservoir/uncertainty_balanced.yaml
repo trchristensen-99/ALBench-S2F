@@ -1,0 +1,4 @@
+_target_: albench.reservoir.uncertainty_guided.UncertaintyGuidedSampler
+seed: ${seed}
+strategy: balanced
+uncertainty_fraction: 0.5

@@ -1,0 +1,9 @@
+_target_: albench.reservoir.mixed_pool.MixedPoolSampler
+seed: ${seed}
+component_configs:
+  - name: motif_grammar
+    fraction: 0.34
+  - name: prm_5pct
+    fraction: 0.33
+  - name: recombination_uniform
+    fraction: 0.33

@@ -1,0 +1,5 @@
+_target_: albench.reservoir.adaptive_selection.AdaptiveSelectionSampler
+seed: ${seed}
+pilot_size: 1000
+top_k: 3
+allocation_mode: proportional
