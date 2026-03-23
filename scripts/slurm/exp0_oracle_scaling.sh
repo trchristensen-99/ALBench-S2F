@@ -4,18 +4,24 @@
 # Trains student models on oracle pseudo-labels at various fractions
 # of the full training pool. Uses "random" reservoir (genomic pool subsample).
 #
+# Fractions match real-label experiments for consistency:
+#   K562 (pool=319,742):  1%, 2%, 5%, 10%, 20%, 50%, 100%
+#   Yeast (pool=6,065,324): 0.1%, 0.2%, 0.5%, 1%, 2%, 5%, 10%, 20%, 50%, 100%
+#
 # Usage:
-#   TASK=k562 STUDENT=dream_cnn ORACLE=default sbatch scripts/slurm/exp0_oracle_scaling.sh
-#   TASK=yeast STUDENT=dream_rnn ORACLE=default sbatch scripts/slurm/exp0_oracle_scaling.sh
-#   TASK=yeast STUDENT=dream_cnn ORACLE=default sbatch scripts/slurm/exp0_oracle_scaling.sh
-#   TASK=k562 STUDENT=ag ORACLE=default sbatch scripts/slurm/exp0_oracle_scaling.sh
+#   TASK=k562 STUDENT=dream_cnn   sbatch scripts/slurm/exp0_oracle_scaling.sh
+#   TASK=k562 STUDENT=dream_rnn   sbatch scripts/slurm/exp0_oracle_scaling.sh
+#   TASK=k562 STUDENT=alphagenome_k562_s1  sbatch scripts/slurm/exp0_oracle_scaling.sh
+#   TASK=yeast STUDENT=dream_cnn  sbatch scripts/slurm/exp0_oracle_scaling.sh
+#   TASK=yeast STUDENT=dream_rnn  sbatch scripts/slurm/exp0_oracle_scaling.sh
+#   TASK=yeast STUDENT=alphagenome_yeast_s1  sbatch scripts/slurm/exp0_oracle_scaling.sh
 #
 #SBATCH --job-name=exp0_oracle
 #SBATCH --output=logs/%x-%A.out
 #SBATCH --error=logs/%x-%A.err
 #SBATCH --partition=gpuq
-#SBATCH --qos=slow_nice
-#SBATCH --time=48:00:00
+#SBATCH --qos=default
+#SBATCH --time=12:00:00
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
@@ -38,10 +44,19 @@ ORACLE="${ORACLE:-default}"
 N_REPLICATES="${N_REPLICATES:-3}"
 SEED="${SEED:-42}"
 
-# Oracle-label scaling: use "random" reservoir at many sizes
-# These correspond to fractions of the ~320k pool:
-#   1k, 3k, 6k, 16k, 32k, 64k, 160k, 320k
-TRAINING_SIZES="1000 3000 6000 16000 32000 64000 160000 320000"
+# Task-specific training sizes matching real-label experiment fractions
+if [[ "${TASK}" == "k562" ]]; then
+    # K562 pool = 319,742. Fractions: 1% 2% 5% 10% 20% 50% 100%
+    TRAINING_SIZES="3197 6395 15987 31974 63949 159871 319742"
+    TRANSFER_HP_FROM=31974  # Transfer HP from 10% fraction
+elif [[ "${TASK}" == "yeast" ]]; then
+    # Yeast pool = 6,065,324. Fractions: 0.1% 0.2% 0.5% 1% 2% 5% 10% 20% 50% 100%
+    TRAINING_SIZES="6065 12131 30327 60653 121307 303266 606532 1213065 3032662 6065324"
+    TRANSFER_HP_FROM=60653  # Transfer HP from 1% fraction
+else
+    echo "ERROR: Unknown task ${TASK}"
+    exit 1
+fi
 
 echo "=== Experiment 0: Oracle-Label Scaling ==="
 echo "Task: ${TASK}, Student: ${STUDENT}, Oracle: ${ORACLE}"
@@ -63,6 +78,6 @@ uv run --no-sync python experiments/exp1_1_scaling.py \
     --epochs 80 \
     --ensemble-size 3 \
     --early-stop-patience 10 \
-    --transfer-hp-from 32000
+    --transfer-hp-from "${TRANSFER_HP_FROM}"
 
 echo "Done: $(date)"
