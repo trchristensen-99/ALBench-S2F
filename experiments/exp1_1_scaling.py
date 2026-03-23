@@ -1307,6 +1307,12 @@ def run_scaling_experiment(
         "motif_density_2",
         "motif_density_3",
         "motif_density_5",
+        "curriculum_easy_first",
+        "curriculum_random",
+        "uncertainty_guided",
+        "uncertainty_balanced",
+        "mixed_motif_snv",
+        "mixed_motif_prm",
     }
     pool_seqs, pool_labels = None, None
     _needs_pool = reservoir_name in _NEEDS_POOL or base_reservoir in _NEEDS_POOL
@@ -1386,6 +1392,28 @@ def run_scaling_experiment(
             _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
         elif _res_config_name.startswith("motif_density"):
             _seqs, _ = _res.generate(n_train, task=task)
+        elif _res_config_name.startswith("curriculum"):
+            _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
+        elif _res_config_name.startswith("uncertainty"):
+            _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
+        elif _res_config_name.startswith("mixed_"):
+            # Mixed-pool needs component samplers — load them dynamically
+            from albench.reservoir.mixed_pool import MixedPoolSampler
+
+            if isinstance(_res, MixedPoolSampler):
+                component_samplers = {}
+                for comp in _res.component_configs:
+                    comp_name = comp["name"]
+                    component_samplers[comp_name] = _load_reservoir(comp_name, seed=seed)
+                _seqs, _ = _res.generate(
+                    n_train,
+                    task=task,
+                    component_samplers=component_samplers,
+                    pool_sequences=pool_seqs,
+                    pool_labels=pool_labels,
+                )
+            else:
+                _seqs, _ = _res.generate(n_train, task=task)
         else:
             _seqs, _ = _res.generate(n_train, task=task)
         _labels = oracle.predict(_seqs)
@@ -1479,6 +1507,31 @@ def run_scaling_experiment(
                 "motif_grammar_tight",
             ):
                 sequences, meta = reservoir.generate(n_train, task=task)
+            elif reservoir_name.startswith("curriculum"):
+                sequences, meta = reservoir.generate(
+                    n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
+                )
+            elif reservoir_name.startswith("uncertainty"):
+                sequences, meta = reservoir.generate(
+                    n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
+                )
+            elif reservoir_name.startswith("mixed_"):
+                from albench.reservoir.mixed_pool import MixedPoolSampler
+
+                if isinstance(reservoir, MixedPoolSampler):
+                    component_samplers = {}
+                    for comp in reservoir.component_configs:
+                        comp_name = comp["name"]
+                        component_samplers[comp_name] = _load_reservoir(comp_name, seed=seed)
+                    sequences, meta = reservoir.generate(
+                        n_train,
+                        task=task,
+                        component_samplers=component_samplers,
+                        pool_sequences=pool_seqs,
+                        pool_labels=pool_labels,
+                    )
+                else:
+                    sequences, meta = reservoir.generate(n_train, task=task)
             else:
                 sequences, meta = reservoir.generate(n_train, task=task)
 

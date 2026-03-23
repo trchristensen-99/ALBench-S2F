@@ -1,7 +1,9 @@
 """Reservoir samplers."""
 
 from albench.reservoir.activity_stratified import ActivityStratifiedSampler
+from albench.reservoir.adaptive_selection import AdaptiveSelectionSampler
 from albench.reservoir.base import ReservoirSampler
+from albench.reservoir.curriculum import CurriculumSampler
 from albench.reservoir.evoaug import EvoAugSampler
 from albench.reservoir.evoaug_structural import EvoAugStructuralSampler
 from albench.reservoir.fixed_pool import FixedPoolSampler
@@ -11,6 +13,7 @@ from albench.reservoir.in_silico_evolution import InSilicoEvolutionSampler
 from albench.reservoir.in_silico_evolution_generative import (
     InSilicoEvolutionGenerativeSampler,
 )
+from albench.reservoir.mixed_pool import MixedPoolSampler
 from albench.reservoir.motif_density import MotifDensitySampler
 from albench.reservoir.motif_grammar import MotifGrammarSampler
 from albench.reservoir.motif_planted import MotifPlantedSampler
@@ -18,9 +21,12 @@ from albench.reservoir.partial_mutagenesis import PartialMutagenesisSampler
 from albench.reservoir.random_sampler import RandomSampler
 from albench.reservoir.recombination import RecombinationSampler
 from albench.reservoir.tf_motif_shuffle import TFMotifShuffleSampler
+from albench.reservoir.uncertainty_guided import UncertaintyGuidedSampler
 
 __all__ = [
     "ActivityStratifiedSampler",
+    "AdaptiveSelectionSampler",
+    "CurriculumSampler",
     "ReservoirSampler",
     "EvoAugSampler",
     "EvoAugStructuralSampler",
@@ -28,6 +34,7 @@ __all__ = [
     "GenomicSampler",
     "InSilicoEvolutionGenerativeSampler",
     "InSilicoEvolutionSampler",
+    "MixedPoolSampler",
     "MotifDensitySampler",
     "MotifGrammarSampler",
     "MotifPlantedSampler",
@@ -36,4 +43,5 @@ __all__ = [
     "FixedPoolSampler",
     "RecombinationSampler",
     "TFMotifShuffleSampler",
+    "UncertaintyGuidedSampler",
 ]
