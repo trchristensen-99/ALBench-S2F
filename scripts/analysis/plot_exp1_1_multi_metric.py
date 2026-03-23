@@ -134,7 +134,7 @@ def plot_multi_metric_category_heatmap(task_data, task_name, out_dir):
     cats = list(CATEGORIES.keys())
 
     # Use 2 key metrics: OOD and in_dist
-    key_metrics = ["ood", "in_dist"]
+    key_metrics = ["ood", "in_dist", "snv_abs", "snv_delta"]
 
     for metric in key_metrics:
         fig, ax = plt.subplots(figsize=(max(6, len(configs) * 1.8), 5))
@@ -203,7 +203,7 @@ def plot_multi_metric_ranking_correlation(task_data, task_name, out_dir):
     """Ranking correlation matrix for multiple metrics."""
     configs = sorted(task_data.keys())
 
-    for metric in ["ood", "in_dist"]:
+    for metric in ["ood", "in_dist", "snv_abs", "snv_delta"]:
         rankings = {}
         n_used = {}
         for config_key in configs:
