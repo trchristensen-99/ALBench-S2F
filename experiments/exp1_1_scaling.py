@@ -63,7 +63,7 @@ HP_GRIDS = {
     },
     "dream_cnn": {
         "learning_rate": [0.003, 0.005],
-        "batch_size": [512, 1024],
+        "batch_size": [1024, 2048],
     },
     "alphagenome_k562_s1": {
         "learning_rate": [3e-4, 1e-3],
@@ -97,8 +97,8 @@ HP_GRIDS_LARGE_N = {
         "batch_size": [1024],  # drop bs=512 — 2× fewer batches/epoch
     },
     "dream_cnn": {
-        "learning_rate": [0.003, 0.005],
-        "batch_size": [1024],
+        "learning_rate": [0.005],
+        "batch_size": [2048],  # CNN can handle larger batches, 4× faster
     },
     "alphagenome_k562_s1": {
         "learning_rate": [3e-4, 1e-3],
