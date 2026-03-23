@@ -42,7 +42,8 @@ logger = logging.getLogger(__name__)
 # Style constants
 # ---------------------------------------------------------------------------
 
-# Colorblind-friendly palette (tab10 first 8)
+# Expanded palette: 21 unique color+marker combinations for all reservoirs.
+# Uses tab20 + extra colors to ensure no duplicates.
 RESERVOIR_COLORS = [
     "#1f77b4",
     "#ff7f0e",
@@ -51,10 +52,48 @@ RESERVOIR_COLORS = [
     "#9467bd",
     "#8c564b",
     "#e377c2",
-    "#7f7f7f",
+    "#17becf",
+    "#bcbd22",
+    "#aec7e8",
+    "#ffbb78",
+    "#98df8a",
+    "#ff9896",
+    "#c5b0d5",
+    "#c49c94",
+    "#f7b6d2",
+    "#c7c7c7",
+    "#dbdb8d",
+    "#9edae5",
+    "#393b79",
+    "#e7969c",
 ]
 
-RESERVOIR_MARKERS = ["o", "s", "^", "v", "D", "P", "X", "h"]
+RESERVOIR_MARKERS = [
+    "o",
+    "s",
+    "^",
+    "v",
+    "D",
+    "P",
+    "X",
+    "h",
+    "<",
+    ">",
+    "p",
+    "*",
+    "H",
+    "d",
+    "8",
+    "+",
+    "x",
+    "1",
+    "2",
+    "3",
+    "4",
+]
+
+# Fixed mapping: each reservoir always gets the same style
+RESERVOIR_STYLE_MAP: dict[str, dict[str, str]] = {}
 
 TEST_SET_LABELS = {
     "in_dist": "In-Distribution",
@@ -65,12 +104,15 @@ TEST_SET_LABELS = {
 
 
 def _get_reservoir_style(reservoir: str, idx: int) -> dict[str, str]:
-    """Return a consistent color/marker/label for a reservoir."""
-    return {
-        "color": RESERVOIR_COLORS[idx % len(RESERVOIR_COLORS)],
-        "marker": RESERVOIR_MARKERS[idx % len(RESERVOIR_MARKERS)],
-        "label": reservoir,
-    }
+    """Return a unique color/marker for a reservoir (no duplicates up to 21)."""
+    if reservoir not in RESERVOIR_STYLE_MAP:
+        i = len(RESERVOIR_STYLE_MAP)
+        RESERVOIR_STYLE_MAP[reservoir] = {
+            "color": RESERVOIR_COLORS[i % len(RESERVOIR_COLORS)],
+            "marker": RESERVOIR_MARKERS[i % len(RESERVOIR_MARKERS)],
+            "label": reservoir,
+        }
+    return RESERVOIR_STYLE_MAP[reservoir]
 
 
 # ---------------------------------------------------------------------------
@@ -450,10 +492,11 @@ def plot_heatmap(
     sizes_sorted = sorted(all_sizes)
 
     n_panels = len(test_sets)
+    n_res = len(reservoirs_sorted)
     fig, axes = plt.subplots(
         1,
         n_panels,
-        figsize=(5 * n_panels + 1, max(3, 0.6 * len(reservoirs_sorted) + 1.5)),
+        figsize=(5 * n_panels + 1, max(4, 0.45 * n_res + 2)),
         squeeze=False,
     )
     axes_flat = axes.flatten()
@@ -492,26 +535,32 @@ def plot_heatmap(
         for i in range(matrix.shape[0]):
             for j in range(matrix.shape[1]):
                 val = matrix[i, j]
+                # Adaptive font size based on number of cells
+                cell_fontsize = 7 if n_res > 15 else 8 if n_res > 10 else 9
                 if np.isnan(val):
-                    ax.text(j, i, "--", ha="center", va="center", fontsize=9, color="#999")
+                    ax.text(
+                        j, i, "--", ha="center", va="center", fontsize=cell_fontsize, color="#999"
+                    )
                 else:
-                    # Choose text color for readability
                     mid = (vmin + vmax) / 2
                     text_color = "white" if val > mid else "black"
+                    # Shorter format for crowded heatmaps
+                    fmt = f"{val:.2f}" if n_res > 15 else f"{val:.3f}"
                     ax.text(
                         j,
                         i,
-                        f"{val:.3f}",
+                        fmt,
                         ha="center",
                         va="center",
-                        fontsize=9,
+                        fontsize=cell_fontsize,
                         color=text_color,
                     )
 
         ax.set_xticks(range(len(sizes_sorted)))
         ax.set_xticklabels([str(s) for s in sizes_sorted], fontsize=9, rotation=45, ha="right")
         ax.set_yticks(range(len(reservoirs_sorted)))
-        ax.set_yticklabels(reservoirs_sorted, fontsize=10)
+        ytick_fontsize = 7 if n_res > 15 else 8 if n_res > 10 else 10
+        ax.set_yticklabels(reservoirs_sorted, fontsize=ytick_fontsize)
         ax.set_xlabel("Training Set Size", fontsize=11)
         ax.set_title(TEST_SET_LABELS.get(ts, ts), fontsize=12, fontweight="bold")
 
