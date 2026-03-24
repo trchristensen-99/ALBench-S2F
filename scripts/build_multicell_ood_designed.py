@@ -186,7 +186,7 @@ def main():
     print(f"Loading attributes from {attrs_path}")
     attrs_df = pd.read_csv(attrs_path, sep="\t", index_col=0)
     print(f"  {len(attrs_df)} total OL46 entries")
-    print(f"  Projects: {sorted(attrs_df['data_project'].unique())}")
+    print(f"  Projects: {sorted(attrs_df['project'].unique())}")
 
     # Load sequences
     fasta_path = mpra_dir / "Fastas" / "OL46_reference.fasta.gz"
