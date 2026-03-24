@@ -1,0 +1,8 @@
+_target_: albench.reservoir.motif_clustering.MotifClusteringSampler
+seed: ${seed}
+n_clusters: 30
+feature_mode: count
+normalize_features: true
+mutagenesis_rate: 0.0
+mutagenesis_fraction: 0.0
+mini_batch_threshold: 50000

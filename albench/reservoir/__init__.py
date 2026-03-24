@@ -14,6 +14,7 @@ from albench.reservoir.in_silico_evolution_generative import (
     InSilicoEvolutionGenerativeSampler,
 )
 from albench.reservoir.mixed_pool import MixedPoolSampler
+from albench.reservoir.motif_clustering import MotifClusteringSampler
 from albench.reservoir.motif_density import MotifDensitySampler
 from albench.reservoir.motif_grammar import MotifGrammarSampler
 from albench.reservoir.motif_planted import MotifPlantedSampler
@@ -35,6 +36,7 @@ __all__ = [
     "InSilicoEvolutionGenerativeSampler",
     "InSilicoEvolutionSampler",
     "MixedPoolSampler",
+    "MotifClusteringSampler",
     "MotifDensitySampler",
     "MotifGrammarSampler",
     "MotifPlantedSampler",

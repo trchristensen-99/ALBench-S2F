@@ -266,17 +266,18 @@ def evaluate_test_sets(
             "mse": float(np.mean((delta_pred - delta_true) ** 2)),
         }
 
-    ood_df = pd.read_csv(ood_path, sep="\t")
-    ood_pred = _predict_sequences(model, ood_df["sequence"].astype(str).tolist(), device, cfg)
-    if fc_col in ood_df.columns:
-        ood_true = ood_df[fc_col].to_numpy(dtype=np.float32)
-    else:
-        ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
-    metrics["ood"] = {
-        "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
-        "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
-        "mse": float(np.mean((ood_pred - ood_true) ** 2)),
-    }
+    if ood_path.exists():
+        ood_df = pd.read_csv(ood_path, sep="\t")
+        ood_pred = _predict_sequences(model, ood_df["sequence"].astype(str).tolist(), device, cfg)
+        if fc_col in ood_df.columns:
+            ood_true = ood_df[fc_col].to_numpy(dtype=np.float32)
+        else:
+            ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
+        metrics["ood"] = {
+            "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
+            "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
+            "mse": float(np.mean((ood_pred - ood_true) ** 2)),
+        }
 
     return metrics
 
@@ -436,9 +437,12 @@ def train_malinois(cfg: dict):
         json.dump(result, f, indent=2)
     print(f"\nResults saved to {out_dir / 'result.json'}")
     print(f"  in_dist Pearson: {test_metrics['in_distribution']['pearson_r']:.4f}")
-    print(f"  OOD Pearson:     {test_metrics['ood']['pearson_r']:.4f}")
-    print(f"  SNV abs Pearson: {test_metrics['snv_abs']['pearson_r']:.4f}")
-    print(f"  SNV delta Pearson: {test_metrics['snv_delta']['pearson_r']:.4f}")
+    if "ood" in test_metrics:
+        print(f"  OOD Pearson:     {test_metrics['ood']['pearson_r']:.4f}")
+    if "snv_abs" in test_metrics:
+        print(f"  SNV abs Pearson: {test_metrics['snv_abs']['pearson_r']:.4f}")
+    if "snv_delta" in test_metrics:
+        print(f"  SNV delta Pearson: {test_metrics['snv_delta']['pearson_r']:.4f}")
 
     return result
 

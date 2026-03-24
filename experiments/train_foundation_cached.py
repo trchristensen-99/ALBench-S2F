@@ -398,9 +398,12 @@ def train(cfg: dict):
         json.dump(result, f, indent=2)
     print(f"\nResults saved to {out_dir / 'result.json'}")
     print(f"  in_dist Pearson:   {test_metrics['in_distribution']['pearson_r']:.4f}")
-    print(f"  OOD Pearson:       {test_metrics['ood']['pearson_r']:.4f}")
-    print(f"  SNV abs Pearson:   {test_metrics['snv_abs']['pearson_r']:.4f}")
-    print(f"  SNV delta Pearson: {test_metrics['snv_delta']['pearson_r']:.4f}")
+    if "ood" in test_metrics:
+        print(f"  OOD Pearson:       {test_metrics['ood']['pearson_r']:.4f}")
+    if "snv_abs" in test_metrics:
+        print(f"  SNV abs Pearson:   {test_metrics['snv_abs']['pearson_r']:.4f}")
+    if "snv_delta" in test_metrics:
+        print(f"  SNV delta Pearson: {test_metrics['snv_delta']['pearson_r']:.4f}")
 
     return result
 
