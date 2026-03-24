@@ -1348,6 +1348,8 @@ def run_scaling_experiment(
         "uncertainty_balanced",
         "mixed_motif_snv",
         "mixed_motif_prm",
+        "motif_clustering",
+        "motif_clustering_mutant",
     }
     pool_seqs, pool_labels = None, None
     _needs_pool = reservoir_name in _NEEDS_POOL or base_reservoir in _NEEDS_POOL
