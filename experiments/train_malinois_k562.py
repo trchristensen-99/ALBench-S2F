@@ -52,6 +52,12 @@ _RIGHT_FLANK = torch.from_numpy(
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
+CELL_LINE_LABEL_COLS = {
+    "k562": "K562_log2FC",
+    "hepg2": "HepG2_log2FC",
+    "sknsh": "SKNSH_log2FC",
+}
+
 DEFAULT_CONFIG = {
     "data_path": "data/k562",
     "output_dir": "outputs/malinois_k562",
@@ -64,6 +70,7 @@ DEFAULT_CONFIG = {
     "use_reverse_complement": True,
     "num_workers": 4,
     "pretrained_weights": None,
+    "cell_line": "k562",
 }
 
 
@@ -215,15 +222,19 @@ def _predict_sequences(
 def evaluate_test_sets(
     model: nn.Module, device: torch.device, test_set_dir: Path, cfg: dict
 ) -> dict[str, dict[str, float]]:
+    cell_line = cfg.get("cell_line", "k562")
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
     snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
-    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
+    if not ood_path.exists():
+        ood_path = test_set_dir / "test_ood_designed_k562.tsv"
 
     metrics: dict[str, dict[str, float]] = {}
 
     in_df = pd.read_csv(in_path, sep="\t")
     in_pred = _predict_sequences(model, in_df["sequence"].astype(str).tolist(), device, cfg)
-    in_true = in_df["K562_log2FC"].to_numpy(dtype=np.float32)
+    fc_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
+    in_true = in_df[fc_col].to_numpy(dtype=np.float32)
     metrics["in_distribution"] = {
         "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
         "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
@@ -238,7 +249,10 @@ def evaluate_test_sets(
         alt_pred = _predict_sequences(
             model, snv_df["sequence_alt"].astype(str).tolist(), device, cfg
         )
-        alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        alt_col = f"{fc_col}_alt"
+        if alt_col not in snv_df.columns:
+            alt_col = "K562_log2FC_alt"
+        alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
         metrics["snv_abs"] = {
             "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
             "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
@@ -254,7 +268,10 @@ def evaluate_test_sets(
 
     ood_df = pd.read_csv(ood_path, sep="\t")
     ood_pred = _predict_sequences(model, ood_df["sequence"].astype(str).tolist(), device, cfg)
-    ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
+    if fc_col in ood_df.columns:
+        ood_true = ood_df[fc_col].to_numpy(dtype=np.float32)
+    else:
+        ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
     metrics["ood"] = {
         "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
         "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
@@ -279,8 +296,14 @@ def train_malinois(cfg: dict):
     data_path = Path(cfg["data_path"])
 
     # Data
-    train_ds = K562MalinoisDataset(K562Dataset(data_path=str(data_path), split="train"))
-    val_ds = K562MalinoisDataset(K562Dataset(data_path=str(data_path), split="val"))
+    cell_line = cfg.get("cell_line", "k562")
+    label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
+    train_ds = K562MalinoisDataset(
+        K562Dataset(data_path=str(data_path), split="train", label_column=label_col)
+    )
+    val_ds = K562MalinoisDataset(
+        K562Dataset(data_path=str(data_path), split="val", label_column=label_col)
+    )
 
     train_loader = DataLoader(
         train_ds,
