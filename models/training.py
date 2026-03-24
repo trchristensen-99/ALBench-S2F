@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import wandb
 from torch.amp import GradScaler, autocast
 from torch.optim import Optimizer
@@ -85,10 +86,11 @@ def train_epoch_optimized(
                 # For K562: get predictions and use MSE
                 if hasattr(model, "task_mode") and model.task_mode == "yeast":
                     logits_fwd = model.get_logits(sequences)
-                    predictions_fwd = model(sequences)
+                    _bc = model.bin_centers
+                    predictions_fwd = (F.softmax(logits_fwd, dim=1) * _bc).sum(dim=1)
                     if rc_sequences is not None:
                         logits_rc = model.get_logits(rc_sequences)
-                        predictions_rc = model(rc_sequences)
+                        predictions_rc = (F.softmax(logits_rc, dim=1) * _bc).sum(dim=1)
                         loss = 0.5 * (
                             criterion(logits_fwd, targets) + criterion(logits_rc, targets)
                         )
@@ -118,10 +120,11 @@ def train_epoch_optimized(
             # For K562: get predictions and use MSE
             if hasattr(model, "task_mode") and model.task_mode == "yeast":
                 logits_fwd = model.get_logits(sequences)
-                predictions_fwd = model(sequences)
+                _bc = model.bin_centers
+                predictions_fwd = (F.softmax(logits_fwd, dim=1) * _bc).sum(dim=1)
                 if rc_sequences is not None:
                     logits_rc = model.get_logits(rc_sequences)
-                    predictions_rc = model(rc_sequences)
+                    predictions_rc = (F.softmax(logits_rc, dim=1) * _bc).sum(dim=1)
                     loss = 0.5 * (criterion(logits_fwd, targets) + criterion(logits_rc, targets))
                     predictions = 0.5 * (predictions_fwd + predictions_rc)
                 else:

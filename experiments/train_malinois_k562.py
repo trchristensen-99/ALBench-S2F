@@ -285,7 +285,9 @@ def evaluate_test_sets(
 # ── Training loop ────────────────────────────────────────────────────────────
 def train_malinois(cfg: dict):
     seed = cfg["seed"]
-    if seed is None:
+    if seed is not None:
+        seed = int(seed)
+    else:
         seed = int.from_bytes(os.urandom(4), byteorder="big") % (2**31)
     np.random.seed(seed)
     torch.manual_seed(seed)
