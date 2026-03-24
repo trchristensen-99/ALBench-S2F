@@ -46,6 +46,12 @@ from torch.utils.data import DataLoader, Dataset
 from data.k562 import K562Dataset
 
 # ── Config ───────────────────────────────────────────────────────────────────
+CELL_LINE_LABEL_COLS = {
+    "k562": "K562_log2FC",
+    "hepg2": "HepG2_log2FC",
+    "sknsh": "SKNSH_log2FC",
+}
+
 DEFAULT_CONFIG = {
     "model_name": "nt",
     "cache_dir": "outputs/nt_k562_cached/embedding_cache",
@@ -62,6 +68,7 @@ DEFAULT_CONFIG = {
     "data_path": "data/k562",
     "num_workers": 4,
     "rc_aug": True,
+    "cell_line": "k562",
 }
 
 
@@ -155,10 +162,12 @@ def evaluate_test_sets_cached(
     cache_dir: Path,
     data_path: Path,
     device: torch.device,
+    cell_line: str = "k562",
 ) -> dict[str, dict[str, float]]:
     """Evaluate on test sets using cached embeddings (RC-averaged)."""
     import pandas as pd
 
+    fc_col = CELL_LINE_LABEL_COLS[cell_line]
     test_dir = data_path / "test_sets"
     metrics: dict[str, dict[str, float]] = {}
 
@@ -180,7 +189,7 @@ def evaluate_test_sets_cached(
     # In-distribution
     in_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
     in_pred = _predict_cached("test_in_dist")
-    in_true = in_df["K562_log2FC"].to_numpy(dtype=np.float32)
+    in_true = in_df[fc_col].to_numpy(dtype=np.float32)
     metrics["in_distribution"] = {
         "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
         "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
@@ -191,29 +200,46 @@ def evaluate_test_sets_cached(
     snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
     ref_pred = _predict_cached("test_snv_ref")
     alt_pred = _predict_cached("test_snv_alt")
-    alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+    # Try cell-line-specific alt column, fall back to generic
+    alt_col = f"{fc_col}_alt"
+    if alt_col not in snv_df.columns:
+        alt_col = "K562_log2FC_alt"  # fallback for K562
+    alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
     metrics["snv_abs"] = {
         "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
         "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
         "mse": float(np.mean((alt_pred - alt_true) ** 2)),
     }
     delta_pred = alt_pred - ref_pred
-    delta_true = snv_df["delta_log2FC"].to_numpy(dtype=np.float32)
+    delta_col = f"delta_{fc_col}"
+    if delta_col not in snv_df.columns:
+        delta_col = "delta_log2FC"
+    delta_true = snv_df[delta_col].to_numpy(dtype=np.float32)
     metrics["snv_delta"] = {
         "pearson_r": _safe_corr(delta_pred, delta_true, pearsonr),
         "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
         "mse": float(np.mean((delta_pred - delta_true) ** 2)),
     }
 
-    # OOD
-    ood_df = pd.read_csv(test_dir / "test_ood_designed_k562.tsv", sep="\t")
-    ood_pred = _predict_cached("test_ood")
-    ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
-    metrics["ood"] = {
-        "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
-        "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
-        "mse": float(np.mean((ood_pred - ood_true) ** 2)),
-    }
+    # OOD (may not exist for non-K562 cell lines yet)
+    ood_file = test_dir / f"test_ood_designed_{cell_line}.tsv"
+    if not ood_file.exists():
+        ood_file = test_dir / "test_ood_designed_k562.tsv"
+    if ood_file.exists() and (cache_dir / "test_ood_canonical.npy").exists():
+        ood_df = pd.read_csv(ood_file, sep="\t")
+        ood_pred = _predict_cached("test_ood")
+        if fc_col in ood_df.columns:
+            ood_true = ood_df[fc_col].to_numpy(dtype=np.float32)
+        elif "K562_log2FC" in ood_df.columns:
+            ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
+        else:
+            ood_true = None
+        if ood_true is not None:
+            metrics["ood"] = {
+                "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
+                "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
+                "mse": float(np.mean((ood_pred - ood_true) ** 2)),
+            }
 
     return metrics
 
@@ -235,9 +261,11 @@ def train(cfg: dict):
     cache_dir = Path(cfg["cache_dir"])
     data_path = Path(cfg["data_path"])
 
-    # Load labels
-    train_ds = K562Dataset(data_path=str(data_path), split="train")
-    val_ds = K562Dataset(data_path=str(data_path), split="val")
+    # Load labels (cell-line-specific)
+    cell_line = cfg.get("cell_line", "k562")
+    label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
+    train_ds = K562Dataset(data_path=str(data_path), split="train", label_column=label_col)
+    val_ds = K562Dataset(data_path=str(data_path), split="val", label_column=label_col)
     train_labels = train_ds.labels
     val_labels = val_ds.labels
 
@@ -352,7 +380,9 @@ def train(cfg: dict):
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
 
-    test_metrics = evaluate_test_sets_cached(model, cache_dir, data_path, device)
+    test_metrics = evaluate_test_sets_cached(
+        model, cache_dir, data_path, device, cell_line=cell_line
+    )
 
     result = {
         "model": cfg["model_name"],

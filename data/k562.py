@@ -59,6 +59,7 @@ class K562Dataset(SequenceDataset):
         hashfrag_threshold: int = 60,
         hashfrag_cache_dir: Optional[str] = None,
         use_chromosome_fallback: bool = False,
+        label_column: str = "K562_log2FC",
     ):
         """
         Initialize K562 dataset.
@@ -79,6 +80,7 @@ class K562Dataset(SequenceDataset):
         self.hashfrag_threshold = hashfrag_threshold
         self.hashfrag_cache_dir = hashfrag_cache_dir
         self.use_chromosome_fallback = use_chromosome_fallback
+        self.label_column = label_column
         super().__init__(data_path, split, transform, target_transform)
 
     def load_data(self) -> None:
@@ -193,7 +195,7 @@ class K562Dataset(SequenceDataset):
 
         # Extract sequences and labels
         sequences = df["sequence"].values
-        labels = df["K562_log2FC"].values.astype(np.float32)
+        labels = df[self.label_column].values.astype(np.float32)
         ids = df["IDs"].values
 
         return sequences, labels, ids
