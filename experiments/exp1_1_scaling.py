@@ -1465,6 +1465,8 @@ def run_scaling_experiment(
             _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
         elif _res_config_name.startswith("motif_density"):
             _seqs, _ = _res.generate(n_train, task=task)
+        elif _res_config_name.startswith("motif_clustering"):
+            _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs)
         elif _res_config_name.startswith("curriculum"):
             _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
         elif _res_config_name.startswith("uncertainty"):
@@ -1580,6 +1582,8 @@ def run_scaling_experiment(
                 "motif_grammar_tight",
             ):
                 sequences, meta = reservoir.generate(n_train, task=task)
+            elif reservoir_name.startswith("motif_clustering"):
+                sequences, meta = reservoir.generate(n_train, pool_sequences=pool_seqs)
             elif reservoir_name.startswith("curriculum"):
                 sequences, meta = reservoir.generate(
                     n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
