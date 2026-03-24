@@ -76,6 +76,7 @@ class DREAMCNNStudent(SequenceModel):
                 core_out_channels=core_out_channels,
                 head_hidden=head_hidden,
                 dropout=dropout,
+                task_mode=task_mode,
             ).to(self.device)
             for _ in range(ensemble_size)
         ]

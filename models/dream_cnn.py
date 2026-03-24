@@ -156,10 +156,10 @@ class AutosomeCoreBlock(nn.Module):
 class DREAMCNNHead(nn.Module):
     """Final layers: Conv1d → AdaptiveAvgPool → Linear."""
 
-    def __init__(self, in_channels: int = 64, hidden: int = 256):
+    def __init__(self, in_channels: int = 64, hidden: int = 256, output_dim: int = 1):
         super().__init__()
         self.mapper = nn.Conv1d(in_channels, hidden, 1, padding="same")
-        self.linear = nn.Linear(hidden, 1)
+        self.linear = nn.Linear(hidden, output_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.mapper(x)
@@ -191,8 +191,13 @@ class DREAMCNN(nn.Module):
         core_out_channels: int = 64,
         head_hidden: int = 256,
         dropout: float = 0.2,
+        task_mode: str = "k562",
     ):
         super().__init__()
+        self.task_mode = task_mode
+        output_dim = 18 if task_mode == "yeast" else 1
+        self.output_dim = output_dim
+
         self.stem = DREAMCNNStem(
             in_channels=in_channels,
             out_channels=stem_channels,
@@ -205,7 +210,13 @@ class DREAMCNN(nn.Module):
         self.head = DREAMCNNHead(
             in_channels=core_out_channels,
             hidden=head_hidden,
+            output_dim=output_dim,
         )
+
+        if task_mode == "yeast":
+            bin_centers = torch.arange(18, dtype=torch.float32)
+            self.register_buffer("bin_centers", bin_centers)
+
         self._init_weights()
 
     def _init_weights(self) -> None:
@@ -227,7 +238,18 @@ class DREAMCNN(nn.Module):
         """Forward pass. x: (B, C, L) one-hot encoded."""
         x = self.stem(x)
         x = self.core(x)
-        return self.head(x).squeeze(-1)
+        logits = self.head(x)
+
+        if self.task_mode == "yeast":
+            probs = F.softmax(logits, dim=1)
+            return (probs * self.bin_centers).sum(dim=1)
+        return logits.squeeze(-1)
+
+    def get_logits(self, x: torch.Tensor) -> torch.Tensor:
+        """Get raw logits (before softmax for yeast, same as forward for K562)."""
+        x = self.stem(x)
+        x = self.core(x)
+        return self.head(x)
 
 
 # ---------------------------------------------------------------------------
