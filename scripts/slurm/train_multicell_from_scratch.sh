@@ -59,21 +59,16 @@ if [[ "${MODEL}" == "malinois" ]]; then
 elif [[ "${MODEL}" == "dream_rnn" ]]; then
     for SEED in 0 1 2; do
         echo "--- DREAM-RNN seed ${SEED} ---"
-        uv run --no-sync python experiments/exp0_k562_scaling.py \
-            --data-path "data/${CELL}" \
-            --output-dir "outputs/dream_rnn_${CELL}_3seeds/seed_${SEED}" \
-            --seed "${SEED}" \
-            --fractions 1.0 \
-            --cell-line "${CELL}" 2>&1 || \
-        echo "DREAM-RNN direct training not yet parametrized for cell_line, using exp1_1 fallback" && \
         uv run --no-sync python experiments/exp1_1_scaling.py \
             --task k562 \
             --student dream_rnn \
-            --oracle default \
-            --reservoir random \
+            --oracle ground_truth \
+            --cell-line "${CELL}" \
+            --reservoir genomic \
             --n-replicates 1 \
+            --no-hp-sweep \
             --seed "${SEED}" \
-            --output-dir "outputs/dream_rnn_${CELL}_3seeds" \
+            --output-dir "outputs/dream_rnn_${CELL}_3seeds/seed_${SEED}" \
             --training-sizes 319742 \
             --epochs 80 \
             --ensemble-size 3 \

@@ -193,12 +193,32 @@ def _load_reservoir(name: str, seed: int):
     return cls(**cfg)
 
 
-def _load_pool_sequences(task: str) -> tuple[list[str], np.ndarray | None]:
-    """Load genomic pool sequences for the task."""
+CELL_LINE_LABEL_COLUMNS = {
+    "k562": "K562_log2FC",
+    "hepg2": "HepG2_log2FC",
+    "sknsh": "SKNSH_log2FC",
+}
+
+
+def _load_pool_sequences(
+    task: str, cell_line: str | None = None
+) -> tuple[list[str], np.ndarray | None]:
+    """Load genomic pool sequences for the task.
+
+    Args:
+        task: ``"k562"`` or ``"yeast"``.
+        cell_line: Override label column for K562 data.  One of
+            ``"k562"`` (default), ``"hepg2"``, or ``"sknsh"``.
+    """
     if task == "k562":
         from data.k562 import K562Dataset
 
-        ds = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train")
+        label_column = CELL_LINE_LABEL_COLUMNS.get(cell_line or "k562", "K562_log2FC")
+        ds = K562Dataset(
+            data_path=str(REPO / "data" / "k562"),
+            split="train",
+            label_column=label_column,
+        )
         return list(ds.sequences), ds.labels.astype(np.float32)
     else:
         from data.yeast import YeastDataset
@@ -209,6 +229,37 @@ def _load_pool_sequences(task: str) -> tuple[list[str], np.ndarray | None]:
             context_mode="dream150",
         )
         return list(ds.sequences), ds.labels.astype(np.float32)
+
+
+def _evaluate_ground_truth_test(
+    student: Any,
+    cell_line: str | None,
+    evaluate_predictions_fn: Any,
+) -> dict[str, dict[str, float]]:
+    """Evaluate student on K562Dataset test split with the specified cell line labels.
+
+    Used when oracle_type='ground_truth' so we evaluate against real experimental
+    measurements rather than oracle-generated NPZ files.
+    """
+    from data.k562 import K562Dataset
+
+    label_column = CELL_LINE_LABEL_COLUMNS.get(cell_line or "k562", "K562_log2FC")
+    ds = K562Dataset(
+        data_path=str(REPO / "data" / "k562"),
+        split="test",
+        label_column=label_column,
+    )
+    sequences = list(ds.sequences)
+    labels = ds.labels.astype(np.float32)
+
+    # Predict in batches
+    batch_size = 4096
+    preds_list = []
+    for i in range(0, len(sequences), batch_size):
+        preds_list.append(student.predict(sequences[i : i + batch_size]))
+    preds = np.concatenate(preds_list)
+
+    return {"in_dist": evaluate_predictions_fn(preds, labels)}
 
 
 # ---------------------------------------------------------------------------
@@ -1186,9 +1237,10 @@ def run_scaling_experiment(
     epochs: int = 80,
     early_stopping_patience: int | None = None,
     transfer_hp_from: int | None = None,
+    cell_line: str | None = None,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
-    from evaluation.exp1_eval import evaluate_on_exp1_test_panel
+    from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
 
     task_cfg = TASK_CONFIGS[task]
 
@@ -1221,8 +1273,12 @@ def run_scaling_experiment(
                 "Test evaluation will be skipped for missing NPZ files."
             )
 
-    logger.info(f"Loading oracle for task={task}, oracle_type={oracle_type}...")
-    oracle = _load_oracle(task, oracle_type=oracle_type)
+    if oracle_type == "ground_truth":
+        logger.info("Using ground-truth labels from dataset (no oracle model).")
+        oracle = None
+    else:
+        logger.info(f"Loading oracle for task={task}, oracle_type={oracle_type}...")
+        oracle = _load_oracle(task, oracle_type=oracle_type)
 
     # ── ISE fitness model support ─────────────────────────────────────
     # Reservoir names like "ise_maximize_dream10" or "ise_maximize_ag100"
@@ -1355,7 +1411,7 @@ def run_scaling_experiment(
     _needs_pool = reservoir_name in _NEEDS_POOL or base_reservoir in _NEEDS_POOL
     if _needs_pool:
         logger.info("Loading genomic pool sequences...")
-        pool_seqs, pool_labels = _load_pool_sequences(task)
+        pool_seqs, pool_labels = _load_pool_sequences(task, cell_line=cell_line)
         logger.info(f"Pool size: {len(pool_seqs):,}")
 
     def _find_best_hp_from_results(ref_n: int) -> dict | None:
@@ -1439,6 +1495,7 @@ def run_scaling_experiment(
         logger.info(f"[pre-label] Generating + labeling n={n_train:,} for {reservoir_name}")
         label_cache_dir.mkdir(parents=True, exist_ok=True)
         _res = _load_reservoir(_res_config_name, seed=seed)
+        _genomic_meta = None
         if _res_config_name == "random":
             _seqs, _ = _res.generate(n_train, task=task)
         elif _res_config_name == "dinuc_shuffle":
@@ -1446,7 +1503,9 @@ def run_scaling_experiment(
                 n_train, task=task, method="dinuc_shuffle", reference_sequences=pool_seqs
             )
         elif _res_config_name == "genomic":
-            _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
+            _seqs, _genomic_meta = _res.generate(
+                n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
+            )
         elif _res_config_name == "gc_matched":
             _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, task=task)
         elif _res_config_name.startswith("prm") or _res_config_name == "snv":
@@ -1493,7 +1552,17 @@ def run_scaling_experiment(
                 _seqs, _ = _res.generate(n_train, task=task)
         else:
             _seqs, _ = _res.generate(n_train, task=task)
-        _labels = oracle.predict(_seqs)
+        if oracle_type == "ground_truth":
+            # Use real dataset labels directly (from genomic reservoir metadata)
+            if _res_config_name != "genomic":
+                raise ValueError(
+                    "ground_truth oracle requires --reservoir genomic "
+                    f"(got {_res_config_name}). Non-genomic reservoirs generate "
+                    "synthetic sequences that have no ground-truth labels."
+                )
+            _labels = _genomic_meta["original_label"].values.astype(np.float32)
+        else:
+            _labels = oracle.predict(_seqs)
         np.savez_compressed(
             label_cache_path, sequences=np.array(_seqs, dtype=object), labels=_labels
         )
@@ -1544,7 +1613,7 @@ def run_scaling_experiment(
             logger.info(f"Cache hit: {len(labels):,} sequences + labels loaded")
         else:
             # No cache — generate sequences and label with oracle (must still be alive)
-            if oracle is None:
+            if oracle is None and oracle_type != "ground_truth":
                 raise RuntimeError(
                     f"No label cache at {label_cache_path} and oracle already freed. "
                     "Pre-labeling should have cached this. Delete output dir and rerun."
@@ -1614,10 +1683,16 @@ def run_scaling_experiment(
             else:
                 sequences, meta = reservoir.generate(n_train, task=task)
 
-            logger.info(f"Labeling {len(sequences):,} sequences with oracle...")
-            label_start = time.perf_counter()
-            labels = oracle.predict(sequences)
-            logger.info(f"Oracle labeling took {time.perf_counter() - label_start:.1f}s")
+            if oracle_type == "ground_truth":
+                if reservoir_name != "genomic":
+                    raise ValueError("ground_truth oracle requires --reservoir genomic")
+                labels = meta["original_label"].values.astype(np.float32)
+                logger.info(f"Using {len(labels):,} ground-truth labels from dataset.")
+            else:
+                logger.info(f"Labeling {len(sequences):,} sequences with oracle...")
+                label_start = time.perf_counter()
+                labels = oracle.predict(sequences)
+                logger.info(f"Oracle labeling took {time.perf_counter() - label_start:.1f}s")
             np.savez_compressed(
                 label_cache_path,
                 sequences=np.array(sequences, dtype=object),
@@ -1713,7 +1788,13 @@ def run_scaling_experiment(
                     hp_val_rs.append(val_r)
 
                     # Test evaluation
-                    test_metrics = evaluate_on_exp1_test_panel(student, task, test_set_dir)
+                    if oracle_type == "ground_truth" and task == "k562" and cell_line:
+                        # Evaluate directly on K562Dataset test split with correct label column
+                        test_metrics = _evaluate_ground_truth_test(
+                            student, cell_line, evaluate_predictions
+                        )
+                    else:
+                        test_metrics = evaluate_on_exp1_test_panel(student, task, test_set_dir)
 
                     wall_s = time.perf_counter() - run_start
 
@@ -1795,8 +1876,16 @@ def main():
     parser.add_argument(
         "--oracle",
         default="default",
-        choices=["default", "ag", "dream_rnn"],
-        help="Oracle type: 'default' (AG for K562, DREAM for yeast), 'ag', or 'dream_rnn'",
+        choices=["default", "ag", "dream_rnn", "ground_truth"],
+        help="Oracle type: 'default' (AG for K562, DREAM for yeast), 'ag', 'dream_rnn', "
+        "or 'ground_truth' (use real dataset labels, requires --reservoir genomic)",
+    )
+    parser.add_argument(
+        "--cell-line",
+        default=None,
+        choices=["k562", "hepg2", "sknsh"],
+        help="Cell line label column for K562 task (default: k562). "
+        "Changes which log2FC column is used: K562_log2FC, HepG2_log2FC, or SKNSH_log2FC.",
     )
     parser.add_argument("--training-sizes", nargs="+", type=int, default=None)
     parser.add_argument("--n-replicates", type=int, default=3)
@@ -1887,6 +1976,7 @@ def main():
             epochs=args.epochs,
             early_stopping_patience=args.early_stop_patience,
             transfer_hp_from=args.transfer_hp_from,
+            cell_line=args.cell_line,
         )
         all_results.extend(results)
 
