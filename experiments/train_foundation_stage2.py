@@ -69,6 +69,13 @@ DEFAULT_CONFIG = {
     "borzoi_center_bins": 32,  # pool center N bins (0 = all bins); Borzoi only
     "head_warmup_epochs": 0,  # train head with encoder frozen before unfreezing
     "normalize_embeddings": False,  # L2-normalize encoder embeddings before head
+    "cell_line": "k562",
+}
+
+CELL_LINE_LABEL_COLS = {
+    "k562": "K562_log2FC",
+    "hepg2": "HepG2_log2FC",
+    "sknsh": "SKNSH_log2FC",
 }
 
 # ── MPRA flanks as one-hot arrays ────────────────────────────────────────────
@@ -426,10 +433,12 @@ def evaluate_all_test_sets(
     batch_size: int = 4,
     amp_dtype: torch.dtype = torch.bfloat16,
     use_amp: bool = True,
+    cell_line: str = "k562",
 ) -> dict[str, dict[str, float]]:
     """Evaluate on hashFrag in-dist / SNV / OOD test sets."""
     import pandas as pd
 
+    fc_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
     metrics: dict[str, dict[str, float]] = {}
 
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
@@ -445,7 +454,7 @@ def evaluate_all_test_sets(
             amp_dtype=amp_dtype,
             use_amp=use_amp,
         )
-        true = df["K562_log2FC"].to_numpy(dtype=np.float32)
+        true = df[fc_col].to_numpy(dtype=np.float32)
         metrics["in_distribution"] = {
             "pearson_r": _safe_corr(pred, true, pearsonr),
             "spearman_r": _safe_corr(pred, true, spearmanr),
@@ -476,7 +485,8 @@ def evaluate_all_test_sets(
             amp_dtype=amp_dtype,
             use_amp=use_amp,
         )
-        alt_true = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        alt_col = f"{fc_col}_alt" if f"{fc_col}_alt" in df.columns else "K562_log2FC_alt"
+        alt_true = df[alt_col].to_numpy(dtype=np.float32)
         metrics["snv_abs"] = {
             "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
             "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
@@ -505,7 +515,11 @@ def evaluate_all_test_sets(
             amp_dtype=amp_dtype,
             use_amp=use_amp,
         )
-        true = df["K562_log2FC"].to_numpy(dtype=np.float32)
+        true = (
+            df[fc_col].to_numpy(dtype=np.float32)
+            if fc_col in df.columns
+            else df["K562_log2FC"].to_numpy(dtype=np.float32)
+        )
         metrics["ood"] = {
             "pearson_r": _safe_corr(pred, true, pearsonr),
             "spearman_r": _safe_corr(pred, true, spearmanr),
@@ -686,8 +700,10 @@ def train(cfg: dict):
 
     # ── Dataset ──────────────────────────────────────────────────────────────
     data_path = Path(cfg["data_path"])
-    train_ds = K562Dataset(data_path=str(data_path), split="train")
-    val_ds = K562Dataset(data_path=str(data_path), split="val")
+    cell_line = cfg.get("cell_line", "k562")
+    label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
+    train_ds = K562Dataset(data_path=str(data_path), split="train", label_column=label_col)
+    val_ds = K562Dataset(data_path=str(data_path), split="val", label_column=label_col)
 
     max_train = int(cfg["max_train_sequences"])
     max_val = int(cfg["max_val_sequences"])
@@ -939,6 +955,7 @@ def train(cfg: dict):
         batch_size=batch_size,
         amp_dtype=amp_dtype,
         use_amp=use_amp,
+        cell_line=cell_line,
     )
 
     # Save raw predictions for scatter plots
