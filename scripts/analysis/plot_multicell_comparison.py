@@ -54,9 +54,15 @@ _RESULT_DIRS = {
         "outputs/ntv3_post_sknsh_stage2",
         "outputs/ntv3_post_sknsh_cached",
     ],
-    # Borzoi (K562 only, S1 only)
+    # Borzoi (S1 only — S2 doesn't work for MPRA)
     ("Borzoi", "k562"): [
-        "outputs/borzoi_k562_cached",
+        "outputs/borzoi_k562_3seeds",
+    ],
+    ("Borzoi", "hepg2"): [
+        "outputs/borzoi_hepg2_cached",
+    ],
+    ("Borzoi", "sknsh"): [
+        "outputs/borzoi_sknsh_cached",
     ],
     # DREAM-RNN
     ("DREAM-RNN", "k562"): [
@@ -141,11 +147,33 @@ def load_results(base_dir: Path) -> list[dict]:
     return results
 
 
-def collect_all_metrics() -> dict[tuple[str, str], list[dict]]:
-    """Collect metrics for all (model, cell) combinations."""
+# S1-only directories (frozen encoder + head)
+_S1_RESULT_DIRS = {
+    ("NTv3 S1", "k562"): ["outputs/ntv3_post_k562_3seeds"],
+    ("NTv3 S1", "hepg2"): ["outputs/ntv3_post_hepg2_cached"],
+    ("NTv3 S1", "sknsh"): ["outputs/ntv3_post_sknsh_cached"],
+    ("Borzoi S1", "k562"): ["outputs/borzoi_k562_3seeds"],
+    ("Borzoi S1", "hepg2"): ["outputs/borzoi_hepg2_cached"],
+    ("Borzoi S1", "sknsh"): ["outputs/borzoi_sknsh_cached"],
+    ("Enformer S1", "k562"): ["outputs/enformer_k562_3seeds"],
+    ("Enformer S1", "hepg2"): ["outputs/enformer_hepg2_cached"],
+    ("Enformer S1", "sknsh"): ["outputs/enformer_sknsh_cached"],
+    ("AG S1", "k562"): ["outputs/ag_hashfrag_oracle_cached"],
+}
+
+S1_MODELS_ORDER = [
+    ("NTv3 S1", "#E8602C"),
+    ("Borzoi S1", "#DAA520"),
+    ("Enformer S1", "#3A86C8"),
+    ("AG S1", "#66BB6A"),
+]
+
+
+def collect_metrics(result_dirs: dict) -> dict[tuple[str, str], list[dict]]:
+    """Collect metrics for all (model, cell) combinations from given dirs."""
     all_metrics: dict[tuple[str, str], list[dict]] = {}
 
-    for (model, cell), dirs in _RESULT_DIRS.items():
+    for (model, cell), dirs in result_dirs.items():
         for d in dirs:
             p = REPO / d
             if p.exists():
@@ -155,6 +183,11 @@ def collect_all_metrics() -> dict[tuple[str, str], list[dict]]:
                     break
 
     return all_metrics
+
+
+def collect_all_metrics() -> dict[tuple[str, str], list[dict]]:
+    """Collect metrics for combined S1+S2 (best available)."""
+    return collect_metrics(_RESULT_DIRS)
 
 
 # ── Plotting ────────────────────────────────────────────────────────────────
@@ -180,11 +213,14 @@ def plot_cross_cell_bars(
     metric_field: str = "pearson_r",
     title: str = "In-Distribution Pearson R",
     filename: str = "multicell_in_dist_pearson",
+    models_order: list | None = None,
 ):
     """Bar plot: models on x-axis, grouped bars by cell line."""
+    if models_order is None:
+        models_order = MODELS_ORDER
     # Only include models that have at least one cell line result
     active_models = []
-    for name, color in MODELS_ORDER:
+    for name, color in models_order:
         has_data = any(
             (name, cell) in all_metrics
             and any(
@@ -265,48 +301,58 @@ def plot_cross_cell_bars(
     print(f"  Saved: {filename}.png / .pdf")
 
 
-def main():
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print("Collecting multi-cell metrics...")
-
-    all_metrics = collect_all_metrics()
-
-    # Print summary
-    for (model, cell), results in sorted(all_metrics.items()):
+def _print_summary(label: str, metrics: dict):
+    print(f"\n  {label}:")
+    for (model, cell), results in sorted(metrics.items()):
         vals = [
             m["in_distribution"]["pearson_r"]
             for m in results
             if "in_distribution" in m and "pearson_r" in m.get("in_distribution", {})
         ]
         mean_r = np.mean(vals) if vals else float("nan")
-        print(f"  {model:12s} {cell:6s}: {len(results)} seeds, in_dist={mean_r:.4f}")
+        print(f"    {model:14s} {cell:6s}: {len(results)} seeds, in_dist={mean_r:.4f}")
 
-    # Generate plots
-    print("\nGenerating cross-cell bar plots...")
 
-    plot_cross_cell_bars(
-        all_metrics,
-        test_key="in_distribution",
-        metric_field="pearson_r",
-        title="In-Distribution Pearson R",
-        filename="multicell_in_dist_pearson",
-    )
+def _gen_plots(metrics: dict, models_order: list, prefix: str, title_tag: str):
+    test_configs = [
+        ("in_distribution", "pearson_r", "In-Distribution Pearson R"),
+        ("snv_abs", "pearson_r", "SNV Pearson R"),
+        ("snv_delta", "pearson_r", "SNV Effect Size (Delta) Pearson R"),
+        ("in_distribution", "mse", "In-Distribution MSE"),
+    ]
+    for test_key, metric, title in test_configs:
+        suffix = test_key
+        if metric == "mse":
+            suffix += "_mse"
+        plot_cross_cell_bars(
+            metrics,
+            test_key=test_key,
+            metric_field=metric,
+            title=f"{title_tag} — {title}",
+            filename=f"{prefix}_{suffix}",
+            models_order=models_order,
+        )
 
-    plot_cross_cell_bars(
-        all_metrics,
-        test_key="snv_abs",
-        metric_field="pearson_r",
-        title="SNV Pearson R",
-        filename="multicell_snv_pearson",
-    )
 
-    plot_cross_cell_bars(
-        all_metrics,
-        test_key="snv_delta",
-        metric_field="pearson_r",
-        title="SNV Effect Size (Delta) Pearson R",
-        filename="multicell_snv_delta_pearson",
-    )
+def main():
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    print("Collecting multi-cell metrics...")
+
+    # S1-only
+    s1_metrics = collect_metrics(_S1_RESULT_DIRS)
+    _print_summary("S1 (frozen encoder + head)", s1_metrics)
+
+    # Combined S1+S2 (best available)
+    combined_metrics = collect_all_metrics()
+    _print_summary("Combined S1+S2 (best available)", combined_metrics)
+
+    # Generate S1-only plots
+    print("\nGenerating S1-only bar plots...")
+    _gen_plots(s1_metrics, S1_MODELS_ORDER, "s1_multicell", "S1 (Frozen Encoder)")
+
+    # Generate combined S1+S2 plots
+    print("\nGenerating combined S1+S2 bar plots...")
+    _gen_plots(combined_metrics, MODELS_ORDER, "multicell", "Best Available (S1+S2)")
 
     print(f"\nAll plots saved to: {OUT_DIR}")
 
