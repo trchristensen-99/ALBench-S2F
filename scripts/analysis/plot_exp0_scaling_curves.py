@@ -28,20 +28,24 @@ OUT = REPO / "results" / "exp0_scaling_plots"
 
 # --- Model definitions -----------------------------------------------------------
 
-K562_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_k562_s1"]
-YEAST_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_yeast_s2"]
+K562_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_k562_s1", "alphagenome_k562_s2"]
+YEAST_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_yeast_s1", "alphagenome_yeast_s2"]
 
 COLORS = {
     "dream_cnn": "#E8602C",
     "dream_rnn": "#7B2D8E",
     "alphagenome_k562_s1": "#66BB6A",
-    "alphagenome_yeast_s2": "#66BB6A",
+    "alphagenome_k562_s2": "#1B5E20",
+    "alphagenome_yeast_s1": "#66BB6A",
+    "alphagenome_yeast_s2": "#1B5E20",
 }
 
 LABELS = {
     "dream_cnn": "DREAM-CNN",
     "dream_rnn": "DREAM-RNN",
     "alphagenome_k562_s1": "AG S1",
+    "alphagenome_k562_s2": "AG S2",
+    "alphagenome_yeast_s1": "AG S1",
     "alphagenome_yeast_s2": "AG S2",
 }
 
@@ -49,7 +53,9 @@ MARKERS = {
     "dream_cnn": "o",
     "dream_rnn": "s",
     "alphagenome_k562_s1": "D",
-    "alphagenome_yeast_s2": "D",
+    "alphagenome_k562_s2": "^",
+    "alphagenome_yeast_s1": "D",
+    "alphagenome_yeast_s2": "^",
 }
 
 
