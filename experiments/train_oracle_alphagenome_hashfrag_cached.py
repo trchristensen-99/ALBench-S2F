@@ -50,6 +50,13 @@ from models.embedding_cache import (
     reinit_head_params,
 )
 
+# ── Cell-line label mapping ──────────────────────────────────────────────────
+CELL_LINE_LABEL_COLS = {
+    "k562": "K562_log2FC",
+    "hepg2": "HepG2_log2FC",
+    "sknsh": "SKNSH_log2FC",
+}
+
 # ── MPRA flanks for 600 bp test-set evaluation ───────────────────────────────
 _FLANK_5_STR: str = MPRA_UPSTREAM[-200:]
 _FLANK_3_STR: str = MPRA_DOWNSTREAM[:200]
@@ -132,15 +139,17 @@ def evaluate_all_test_sets(
     model,
     predict_step_fn,
     test_set_dir: Path,
+    cell_line: str = "k562",
 ) -> dict[str, dict[str, float]]:
     params, state = model._params, model._state
     metrics: dict[str, dict[str, float]] = {}
+    fc_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
 
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
     if in_path.exists():
         in_df = pd.read_csv(in_path, sep="\t")
         in_pred = _predict_sequences(predict_step_fn, params, state, in_df["sequence"].tolist())
-        in_true = in_df["K562_log2FC"].to_numpy(dtype=np.float32)
+        in_true = in_df[fc_col].to_numpy(dtype=np.float32)
         metrics["in_distribution"] = {
             "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
             "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
@@ -157,7 +166,10 @@ def evaluate_all_test_sets(
         alt_pred = _predict_sequences(
             predict_step_fn, params, state, snv_df["sequence_alt"].tolist()
         )
-        alt_true = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        alt_col = f"{fc_col}_alt"
+        if alt_col not in snv_df.columns:
+            alt_col = "K562_log2FC_alt"
+        alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
         metrics["snv_abs"] = {
             "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
             "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
@@ -173,11 +185,15 @@ def evaluate_all_test_sets(
             "n": int(len(delta_true)),
         }
 
-    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    # OOD test set is cell-line-specific; skip if file doesn't exist
+    ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
     if ood_path.exists():
         ood_df = pd.read_csv(ood_path, sep="\t")
         ood_pred = _predict_sequences(predict_step_fn, params, state, ood_df["sequence"].tolist())
-        ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
+        if fc_col in ood_df.columns:
+            ood_true = ood_df[fc_col].to_numpy(dtype=np.float32)
+        else:
+            ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
         metrics["ood"] = {
             "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
             "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
@@ -246,7 +262,11 @@ def main(cfg: DictConfig) -> None:
 
     # ── Load labels and embedding cache ──────────────────────────────────────
     # split="train" contains all ~320K hashFrag training sequences.
-    ds_all_train = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
+    cell_line = str(cfg.get("cell_line", "k562"))
+    label_column = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
+    ds_all_train = K562Dataset(
+        data_path=str(cfg.k562_data_path), split="train", label_column=label_column
+    )
     all_labels = ds_all_train.labels.astype(np.float32)
     print(f"  Total training labels: {len(all_labels):,}", flush=True)
 
@@ -442,7 +462,7 @@ def main(cfg: DictConfig) -> None:
         print("[eval] No best_model checkpoint — using final weights.", flush=True)
 
     test_set_dir = Path(str(cfg.k562_data_path)) / "test_sets"
-    test_metrics = evaluate_all_test_sets(model, predict_step, test_set_dir)
+    test_metrics = evaluate_all_test_sets(model, predict_step, test_set_dir, cell_line=cell_line)
 
     results = {
         "seed": used_seed,

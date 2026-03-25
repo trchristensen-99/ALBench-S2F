@@ -268,16 +268,22 @@ def evaluate_test_sets(
 
     if ood_path.exists():
         ood_df = pd.read_csv(ood_path, sep="\t")
-        ood_pred = _predict_sequences(model, ood_df["sequence"].astype(str).tolist(), device, cfg)
         if fc_col in ood_df.columns:
-            ood_true = ood_df[fc_col].to_numpy(dtype=np.float32)
+            ood_label_col = fc_col
+        elif "K562_log2FC" in ood_df.columns:
+            ood_label_col = "K562_log2FC"
         else:
-            ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
-        metrics["ood"] = {
-            "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
-            "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
-            "mse": float(np.mean((ood_pred - ood_true) ** 2)),
-        }
+            ood_label_col = None
+        if ood_label_col is not None:
+            ood_pred = _predict_sequences(
+                model, ood_df["sequence"].astype(str).tolist(), device, cfg
+            )
+            ood_true = ood_df[ood_label_col].to_numpy(dtype=np.float32)
+            metrics["ood"] = {
+                "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
+                "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
+                "mse": float(np.mean((ood_pred - ood_true) ** 2)),
+            }
 
     return metrics
 

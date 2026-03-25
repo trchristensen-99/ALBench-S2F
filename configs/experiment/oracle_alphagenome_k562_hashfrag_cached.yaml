@@ -9,6 +9,7 @@ head_arch: boda-flatten-512-512
 head_name: alphagenome_k562_head_hashfrag
 num_tracks: 1
 
+cell_line: k562
 k562_data_path: data/k562
 cache_dir: outputs/ag_hashfrag/embedding_cache
 output_dir: outputs/ag_hashfrag_oracle_cached/oracle_0
