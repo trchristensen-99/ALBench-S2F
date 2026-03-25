@@ -36,6 +36,7 @@ import logging
 import os
 import sys
 import time
+import traceback
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -260,15 +261,25 @@ def _evaluate_ground_truth_test(
         return np.concatenate(preds_list)
 
     # In-distribution: K562Dataset test split
-    ds = K562Dataset(
-        data_path=str(REPO / "data" / "k562"),
-        split="test",
-        label_column=label_column,
-    )
-    sequences = list(ds.sequences)
-    labels = ds.labels.astype(np.float32)
-    preds = _predict_batched(sequences)
-    metrics["in_dist"] = evaluate_predictions_fn(preds, labels)
+    try:
+        ds = K562Dataset(
+            data_path=str(REPO / "data" / "k562"),
+            split="test",
+            label_column=label_column,
+        )
+        sequences = list(ds.sequences)
+        labels = ds.labels.astype(np.float32)
+        n_finite = int(np.isfinite(labels).sum())
+        logger.info(
+            f"Ground-truth test: {len(sequences)} sequences, "
+            f"{n_finite} finite labels for {label_column}"
+        )
+        preds = _predict_batched(sequences)
+        metrics["in_dist"] = evaluate_predictions_fn(preds, labels)
+        logger.info(f"In-dist test metrics: {metrics['in_dist']}")
+    except Exception as e:
+        logger.error(f"In-dist ground-truth test evaluation failed: {e}")
+        logger.error(traceback.format_exc())
 
     # SNV pairs (TSV file, if it exists)
     test_dir = REPO / "data" / "k562" / "test_sets"
@@ -293,6 +304,7 @@ def _evaluate_ground_truth_test(
                 metrics["snv_delta"] = evaluate_predictions_fn(delta_pred, delta_true)
         except Exception as e:
             logger.warning(f"SNV evaluation failed: {e}")
+            logger.warning(traceback.format_exc())
 
     # OOD designed sequences (TSV file, if it exists)
     ood_path = test_dir / f"test_ood_designed_{cell}.tsv"
@@ -313,6 +325,7 @@ def _evaluate_ground_truth_test(
                 metrics["ood"] = evaluate_predictions_fn(ood_preds, ood_true)
         except Exception as e:
             logger.warning(f"OOD evaluation failed: {e}")
+            logger.warning(traceback.format_exc())
 
     return metrics
 
@@ -1273,6 +1286,27 @@ def _train_student(
         raise ValueError(f"Unknown student type: {student_type}")
 
 
+def _save_student_checkpoint(student: Any, student_type: str, run_dir: Path) -> None:
+    """Save student model checkpoint to run_dir/best_model.pt.
+
+    Supports DREAM-RNN and DREAM-CNN ensemble students (PyTorch).
+    Other student types are silently skipped.
+    """
+    if student_type not in ("dream_rnn", "dream_cnn"):
+        return
+
+    import torch
+
+    ckpt_path = run_dir / "best_model.pt"
+    state = {
+        "student_type": student_type,
+        "ensemble_size": len(student.models),
+        "model_state_dicts": [m.state_dict() for m in student.models],
+    }
+    torch.save(state, ckpt_path)
+    logger.info(f"    Saved checkpoint to {ckpt_path}")
+
+
 # ---------------------------------------------------------------------------
 # Main experiment loop
 # ---------------------------------------------------------------------------
@@ -1842,14 +1876,27 @@ def run_scaling_experiment(
                         val_r = 0.0
                     hp_val_rs.append(val_r)
 
-                    # Test evaluation
-                    if oracle_type == "ground_truth" and task == "k562" and cell_line:
-                        # Evaluate directly on K562Dataset test split with correct label column
-                        test_metrics = _evaluate_ground_truth_test(
-                            student, cell_line, evaluate_predictions
-                        )
-                    else:
-                        test_metrics = evaluate_on_exp1_test_panel(student, task, test_set_dir)
+                    # Save model checkpoint (before test eval, so we keep it even if eval fails)
+                    try:
+                        _save_student_checkpoint(student, student_type, run_dir)
+                    except Exception as e:
+                        logger.error(f"    Checkpoint save failed: {e}")
+                        logger.error(traceback.format_exc())
+
+                    # Test evaluation (fault-tolerant: failures produce empty metrics,
+                    # not a lost run)
+                    test_metrics: dict[str, dict[str, float]] = {}
+                    try:
+                        if oracle_type == "ground_truth" and task == "k562" and cell_line:
+                            # Evaluate directly on K562Dataset test split with correct label column
+                            test_metrics = _evaluate_ground_truth_test(
+                                student, cell_line, evaluate_predictions
+                            )
+                        else:
+                            test_metrics = evaluate_on_exp1_test_panel(student, task, test_set_dir)
+                    except Exception as e:
+                        logger.error(f"    Test evaluation failed: {e}")
+                        logger.error(traceback.format_exc())
 
                     wall_s = time.perf_counter() - run_start
 
@@ -1893,6 +1940,7 @@ def run_scaling_experiment(
 
                 except Exception as e:
                     logger.error(f"    FAILED: {e}")
+                    logger.error(traceback.format_exc())
                     continue
 
             # Track best HP
