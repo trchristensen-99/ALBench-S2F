@@ -371,12 +371,20 @@ def plot_per_cell_bars(
     models_order: list,
     title_tag: str,
     filename: str,
+    metric_field: str = "pearson_r",
 ):
     """Bar plot for a single cell line: test conditions on x-axis, models as bars.
 
     Skips test conditions that have no data for any model.
+
+    Parameters
+    ----------
+    metric_field : str
+        Which metric to plot (``"pearson_r"`` or ``"mse"``).
     """
     cell_display = CELL_DISPLAY[cell]
+    is_mse = metric_field == "mse"
+    metric_label = "MSE" if is_mse else "Pearson R"
 
     # Determine which test conditions have data
     active_conditions = []
@@ -386,9 +394,9 @@ def plot_per_cell_bars(
             key = (name, cell)
             if key in all_metrics:
                 vals = [
-                    m[test_key]["pearson_r"]
+                    m[test_key][metric_field]
                     for m in all_metrics[key]
-                    if test_key in m and "pearson_r" in m.get(test_key, {})
+                    if test_key in m and metric_field in m.get(test_key, {})
                 ]
                 if vals:
                     has_data = True
@@ -406,7 +414,7 @@ def plot_per_cell_bars(
         key = (name, cell)
         if key in all_metrics:
             has_any = any(
-                "in_distribution" in m and "pearson_r" in m.get("in_distribution", {})
+                "in_distribution" in m and metric_field in m.get("in_distribution", {})
                 for m in all_metrics[key]
             )
             if has_any:
@@ -430,9 +438,9 @@ def plot_per_cell_bars(
         for test_key, _ in active_conditions:
             if key in all_metrics:
                 vals = [
-                    m[test_key]["pearson_r"]
+                    m[test_key][metric_field]
                     for m in all_metrics[key]
-                    if test_key in m and "pearson_r" in m.get(test_key, {})
+                    if test_key in m and metric_field in m.get(test_key, {})
                 ]
             else:
                 vals = []
@@ -452,10 +460,11 @@ def plot_per_cell_bars(
 
         for bar, val in zip(bars, means):
             if val > 0:
+                fmt = f"{val:.4f}" if is_mse else f"{val:.3f}"
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + 0.008,
-                    f"{val:.3f}",
+                    fmt,
                     ha="center",
                     va="bottom",
                     fontsize=7,
@@ -463,11 +472,12 @@ def plot_per_cell_bars(
                     rotation=30,
                 )
 
-    ax.set_ylabel("Pearson R", fontsize=13)
+    ax.set_ylabel(metric_label, fontsize=13)
     ax.set_xticks(x)
     ax.set_xticklabels([label for _, label in active_conditions], fontsize=11)
-    ax.set_ylim(0, 1.0)
-    ax.set_title(f"{cell_display} MPRA -- {title_tag} -- Pearson R", fontsize=14)
+    if not is_mse:
+        ax.set_ylim(0, 1.0)
+    ax.set_title(f"{cell_display} MPRA -- {title_tag} -- {metric_label}", fontsize=14)
     ax.legend(
         fontsize=9,
         loc="upper right",
@@ -521,14 +531,25 @@ def _gen_cross_cell_plots(metrics: dict, models_order: list, prefix: str, title_
 
 
 def _gen_per_cell_plots(metrics: dict, models_order: list, prefix: str, title_tag: str):
-    """Generate per-cell bar plots (Type 2)."""
+    """Generate per-cell bar plots (Type 2) for both Pearson R and MSE."""
     for cell in CELL_LINES:
+        # Pearson R
         plot_per_cell_bars(
             metrics,
             cell=cell,
             models_order=models_order,
             title_tag=title_tag,
             filename=f"{prefix}_{cell}",
+            metric_field="pearson_r",
+        )
+        # MSE
+        plot_per_cell_bars(
+            metrics,
+            cell=cell,
+            models_order=models_order,
+            title_tag=title_tag,
+            filename=f"{prefix}_{cell}_mse",
+            metric_field="mse",
         )
 
 
