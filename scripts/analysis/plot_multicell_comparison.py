@@ -140,8 +140,9 @@ _COMBINED_RESULT_DIRS = {
     ("Enformer", "sknsh"): [
         "outputs/enformer_sknsh_cached",  # S1 is better (0.857 vs 0.853)
     ],
-    # AG fold 1 S1 (K562 only)
+    # AG fold 1 (S2 preferred, S1 fallback, K562 only)
     ("AG fold 1", "k562"): [
+        "outputs/stage2_k562_fold1",
         "outputs/ag_fold_1_k562_s1_full",
     ],
     # AG all folds S1 (all 3 cells)
@@ -324,12 +325,12 @@ def plot_cross_cell_bars(
             x + offsets[ci],
             means,
             width,
-            yerr=stds if any(s > 0 for s in stds) else None,
+            # yerr=stds if any(s > 0 for s in stds) else None,
             label=CELL_DISPLAY[cell],
             color=CELL_COLORS[cell],
             alpha=0.85,
             zorder=3,
-            capsize=2,
+            # capsize=2,
         )
 
         for bar, val in zip(bars, means):
@@ -451,11 +452,11 @@ def plot_per_cell_bars(
             x + offsets[i],
             means,
             width,
-            yerr=stds if any(s > 0 for s in stds) else None,
+            # yerr=stds if any(s > 0 for s in stds) else None,
             label=name,
             color=color,
             zorder=3,
-            capsize=2,
+            # capsize=2,
         )
 
         for bar, val in zip(bars, means):
