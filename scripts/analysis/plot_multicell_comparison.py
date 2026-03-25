@@ -170,8 +170,20 @@ _COMBINED_RESULT_DIRS = {
     ],
 }
 
-# S1-only directories (frozen encoder + head)
+# S1-only directories (frozen encoder + head, plus from-scratch baselines)
 _S1_RESULT_DIRS = {
+    # From-scratch baselines (same results regardless of S1/S2 distinction)
+    ("DREAM-RNN", "k562"): [
+        "outputs/dream_rnn_k562_with_preds",
+        "outputs/dream_rnn_k562_3seeds",
+    ],
+    ("Malinois", "k562"): [
+        "outputs/malinois_k562_with_preds",
+        "outputs/malinois_k562_3seeds",
+    ],
+    ("Malinois", "hepg2"): ["outputs/malinois_hepg2_3seeds"],
+    ("Malinois", "sknsh"): ["outputs/malinois_sknsh_3seeds"],
+    # Foundation models S1 only
     ("NTv3 S1", "k562"): [
         "outputs/ntv3_post_k562_3seeds",
         "outputs/ntv3_k562_3seeds",
@@ -251,6 +263,8 @@ MODELS_COMBINED = [
 ]
 
 S1_MODELS = [
+    ("DREAM-RNN", "#7B2D8E"),
+    ("Malinois", "#B07CC6"),
     ("NTv3 S1", "#E8602C"),
     ("Borzoi S1", "#DAA520"),
     ("Enformer S1", "#3A86C8"),
