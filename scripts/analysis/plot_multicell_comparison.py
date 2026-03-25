@@ -34,12 +34,10 @@ _RESULT_DIRS = {
         "outputs/enformer_k562_3seeds",
     ],
     ("Enformer", "hepg2"): [
-        "outputs/enformer_hepg2_stage2",
-        "outputs/enformer_hepg2_cached",
+        "outputs/enformer_hepg2_cached",  # S1 (S2 was slightly worse)
     ],
     ("Enformer", "sknsh"): [
-        "outputs/enformer_sknsh_stage2",
-        "outputs/enformer_sknsh_cached",
+        "outputs/enformer_sknsh_cached",  # S1 (S2 was slightly worse)
     ],
     # NTv3-post
     ("NTv3", "k562"): [
@@ -89,20 +87,20 @@ _RESULT_DIRS = {
         "outputs/ag_hashfrag_oracle_cached",
     ],
     ("AG S1", "hepg2"): [
-        "outputs/ag_hepg2_s1",
+        "outputs/ag_hashfrag_hepg2_cached",
     ],
     ("AG S1", "sknsh"): [
-        "outputs/ag_sknsh_s1",
+        "outputs/ag_hashfrag_sknsh_cached",
     ],
     # AlphaGenome S2
     ("AG S2", "k562"): [
         "outputs/stage2_k562_full_train",
     ],
     ("AG S2", "hepg2"): [
-        "outputs/ag_hepg2_s2",
+        "outputs/ag_s2_hepg2",
     ],
     ("AG S2", "sknsh"): [
-        "outputs/ag_sknsh_s2",
+        "outputs/ag_s2_sknsh",
     ],
 }
 
@@ -159,6 +157,8 @@ _S1_RESULT_DIRS = {
     ("Enformer S1", "hepg2"): ["outputs/enformer_hepg2_cached"],
     ("Enformer S1", "sknsh"): ["outputs/enformer_sknsh_cached"],
     ("AG S1", "k562"): ["outputs/ag_hashfrag_oracle_cached"],
+    ("AG S1", "hepg2"): ["outputs/ag_hashfrag_hepg2_cached"],
+    ("AG S1", "sknsh"): ["outputs/ag_hashfrag_sknsh_cached"],
 }
 
 S1_MODELS_ORDER = [
