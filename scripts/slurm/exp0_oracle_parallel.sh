@@ -62,7 +62,12 @@ echo "Task: ${TASK}, Student: ${STUDENT}, Oracle: ${ORACLE}"
 echo "Array task ${SLURM_ARRAY_TASK_ID}: N_train=${N_TRAIN}"
 echo "Node: $SLURMD_NODENAME  Date: $(date)"
 
-OUT_DIR="outputs/exp0_oracle_scaling_v4/${TASK}/${STUDENT}"
+# Include oracle in path when non-default to avoid overwriting
+if [[ "${ORACLE}" == "default" ]]; then
+    OUT_DIR="outputs/exp0_oracle_scaling_v4/${TASK}/${STUDENT}"
+else
+    OUT_DIR="outputs/exp0_oracle_scaling_v4/${TASK}/${STUDENT}_oracle_${ORACLE}"
+fi
 
 # Fewer epochs for large N (val plateaus by epoch ~40-50)
 if [[ "${N_TRAIN}" -ge 100000 ]]; then
