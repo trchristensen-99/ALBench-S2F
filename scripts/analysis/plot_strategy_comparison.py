@@ -207,7 +207,7 @@ def plot_strategy_multipanel(
     )
 
     fig.tight_layout(rect=[0, 0, 1, 0.96])
-    fname = f"strategy_comparison_{task}_{student}"
+    fname = f"strategy_comparison_{task}_{student}_n{n_train}"
     fig.savefig(OUT_DIR / f"{fname}.png", dpi=200, bbox_inches="tight")
     fig.savefig(OUT_DIR / f"{fname}.pdf", bbox_inches="tight")
     plt.close(fig)
@@ -252,16 +252,43 @@ def print_summary_table(results: dict[str, list[dict]]):
 
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print("Loading strategy comparison results...")
 
-    results = load_strategy_results("k562", "dream_cnn")
+    # Generate plots for all available task/student/size combos
+    combos = [
+        ("k562", "dream_cnn"),
+        ("k562", "alphagenome_k562_s1"),
+        ("yeast", "dream_cnn"),
+    ]
 
-    print("\n=== Full Summary Table ===\n")
-    print_summary_table(results)
+    for task, student in combos:
+        results = load_strategy_results(task, student)
+        if not results:
+            continue
 
-    print("\nGenerating multi-panel strategy comparison plot...")
-    plot_strategy_multipanel(results)
-    print(f"\nPlots saved to: {OUT_DIR}")
+        # Group by training size
+        by_size: dict[int, dict[str, list[dict]]] = {}
+        base = REPO / "outputs" / "exp1_1_strategy_comparison" / task / student
+        for p in sorted(base.rglob("result.json")):
+            try:
+                d = json.loads(p.read_text())
+                strat = d.get("reservoir", "?")
+                n = d.get("n_train", 0)
+                tm = d.get("test_metrics", {})
+                by_size.setdefault(n, {}).setdefault(strat, []).append(tm)
+            except Exception:
+                continue
+
+        for n_train in sorted(by_size):
+            size_results = by_size[n_train]
+            if len(size_results) < 3:
+                continue  # Skip sizes with too few strategies
+            label = f"{task.upper()} {student.replace('_', '-').upper()}"
+            print(f"\n=== {label}, N={n_train:,} ===\n")
+            print_summary_table(size_results)
+            print(f"\nGenerating plot...")
+            plot_strategy_multipanel(size_results, task=task, student=student, n_train=n_train)
+
+    print(f"\nAll plots saved to: {OUT_DIR}")
 
 
 if __name__ == "__main__":
