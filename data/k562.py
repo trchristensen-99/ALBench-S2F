@@ -149,7 +149,10 @@ class K562Dataset(SequenceDataset):
         self.sequence_length = self.SEQUENCE_LENGTH
 
         logger.info(f"Loaded {len(self.sequences)} sequences for {self.split} split")
-        logger.info(f"Label range: [{np.min(self.labels):.3f}, {np.max(self.labels):.3f}]")
+        if len(self.labels) > 0:
+            logger.info(f"Label range: [{np.min(self.labels):.3f}, {np.max(self.labels):.3f}]")
+        else:
+            logger.warning(f"Split '{self.split}' is empty — no sequences matched")
 
     def _load_and_filter_data(self, file_path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -320,10 +323,12 @@ class K562Dataset(SequenceDataset):
         logger.info("Creating chromosome-based splits matching the Malinois paper allocation.")
 
         # Extract chromosome from the IDs (format: chr:pos:ref:alt:type:wc)
-        chrs = np.array([seq_id.split(":")[0] for seq_id in all_ids])
+        # IDs may use "chr7" or bare "7" format — normalize to bare numbers
+        raw_chrs = np.array([seq_id.split(":")[0] for seq_id in all_ids])
+        chrs = np.array([c.replace("chr", "") for c in raw_chrs])
 
-        val_chrs = {"chr19", "chr21", "chrX"}
-        test_chrs = {"chr7", "chr13"}
+        val_chrs = {"19", "21", "X"}
+        test_chrs = {"7", "13"}
 
         val_mask = np.isin(chrs, list(val_chrs))
         test_mask = np.isin(chrs, list(test_chrs))
