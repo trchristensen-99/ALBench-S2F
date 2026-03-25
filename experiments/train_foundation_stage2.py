@@ -485,7 +485,9 @@ def evaluate_all_test_sets(
             amp_dtype=amp_dtype,
             use_amp=use_amp,
         )
-        alt_col = f"{fc_col}_alt" if f"{fc_col}_alt" in df.columns else "K562_log2FC_alt"
+        alt_col = f"{fc_col}_alt"
+        if alt_col not in df.columns:
+            alt_col = "K562_log2FC_alt"  # fallback for K562
         alt_true = df[alt_col].to_numpy(dtype=np.float32)
         metrics["snv_abs"] = {
             "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
@@ -494,7 +496,10 @@ def evaluate_all_test_sets(
             "n": int(len(alt_true)),
         }
         delta_pred = alt_pred - ref_pred
-        delta_true = df["delta_log2FC"].to_numpy(dtype=np.float32)
+        delta_col = f"delta_{fc_col}"
+        if delta_col not in df.columns:
+            delta_col = "delta_log2FC"
+        delta_true = df[delta_col].to_numpy(dtype=np.float32)
         metrics["snv_delta"] = {
             "pearson_r": _safe_corr(delta_pred, delta_true, pearsonr),
             "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
@@ -502,30 +507,35 @@ def evaluate_all_test_sets(
             "n": int(len(delta_true)),
         }
 
-    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    # OOD: try cell-line-specific file first, fall back to K562
+    ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
+    if not ood_path.exists():
+        ood_path = test_set_dir / "test_ood_designed_k562.tsv"
     if ood_path.exists():
         df = pd.read_csv(ood_path, sep="\t")
-        pred = _predict_test_sequences(
-            encoder_model,
-            head,
-            forward_fn,
-            df["sequence"].tolist(),
-            device,
-            batch_size,
-            amp_dtype=amp_dtype,
-            use_amp=use_amp,
-        )
-        true = (
-            df[fc_col].to_numpy(dtype=np.float32)
-            if fc_col in df.columns
-            else df["K562_log2FC"].to_numpy(dtype=np.float32)
-        )
-        metrics["ood"] = {
-            "pearson_r": _safe_corr(pred, true, pearsonr),
-            "spearman_r": _safe_corr(pred, true, spearmanr),
-            "mse": float(np.mean((pred - true) ** 2)),
-            "n": int(len(true)),
-        }
+        if fc_col in df.columns:
+            true = df[fc_col].to_numpy(dtype=np.float32)
+        elif "K562_log2FC" in df.columns:
+            true = df["K562_log2FC"].to_numpy(dtype=np.float32)
+        else:
+            true = None
+        if true is not None:
+            pred = _predict_test_sequences(
+                encoder_model,
+                head,
+                forward_fn,
+                df["sequence"].tolist(),
+                device,
+                batch_size,
+                amp_dtype=amp_dtype,
+                use_amp=use_amp,
+            )
+            metrics["ood"] = {
+                "pearson_r": _safe_corr(pred, true, pearsonr),
+                "spearman_r": _safe_corr(pred, true, spearmanr),
+                "mse": float(np.mean((pred - true) ** 2)),
+                "n": int(len(true)),
+            }
 
     return metrics
 
@@ -540,9 +550,12 @@ def save_test_predictions_s2(
     batch_size: int = 4,
     amp_dtype: torch.dtype = torch.bfloat16,
     use_amp: bool = True,
+    cell_line: str = "k562",
 ) -> None:
     """Save raw pred/true arrays for scatter plots + back up results."""
     import pandas as pd
+
+    fc_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
 
     def _pred(sequences: list[str]) -> np.ndarray:
         return _predict_test_sequences(
@@ -561,22 +574,38 @@ def save_test_predictions_s2(
     if in_path.exists():
         df = pd.read_csv(in_path, sep="\t")
         arrays["in_dist_pred"] = _pred(df["sequence"].tolist())
-        arrays["in_dist_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+        arrays["in_dist_true"] = df[fc_col].to_numpy(dtype=np.float32)
 
     snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
     if snv_path.exists():
         df = pd.read_csv(snv_path, sep="\t")
         arrays["snv_ref_pred"] = _pred(df["sequence_ref"].tolist())
         arrays["snv_alt_pred"] = _pred(df["sequence_alt"].tolist())
-        arrays["snv_alt_true"] = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        alt_col = f"{fc_col}_alt"
+        if alt_col not in df.columns:
+            alt_col = "K562_log2FC_alt"
+        arrays["snv_alt_true"] = df[alt_col].to_numpy(dtype=np.float32)
         arrays["snv_delta_pred"] = arrays["snv_alt_pred"] - arrays["snv_ref_pred"]
-        arrays["snv_delta_true"] = df["delta_log2FC"].to_numpy(dtype=np.float32)
+        delta_col = f"delta_{fc_col}"
+        if delta_col not in df.columns:
+            delta_col = "delta_log2FC"
+        arrays["snv_delta_true"] = df[delta_col].to_numpy(dtype=np.float32)
 
-    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    # OOD: try cell-line-specific file first, fall back to K562
+    ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
+    if not ood_path.exists():
+        ood_path = test_set_dir / "test_ood_designed_k562.tsv"
     if ood_path.exists():
         df = pd.read_csv(ood_path, sep="\t")
-        arrays["ood_pred"] = _pred(df["sequence"].tolist())
-        arrays["ood_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+        if fc_col in df.columns:
+            ood_true_col = fc_col
+        elif "K562_log2FC" in df.columns:
+            ood_true_col = "K562_log2FC"
+        else:
+            ood_true_col = None
+        if ood_true_col is not None:
+            arrays["ood_pred"] = _pred(df["sequence"].tolist())
+            arrays["ood_true"] = df[ood_true_col].to_numpy(dtype=np.float32)
 
     pred_path = output_dir / "test_predictions.npz"
     np.savez_compressed(pred_path, **arrays)
@@ -970,6 +999,7 @@ def train(cfg: dict):
         batch_size=batch_size,
         amp_dtype=amp_dtype,
         use_amp=use_amp,
+        cell_line=cell_line,
     )
 
     results = {

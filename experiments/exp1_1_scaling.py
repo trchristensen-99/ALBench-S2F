@@ -240,10 +240,26 @@ def _evaluate_ground_truth_test(
 
     Used when oracle_type='ground_truth' so we evaluate against real experimental
     measurements rather than oracle-generated NPZ files.
+
+    Evaluates in-dist (hashFrag test split), SNV pairs, and OOD designed sequences
+    when the corresponding TSV files exist.
     """
+    import pandas as pd
+
     from data.k562 import K562Dataset
 
-    label_column = CELL_LINE_LABEL_COLUMNS.get(cell_line or "k562", "K562_log2FC")
+    cell = cell_line or "k562"
+    label_column = CELL_LINE_LABEL_COLUMNS.get(cell, "K562_log2FC")
+    batch_size = 4096
+    metrics: dict[str, dict[str, float]] = {}
+
+    def _predict_batched(sequences: list[str]) -> np.ndarray:
+        preds_list = []
+        for i in range(0, len(sequences), batch_size):
+            preds_list.append(student.predict(sequences[i : i + batch_size]))
+        return np.concatenate(preds_list)
+
+    # In-distribution: K562Dataset test split
     ds = K562Dataset(
         data_path=str(REPO / "data" / "k562"),
         split="test",
@@ -251,15 +267,54 @@ def _evaluate_ground_truth_test(
     )
     sequences = list(ds.sequences)
     labels = ds.labels.astype(np.float32)
+    preds = _predict_batched(sequences)
+    metrics["in_dist"] = evaluate_predictions_fn(preds, labels)
 
-    # Predict in batches
-    batch_size = 4096
-    preds_list = []
-    for i in range(0, len(sequences), batch_size):
-        preds_list.append(student.predict(sequences[i : i + batch_size]))
-    preds = np.concatenate(preds_list)
+    # SNV pairs (TSV file, if it exists)
+    test_dir = REPO / "data" / "k562" / "test_sets"
+    snv_path = test_dir / "test_snv_pairs_hashfrag.tsv"
+    if snv_path.exists():
+        try:
+            snv_df = pd.read_csv(snv_path, sep="\t")
+            ref_preds = _predict_batched(snv_df["sequence_ref"].tolist())
+            alt_preds = _predict_batched(snv_df["sequence_alt"].tolist())
+            alt_col = f"{label_column}_alt"
+            if alt_col not in snv_df.columns:
+                alt_col = "K562_log2FC_alt"
+            if alt_col in snv_df.columns:
+                alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
+                metrics["snv_abs"] = evaluate_predictions_fn(alt_preds, alt_true)
+            delta_pred = alt_preds - ref_preds
+            delta_col = f"delta_{label_column}"
+            if delta_col not in snv_df.columns:
+                delta_col = "delta_log2FC"
+            if delta_col in snv_df.columns:
+                delta_true = snv_df[delta_col].to_numpy(dtype=np.float32)
+                metrics["snv_delta"] = evaluate_predictions_fn(delta_pred, delta_true)
+        except Exception as e:
+            logger.warning(f"SNV evaluation failed: {e}")
 
-    return {"in_dist": evaluate_predictions_fn(preds, labels)}
+    # OOD designed sequences (TSV file, if it exists)
+    ood_path = test_dir / f"test_ood_designed_{cell}.tsv"
+    if not ood_path.exists():
+        ood_path = test_dir / "test_ood_designed_k562.tsv"
+    if ood_path.exists():
+        try:
+            ood_df = pd.read_csv(ood_path, sep="\t")
+            if label_column in ood_df.columns:
+                ood_true_col = label_column
+            elif "K562_log2FC" in ood_df.columns:
+                ood_true_col = "K562_log2FC"
+            else:
+                ood_true_col = None
+            if ood_true_col is not None:
+                ood_preds = _predict_batched(ood_df["sequence"].tolist())
+                ood_true = ood_df[ood_true_col].to_numpy(dtype=np.float32)
+                metrics["ood"] = evaluate_predictions_fn(ood_preds, ood_true)
+        except Exception as e:
+            logger.warning(f"OOD evaluation failed: {e}")
+
+    return metrics
 
 
 # ---------------------------------------------------------------------------
