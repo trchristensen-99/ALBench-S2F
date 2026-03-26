@@ -141,14 +141,19 @@ def build_ood_for_cell_line(
     elif expr_df.index.name != "ID":
         expr_df.index.name = "ID"
 
-    # Try to merge on index
-    merged = designed.join(expr_df[[c for c in expr_df.columns if "log2FC" in c or "lfcSE" in c]])
+    # Try to merge on index — pick expression and SE columns
+    expr_cols = [
+        c for c in expr_df.columns if "log2FC" in c or "log2FoldChange" in c or "lfcSE" in c
+    ]
+    merged = designed.join(expr_df[expr_cols])
 
-    # Rename columns to standard format
-    for col in merged.columns:
-        if "log2FC" in col and fc_col not in merged.columns:
+    # Rename columns to standard format ({CellLine}_log2FC, {CellLine}_lfcSE)
+    for col in list(merged.columns):
+        if col in ("log2FoldChange", "log2FC") or (
+            "log2FC" in col and fc_col not in merged.columns
+        ):
             merged = merged.rename(columns={col: fc_col})
-        if "lfcSE" in col:
+        if col == "lfcSE" or ("lfcSE" in col and col != fc_col.replace("log2FC", "lfcSE")):
             se_col = fc_col.replace("log2FC", "lfcSE")
             if se_col not in merged.columns:
                 merged = merged.rename(columns={col: se_col})
