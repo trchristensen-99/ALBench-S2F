@@ -121,12 +121,20 @@ def eval_foundation_s1(result_dir, snv_df, encoder_name, cell):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Load encoder
+    # Load encoder (fix tied_weights for transformers >= 5.3)
     if encoder_name == "enformer":
+        from enformer_pytorch.modeling_enformer import Enformer
+
+        if not hasattr(Enformer, "all_tied_weights_keys"):
+            Enformer.all_tied_weights_keys = {}
         from models.enformer_wrapper import EnformerWrapper
 
         encoder = EnformerWrapper()
     elif encoder_name == "borzoi":
+        from borzoi_pytorch.modeling_borzoi import Borzoi
+
+        if not hasattr(Borzoi, "all_tied_weights_keys"):
+            Borzoi.all_tied_weights_keys = {}
         from models.borzoi_wrapper import BorzoiWrapper
 
         encoder = BorzoiWrapper()
