@@ -186,14 +186,11 @@ def eval_malinois(
 
 
 # ── Foundation S1 (cached head + run encoder on the fly) ────────────────────
-def eval_foundation_s1(
+def _load_foundation_s1(
     result_dir: Path,
-    ood_sequences: list[str],
-    ood_true: np.ndarray,
     encoder_name: str,
-    cell_line: str,
-) -> dict[str, float] | None:
-    """Evaluate Foundation S1 model (encoder + MLP head) on OOD sequences."""
+):
+    """Load a Foundation S1 model (encoder + MLP head). Returns (head, encoder_name, device)."""
     import torch
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -201,22 +198,18 @@ def eval_foundation_s1(
     ckpt_path = result_dir / "best_model.pt"
     if not ckpt_path.exists():
         print(f"  [SKIP] No best_model.pt in {result_dir}", flush=True)
-        return None
+        return None, None, None
 
-    # Read result.json to get embed_dim and hidden_dim
     result_json = result_dir / "result.json"
     if result_json.exists():
         rdata = json.loads(result_json.read_text())
         embed_dim = rdata.get("embed_dim", 768)
         hidden_dim = rdata.get("hidden_dim", 512)
     else:
-        # Defaults per encoder
         embed_dims = {"enformer": 3072, "borzoi": 1536, "nt": 768, "ntv3_post": 1536}
         embed_dim = embed_dims.get(encoder_name, 768)
         hidden_dim = 512
 
-    # Build MLP head (matches train_foundation_cached.py MLPHead)
-    # MLPHead wraps nn.Sequential in self.net, so checkpoint keys are net.0.weight, etc.
     from experiments.train_foundation_cached import MLPHead
 
     head = MLPHead(embed_dim, hidden_dim, dropout=0.1)
@@ -225,15 +218,36 @@ def eval_foundation_s1(
     head.to(device)
     head.eval()
 
-    # Load encoder and compute embeddings
+    return head, encoder_name, device
+
+
+def predict_foundation_s1(head, encoder_name, sequences, device):
+    """Predict on arbitrary sequences using Foundation S1 model."""
     if encoder_name == "enformer":
-        pred = _predict_enformer_s1(head, ood_sequences, device)
+        return _predict_enformer_s1(head, sequences, device)
     elif encoder_name in ("borzoi",):
-        pred = _predict_borzoi_s1(head, ood_sequences, device)
+        return _predict_borzoi_s1(head, sequences, device)
     elif encoder_name in ("nt", "ntv3_post"):
-        pred = _predict_ntv3_s1(head, ood_sequences, device, encoder_name)
+        return _predict_ntv3_s1(head, sequences, device, encoder_name)
     else:
         print(f"  [SKIP] Unknown encoder: {encoder_name}", flush=True)
+        return None
+
+
+def eval_foundation_s1(
+    result_dir: Path,
+    ood_sequences: list[str],
+    ood_true: np.ndarray,
+    encoder_name: str,
+    cell_line: str,
+) -> dict[str, float] | None:
+    """Evaluate Foundation S1 model (encoder + MLP head) on OOD sequences."""
+    head, enc_name, device = _load_foundation_s1(result_dir, encoder_name)
+    if head is None:
+        return None
+
+    pred = predict_foundation_s1(head, enc_name, ood_sequences, device)
+    if pred is None:
         return None
 
     return _compute_ood_metrics(pred, ood_true)

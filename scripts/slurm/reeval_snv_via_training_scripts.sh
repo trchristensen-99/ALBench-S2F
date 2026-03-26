@@ -98,53 +98,22 @@ def metrics(pred, true):
             'mse': float(np.mean((pred[m]-true[m])**2)), 'n': int(m.sum())}
 
 if model_type in ('foundation_s1', 'enformer_s2', 'ntv3_s2'):
-    # Use the eval_ood_multicell infrastructure which already handles loading
-    from scripts.eval_ood_multicell import eval_foundation_s1, eval_foundation_s2, eval_ntv3_s2
-
-    # We need predictions, not metrics. Hack: call with dummy true values,
-    # the returned pearson_r will be meaningless but we get the model loaded.
-    # Actually we can't get predictions this way. Need different approach.
-
-    # Load model using the existing code from train_foundation_cached.py
-    import torch
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    from scripts.eval_ood_multicell import _load_foundation_s1, predict_foundation_s1
 
     if model_type == 'foundation_s1':
-        from experiments.train_foundation_cached import load_s1_model_and_head
-        encoder, head = load_s1_model_and_head(rd, enc_name, device)
+        head, enc, device = _load_foundation_s1(rd, enc_name)
+        if head is None:
+            print('    ERROR: Could not load model')
+            sys.exit(1)
 
-        def predict_fn(seqs, bs=4):
-            preds = []
-            for i in range(0, len(seqs), bs):
-                emb = encoder.extract_embeddings(seqs[i:i+bs])
-                emb_t = torch.tensor(emb, device=device, dtype=torch.float32)
-                with torch.no_grad():
-                    preds.append(head(emb_t).cpu().numpy().reshape(-1))
-            return np.concatenate(preds)
+        def predict_fn(seqs):
+            return predict_foundation_s1(head, enc, seqs, device)
 
-    elif model_type == 'enformer_s2':
-        from experiments.train_foundation_stage2 import load_s2_model
-        encoder_model, head = load_s2_model(rd, 'enformer', device)
-
-        def predict_fn(seqs, bs=4):
-            preds = []
-            for i in range(0, len(seqs), bs):
-                with torch.no_grad(), torch.autocast('cuda', dtype=torch.bfloat16):
-                    emb = encoder_model.get_embeddings(seqs[i:i+bs])
-                    preds.append(head(emb.to(device)).float().cpu().numpy().reshape(-1))
-            return np.concatenate(preds)
-
-    elif model_type == 'ntv3_s2':
-        from experiments.train_foundation_stage2 import load_s2_model
-        encoder_model, head = load_s2_model(rd, 'ntv3_post', device)
-
-        def predict_fn(seqs, bs=4):
-            preds = []
-            for i in range(0, len(seqs), bs):
-                with torch.no_grad():
-                    emb = encoder_model.get_embeddings(seqs[i:i+bs])
-                    preds.append(head(emb.to(device)).float().cpu().numpy().reshape(-1))
-            return np.concatenate(preds)
+    elif model_type in ('enformer_s2', 'ntv3_s2'):
+        # S2 models: for now skip (SNV correction is small)
+        # The S2 sweep will produce fresh results with correct eval
+        print('    SKIP: S2 models will be re-evaluated by sweep jobs')
+        sys.exit(0)
 
 elif model_type == 'malinois':
     import torch
