@@ -1589,7 +1589,8 @@ def run_scaling_experiment(
             if student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
                 return [{"learning_rate": 1e-4, "batch_size": 128}]
             if student_type.startswith("alphagenome"):
-                return [{"learning_rate": 1e-3, "batch_size": 128}]
+                # lr=3e-4 matches grid search best for AG S1 head training
+                return [{"learning_rate": 3e-4, "batch_size": 128}]
             return [{"learning_rate": 0.005, "batch_size": 1024}]
 
         # HP transfer: for sizes >= reference, use best HP from reference N
