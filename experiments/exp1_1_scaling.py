@@ -1152,11 +1152,12 @@ def _train_ag_s2_student(
                 negative_strand_mask=jnp.zeros(len(seqs), dtype=bool),
                 strand_reindexing=None,
             )[head_name]
-            pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
-            if task == "yeast" and pred.ndim == 2 and pred.shape[1] == 18:
+            if task == "yeast" and preds.ndim == 2 and preds.shape[1] == 18:
                 # Yeast: softmax → expected bin index
-                probs = jax.nn.softmax(pred, axis=1)
+                probs = jax.nn.softmax(preds, axis=1)
                 pred = (probs * jnp.arange(18)).sum(axis=1)
+            else:
+                pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
             return jnp.mean((pred - targets) ** 2)
 
         loss, grads = jax.value_and_grad(loss_func)(params)
@@ -1173,10 +1174,11 @@ def _train_ag_s2_student(
             negative_strand_mask=jnp.zeros(len(seqs), dtype=bool),
             strand_reindexing=None,
         )[head_name]
-        pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
-        if task == "yeast" and pred.ndim == 2 and pred.shape[1] == 18:
-            probs = jax.nn.softmax(pred, axis=1)
+        if task == "yeast" and preds.ndim == 2 and preds.shape[1] == 18:
+            probs = jax.nn.softmax(preds, axis=1)
             pred = (probs * jnp.arange(18)).sum(axis=1)
+        else:
+            pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
         return pred
 
     # Training loop
