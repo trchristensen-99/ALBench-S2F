@@ -146,10 +146,18 @@ _COMBINED_RESULT_DIRS = {
     ("Enformer", "sknsh"): [
         "outputs/enformer_sknsh_cached",  # S1 is better (0.857 vs 0.853)
     ],
-    # AG fold 1 (S2 preferred, S1 fallback, K562 only)
+    # AG fold 1 (S2 preferred, S1 fallback, all 3 cells)
     ("AG fold 1", "k562"): [
         "outputs/stage2_k562_fold1",
         "outputs/ag_fold_1_k562_s1_full",
+    ],
+    ("AG fold 1", "hepg2"): [
+        "outputs/ag_fold_1_hepg2_s2",
+        "outputs/ag_fold_1_hepg2_s1",
+    ],
+    ("AG fold 1", "sknsh"): [
+        "outputs/ag_fold_1_sknsh_s2",
+        "outputs/ag_fold_1_sknsh_s1",
     ],
     # AG all folds S1 (all 3 cells)
     ("AG all folds", "k562"): [
@@ -226,6 +234,12 @@ _S1_RESULT_DIRS = {
     ],
     ("AG fold 1 S1", "k562"): [
         "outputs/ag_fold_1_k562_s1_full",
+    ],
+    ("AG fold 1 S1", "hepg2"): [
+        "outputs/ag_fold_1_hepg2_s1",
+    ],
+    ("AG fold 1 S1", "sknsh"): [
+        "outputs/ag_fold_1_sknsh_s1",
     ],
     ("AG S1", "k562"): [
         "outputs/ag_all_folds_k562_s1_full",
