@@ -69,14 +69,50 @@ def _compute_ood_metrics(pred: np.ndarray, true: np.ndarray) -> dict[str, float]
 
 def _patch_result_json(result_path: Path, ood_metrics: dict) -> None:
     """Add or update the 'ood' key in a result.json or test_metrics.json."""
+    _patch_result_json_key(result_path, "ood", ood_metrics)
+
+
+def _patch_result_json_key(result_path: Path, key: str, metrics: dict) -> None:
+    """Add or update an arbitrary key in a result.json or test_metrics.json."""
     data = json.loads(result_path.read_text())
     if "test_metrics" in data:
-        data["test_metrics"]["ood"] = ood_metrics
+        data["test_metrics"][key] = metrics
     else:
-        # Some files store metrics at top level
-        data["ood"] = ood_metrics
+        data[key] = metrics
     result_path.write_text(json.dumps(data, indent=2) + "\n")
-    print(f"  Patched {result_path} with OOD metrics", flush=True)
+    print(f"  Patched {result_path} with {key} metrics", flush=True)
+
+
+def evaluate_snv_from_predictions(
+    ref_preds: np.ndarray,
+    alt_preds: np.ndarray,
+    snv_df: object,
+    cell_line: str,
+) -> dict[str, dict[str, float]]:
+    """Compute SNV abs and delta metrics using cell-specific labels."""
+    fc_col = CELL_LINE_LABEL_COLS[cell_line]
+    alt_col = f"{fc_col}_alt"
+    delta_col = f"delta_{fc_col}"
+    metrics: dict[str, dict[str, float]] = {}
+
+    if alt_col in snv_df.columns:
+        alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
+        mask = np.isfinite(alt_true)
+        if mask.sum() > 0:
+            metrics["snv_abs"] = _compute_ood_metrics(alt_preds[mask], alt_true[mask])
+    else:
+        print(f"    WARNING: {alt_col} not in SNV file")
+
+    if delta_col in snv_df.columns:
+        delta_true = snv_df[delta_col].to_numpy(dtype=np.float32)
+        delta_pred = alt_preds - ref_preds
+        mask = np.isfinite(delta_true)
+        if mask.sum() > 0:
+            metrics["snv_delta"] = _compute_ood_metrics(delta_pred[mask], delta_true[mask])
+    else:
+        print(f"    WARNING: {delta_col} not in SNV file")
+
+    return metrics
 
 
 # ── Malinois ────────────────────────────────────────────────────────────────
