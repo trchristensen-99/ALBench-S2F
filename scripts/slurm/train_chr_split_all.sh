@@ -10,20 +10,22 @@
 #   2 = AG fold-1 S1 K562
 #   3 = AG all-folds S1 K562
 #   4 = AG all-folds S2 K562
+#   13 = Malinois K562 (3 seeds)
 # Array tasks (HepG2):
 #   5 = DREAM-RNN HepG2 (3 seeds)
 #   6 = AG fold-1 S1 HepG2
 #   7 = AG all-folds S1 HepG2
 #   8 = AG all-folds S2 HepG2
+#   14 = Malinois HepG2 (3 seeds)
 # Array tasks (SK-N-SH):
 #   9 = DREAM-RNN SKNSH (3 seeds)
 #   10 = AG fold-1 S1 SKNSH
 #   11 = AG all-folds S1 SKNSH
 #   12 = AG all-folds S2 SKNSH
+#   15 = Malinois SKNSH (3 seeds)
 #
-# NOTE: Malinois and foundation models (Enformer/Borzoi/NTv3) need
-# separate handling — Malinois doesn't support --chr-split, foundation
-# models need cache re-indexing.
+# NOTE: Foundation models (Enformer/Borzoi/NTv3) on chr-split need
+# cache re-indexing — handled in separate scripts.
 #
 # Submit:
 #   sbatch --array=0-12 scripts/slurm/train_chr_split_all.sh
@@ -37,7 +39,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
-#SBATCH --array=0-12
+#SBATCH --array=0-15
 
 set -euo pipefail
 
@@ -104,6 +106,20 @@ run_ag_s2() {
 
 FOLD1="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-fold_1"
 
+# Helper for Malinois
+run_malinois() {
+    local CELL=$1 OUT=$2
+    for SEED in 0 1 2; do
+        echo "--- Malinois ${CELL} seed ${SEED} ---"
+        uv run --no-sync python experiments/train_malinois_k562.py \
+            ++data_path="data/${CELL}" \
+            ++output_dir="${OUT}/seed_${SEED}" \
+            ++seed="${SEED}" \
+            ++cell_line="${CELL}" \
+            ++chr_split=True
+    done
+}
+
 case ${T} in
     # --- K562 ---
     0)  echo "DREAM-RNN K562 chr-split"; run_dream dream_rnn k562 "outputs/chr_split/k562/dream_rnn" ;;
@@ -121,6 +137,10 @@ case ${T} in
     10) echo "AG fold-1 S1 SKNSH chr-split"; run_ag_s1 "$FOLD1" sknsh "outputs/chr_split/sknsh/ag_fold_1_s1" ;;
     11) echo "AG all-folds S1 SKNSH chr-split"; run_ag_s1 "" sknsh "outputs/chr_split/sknsh/ag_all_folds_s1" ;;
     12) echo "AG all-folds S2 SKNSH chr-split"; run_ag_s2 sknsh "outputs/chr_split/sknsh/ag_all_folds_s2" ;;
+    # --- Malinois ---
+    13) echo "Malinois K562 chr-split"; run_malinois k562 "outputs/chr_split/k562/malinois" ;;
+    14) echo "Malinois HepG2 chr-split"; run_malinois hepg2 "outputs/chr_split/hepg2/malinois" ;;
+    15) echo "Malinois SKNSH chr-split"; run_malinois sknsh "outputs/chr_split/sknsh/malinois" ;;
     *)  echo "ERROR: unknown task ${T}"; exit 1 ;;
 esac
 

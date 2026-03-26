@@ -219,6 +219,35 @@ def _predict_sequences(
     return np.concatenate(preds, axis=0)
 
 
+def _evaluate_chr_split_test(
+    model: nn.Module,
+    device: torch.device,
+    test_ds: "K562MalinoisDataset",
+    cfg: dict,
+) -> dict[str, dict[str, float]]:
+    """Evaluate on chromosome-split test set (in-dist only)."""
+    from torch.utils.data import DataLoader
+
+    loader = DataLoader(test_ds, batch_size=256, shuffle=False, num_workers=4)
+    preds, trues = [], []
+    model.eval()
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+            preds.append(model(x).cpu().numpy().reshape(-1))
+            trues.append(y.numpy().reshape(-1))
+    pred = np.concatenate(preds)
+    true = np.concatenate(trues)
+    return {
+        "in_distribution": {
+            "pearson_r": _safe_corr(pred, true, pearsonr),
+            "spearman_r": _safe_corr(pred, true, spearmanr),
+            "mse": float(np.mean((pred - true) ** 2)),
+            "n": len(true),
+        },
+    }
+
+
 def evaluate_test_sets(
     model: nn.Module, device: torch.device, test_set_dir: Path, cfg: dict
 ) -> dict[str, dict[str, float]]:
@@ -307,12 +336,15 @@ def train_malinois(cfg: dict):
     # Data
     cell_line = cfg.get("cell_line", "k562")
     label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
-    train_ds = K562MalinoisDataset(
-        K562Dataset(data_path=str(data_path), split="train", label_column=label_col)
+    chr_split = cfg.get("chr_split", False)
+    ds_kwargs = dict(
+        data_path=str(data_path),
+        label_column=label_col,
+        use_hashfrag=not chr_split,
+        use_chromosome_fallback=chr_split,
     )
-    val_ds = K562MalinoisDataset(
-        K562Dataset(data_path=str(data_path), split="val", label_column=label_col)
-    )
+    train_ds = K562MalinoisDataset(K562Dataset(split="train", **ds_kwargs))
+    val_ds = K562MalinoisDataset(K562Dataset(split="val", **ds_kwargs))
 
     train_loader = DataLoader(
         train_ds,
@@ -430,8 +462,13 @@ def train_malinois(cfg: dict):
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
 
-    test_dir = data_path / "test_sets"
-    test_metrics = evaluate_test_sets(model, device, test_dir, cfg)
+    if chr_split:
+        # Chr-split: evaluate on K562Dataset test split (chr7+13)
+        test_ds = K562MalinoisDataset(K562Dataset(split="test", **ds_kwargs))
+        test_metrics = _evaluate_chr_split_test(model, device, test_ds, cfg)
+    else:
+        test_dir = data_path / "test_sets"
+        test_metrics = evaluate_test_sets(model, device, test_dir, cfg)
 
     result = {
         "model": "malinois",
