@@ -282,47 +282,72 @@ def _evaluate_ground_truth_test(
         logger.error(traceback.format_exc())
 
     # SNV pairs (TSV file, if it exists)
+    # Check cell-specific dir first, then fall back to K562 dir
     test_dir = REPO / "data" / "k562" / "test_sets"
-    snv_path = test_dir / "test_snv_pairs_hashfrag.tsv"
+    cell_test_dir = REPO / "data" / cell / "test_sets"
+    snv_path = cell_test_dir / "test_snv_pairs_hashfrag.tsv"
+    if not snv_path.exists():
+        snv_path = test_dir / "test_snv_pairs_hashfrag.tsv"
     if snv_path.exists():
         try:
             snv_df = pd.read_csv(snv_path, sep="\t")
             ref_preds = _predict_batched(snv_df["sequence_ref"].tolist())
             alt_preds = _predict_batched(snv_df["sequence_alt"].tolist())
+            # Try cell-specific alt column, then K562 fallback (only for K562 cell)
             alt_col = f"{label_column}_alt"
-            if alt_col not in snv_df.columns:
+            if alt_col not in snv_df.columns and cell == "k562":
                 alt_col = "K562_log2FC_alt"
             if alt_col in snv_df.columns:
                 alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
-                metrics["snv_abs"] = evaluate_predictions_fn(alt_preds, alt_true)
+                mask = np.isfinite(alt_true)
+                if mask.sum() > 0:
+                    metrics["snv_abs"] = evaluate_predictions_fn(alt_preds[mask], alt_true[mask])
+                    logger.info(f"SNV abs: {mask.sum()}/{len(mask)} finite labels for {alt_col}")
+            else:
+                logger.warning(f"SNV alt column {alt_col} not found in {snv_path.name}")
             delta_pred = alt_preds - ref_preds
             delta_col = f"delta_{label_column}"
-            if delta_col not in snv_df.columns:
+            if delta_col not in snv_df.columns and cell == "k562":
                 delta_col = "delta_log2FC"
             if delta_col in snv_df.columns:
                 delta_true = snv_df[delta_col].to_numpy(dtype=np.float32)
-                metrics["snv_delta"] = evaluate_predictions_fn(delta_pred, delta_true)
+                mask = np.isfinite(delta_true)
+                if mask.sum() > 0:
+                    metrics["snv_delta"] = evaluate_predictions_fn(
+                        delta_pred[mask], delta_true[mask]
+                    )
+            else:
+                logger.warning(f"SNV delta column {delta_col} not found in {snv_path.name}")
         except Exception as e:
             logger.warning(f"SNV evaluation failed: {e}")
             logger.warning(traceback.format_exc())
 
     # OOD designed sequences (TSV file, if it exists)
-    ood_path = test_dir / f"test_ood_designed_{cell}.tsv"
+    # Check cell-specific OOD file first, then K562 fallback only if labels match
+    ood_path = cell_test_dir / f"test_ood_designed_{cell}.tsv"
     if not ood_path.exists():
+        ood_path = test_dir / f"test_ood_designed_{cell}.tsv"
+    if not ood_path.exists() and cell == "k562":
         ood_path = test_dir / "test_ood_designed_k562.tsv"
     if ood_path.exists():
         try:
             ood_df = pd.read_csv(ood_path, sep="\t")
             if label_column in ood_df.columns:
                 ood_true_col = label_column
-            elif "K562_log2FC" in ood_df.columns:
+            elif cell == "k562" and "K562_log2FC" in ood_df.columns:
                 ood_true_col = "K562_log2FC"
             else:
                 ood_true_col = None
+                logger.warning(
+                    f"OOD file {ood_path.name} has no {label_column} column — "
+                    f"skipping OOD eval for {cell}"
+                )
             if ood_true_col is not None:
                 ood_preds = _predict_batched(ood_df["sequence"].tolist())
                 ood_true = ood_df[ood_true_col].to_numpy(dtype=np.float32)
-                metrics["ood"] = evaluate_predictions_fn(ood_preds, ood_true)
+                mask = np.isfinite(ood_true)
+                if mask.sum() > 0:
+                    metrics["ood"] = evaluate_predictions_fn(ood_preds[mask], ood_true[mask])
         except Exception as e:
             logger.warning(f"OOD evaluation failed: {e}")
             logger.warning(traceback.format_exc())
