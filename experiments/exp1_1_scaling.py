@@ -1042,6 +1042,13 @@ def _train_ag_s2_student(
     head_lr = s2_cfg["head_lr"]
     wd = s2_cfg["weight_decay"]
     unfreeze_blocks = s2_cfg["unfreeze_blocks"]
+    # Allow override via environment variable (for HP sweep scripts)
+    uf_env = os.environ.get("S2_UNFREEZE_BLOCKS")
+    if uf_env:
+        unfreeze_blocks = [int(b) for b in uf_env.split(",")]
+        logger.info(
+            f"  S2: unfreeze_blocks overridden to {unfreeze_blocks} (from S2_UNFREEZE_BLOCKS env)"
+        )
     epochs = s2_cfg["epochs"]
     patience = s2_cfg["early_stop_patience"]
     warmup_epochs = s2_cfg["warmup_epochs"]

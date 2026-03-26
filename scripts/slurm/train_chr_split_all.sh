@@ -1,24 +1,32 @@
 #!/bin/bash
-# Train all models on chromosome-based splits for K562.
+# Train all models on chromosome-based splits for K562, HepG2, and SK-N-SH.
 # Chr split: test=chr7+13, val=chr19+21+X, train=rest.
 # All models use real labels (ground_truth oracle, genomic reservoir).
+# All from-scratch models use ensemble_size=1 for fair comparison.
 #
-# Array tasks:
-#   0 = DREAM-RNN  (3 seeds)
-#   1 = DREAM-CNN  (3 seeds)
-#   2 = AG fold-1 S1  (1 seed)
-#   3 = AG all-folds S1  (1 seed)
-#   4 = AG all-folds S2  (1 seed)
+# Array tasks (K562):
+#   0 = DREAM-RNN K562 (3 seeds)
+#   1 = DREAM-CNN K562 (3 seeds)
+#   2 = AG fold-1 S1 K562
+#   3 = AG all-folds S1 K562
+#   4 = AG all-folds S2 K562
+# Array tasks (HepG2):
+#   5 = DREAM-RNN HepG2 (3 seeds)
+#   6 = AG fold-1 S1 HepG2
+#   7 = AG all-folds S1 HepG2
+#   8 = AG all-folds S2 HepG2
+# Array tasks (SK-N-SH):
+#   9 = DREAM-RNN SKNSH (3 seeds)
+#   10 = AG fold-1 S1 SKNSH
+#   11 = AG all-folds S1 SKNSH
+#   12 = AG all-folds S2 SKNSH
 #
-# NOTE: Malinois chr-split needs separate implementation
-#   (train_malinois_k562.py doesn't support --chr-split yet).
-#
-# NOTE: Foundation models (Enformer, Borzoi, NT v2) on chr-split need
-#   embedding caches re-indexed for the chromosome split. Those will be
-#   handled in separate scripts.
+# NOTE: Malinois and foundation models (Enformer/Borzoi/NTv3) need
+# separate handling — Malinois doesn't support --chr-split, foundation
+# models need cache re-indexing.
 #
 # Submit:
-#   /cm/shared/apps/slurm/current/bin/sbatch scripts/slurm/train_chr_split_all.sh
+#   sbatch --array=0-12 scripts/slurm/train_chr_split_all.sh
 #
 #SBATCH --job-name=chr_split
 #SBATCH --output=logs/%x-%A-%a.out
@@ -29,7 +37,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=14
 #SBATCH --mem=200G
-#SBATCH --array=0-4
+#SBATCH --array=0-12
 
 set -euo pipefail
 
@@ -40,69 +48,80 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 source scripts/slurm/setup_hpc_deps.sh
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer="
 
-TASK=${SLURM_ARRAY_TASK_ID}
-echo "=== chr_split task=${TASK}  node=${SLURMD_NODENAME}  date=$(date) ==="
+T=${SLURM_ARRAY_TASK_ID}
+echo "=== chr_split task=${T}  node=${SLURMD_NODENAME}  date=$(date) ==="
 
-case ${TASK} in
+# Setup data symlinks for all cells
+for CELL in hepg2 sknsh; do
+    mkdir -p "data/${CELL}"
+    ln -sf "$(pwd)/data/k562/DATA-Table_S2__MPRA_dataset.txt" "data/${CELL}/DATA-Table_S2__MPRA_dataset.txt" 2>/dev/null || true
+    ln -sf "$(pwd)/data/k562/hashfrag_splits" "data/${CELL}/hashfrag_splits" 2>/dev/null || true
+done
 
-0)
-    echo "DREAM-RNN K562 — 3 seeds, chr-split"
+# Helper function for DREAM models
+run_dream() {
+    local STUDENT=$1 CELL=$2 OUT=$3
+    local CELL_FLAG=""
+    [[ "${CELL}" != "k562" ]] && CELL_FLAG="--cell-line ${CELL}"
     uv run --no-sync python experiments/exp1_1_scaling.py \
-        --task k562 --student dream_rnn \
+        --task k562 --student "${STUDENT}" \
         --oracle ground_truth --reservoir genomic --chr-split \
+        ${CELL_FLAG} \
         --n-replicates 3 --seed 42 \
-        --output-dir "outputs/chr_split/dream_rnn" \
+        --output-dir "${OUT}" \
         --training-sizes 319742 --epochs 80 --ensemble-size 1 \
         --early-stop-patience 10
-    ;;
+}
 
-1)
-    echo "DREAM-CNN K562 — 3 seeds, chr-split"
-    uv run --no-sync python experiments/exp1_1_scaling.py \
-        --task k562 --student dream_cnn \
-        --oracle ground_truth --reservoir genomic --chr-split \
-        --n-replicates 3 --seed 42 \
-        --output-dir "outputs/chr_split/dream_cnn" \
-        --training-sizes 319742 --epochs 80 --ensemble-size 1 \
-        --early-stop-patience 10
-    ;;
-
-2)
-    echo "AlphaGenome fold-1 S1 K562 — 1 seed, chr-split"
-    export ALPHAGENOME_WEIGHTS="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-fold_1"
+# Helper for AG S1
+run_ag_s1() {
+    local WEIGHTS=$1 CELL=$2 OUT=$3
+    local CELL_FLAG=""
+    [[ "${CELL}" != "k562" ]] && CELL_FLAG="--cell-line ${CELL}"
+    [[ -n "${WEIGHTS}" ]] && export ALPHAGENOME_WEIGHTS="${WEIGHTS}"
     uv run --no-sync python experiments/exp1_1_scaling.py \
         --task k562 --student alphagenome_k562_s1 \
         --oracle ground_truth --reservoir genomic --chr-split \
+        ${CELL_FLAG} \
         --n-replicates 1 --no-hp-sweep --seed 42 \
-        --output-dir "outputs/chr_split/ag_fold_1_s1" \
+        --output-dir "${OUT}" \
         --training-sizes 319742 --epochs 50 --early-stop-patience 7
-    ;;
+}
 
-3)
-    echo "AlphaGenome all-folds S1 K562 — 1 seed, chr-split"
-    uv run --no-sync python experiments/exp1_1_scaling.py \
-        --task k562 --student alphagenome_k562_s1 \
-        --oracle ground_truth --reservoir genomic --chr-split \
-        --n-replicates 1 --no-hp-sweep --seed 42 \
-        --output-dir "outputs/chr_split/ag_all_folds_s1" \
-        --training-sizes 319742 --epochs 50 --early-stop-patience 7
-    ;;
-
-4)
-    echo "AlphaGenome all-folds S2 K562 — 1 seed, chr-split, enc_lr=1e-4"
+# Helper for AG S2
+run_ag_s2() {
+    local CELL=$1 OUT=$2
+    local CELL_FLAG=""
+    [[ "${CELL}" != "k562" ]] && CELL_FLAG="--cell-line ${CELL}"
     uv run --no-sync python experiments/exp1_1_scaling.py \
         --task k562 --student alphagenome_k562_s2 \
         --oracle ground_truth --reservoir genomic --chr-split \
+        ${CELL_FLAG} \
         --n-replicates 1 --no-hp-sweep --seed 42 \
-        --output-dir "outputs/chr_split/ag_all_folds_s2" \
+        --output-dir "${OUT}" \
         --training-sizes 319742 --epochs 50 --early-stop-patience 7
-    ;;
+}
 
-*)
-    echo "ERROR: unknown task index ${TASK}"
-    exit 1
-    ;;
+FOLD1="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-fold_1"
 
+case ${T} in
+    # --- K562 ---
+    0)  echo "DREAM-RNN K562 chr-split"; run_dream dream_rnn k562 "outputs/chr_split/k562/dream_rnn" ;;
+    1)  echo "DREAM-CNN K562 chr-split"; run_dream dream_cnn k562 "outputs/chr_split/k562/dream_cnn" ;;
+    2)  echo "AG fold-1 S1 K562 chr-split"; run_ag_s1 "$FOLD1" k562 "outputs/chr_split/k562/ag_fold_1_s1" ;;
+    3)  echo "AG all-folds S1 K562 chr-split"; run_ag_s1 "" k562 "outputs/chr_split/k562/ag_all_folds_s1" ;;
+    4)  echo "AG all-folds S2 K562 chr-split"; run_ag_s2 k562 "outputs/chr_split/k562/ag_all_folds_s2" ;;
+    # --- HepG2 ---
+    5)  echo "DREAM-RNN HepG2 chr-split"; run_dream dream_rnn hepg2 "outputs/chr_split/hepg2/dream_rnn" ;;
+    6)  echo "AG fold-1 S1 HepG2 chr-split"; run_ag_s1 "$FOLD1" hepg2 "outputs/chr_split/hepg2/ag_fold_1_s1" ;;
+    7)  echo "AG all-folds S1 HepG2 chr-split"; run_ag_s1 "" hepg2 "outputs/chr_split/hepg2/ag_all_folds_s1" ;;
+    8)  echo "AG all-folds S2 HepG2 chr-split"; run_ag_s2 hepg2 "outputs/chr_split/hepg2/ag_all_folds_s2" ;;
+    # --- SK-N-SH ---
+    9)  echo "DREAM-RNN SKNSH chr-split"; run_dream dream_rnn sknsh "outputs/chr_split/sknsh/dream_rnn" ;;
+    10) echo "AG fold-1 S1 SKNSH chr-split"; run_ag_s1 "$FOLD1" sknsh "outputs/chr_split/sknsh/ag_fold_1_s1" ;;
+    11) echo "AG all-folds S1 SKNSH chr-split"; run_ag_s1 "" sknsh "outputs/chr_split/sknsh/ag_all_folds_s1" ;;
+    12) echo "AG all-folds S2 SKNSH chr-split"; run_ag_s2 sknsh "outputs/chr_split/sknsh/ag_all_folds_s2" ;;
+    *)  echo "ERROR: unknown task ${T}"; exit 1 ;;
 esac
 
-echo "=== task=${TASK} DONE — $(date) ==="
+echo "=== task=${T} DONE — $(date) ==="
