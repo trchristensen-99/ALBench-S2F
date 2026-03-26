@@ -140,10 +140,19 @@ class DREAMRNNStudent(SequenceModel):
             pooled = torch.mean(conv3_out, dim=2)
         return pooled.detach().cpu().numpy()
 
-    def predict(self, sequences: list[str]) -> np.ndarray:
+    def predict(self, sequences: list[str], batch_size: int = 4096) -> np.ndarray:
         """Predict activity as the mean across ensemble members."""
         x = self._encode_sequences(sequences)
-        preds = [self._predict_member(model, x) for model in self.models]
+        if len(x) <= batch_size:
+            preds = [self._predict_member(model, x) for model in self.models]
+        else:
+            preds = []
+            for model in self.models:
+                chunks = [
+                    self._predict_member(model, x[i : i + batch_size])
+                    for i in range(0, len(x), batch_size)
+                ]
+                preds.append(np.concatenate(chunks))
         return np.mean(np.stack(preds, axis=0), axis=0)
 
     def uncertainty(self, sequences: list[str]) -> np.ndarray:

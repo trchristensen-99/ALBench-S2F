@@ -595,7 +595,10 @@ def eval_ntv3_s2(
         torch.nn.Linear(hidden_dim, 1),
     )
     ckpt = torch.load(head_path, map_location="cpu", weights_only=True)
-    head_torch.load_state_dict(ckpt["model_state_dict"])
+    # Saved checkpoint may have "net." prefix from MLPHead wrapper; strip it
+    state_dict = ckpt["model_state_dict"]
+    state_dict = {k.removeprefix("net."): v for k, v in state_dict.items()}
+    head_torch.load_state_dict(state_dict)
     head_torch.to(device)
     head_torch.eval()
 
@@ -707,7 +710,7 @@ def eval_ag(
     )
 
     # Load trained checkpoint (both S1 and S2 use save_full_model=True)
-    ckpt_path = result_dir / "best_model" / "checkpoint"
+    ckpt_path = (result_dir / "best_model" / "checkpoint").resolve()
     if ckpt_path.exists():
         from collections.abc import Mapping
 
