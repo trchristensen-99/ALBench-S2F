@@ -296,6 +296,16 @@ def _evaluate_ground_truth_test(
     if snv_path.exists():
         try:
             snv_df = pd.read_csv(snv_path, sep="\t")
+            # For chr-split, filter to test chromosomes only (chr7+13)
+            if chr_split and "IDs_ref" in snv_df.columns:
+                test_chrs = {"7", "13", "chr7", "chr13"}
+                chroms = snv_df["IDs_ref"].str.split(":", expand=True)[0]
+                chr_mask = chroms.isin(test_chrs)
+                n_before = len(snv_df)
+                snv_df = snv_df[chr_mask].reset_index(drop=True)
+                logger.info(
+                    f"Chr-split SNV filter: {n_before} -> {len(snv_df)} (kept chr7+13 only)"
+                )
             ref_preds = _predict_batched(snv_df["sequence_ref"].tolist())
             alt_preds = _predict_batched(snv_df["sequence_alt"].tolist())
             # Try cell-specific alt column, then K562 fallback (only for K562 cell)
@@ -1931,11 +1941,16 @@ def run_scaling_experiment(
                     # not a lost run)
                     test_metrics: dict[str, dict[str, float]] = {}
                     try:
-                        if oracle_type == "ground_truth" and task == "k562" and cell_line:
+                        if (
+                            oracle_type == "ground_truth"
+                            and task == "k562"
+                            and (cell_line or chr_split)
+                        ):
                             # Evaluate directly on K562Dataset test split with correct label column
+                            # Also used for chr-split to ensure test set matches split scheme
                             test_metrics = _evaluate_ground_truth_test(
                                 student,
-                                cell_line,
+                                cell_line or "k562",
                                 evaluate_predictions,
                                 chr_split=chr_split,
                             )
