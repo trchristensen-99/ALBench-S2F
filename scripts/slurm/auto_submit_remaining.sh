@@ -5,8 +5,8 @@ source /etc/profile.d/modules.sh; module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
 SB=/cm/shared/apps/slurm/current/bin/sbatch
 
-s1=0; s2=0; s3=0; s4=0
-for a in $(seq 1 48); do
+s1=0; s2=0; s3=0; s4=0; s5=0; s6=0; s7=0
+for a in $(seq 1 72); do
     echo "=== Attempt $a at $(date) ==="
 
     if [ $s1 -eq 0 ]; then
@@ -25,12 +25,24 @@ for a in $(seq 1 48); do
         $SB --array=0-11 scripts/slurm/ag_multicell_3seeds.sh 2>/dev/null && s4=1 && echo "  Submitted: 3-seed AG multicell"
     fi
 
-    t=$((s1 + s2 + s3 + s4))
-    if [ $t -eq 4 ]; then
-        echo "All 4 jobs submitted!"
+    if [ $s5 -eq 0 ]; then
+        $SB --array=0-15 scripts/slurm/s2_comprehensive_sweep.sh 2>/dev/null && s5=1 && echo "  Submitted: comprehensive S2 sweep"
+    fi
+
+    if [ $s6 -eq 0 ]; then
+        $SB --array=0-8 scripts/slurm/dream_rnn_single_model.sh 2>/dev/null && s6=1 && echo "  Submitted: single DREAM-RNN"
+    fi
+
+    if [ $s7 -eq 0 ]; then
+        $SB --qos=fast --time=4:00:00 --array=0-5 scripts/slurm/save_predictions_all_seeds.sh 2>/dev/null && s7=1 && echo "  Submitted: save predictions"
+    fi
+
+    t=$((s1 + s2 + s3 + s4 + s5 + s6 + s7))
+    if [ $t -eq 7 ]; then
+        echo "All 7 jobs submitted!"
         break
     fi
-    echo "  $t/4 submitted, waiting 5 min..."
+    echo "  $t/7 submitted, waiting 5 min..."
     sleep 300
 done
 echo "Done at $(date)"
