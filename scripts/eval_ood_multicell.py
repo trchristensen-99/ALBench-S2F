@@ -836,6 +836,11 @@ def main():
         action="store_true",
         help="Only print what would be done, don't load models",
     )
+    parser.add_argument(
+        "--reeval-snv",
+        action="store_true",
+        help="Also re-evaluate SNV metrics using cell-specific labels",
+    )
     args = parser.parse_args()
 
     cell = args.cell_line
@@ -911,7 +916,7 @@ def main():
             flush=True,
         )
 
-        # Patch result JSON
+        # Patch OOD result JSON
         for json_name in ("result.json", "test_metrics.json"):
             json_path = rd / json_name
             if json_path.exists():
@@ -922,6 +927,11 @@ def main():
             out_path = rd / "ood_metrics.json"
             out_path.write_text(json.dumps({"ood": metrics}, indent=2) + "\n")
             print(f"  Created {out_path}", flush=True)
+
+        # NOTE: SNV re-evaluation with cell-specific labels is handled by
+        # the reeval_snv_simple.sh script, not here. The eval functions in
+        # this script return metrics, not predictions, so they can't be
+        # easily reused for SNV ref/alt evaluation.
 
 
 if __name__ == "__main__":

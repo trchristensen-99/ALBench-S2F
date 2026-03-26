@@ -1561,6 +1561,8 @@ def run_scaling_experiment(
     def _build_hp_configs(n_train: int) -> list[dict]:
         """Build HP grid, using faster configs for large training sizes."""
         if not hp_sweep:
+            if student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
+                return [{"learning_rate": 1e-4, "batch_size": 128}]
             if student_type.startswith("alphagenome"):
                 return [{"learning_rate": 1e-3, "batch_size": 128}]
             return [{"learning_rate": 0.005, "batch_size": 1024}]
