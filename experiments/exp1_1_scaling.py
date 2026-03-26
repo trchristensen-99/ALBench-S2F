@@ -202,7 +202,7 @@ CELL_LINE_LABEL_COLUMNS = {
 
 
 def _load_pool_sequences(
-    task: str, cell_line: str | None = None
+    task: str, cell_line: str | None = None, chr_split: bool = False
 ) -> tuple[list[str], np.ndarray | None]:
     """Load genomic pool sequences for the task.
 
@@ -219,6 +219,8 @@ def _load_pool_sequences(
             data_path=str(REPO / "data" / "k562"),
             split="train",
             label_column=label_column,
+            use_hashfrag=not chr_split,
+            use_chromosome_fallback=chr_split,
         )
         return list(ds.sequences), ds.labels.astype(np.float32)
     else:
@@ -236,6 +238,7 @@ def _evaluate_ground_truth_test(
     student: Any,
     cell_line: str | None,
     evaluate_predictions_fn: Any,
+    chr_split: bool = False,
 ) -> dict[str, dict[str, float]]:
     """Evaluate student on K562Dataset test split with the specified cell line labels.
 
@@ -266,6 +269,8 @@ def _evaluate_ground_truth_test(
             data_path=str(REPO / "data" / "k562"),
             split="test",
             label_column=label_column,
+            use_hashfrag=not chr_split,
+            use_chromosome_fallback=chr_split,
         )
         sequences = list(ds.sequences)
         labels = ds.labels.astype(np.float32)
@@ -1354,6 +1359,7 @@ def run_scaling_experiment(
     early_stopping_patience: int | None = None,
     transfer_hp_from: int | None = None,
     cell_line: str | None = None,
+    chr_split: bool = False,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -1527,7 +1533,9 @@ def run_scaling_experiment(
     _needs_pool = reservoir_name in _NEEDS_POOL or base_reservoir in _NEEDS_POOL
     if _needs_pool:
         logger.info("Loading genomic pool sequences...")
-        pool_seqs, pool_labels = _load_pool_sequences(task, cell_line=cell_line)
+        pool_seqs, pool_labels = _load_pool_sequences(
+            task, cell_line=cell_line, chr_split=chr_split
+        )
         logger.info(f"Pool size: {len(pool_seqs):,}")
 
     def _find_best_hp_from_results(ref_n: int) -> dict | None:
@@ -1919,7 +1927,10 @@ def run_scaling_experiment(
                         if oracle_type == "ground_truth" and task == "k562" and cell_line:
                             # Evaluate directly on K562Dataset test split with correct label column
                             test_metrics = _evaluate_ground_truth_test(
-                                student, cell_line, evaluate_predictions
+                                student,
+                                cell_line,
+                                evaluate_predictions,
+                                chr_split=chr_split,
                             )
                         else:
                             test_metrics = evaluate_on_exp1_test_panel(student, task, test_set_dir)
@@ -2050,6 +2061,11 @@ def main():
         "Reads result.json files at the reference N to find the HP with best mean val_r, "
         "then uses only that HP for all sizes >= transfer-hp-from.",
     )
+    parser.add_argument(
+        "--chr-split",
+        action="store_true",
+        help="Use chromosome-based train/test splits instead of hashFrag splits.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -2109,6 +2125,7 @@ def main():
             early_stopping_patience=args.early_stop_patience,
             transfer_hp_from=args.transfer_hp_from,
             cell_line=args.cell_line,
+            chr_split=args.chr_split,
         )
         all_results.extend(results)
 
