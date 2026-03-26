@@ -88,10 +88,16 @@ def load_results(base_dir: Path) -> list[dict]:
 # S2 dirs before S1 so S2 is preferred when available.
 
 _COMBINED_RESULT_DIRS = {
-    # DREAM-RNN (from-scratch, K562 only)
+    # DREAM-RNN (from-scratch, all 3 cells)
     ("DREAM-RNN", "k562"): [
         "outputs/dream_rnn_k562_with_preds",
         "outputs/dream_rnn_k562_3seeds",
+    ],
+    ("DREAM-RNN", "hepg2"): [
+        "outputs/dream_rnn_hepg2_3seeds",
+    ],
+    ("DREAM-RNN", "sknsh"): [
+        "outputs/dream_rnn_sknsh_3seeds",
     ],
     # Malinois (from-scratch, all 3 cells)
     ("Malinois", "k562"): [
@@ -176,6 +182,12 @@ _S1_RESULT_DIRS = {
     ("DREAM-RNN", "k562"): [
         "outputs/dream_rnn_k562_with_preds",
         "outputs/dream_rnn_k562_3seeds",
+    ],
+    ("DREAM-RNN", "hepg2"): [
+        "outputs/dream_rnn_hepg2_3seeds",
+    ],
+    ("DREAM-RNN", "sknsh"): [
+        "outputs/dream_rnn_sknsh_3seeds",
     ],
     ("Malinois", "k562"): [
         "outputs/malinois_k562_with_preds",
