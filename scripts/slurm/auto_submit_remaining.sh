@@ -5,7 +5,7 @@ source /etc/profile.d/modules.sh; module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
 SB=/cm/shared/apps/slurm/current/bin/sbatch
 
-s1=0; s2=0; s3=0; s4=0; s5=0; s6=0; s7=0
+s1=0; s2=0; s3=0; s4=0; s5=0; s6=0; s7=0; s8=0; s9=0
 for a in $(seq 1 72); do
     echo "=== Attempt $a at $(date) ==="
 
@@ -37,12 +37,20 @@ for a in $(seq 1 72); do
         $SB --qos=fast --time=4:00:00 --array=0-5 scripts/slurm/save_predictions_all_seeds.sh 2>/dev/null && s7=1 && echo "  Submitted: save predictions"
     fi
 
-    t=$((s1 + s2 + s3 + s4 + s5 + s6 + s7))
-    if [ $t -eq 7 ]; then
-        echo "All 7 jobs submitted!"
+    if [ $s8 -eq 0 ]; then
+        $SB --qos=fast --time=4:00:00 --array=0-3 scripts/slurm/enformer_s2_multicell_sweep.sh 2>/dev/null && s8=1 && echo "  Submitted: Enformer S2 sweep (fixed)"
+    fi
+
+    if [ $s9 -eq 0 ]; then
+        $SB --array=13-15 scripts/slurm/train_chr_split_all.sh 2>/dev/null && s9=1 && echo "  Submitted: Malinois chr-split"
+    fi
+
+    t=$((s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9))
+    if [ $t -eq 9 ]; then
+        echo "All 9 jobs submitted!"
         break
     fi
-    echo "  $t/7 submitted, waiting 5 min..."
+    echo "  $t/9 submitted, waiting 5 min..."
     sleep 300
 done
 echo "Done at $(date)"
