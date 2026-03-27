@@ -52,26 +52,26 @@ S1_DIR="outputs/enformer_${CELL}_cached/seed_0/seed_0"
 OUT_DIR="outputs/enformer_${CELL}_s2_sweep/uf_${UF}"
 
 uv run --no-sync python experiments/train_foundation_stage2.py \
-    model_name=enformer \
-    stage1_result_dir="${S1_DIR}" \
-    output_dir="${OUT_DIR}" \
-    data_path="data/${CELL}" \
-    cell_line="${CELL}" \
-    seed=42 \
-    epochs=15 \
-    batch_size=4 \
-    grad_accum_steps=2 \
-    head_lr=0.001 \
-    encoder_lr=0.0001 \
-    weight_decay=1e-6 \
-    hidden_dim=512 \
-    dropout=0.1 \
-    early_stop_patience=5 \
-    max_train_sequences=20000 \
-    max_val_sequences=2000 \
-    rc_aug=True \
-    unfreeze_mode="${UF}" \
-    grad_clip=1.0 \
-    amp_mode=bfloat16
+    ++model_name=enformer \
+    ++stage1_result_dir="${S1_DIR}" \
+    ++output_dir="${OUT_DIR}" \
+    ++data_path="data/${CELL}" \
+    ++cell_line="${CELL}" \
+    ++seed=42 \
+    ++epochs=15 \
+    ++batch_size=4 \
+    ++grad_accum_steps=2 \
+    ++head_lr=0.001 \
+    ++encoder_lr=0.0001 \
+    ++weight_decay=1e-6 \
+    ++hidden_dim=512 \
+    ++dropout=0.1 \
+    ++early_stop_patience=5 \
+    ++max_train_sequences=20000 \
+    ++max_val_sequences=2000 \
+    ++rc_aug=True \
+    ++unfreeze_mode="${UF}" \
+    ++grad_clip=1.0 \
+    ++amp_mode=bfloat16
 
 echo "Done: $(date)"

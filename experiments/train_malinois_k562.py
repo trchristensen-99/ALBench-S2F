@@ -71,6 +71,7 @@ DEFAULT_CONFIG = {
     "num_workers": 4,
     "pretrained_weights": None,
     "cell_line": "k562",
+    "chr_split": False,
 }
 
 
