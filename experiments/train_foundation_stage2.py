@@ -60,6 +60,7 @@ DEFAULT_CONFIG = {
     "early_stop_patience": 5,
     "max_train_sequences": 20000,  # subsample train set for speed
     "max_val_sequences": 2000,  # subsample val set for speed
+    "max_test_sequences": 10000,  # subsample test set for speed (full Enformer eval on 40K takes ~50h)
     "rc_aug": True,
     "unfreeze_mode": "transformer",  # "transformer" or "all"
     "grad_clip": 1.0,
@@ -434,6 +435,7 @@ def evaluate_all_test_sets(
     amp_dtype: torch.dtype = torch.bfloat16,
     use_amp: bool = True,
     cell_line: str = "k562",
+    max_test_sequences: int = 0,
 ) -> dict[str, dict[str, float]]:
     """Evaluate on hashFrag in-dist / SNV / OOD test sets."""
     import pandas as pd
@@ -444,6 +446,8 @@ def evaluate_all_test_sets(
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
     if in_path.exists():
         df = pd.read_csv(in_path, sep="\t")
+        if 0 < max_test_sequences < len(df):
+            df = df.sample(n=max_test_sequences, random_state=42)
         pred = _predict_test_sequences(
             encoder_model,
             head,
@@ -975,6 +979,7 @@ def train(cfg: dict):
 
     print("\n[eval] Evaluating on test sets ...", flush=True)
     test_set_dir = data_path / "test_sets"
+    max_test = int(cfg.get("max_test_sequences", 0))
     test_metrics = evaluate_all_test_sets(
         encoder_model,
         head,
@@ -985,6 +990,7 @@ def train(cfg: dict):
         amp_dtype=amp_dtype,
         use_amp=use_amp,
         cell_line=cell_line,
+        max_test_sequences=max_test,
     )
 
     # Save raw predictions for scatter plots
