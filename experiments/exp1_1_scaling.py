@@ -1377,6 +1377,8 @@ def run_scaling_experiment(
     transfer_hp_from: int | None = None,
     cell_line: str | None = None,
     chr_split: bool = False,
+    lr_override: float | None = None,
+    batch_size_override: int | None = None,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -1585,6 +1587,12 @@ def run_scaling_experiment(
 
     def _build_hp_configs(n_train: int) -> list[dict]:
         """Build HP grid, using faster configs for large training sizes."""
+        # CLI overrides: if --lr or --batch-size given, force single config
+        if lr_override is not None or batch_size_override is not None:
+            base_lr = lr_override if lr_override is not None else 0.005
+            base_bs = batch_size_override if batch_size_override is not None else 1024
+            return [{"learning_rate": base_lr, "batch_size": base_bs}]
+
         if not hp_sweep:
             if student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
                 return [{"learning_rate": 1e-4, "batch_size": 128}]
@@ -2089,6 +2097,19 @@ def main():
         action="store_true",
         help="Use chromosome-based train/test splits instead of hashFrag splits.",
     )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=None,
+        help="Override learning rate (forces single HP config, ignores sweep/grid).",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        dest="batch_size_override",
+        help="Override batch size (forces single HP config, ignores sweep/grid).",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -2149,6 +2170,8 @@ def main():
             transfer_hp_from=args.transfer_hp_from,
             cell_line=args.cell_line,
             chr_split=args.chr_split,
+            lr_override=args.lr,
+            batch_size_override=args.batch_size_override,
         )
         all_results.extend(results)
 
