@@ -99,6 +99,16 @@ _COMBINED_RESULT_DIRS = {
     ("DREAM-RNN", "sknsh"): [
         "outputs/dream_rnn_sknsh_3seeds",
     ],
+    # DREAM-CNN (from-scratch, all 3 cells)
+    ("DREAM-CNN", "k562"): [
+        "outputs/dream_cnn_k562_real",
+    ],
+    ("DREAM-CNN", "hepg2"): [
+        "outputs/dream_cnn_hepg2_real",
+    ],
+    ("DREAM-CNN", "sknsh"): [
+        "outputs/dream_cnn_sknsh_real",
+    ],
     # Malinois (from-scratch, all 3 cells)
     ("Malinois", "k562"): [
         "outputs/malinois_k562_with_preds",
@@ -197,6 +207,15 @@ _S1_RESULT_DIRS = {
     ("DREAM-RNN", "sknsh"): [
         "outputs/dream_rnn_sknsh_3seeds",
     ],
+    ("DREAM-CNN", "k562"): [
+        "outputs/dream_cnn_k562_real",
+    ],
+    ("DREAM-CNN", "hepg2"): [
+        "outputs/dream_cnn_hepg2_real",
+    ],
+    ("DREAM-CNN", "sknsh"): [
+        "outputs/dream_cnn_sknsh_real",
+    ],
     ("Malinois", "k562"): [
         "outputs/malinois_k562_with_preds",
         "outputs/malinois_k562_3seeds",
@@ -279,6 +298,7 @@ CELL_COLORS = {"k562": "#3A86C8", "hepg2": "#E8602C", "sknsh": "#66BB6A"}
 # Model orderings and colors
 MODELS_COMBINED = [
     ("DREAM-RNN", "#7B2D8E"),
+    ("DREAM-CNN", "#9B59B6"),
     ("Malinois", "#B07CC6"),
     ("NTv3", "#E8602C"),
     ("Borzoi", "#DAA520"),
@@ -290,6 +310,7 @@ MODELS_COMBINED = [
 
 S1_MODELS = [
     ("DREAM-RNN", "#7B2D8E"),
+    ("DREAM-CNN", "#9B59B6"),
     ("Malinois", "#B07CC6"),
     ("NTv3 S1", "#E8602C"),
     ("Borzoi S1", "#DAA520"),
