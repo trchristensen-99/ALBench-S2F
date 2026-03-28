@@ -1852,16 +1852,38 @@ def run_scaling_experiment(
             )
             logger.info(f"Cached oracle labels to {label_cache_path}")
 
-        # Validation split (10% of generated data)
-        n_val = max(100, int(0.1 * n_train))
-        rng = np.random.default_rng(seed)
-        val_idx = rng.choice(len(sequences), size=n_val, replace=False)
-        train_mask = np.ones(len(sequences), dtype=bool)
-        train_mask[val_idx] = False
-        train_seqs = [sequences[i] for i in range(len(sequences)) if train_mask[i]]
-        train_labels = labels[train_mask]
-        val_seqs = [sequences[i] for i in val_idx]
-        val_labels = labels[val_idx]
+        # Validation split
+        if chr_split and oracle_type == "ground_truth" and task == "k562":
+            # Use proper chromosome-based val split (chr19+21+X)
+            from data.k562 import K562Dataset
+
+            val_label_col = CELL_LINE_LABEL_COLUMNS.get(cell_line or "k562", "K562_log2FC")
+            val_ds = K562Dataset(
+                data_path=str(REPO / "data" / "k562"),
+                split="val",
+                label_column=val_label_col,
+                use_hashfrag=False,
+                use_chromosome_fallback=True,
+            )
+            train_seqs = list(sequences)
+            train_labels = labels
+            val_seqs = list(val_ds.sequences)
+            val_labels = val_ds.labels.astype(np.float32)
+            logger.info(
+                f"Chr-split: using dedicated val (chr19+21+X): "
+                f"{len(val_seqs):,} val, {len(train_seqs):,} train"
+            )
+        else:
+            # Default: 10% random holdout from generated data
+            n_val = max(100, int(0.1 * n_train))
+            rng = np.random.default_rng(seed)
+            val_idx = rng.choice(len(sequences), size=n_val, replace=False)
+            train_mask = np.ones(len(sequences), dtype=bool)
+            train_mask[val_idx] = False
+            train_seqs = [sequences[i] for i in range(len(sequences)) if train_mask[i]]
+            train_labels = labels[train_mask]
+            val_seqs = [sequences[i] for i in val_idx]
+            val_labels = labels[val_idx]
 
         # Pre-encode embeddings once for AG S1 (avoid redundant encoder passes)
         train_embs_cached = None

@@ -71,7 +71,7 @@ run_dream() {
         ${CELL_FLAG} \
         --n-replicates 3 --seed 42 \
         --output-dir "${OUT}" \
-        --training-sizes 319742 --epochs 80 --ensemble-size 1 \
+        --training-sizes 400000 --epochs 80 --ensemble-size 1 \
         --early-stop-patience 10
 }
 
@@ -87,7 +87,7 @@ run_ag_s1() {
         ${CELL_FLAG} \
         --n-replicates 1 --no-hp-sweep --seed 42 \
         --output-dir "${OUT}" \
-        --training-sizes 319742 --epochs 50 --early-stop-patience 7
+        --training-sizes 400000 --epochs 50 --early-stop-patience 7
 }
 
 # Helper for AG S2
@@ -101,7 +101,7 @@ run_ag_s2() {
         ${CELL_FLAG} \
         --n-replicates 1 --no-hp-sweep --seed 42 \
         --output-dir "${OUT}" \
-        --training-sizes 319742 --epochs 50 --early-stop-patience 7
+        --training-sizes 400000 --epochs 50 --early-stop-patience 7
 }
 
 FOLD1="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-fold_1"

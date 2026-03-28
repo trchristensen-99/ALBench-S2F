@@ -60,6 +60,7 @@ class K562Dataset(SequenceDataset):
         hashfrag_cache_dir: Optional[str] = None,
         use_chromosome_fallback: bool = False,
         label_column: str = "K562_log2FC",
+        include_alt_alleles: bool = False,
     ):
         """
         Initialize K562 dataset.
@@ -74,6 +75,8 @@ class K562Dataset(SequenceDataset):
             hashfrag_threshold: Smith-Waterman score threshold for homology (default: 60)
             hashfrag_cache_dir: Directory to cache HashFrag splits (default: {data_path}/hashfrag_splits)
             use_chromosome_fallback: If True, use chromosome-based splits as fallback (default: False)
+            include_alt_alleles: If True, include both ref and alt alleles (default: False).
+                The original Malinois paper trained on all 798K oligos (ref+alt).
         """
         self.subset_size = subset_size
         self.use_hashfrag = use_hashfrag
@@ -81,6 +84,7 @@ class K562Dataset(SequenceDataset):
         self.hashfrag_cache_dir = hashfrag_cache_dir
         self.use_chromosome_fallback = use_chromosome_fallback
         self.label_column = label_column
+        self.include_alt_alleles = include_alt_alleles
         super().__init__(data_path, split, transform, target_transform)
 
     def load_data(self) -> None:
@@ -167,18 +171,23 @@ class K562Dataset(SequenceDataset):
         except Exception as e:
             raise RuntimeError(f"Error loading K562 data from {file_path}: {e}")
 
-        # Filter to reference alleles only (matching benchmark paper: 367K sequences)
+        # Filter alleles based on include_alt_alleles flag
         # Parse ID format: chr:pos:ref:alt:allele_type:wc
         id_parts = df["IDs"].str.split(":", expand=True)
         allele_type = id_parts[4]  # R=reference, A=alternate, empty=CRE/no variant
         ref_col = id_parts[2]
         alt_col = id_parts[3]
 
-        # Keep reference alleles (R) and non-variant sequences (NA:NA)
-        is_reference = allele_type == "R"
-        is_non_variant = (ref_col == "NA") & (alt_col == "NA")
         n_before = len(df)
-        df = df[is_reference | is_non_variant].copy()
+        if self.include_alt_alleles:
+            # Keep all alleles (ref + alt + non-variant) — matches Malinois paper (798K oligos)
+            is_valid = allele_type.isin(["R", "A"]) | ((ref_col == "NA") & (alt_col == "NA"))
+            df = df[is_valid].copy()
+        else:
+            # Keep reference alleles (R) and non-variant sequences only
+            is_reference = allele_type == "R"
+            is_non_variant = (ref_col == "NA") & (alt_col == "NA")
+            df = df[is_reference | is_non_variant].copy()
         n_after = len(df)
 
         logger.info(
