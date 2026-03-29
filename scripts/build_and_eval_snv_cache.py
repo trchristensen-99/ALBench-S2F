@@ -496,10 +496,9 @@ def main():
 
         if model_name == "borzoi":
             from borzoi_pytorch import Borzoi
-            from borzoi_pytorch.modeling_borzoi import Borzoi as BorzoiModel
 
-            if not hasattr(BorzoiModel, "all_tied_weights_keys"):
-                BorzoiModel.all_tied_weights_keys = {}
+            if not hasattr(Borzoi, "all_tied_weights_keys"):
+                Borzoi.all_tied_weights_keys = {}
 
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             print(f"Loading Borzoi replicate 0 on {device}...")
