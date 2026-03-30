@@ -18,7 +18,8 @@
 #   0: Borzoi S2 K562 (center 4 bins, elr=1e-3)
 #   1: Borzoi S2 K562 (center 8 bins, elr=1e-3)
 #   2: Borzoi S2 K562 (center 4 bins, elr=5e-4)
-#   3: Borzoi S2 K562 (center 4 bins, elr=1e-3, unfreeze last 2 blocks only)
+#   3: Borzoi S2 K562 (center 20 bins ~= insert region, elr=1e-3)
+#   4: Borzoi S2 K562 (center 4 bins, elr=1e-3, unfreeze last 2 blocks only)
 #
 #SBATCH --job-name=borz_s2_v5
 #SBATCH --output=logs/%x-%A-%a.out
@@ -76,6 +77,16 @@ case ${T} in
         ++unfreeze_blocks="all"
     ;;
 3)
+    echo "Borzoi S2 K562: center 20 bins (~19 insert bins), elr=1e-3, unfreeze=all"
+    uv run --no-sync python experiments/train_foundation_stage2.py \
+        ${COMMON} \
+        ++output_dir="outputs/borzoi_k562_s2_v5/c20_elr1e-3_all" \
+        ++seed=42 \
+        ++encoder_lr=0.001 \
+        ++borzoi_center_bins=20 \
+        ++unfreeze_blocks="all"
+    ;;
+4)
     echo "Borzoi S2 K562: center 4 bins, elr=1e-3, unfreeze last 2"
     uv run --no-sync python experiments/train_foundation_stage2.py \
         ${COMMON} \
