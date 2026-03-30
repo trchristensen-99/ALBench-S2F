@@ -24,6 +24,9 @@ def safe_corr(x, y, fn):
 
 
 def make_metrics(pred, true):
+    # Handle length mismatches (cache may have been built with different OOD file)
+    n = min(len(pred), len(true))
+    pred, true = pred[:n], true[:n]
     return {
         "pearson_r": safe_corr(pred, true, pearsonr),
         "spearman_r": safe_corr(pred, true, spearmanr),
