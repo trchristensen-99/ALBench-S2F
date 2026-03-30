@@ -5,7 +5,7 @@ source /etc/profile.d/modules.sh; module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
 SB=/cm/shared/apps/slurm/current/bin/sbatch
 
-s1=0; s2=0; s3=0; s4=0; s5=0; s6=0; s7=0; s8=0; s9=0; s10=0; s11=0; s12=0; s13=0
+s1=0; s2=0; s3=0; s4=0; s5=0; s6=0; s7=0; s8=0; s9=0; s10=0; s11=0; s12=0; s13=0; s14=0
 for a in $(seq 1 72); do
     echo "=== Attempt $a at $(date) ==="
 
@@ -61,12 +61,16 @@ for a in $(seq 1 72); do
         $SB --qos=fast --time=4:00:00 --array=0-2 scripts/slurm/reeval_k562_real_labels.sh 2>/dev/null && s13=1 && echo "  Submitted: K562 real-label re-eval"
     fi
 
-    t=$((s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10 + s11 + s12 + s13))
-    if [ $t -eq 13 ]; then
-        echo "All 13 jobs submitted!"
+    if [ $s14 -eq 0 ]; then
+        $SB --array=0-1 scripts/slurm/fix_remaining_anomalies.sh 2>/dev/null && s14=1 && echo "  Submitted: AG SNV + Borzoi OOD fixes"
+    fi
+
+    t=$((s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10 + s11 + s12 + s13 + s14))
+    if [ $t -eq 14 ]; then
+        echo "All 14 jobs submitted!"
         break
     fi
-    echo "  $t/13 submitted, waiting 5 min..."
+    echo "  $t/14 submitted, waiting 5 min..."
     sleep 300
 done
 echo "Done at $(date)"
