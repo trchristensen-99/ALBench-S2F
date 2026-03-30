@@ -146,6 +146,8 @@ def main():
         help="K562Dataset splits to cache (train, val).",
     )
     parser.add_argument("--include-test", action="store_true", help="Also cache test sets.")
+    parser.add_argument("--chr-split", action="store_true", help="Use chromosome-based splits.")
+    parser.add_argument("--cell-line", default="k562", help="Cell line (k562/hepg2/sknsh).")
     parser.add_argument("--no-flanks", action="store_true", help="Use 200bp only, no MPRA flanks.")
     parser.add_argument(
         "--model-variant",
@@ -180,8 +182,15 @@ def main():
     data_path = Path(args.data_path)
     use_flanks = not args.no_flanks
 
+    CELL_LABEL_COLS = {"k562": "K562_log2FC", "hepg2": "HepG2_log2FC", "sknsh": "SKNSH_log2FC"}
+    label_col = CELL_LABEL_COLS.get(args.cell_line, "K562_log2FC")
+    ds_kwargs = {"data_path": str(data_path), "label_column": label_col}
+    if args.chr_split:
+        ds_kwargs["use_hashfrag"] = False
+        ds_kwargs["use_chromosome_fallback"] = True
+
     for split in args.splits:
-        ds = K562Dataset(data_path=str(data_path), split=split)
+        ds = K562Dataset(split=split, **ds_kwargs)
         sequences = [ds.sequences[i] for i in range(len(ds))]
         print(f"\n{split}: {len(sequences):,} sequences")
         _encode_sequences(ntv3, sequences, cache_dir, split, args.batch_size, use_flanks=use_flanks)
