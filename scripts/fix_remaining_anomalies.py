@@ -128,7 +128,7 @@ def fix_dream_rnn_ens3_k562():
         map_location="cpu",
         weights_only=False,
     )
-    model = DREAMRNN(input_channels=5, sequence_length=200, hidden_dim=128, cnn_filters=160)
+    model = DREAMRNN(input_channels=5, sequence_length=200, hidden_dim=320, cnn_filters=160)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
