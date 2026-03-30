@@ -49,6 +49,12 @@ from data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM
 from models.alphagenome_heads import register_s2f_head
 from models.embedding_cache import reinit_head_params
 
+CELL_LINE_LABEL_COLS = {
+    "k562": "K562_log2FC",
+    "hepg2": "HepG2_log2FC",
+    "sknsh": "SKNSH_log2FC",
+}
+
 # ── MPRA flanks for 600 bp sequences ──────────────────────────────────────────
 _FLANK_5_STR: str = MPRA_UPSTREAM[-200:]
 _FLANK_3_STR: str = MPRA_DOWNSTREAM[:200]
@@ -177,8 +183,10 @@ def evaluate_all_test_sets(
     model,
     predict_step_fn,
     test_set_dir: Path,
+    cell_line: str = "k562",
 ) -> dict[str, dict[str, float]]:
     """Evaluate on hashFrag in-dist / SNV / OOD test sets using full encoder + RC avg."""
+    fc_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
     params, state = model._params, model._state
     metrics: dict[str, dict[str, float]] = {}
 
@@ -186,7 +194,7 @@ def evaluate_all_test_sets(
     if in_path.exists():
         df = pd.read_csv(in_path, sep="\t")
         pred = _predict_sequences(predict_step_fn, params, state, df["sequence"].tolist())
-        true = df["K562_log2FC"].to_numpy(dtype=np.float32)
+        true = df[fc_col].to_numpy(dtype=np.float32)
         metrics["in_distribution"] = {
             "pearson_r": _safe_corr(pred, true, pearsonr),
             "spearman_r": _safe_corr(pred, true, spearmanr),
@@ -199,7 +207,10 @@ def evaluate_all_test_sets(
         df = pd.read_csv(snv_path, sep="\t")
         ref_pred = _predict_sequences(predict_step_fn, params, state, df["sequence_ref"].tolist())
         alt_pred = _predict_sequences(predict_step_fn, params, state, df["sequence_alt"].tolist())
-        alt_true = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        alt_col = f"{fc_col}_alt"
+        if alt_col not in df.columns:
+            alt_col = "K562_log2FC_alt"
+        alt_true = df[alt_col].to_numpy(dtype=np.float32)
         metrics["snv_abs"] = {
             "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
             "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
@@ -207,7 +218,10 @@ def evaluate_all_test_sets(
             "n": int(len(alt_true)),
         }
         delta_pred = alt_pred - ref_pred
-        delta_true = df["delta_log2FC"].to_numpy(dtype=np.float32)
+        delta_col = f"delta_{fc_col}"
+        if delta_col not in df.columns:
+            delta_col = "delta_log2FC"
+        delta_true = df[delta_col].to_numpy(dtype=np.float32)
         metrics["snv_delta"] = {
             "pearson_r": _safe_corr(delta_pred, delta_true, pearsonr),
             "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
@@ -215,11 +229,14 @@ def evaluate_all_test_sets(
             "n": int(len(delta_true)),
         }
 
-    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
+    if not ood_path.exists():
+        ood_path = test_set_dir / "test_ood_designed_k562.tsv"
     if ood_path.exists():
         df = pd.read_csv(ood_path, sep="\t")
         pred = _predict_sequences(predict_step_fn, params, state, df["sequence"].tolist())
-        true = df["K562_log2FC"].to_numpy(dtype=np.float32)
+        ood_col = fc_col if fc_col in df.columns else "K562_log2FC"
+        true = df[ood_col].to_numpy(dtype=np.float32)
         metrics["ood"] = {
             "pearson_r": _safe_corr(pred, true, pearsonr),
             "spearman_r": _safe_corr(pred, true, spearmanr),
@@ -230,8 +247,11 @@ def evaluate_all_test_sets(
     return metrics
 
 
-def _save_ag_s2_predictions(model, predict_step_fn, test_set_dir: Path, output_dir: Path):
+def _save_ag_s2_predictions(
+    model, predict_step_fn, test_set_dir: Path, output_dir: Path, cell_line: str = "k562"
+):
     """Save raw pred/true arrays for scatter plots."""
+    fc_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
     params, state = model._params, model._state
     arrays = {}
 
@@ -241,7 +261,7 @@ def _save_ag_s2_predictions(model, predict_step_fn, test_set_dir: Path, output_d
         arrays["in_dist_pred"] = _predict_sequences(
             predict_step_fn, params, state, df["sequence"].tolist()
         )
-        arrays["in_dist_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+        arrays["in_dist_true"] = df[fc_col].to_numpy(dtype=np.float32)
 
     snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
     if snv_path.exists():
@@ -252,17 +272,22 @@ def _save_ag_s2_predictions(model, predict_step_fn, test_set_dir: Path, output_d
         arrays["snv_alt_pred"] = _predict_sequences(
             predict_step_fn, params, state, df["sequence_alt"].tolist()
         )
-        arrays["snv_alt_true"] = df["K562_log2FC_alt"].to_numpy(dtype=np.float32)
+        alt_col = f"{fc_col}_alt" if f"{fc_col}_alt" in df.columns else "K562_log2FC_alt"
+        arrays["snv_alt_true"] = df[alt_col].to_numpy(dtype=np.float32)
         arrays["snv_delta_pred"] = arrays["snv_alt_pred"] - arrays["snv_ref_pred"]
-        arrays["snv_delta_true"] = df["delta_log2FC"].to_numpy(dtype=np.float32)
+        delta_col = f"delta_{fc_col}" if f"delta_{fc_col}" in df.columns else "delta_log2FC"
+        arrays["snv_delta_true"] = df[delta_col].to_numpy(dtype=np.float32)
 
-    ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
+    if not ood_path.exists():
+        ood_path = test_set_dir / "test_ood_designed_k562.tsv"
     if ood_path.exists():
         df = pd.read_csv(ood_path, sep="\t")
         arrays["ood_pred"] = _predict_sequences(
             predict_step_fn, params, state, df["sequence"].tolist()
         )
-        arrays["ood_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
+        ood_col = fc_col if fc_col in df.columns else "K562_log2FC"
+        arrays["ood_true"] = df[ood_col].to_numpy(dtype=np.float32)
 
     pred_path = output_dir / "test_predictions.npz"
     np.savez_compressed(pred_path, **arrays)
@@ -403,15 +428,25 @@ def main(cfg: DictConfig) -> None:
     # ── Dataset ────────────────────────────────────────────────────────────────
     use_dedicated_val = bool(cfg.get("use_dedicated_val", False))
 
+    cell_line = str(cfg.get("cell_line", "k562"))
+    label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
+    print(f"Cell line: {cell_line}, label column: {label_col}", flush=True)
+
     if use_dedicated_val:
         # Use full train split for training + dedicated val split for validation
-        train_subset = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
-        val_subset = K562Dataset(data_path=str(cfg.k562_data_path), split="val")
+        train_subset = K562Dataset(
+            data_path=str(cfg.k562_data_path), split="train", label_column=label_col
+        )
+        val_subset = K562Dataset(
+            data_path=str(cfg.k562_data_path), split="val", label_column=label_col
+        )
     else:
         # 10-fold CV within the train split
         n_folds = int(cfg.get("n_folds", 10))
         fold_id = int(cfg.get("fold_id", 0))
-        ds_all = K562Dataset(data_path=str(cfg.k562_data_path), split="train")
+        ds_all = K562Dataset(
+            data_path=str(cfg.k562_data_path), split="train", label_column=label_col
+        )
         n_total = len(ds_all)
         perm = np.random.default_rng(seed=42).permutation(n_total)
         fold_size = n_total // n_folds
@@ -580,12 +615,16 @@ def main(cfg: DictConfig) -> None:
     else:
         print("[eval] No best_model checkpoint — using final weights.", flush=True)
 
-    test_set_dir = Path(str(cfg.k562_data_path)) / "test_sets"
-    test_metrics = evaluate_all_test_sets(model, predict_step, test_set_dir)
+    # Use cell-specific test_sets dir if available, else k562
+    cell_test_dir = Path(f"data/{cell_line}/test_sets")
+    test_set_dir = (
+        cell_test_dir if cell_test_dir.exists() else Path(str(cfg.k562_data_path)) / "test_sets"
+    )
+    test_metrics = evaluate_all_test_sets(model, predict_step, test_set_dir, cell_line=cell_line)
 
     # Save raw predictions for scatter plots
     print("[eval] Saving test predictions ...", flush=True)
-    _save_ag_s2_predictions(model, predict_step, test_set_dir, output_dir)
+    _save_ag_s2_predictions(model, predict_step, test_set_dir, output_dir, cell_line=cell_line)
 
     results = {
         "seed": used_seed,
