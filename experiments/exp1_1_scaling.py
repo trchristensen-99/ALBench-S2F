@@ -1174,10 +1174,9 @@ def _train_ag_s2_student(
                 negative_strand_mask=jnp.zeros(len(seqs), dtype=bool),
                 strand_reindexing=None,
             )[head_name]
-            if task == "yeast" and preds.ndim == 2 and preds.shape[1] == 18:
-                # Yeast: softmax → expected bin index
-                probs = jax.nn.softmax(preds, axis=1)
-                pred = (probs * jnp.arange(18)).sum(axis=1)
+            if task == "yeast" and preds.ndim == 2 and preds.shape[-1] > 1:
+                # Yeast multi-track: mean-pool to scalar (matches S1 behavior)
+                pred = jnp.mean(preds, axis=-1)
             else:
                 pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
             return jnp.mean((pred - targets) ** 2)
@@ -1196,9 +1195,8 @@ def _train_ag_s2_student(
             negative_strand_mask=jnp.zeros(len(seqs), dtype=bool),
             strand_reindexing=None,
         )[head_name]
-        if task == "yeast" and preds.ndim == 2 and preds.shape[1] == 18:
-            probs = jax.nn.softmax(preds, axis=1)
-            pred = (probs * jnp.arange(18)).sum(axis=1)
+        if task == "yeast" and preds.ndim == 2 and preds.shape[-1] > 1:
+            pred = jnp.mean(preds, axis=-1)
         else:
             pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
         return pred

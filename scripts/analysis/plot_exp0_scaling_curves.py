@@ -29,7 +29,8 @@ OUT = REPO / "results" / "exp0_scaling_plots"
 # --- Model definitions -----------------------------------------------------------
 
 K562_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_k562_s1", "alphagenome_k562_s2"]
-YEAST_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_yeast_s1", "alphagenome_yeast_s2"]
+YEAST_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_yeast_s1"]
+# AG S2 yeast excluded: softmax gradient vanishing bug causes 0.0 across all runs
 
 COLORS = {
     "dream_cnn": "#E8602C",
@@ -230,9 +231,11 @@ def _format_n_ticks(ax, ns_union: list[int]):
 
     def _fmt(n):
         if n >= 1_000_000:
-            return f"{n / 1_000_000:.1f}M"
+            m = n / 1_000_000
+            return f"{m:.1f}M" if m != int(m) else f"{int(m)}M"
         if n >= 1_000:
-            return f"{n / 1_000:.1f}k"
+            k = round(n / 1_000)
+            return f"{k}k"
         return str(n)
 
     ax.set_xticks(ns_union)
@@ -340,6 +343,332 @@ def plot_overview(
     plt.close(fig)
 
 
+# --- Real-label data loading (old format) -----------------------------------------
+
+
+def load_real_label_data(task: str) -> dict[str, dict[str, dict[int, list[float]]]]:
+    """Load real-label scaling results from older experiment directories.
+
+    Returns same format as load_scaling_data.
+    """
+    data: dict[str, dict[str, dict[int, list[float]]]] = {}
+
+    if task == "k562":
+        # DREAM-RNN real labels
+        base = REPO / "outputs" / "exp0_k562_scaling"
+        if base.exists():
+            student = "dream_rnn"
+            mk_data: dict[str, dict[int, list[float]]] = {
+                "in_dist_pearson": {},
+                "ood_pearson": {},
+                "snv_delta_pearson": {},
+                "in_dist_mse": {},
+            }
+            for rj in base.rglob("result.json"):
+                r = json.loads(rj.read_text())
+                n = r.get("n_samples", 0)
+                if n <= 0:
+                    continue
+                tm = r.get("test_metrics", {})
+                for cat, mk in [
+                    ("in_dist", "in_dist_pearson"),
+                    ("ood", "ood_pearson"),
+                    ("snv_delta", "snv_delta_pearson"),
+                    ("in_dist", "in_dist_mse"),
+                ]:
+                    field = "mse" if "mse" in mk else "pearson_r"
+                    val = _get_metric(tm, cat, field)
+                    if val is not None:
+                        mk_data[mk].setdefault(n, []).append(val)
+            data[student] = mk_data
+
+        # AG S1 real labels
+        base = REPO / "outputs" / "exp0_k562_scaling_alphagenome_cached_rcaug"
+        if base.exists():
+            student = "alphagenome_k562_s1"
+            mk_data = {
+                "in_dist_pearson": {},
+                "ood_pearson": {},
+                "snv_delta_pearson": {},
+                "in_dist_mse": {},
+            }
+            for rj in base.rglob("result.json"):
+                r = json.loads(rj.read_text())
+                n = r.get("n_samples", r.get("n_train", 0))
+                if n <= 0:
+                    continue
+                tm = r.get("test_metrics", {})
+                for cat, mk in [
+                    ("in_dist", "in_dist_pearson"),
+                    ("ood", "ood_pearson"),
+                    ("snv_delta", "snv_delta_pearson"),
+                    ("in_dist", "in_dist_mse"),
+                ]:
+                    field = "mse" if "mse" in mk else "pearson_r"
+                    val = _get_metric(tm, cat, field)
+                    if val is not None:
+                        mk_data[mk].setdefault(n, []).append(val)
+            data[student] = mk_data
+
+    elif task == "yeast":
+        # DREAM-RNN real labels
+        base = REPO / "outputs" / "exp0_yeast_scaling_v2"
+        if base.exists():
+            student = "dream_rnn"
+            mk_data = {
+                "in_dist_pearson": {},
+                "ood_pearson": {},
+                "snv_delta_pearson": {},
+                "in_dist_mse": {},
+            }
+            for rj in base.rglob("result.json"):
+                r = json.loads(rj.read_text())
+                n = r.get("n_samples", 0)
+                if n <= 0:
+                    continue
+                tm = r.get("test_metrics", {})
+                for cat, mk in [
+                    ("in_dist", "in_dist_pearson"),
+                    ("ood", "ood_pearson"),
+                    ("snv_delta", "snv_delta_pearson"),
+                    ("in_dist", "in_dist_mse"),
+                ]:
+                    field = "mse" if "mse" in mk else "pearson_r"
+                    val = _get_metric(tm, cat, field)
+                    if val is not None:
+                        mk_data[mk].setdefault(n, []).append(val)
+            data[student] = mk_data
+
+        # AG S1 real labels
+        base = REPO / "outputs" / "exp0_yeast_scaling_ag_v2"
+        if base.exists():
+            student = "alphagenome_yeast_s1"
+            mk_data = {
+                "in_dist_pearson": {},
+                "ood_pearson": {},
+                "snv_delta_pearson": {},
+                "in_dist_mse": {},
+            }
+            for rj in base.rglob("result.json"):
+                r = json.loads(rj.read_text())
+                n = r.get("n_samples", r.get("n_train", 0))
+                if n <= 0:
+                    continue
+                tm = r.get("test_metrics", {})
+                for cat, mk in [
+                    ("in_dist", "in_dist_pearson"),
+                    ("ood", "ood_pearson"),
+                    ("snv_delta", "snv_delta_pearson"),
+                    ("in_dist", "in_dist_mse"),
+                ]:
+                    field = "mse" if "mse" in mk else "pearson_r"
+                    val = _get_metric(tm, cat, field)
+                    if val is not None:
+                        mk_data[mk].setdefault(n, []).append(val)
+            data[student] = mk_data
+
+    return data
+
+
+# --- Cross-oracle data loading ---------------------------------------------------
+
+# Cross-oracle student names
+K562_CROSS_ORACLE = [
+    "dream_cnn_oracle_dream_rnn",
+    "dream_rnn_oracle_dream_rnn",
+    "alphagenome_k562_s1_oracle_dream_rnn",
+]
+YEAST_CROSS_ORACLE = [
+    "dream_cnn_oracle_ag",
+    "dream_rnn_oracle_ag",
+    "alphagenome_yeast_s1_oracle_ag",
+]
+
+CROSS_ORACLE_COLORS = {
+    "dream_cnn_oracle_dream_rnn": "#E8602C",
+    "dream_rnn_oracle_dream_rnn": "#7B2D8E",
+    "alphagenome_k562_s1_oracle_dream_rnn": "#66BB6A",
+    "dream_cnn_oracle_ag": "#E8602C",
+    "dream_rnn_oracle_ag": "#7B2D8E",
+    "alphagenome_yeast_s1_oracle_ag": "#66BB6A",
+}
+
+CROSS_ORACLE_LABELS = {
+    "dream_cnn_oracle_dream_rnn": "DREAM-CNN",
+    "dream_rnn_oracle_dream_rnn": "DREAM-RNN",
+    "alphagenome_k562_s1_oracle_dream_rnn": "AG S1",
+    "dream_cnn_oracle_ag": "DREAM-CNN",
+    "dream_rnn_oracle_ag": "DREAM-RNN",
+    "alphagenome_yeast_s1_oracle_ag": "AG S1",
+}
+
+CROSS_ORACLE_MARKERS = {
+    "dream_cnn_oracle_dream_rnn": "o",
+    "dream_rnn_oracle_dream_rnn": "s",
+    "alphagenome_k562_s1_oracle_dream_rnn": "D",
+    "dream_cnn_oracle_ag": "o",
+    "dream_rnn_oracle_ag": "s",
+    "alphagenome_yeast_s1_oracle_ag": "D",
+}
+
+
+def plot_oracle_vs_real(
+    task: str,
+    task_label: str,
+    students: list[str],
+    oracle_data: dict,
+    real_data: dict,
+    out_stem: str,
+):
+    """Plot oracle vs real label comparison for in-dist Pearson R."""
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+
+    all_ns: set[int] = set()
+
+    # Plot oracle labels (solid lines)
+    for student in students:
+        n_to_vals = oracle_data.get(student, {}).get("in_dist_pearson", {})
+        ns, means, stds = _curve_arrays(n_to_vals)
+        if len(ns) == 0:
+            continue
+        all_ns.update(int(n) for n in ns)
+        color = COLORS[student]
+        label = LABELS[student]
+        marker = MARKERS[student]
+        ax.plot(
+            ns,
+            means,
+            color=color,
+            marker=marker,
+            markersize=6,
+            linewidth=2,
+            label=f"{label} (oracle)",
+            zorder=3,
+        )
+        ax.fill_between(ns, means - stds, means + stds, color=color, alpha=0.12)
+
+    # Plot real labels (dashed lines)
+    for student in students:
+        n_to_vals = real_data.get(student, {}).get("in_dist_pearson", {})
+        ns, means, stds = _curve_arrays(n_to_vals)
+        if len(ns) == 0:
+            continue
+        all_ns.update(int(n) for n in ns)
+        color = COLORS[student]
+        label = LABELS[student]
+        marker = MARKERS[student]
+        ax.plot(
+            ns,
+            means,
+            color=color,
+            marker=marker,
+            markersize=5,
+            linewidth=2,
+            linestyle="--",
+            alpha=0.7,
+            label=f"{label} (real)",
+            zorder=3,
+        )
+        ax.fill_between(ns, means - stds, means + stds, color=color, alpha=0.08)
+
+    ax.set_xscale("log")
+    ax.set_xlabel("N training examples")
+    ax.set_ylabel("In-distribution Pearson R")
+    ax.set_title(
+        f"{task_label} — Oracle vs Real Labels",
+        fontsize=13,
+        fontweight="semibold",
+    )
+    _format_n_ticks(ax, sorted(all_ns))
+    ax.legend(fontsize=9, frameon=True, fancybox=False, edgecolor="0.8", ncol=2)
+
+    fig.tight_layout()
+    for ext in (".png", ".pdf"):
+        path = OUT / f"{out_stem}{ext}"
+        fig.savefig(path, dpi=200, bbox_inches="tight")
+        print(f"  Saved {path}")
+    plt.close(fig)
+
+
+def plot_cross_oracle(
+    task: str,
+    task_label: str,
+    default_students: list[str],
+    cross_students: list[str],
+    data: dict,
+    default_oracle_name: str,
+    cross_oracle_name: str,
+    out_stem: str,
+):
+    """Plot default oracle vs cross oracle for in-dist Pearson R."""
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+    all_ns: set[int] = set()
+
+    # Default oracle (solid lines)
+    for student in default_students:
+        n_to_vals = data.get(student, {}).get("in_dist_pearson", {})
+        ns, means, stds = _curve_arrays(n_to_vals)
+        if len(ns) == 0:
+            continue
+        all_ns.update(int(n) for n in ns)
+        color = COLORS[student]
+        label = LABELS[student]
+        marker = MARKERS[student]
+        ax.plot(
+            ns,
+            means,
+            color=color,
+            marker=marker,
+            markersize=6,
+            linewidth=2,
+            label=f"{label} ({default_oracle_name})",
+            zorder=3,
+        )
+        ax.fill_between(ns, means - stds, means + stds, color=color, alpha=0.12)
+
+    # Cross oracle (dashed lines)
+    for student in cross_students:
+        n_to_vals = data.get(student, {}).get("in_dist_pearson", {})
+        ns, means, stds = _curve_arrays(n_to_vals)
+        if len(ns) == 0:
+            continue
+        all_ns.update(int(n) for n in ns)
+        color = CROSS_ORACLE_COLORS[student]
+        label = CROSS_ORACLE_LABELS[student]
+        marker = CROSS_ORACLE_MARKERS[student]
+        ax.plot(
+            ns,
+            means,
+            color=color,
+            marker=marker,
+            markersize=5,
+            linewidth=2,
+            linestyle="--",
+            alpha=0.7,
+            label=f"{label} ({cross_oracle_name})",
+            zorder=3,
+        )
+        ax.fill_between(ns, means - stds, means + stds, color=color, alpha=0.08)
+
+    ax.set_xscale("log")
+    ax.set_xlabel("N training examples")
+    ax.set_ylabel("In-distribution Pearson R")
+    ax.set_title(
+        f"{task_label} — {default_oracle_name} vs {cross_oracle_name} Oracle Labels",
+        fontsize=13,
+        fontweight="semibold",
+    )
+    _format_n_ticks(ax, sorted(all_ns))
+    ax.legend(fontsize=9, frameon=True, fancybox=False, edgecolor="0.8", ncol=2)
+
+    fig.tight_layout()
+    for ext in (".png", ".pdf"):
+        path = OUT / f"{out_stem}{ext}"
+        fig.savefig(path, dpi=200, bbox_inches="tight")
+        print(f"  Saved {path}")
+    plt.close(fig)
+
+
 # --- Main -------------------------------------------------------------------------
 
 
@@ -349,9 +678,9 @@ def main():
 
     # --- K562 ---
     print("Loading K562 data...")
-    k562_data = load_scaling_data("k562", K562_STUDENTS)
+    all_k562_students = K562_STUDENTS + K562_CROSS_ORACLE
+    k562_data = load_scaling_data("k562", all_k562_students)
     if k562_data:
-        # Print summary
         for s in K562_STUDENTS:
             ns = sorted(k562_data.get(s, {}).get("in_dist_pearson", {}).keys())
             if ns:
@@ -362,12 +691,40 @@ def main():
         plot_2x2_panel("k562", "K562", K562_STUDENTS, k562_data, "k562_scaling_2x2")
         print("Plotting K562 overview...")
         plot_overview(K562_STUDENTS, k562_data, "k562_scaling_overview")
+
+        # Cross-oracle comparison
+        print("Plotting K562 cross-oracle comparison...")
+        plot_cross_oracle(
+            "k562",
+            "K562",
+            K562_STUDENTS[:3],  # no AG S2 for cross-oracle
+            K562_CROSS_ORACLE,
+            k562_data,
+            "AG oracle",
+            "DREAM-RNN oracle",
+            "k562_cross_oracle",
+        )
     else:
         print("  No K562 data found, skipping.")
 
+    # Oracle vs real labels for K562
+    print("Loading K562 real-label data...")
+    k562_real = load_real_label_data("k562")
+    if k562_real and k562_data:
+        print("Plotting K562 oracle vs real comparison...")
+        plot_oracle_vs_real(
+            "k562",
+            "K562",
+            ["dream_rnn", "alphagenome_k562_s1"],
+            k562_data,
+            k562_real,
+            "k562_oracle_vs_real",
+        )
+
     # --- Yeast ---
     print("Loading Yeast data...")
-    yeast_data = load_scaling_data("yeast", YEAST_STUDENTS)
+    all_yeast_students = YEAST_STUDENTS + YEAST_CROSS_ORACLE
+    yeast_data = load_scaling_data("yeast", all_yeast_students)
     if yeast_data:
         for s in YEAST_STUDENTS:
             ns = sorted(yeast_data.get(s, {}).get("in_dist_pearson", {}).keys())
@@ -377,8 +734,35 @@ def main():
 
         print("Plotting Yeast 2x2 panel...")
         plot_2x2_panel("yeast", "Yeast", YEAST_STUDENTS, yeast_data, "yeast_scaling_2x2")
+
+        # Cross-oracle comparison
+        print("Plotting Yeast cross-oracle comparison...")
+        plot_cross_oracle(
+            "yeast",
+            "Yeast",
+            YEAST_STUDENTS,
+            YEAST_CROSS_ORACLE,
+            yeast_data,
+            "DREAM-RNN oracle",
+            "AG oracle",
+            "yeast_cross_oracle",
+        )
     else:
         print("  No Yeast data found, skipping.")
+
+    # Oracle vs real labels for Yeast
+    print("Loading Yeast real-label data...")
+    yeast_real = load_real_label_data("yeast")
+    if yeast_real and yeast_data:
+        print("Plotting Yeast oracle vs real comparison...")
+        plot_oracle_vs_real(
+            "yeast",
+            "Yeast",
+            ["dream_rnn", "alphagenome_yeast_s1"],
+            yeast_data,
+            yeast_real,
+            "yeast_oracle_vs_real",
+        )
 
     print("Done.")
 
