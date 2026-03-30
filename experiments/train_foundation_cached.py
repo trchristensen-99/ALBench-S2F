@@ -69,6 +69,7 @@ DEFAULT_CONFIG = {
     "num_workers": 4,
     "rc_aug": True,
     "cell_line": "k562",
+    "chr_split": False,
 }
 
 
@@ -264,8 +265,13 @@ def train(cfg: dict):
     # Load labels (cell-line-specific)
     cell_line = cfg.get("cell_line", "k562")
     label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
-    train_ds = K562Dataset(data_path=str(data_path), split="train", label_column=label_col)
-    val_ds = K562Dataset(data_path=str(data_path), split="val", label_column=label_col)
+    chr_split = cfg.get("chr_split", False)
+    ds_kwargs: dict = {"data_path": str(data_path), "label_column": label_col}
+    if chr_split:
+        ds_kwargs["use_hashfrag"] = False
+        ds_kwargs["use_chromosome_fallback"] = True
+    train_ds = K562Dataset(split="train", **ds_kwargs)
+    val_ds = K562Dataset(split="val", **ds_kwargs)
     train_labels = train_ds.labels
     val_labels = val_ds.labels
 
