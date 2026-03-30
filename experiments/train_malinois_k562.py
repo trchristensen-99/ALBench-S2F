@@ -226,7 +226,7 @@ def _evaluate_chr_split_test(
     test_ds: "K562MalinoisDataset",
     cfg: dict,
 ) -> dict[str, dict[str, float]]:
-    """Evaluate on chromosome-split test set (in-dist only)."""
+    """Evaluate on chromosome-split test set (in-dist + SNV + OOD)."""
     from torch.utils.data import DataLoader
 
     loader = DataLoader(test_ds, batch_size=256, shuffle=False, num_workers=4)
@@ -239,7 +239,7 @@ def _evaluate_chr_split_test(
             trues.append(y.numpy().reshape(-1))
     pred = np.concatenate(preds)
     true = np.concatenate(trues)
-    return {
+    metrics: dict[str, dict[str, float]] = {
         "in_distribution": {
             "pearson_r": _safe_corr(pred, true, pearsonr),
             "spearman_r": _safe_corr(pred, true, spearmanr),
@@ -247,6 +247,71 @@ def _evaluate_chr_split_test(
             "n": len(true),
         },
     }
+
+    # Also evaluate SNV and OOD using the hashfrag eval path
+    cell_line = cfg.get("cell_line", "k562")
+    test_set_dir = Path(f"data/{cell_line}/test_sets")
+    if not test_set_dir.exists():
+        test_set_dir = Path("data/k562/test_sets")
+
+    fc_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
+
+    # SNV (filter to chr7+13 for chr-split)
+    snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    if snv_path.exists():
+        snv_df = pd.read_csv(snv_path, sep="\t")
+        # Filter to test chromosomes if chr column exists
+        if "chr" in snv_df.columns:
+            snv_df = snv_df[snv_df["chr"].isin(["chr7", "chr13"])]
+        if len(snv_df) > 0:
+            ref_pred = _predict_sequences(
+                model, snv_df["sequence_ref"].astype(str).tolist(), device, cfg
+            )
+            alt_pred = _predict_sequences(
+                model, snv_df["sequence_alt"].astype(str).tolist(), device, cfg
+            )
+            alt_col = f"{fc_col}_alt"
+            if alt_col not in snv_df.columns:
+                alt_col = "K562_log2FC_alt"
+            alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
+            metrics["snv_abs"] = {
+                "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
+                "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
+                "mse": float(np.mean((alt_pred - alt_true) ** 2)),
+                "n": len(alt_true),
+            }
+            delta_pred = alt_pred - ref_pred
+            delta_col = f"delta_{fc_col}"
+            if delta_col not in snv_df.columns:
+                delta_col = "delta_log2FC"
+            delta_true = snv_df[delta_col].to_numpy(dtype=np.float32)
+            metrics["snv_delta"] = {
+                "pearson_r": _safe_corr(delta_pred, delta_true, pearsonr),
+                "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
+                "mse": float(np.mean((delta_pred - delta_true) ** 2)),
+                "n": len(delta_true),
+            }
+
+    # OOD
+    ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
+    if not ood_path.exists():
+        ood_path = test_set_dir / "test_ood_designed_k562.tsv"
+    if ood_path.exists():
+        ood_df = pd.read_csv(ood_path, sep="\t")
+        ood_label_col = fc_col if fc_col in ood_df.columns else "K562_log2FC"
+        if ood_label_col in ood_df.columns:
+            ood_pred = _predict_sequences(
+                model, ood_df["sequence"].astype(str).tolist(), device, cfg
+            )
+            ood_true = ood_df[ood_label_col].to_numpy(dtype=np.float32)
+            metrics["ood"] = {
+                "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
+                "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
+                "mse": float(np.mean((ood_pred - ood_true) ** 2)),
+                "n": len(ood_true),
+            }
+
+    return metrics
 
 
 def evaluate_test_sets(
