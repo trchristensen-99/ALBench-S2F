@@ -100,6 +100,8 @@ def evaluate_on_exp1_test_panel(
         data = load_oracle_test_set(id_path)
         preds = _predict_batched(data["sequences"])
         results["in_dist"] = evaluate_predictions(preds, data["oracle_labels"])
+        if "true_labels" in data:
+            results["in_dist_real"] = evaluate_predictions(preds, data["true_labels"])
 
     # OOD test set
     if task == "k562":
@@ -111,6 +113,8 @@ def evaluate_on_exp1_test_panel(
         data = load_oracle_test_set(ood_path)
         preds = _predict_batched(data["sequences"])
         results["ood"] = evaluate_predictions(preds, data["oracle_labels"])
+        if "true_labels" in data:
+            results["ood_real"] = evaluate_predictions(preds, data["true_labels"])
 
     # SNV test set
     snv_path = test_dir / "snv_oracle.npz"
@@ -122,6 +126,10 @@ def evaluate_on_exp1_test_panel(
             ref_preds, alt_preds, data["ref_oracle_labels"], data["alt_oracle_labels"]
         )
         results.update(snv_results)
+        # Also evaluate SNV delta against real labels if available
+        if "true_delta" in data:
+            pred_delta = alt_preds - ref_preds
+            results["snv_delta_real"] = evaluate_predictions(pred_delta, data["true_delta"])
 
     # K562 random sequences (5th test set)
     if task == "k562":

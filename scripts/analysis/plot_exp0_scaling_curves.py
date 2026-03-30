@@ -76,13 +76,22 @@ def _get_metric(test_metrics: dict, category: str, field: str) -> float | None:
         for key in ("in_dist", "in_distribution", "random"):
             if key in test_metrics and field in test_metrics[key]:
                 return test_metrics[key][field]
+    elif category == "in_dist_real":
+        if "in_dist_real" in test_metrics and field in test_metrics["in_dist_real"]:
+            return test_metrics["in_dist_real"][field]
     elif category == "ood":
         for key in ("ood", "genomic"):
             if key in test_metrics and field in test_metrics[key]:
                 return test_metrics[key][field]
+    elif category == "ood_real":
+        if "ood_real" in test_metrics and field in test_metrics["ood_real"]:
+            return test_metrics["ood_real"][field]
     elif category == "snv_delta":
         if "snv_delta" in test_metrics and field in test_metrics["snv_delta"]:
             return test_metrics["snv_delta"][field]
+    elif category == "snv_delta_real":
+        if "snv_delta_real" in test_metrics and field in test_metrics["snv_delta_real"]:
+            return test_metrics["snv_delta_real"][field]
     return None
 
 
@@ -127,8 +136,17 @@ def load_scaling_data(
         best_hp = max(hp_map.keys(), key=lambda k: np.mean([r["val_pearson_r"] for r in hp_map[k]]))
         best[(student, n)] = hp_map[best_hp]
 
-    # Build metric curves
-    metric_keys = ["in_dist_pearson", "ood_pearson", "snv_delta_pearson", "in_dist_mse"]
+    # Build metric curves (oracle + real label versions)
+    metric_keys = [
+        "in_dist_pearson",
+        "ood_pearson",
+        "snv_delta_pearson",
+        "in_dist_mse",
+        # Real-label counterparts (from _real keys in test_metrics)
+        "in_dist_real_pearson",
+        "ood_real_pearson",
+        "snv_delta_real_pearson",
+    ]
     data: dict[str, dict[str, dict[int, list[float]]]] = {
         s: {m: {} for m in metric_keys} for s in students
     }
@@ -141,6 +159,9 @@ def load_scaling_data(
                 "ood_pearson": _get_metric(tm, "ood", "pearson_r"),
                 "snv_delta_pearson": _get_metric(tm, "snv_delta", "pearson_r"),
                 "in_dist_mse": _get_metric(tm, "in_dist", "mse"),
+                "in_dist_real_pearson": _get_metric(tm, "in_dist_real", "pearson_r"),
+                "ood_real_pearson": _get_metric(tm, "ood_real", "pearson_r"),
+                "snv_delta_real_pearson": _get_metric(tm, "snv_delta_real", "pearson_r"),
             }
             for mk in metric_keys:
                 if vals[mk] is not None:
