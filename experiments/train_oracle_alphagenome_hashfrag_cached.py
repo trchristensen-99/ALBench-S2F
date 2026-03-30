@@ -177,7 +177,10 @@ def evaluate_all_test_sets(
             "n": int(len(alt_true)),
         }
         delta_pred = alt_pred - ref_pred
-        delta_true = snv_df["delta_log2FC"].to_numpy(dtype=np.float32)
+        delta_col = f"delta_{fc_col}"
+        if delta_col not in snv_df.columns:
+            delta_col = "delta_log2FC"
+        delta_true = snv_df[delta_col].to_numpy(dtype=np.float32)
         metrics["snv_delta"] = {
             "pearson_r": _safe_corr(delta_pred, delta_true, pearsonr),
             "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
