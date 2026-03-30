@@ -1972,11 +1972,7 @@ def run_scaling_experiment(
                     # not a lost run)
                     test_metrics: dict[str, dict[str, float]] = {}
                     try:
-                        if (
-                            oracle_type == "ground_truth"
-                            and task == "k562"
-                            and (cell_line or chr_split)
-                        ):
+                        if oracle_type == "ground_truth" and task == "k562":
                             # Evaluate directly on K562Dataset test split with correct label column
                             # Also used for chr-split to ensure test set matches split scheme
                             test_metrics = _evaluate_ground_truth_test(
