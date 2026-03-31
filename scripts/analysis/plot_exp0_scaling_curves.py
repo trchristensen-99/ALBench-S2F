@@ -29,8 +29,8 @@ OUT = REPO / "results" / "exp0_scaling_plots"
 # --- Model definitions -----------------------------------------------------------
 
 K562_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_k562_s1", "alphagenome_k562_s2"]
-YEAST_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_yeast_s1"]
-# AG S2 yeast excluded: softmax gradient vanishing bug causes 0.0 across all runs
+YEAST_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_yeast_s1", "alphagenome_yeast_s2"]
+# AG S2 yeast: softmax bug fixed (mean-pool replacement), results being regenerated
 
 COLORS = {
     "dream_cnn": "#E8602C",
@@ -173,13 +173,26 @@ def load_scaling_data(
 def _curve_arrays(
     n_to_vals: dict[int, list[float]],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Convert {n_train: [values]} to sorted (ns, means, stds) arrays."""
+    """Convert {n_train: [values]} to sorted (ns, means, stds) arrays.
+
+    Filters out data points where the best HP config's mean is effectively zero
+    (broken runs that haven't been replaced yet).
+    """
     if not n_to_vals:
         return np.array([]), np.array([]), np.array([])
-    ns = sorted(n_to_vals.keys())
-    means = np.array([np.mean(n_to_vals[n]) for n in ns])
-    stds = np.array([np.std(n_to_vals[n]) if len(n_to_vals[n]) > 1 else 0.0 for n in ns])
-    return np.array(ns), means, stds
+    ns_out, means_out, stds_out = [], [], []
+    for n in sorted(n_to_vals.keys()):
+        vals = n_to_vals[n]
+        # Filter out near-zero values (broken runs)
+        good = [v for v in vals if abs(v) > 0.01]
+        if not good:
+            continue  # skip this N entirely if all values are ~0
+        m = np.mean(good)
+        s = np.std(good) if len(good) > 1 else 0.0
+        ns_out.append(n)
+        means_out.append(m)
+        stds_out.append(s)
+    return np.array(ns_out), np.array(means_out), np.array(stds_out)
 
 
 # --- Plotting helpers -------------------------------------------------------------
@@ -206,8 +219,19 @@ def _plot_scaling_panel(
     ylabel: str,
     title: str,
     invert: bool = False,
+    annotate: bool = False,
+    skip_annotate: set | None = None,
 ):
-    """Plot one metric panel with lines, markers, and error bands."""
+    """Plot one metric panel with lines, markers, and error bands.
+
+    Args:
+        annotate: If True, add value labels (3 decimal places) above each point.
+        skip_annotate: Set of student keys to skip annotation for (e.g., AG S1
+            on K562 where values are nearly identical to AG S2).
+    """
+    if skip_annotate is None:
+        skip_annotate = set()
+
     for student in students:
         n_to_vals = data.get(student, {})
         ns, means, stds = _curve_arrays(n_to_vals)
@@ -235,6 +259,21 @@ def _plot_scaling_panel(
             alpha=0.15,
             zorder=2,
         )
+
+        # Add value annotations
+        if annotate and student not in skip_annotate:
+            for n_val, m_val in zip(ns, means):
+                ax.annotate(
+                    f"{m_val:.3f}",
+                    (n_val, m_val),
+                    textcoords="offset points",
+                    xytext=(0, 7),
+                    fontsize=5.5,
+                    ha="center",
+                    color=color,
+                    fontweight="semibold",
+                    zorder=5,
+                )
 
     ax.set_xscale("log")
     ax.set_xlabel("N training examples")
@@ -273,9 +312,10 @@ def plot_2x2_panel(
     students: list[str],
     data: dict,
     out_stem: str,
+    skip_annotate: set | None = None,
 ):
     """Create a 2x2 panel figure for the given task."""
-    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
     panels = [
         ("in_dist_pearson", "In-distribution Pearson R", False),
@@ -301,6 +341,8 @@ def plot_2x2_panel(
             ylabel,
             f"{task_label} — {ylabel}",
             invert=invert,
+            annotate=True,
+            skip_annotate=skip_annotate,
         )
         _format_n_ticks(ax, ns_union)
 
@@ -336,9 +378,10 @@ def plot_overview(
     students: list[str],
     data: dict,
     out_stem: str,
+    skip_annotate: set | None = None,
 ):
     """Create a single-panel 'money plot' for K562 in-dist Pearson R."""
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, ax = plt.subplots(figsize=(8, 5.5))
 
     all_ns: set[int] = set()
     for s in students:
@@ -352,6 +395,8 @@ def plot_overview(
         students,
         "In-distribution Pearson R",
         "K562 Scaling — In-distribution Pearson R",
+        annotate=True,
+        skip_annotate=skip_annotate,
     )
     _format_n_ticks(ax, ns_union)
     ax.legend(fontsize=11, frameon=True, fancybox=False, edgecolor="0.8")
@@ -709,9 +754,18 @@ def main():
                 print(f"  {LABELS.get(s, s)}: {', '.join(vals)}")
 
         print("Plotting K562 2x2 panel...")
-        plot_2x2_panel("k562", "K562", K562_STUDENTS, k562_data, "k562_scaling_2x2")
+        # Skip annotating AG S1 on K562 (values nearly identical to AG S2 except MSE)
+        k562_skip = {"alphagenome_k562_s1"}
+        plot_2x2_panel(
+            "k562",
+            "K562",
+            K562_STUDENTS,
+            k562_data,
+            "k562_scaling_2x2",
+            skip_annotate=k562_skip,
+        )
         print("Plotting K562 overview...")
-        plot_overview(K562_STUDENTS, k562_data, "k562_scaling_overview")
+        plot_overview(K562_STUDENTS, k562_data, "k562_scaling_overview", skip_annotate=k562_skip)
 
         # Cross-oracle comparison
         print("Plotting K562 cross-oracle comparison...")
