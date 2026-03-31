@@ -30,7 +30,12 @@ OUT = REPO / "results" / "exp0_scaling_plots"
 
 K562_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_k562_s1", "alphagenome_k562_s2"]
 YEAST_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_yeast_s1", "alphagenome_yeast_s2"]
-# AG S2 yeast: softmax bug fixed (mean-pool replacement), results being regenerated
+# AG S2 yeast: softmax bug fixed; _hlr variant merged in load_scaling_data
+
+# Extra directories to merge into main student results (same student, different HP)
+YEAST_MERGE_DIRS = {
+    "alphagenome_yeast_s2": ["alphagenome_yeast_s2_hlr"],
+}
 
 COLORS = {
     "dream_cnn": "#E8602C",
@@ -116,10 +121,19 @@ def load_scaling_data(
     # Collect raw data grouped by (student, n_train, hp_config) -> list of metric dicts
     raw: dict[tuple, list[dict]] = defaultdict(list)
 
+    # Build mapping of merge dirs → target student
+    merge_map: dict[str, str] = {}
+    if task == "yeast":
+        for target, extras in YEAST_MERGE_DIRS.items():
+            for extra in extras:
+                merge_map[extra] = target
+
     for rj in task_dir.rglob("result.json"):
         r = json.loads(rj.read_text())
         parts = str(rj.relative_to(task_dir)).split("/")
         student = parts[0]
+        # Merge extra dirs into their target student
+        student = merge_map.get(student, student)
         if student not in students:
             continue
         n = r["n_train"]
