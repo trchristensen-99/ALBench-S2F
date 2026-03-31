@@ -80,6 +80,7 @@ def _encode_and_save(
     batch_size: int = 2,
     dtype: np.dtype = np.float16,
     center_bins: int = 0,
+    extraction_mode: str = "full_pipeline_allbins",
 ) -> None:
     """Encode sequences with Borzoi and save canonical + RC caches.
 
@@ -96,7 +97,7 @@ def _encode_and_save(
         return
 
     N = len(sequences)
-    D = 1536
+    D = 1280 if extraction_mode.startswith("unet0") else 1536
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     can_buf = np.lib.format.open_memmap(can_path, mode="w+", dtype=dtype, shape=(N, D))
@@ -127,18 +128,79 @@ def _encode_and_save(
         # Try with autocast first; retry without if NaN detected
         for attempt, use_autocast in enumerate([device.type == "cuda", False]):
             with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_autocast):
-                emb_can = model.get_embs_after_crop(can_padded)  # (B, 1536, 6144)
-                emb_rc = model.get_embs_after_crop(rc_padded)
-
-            # Pool: center-crop or full mean-pool
-            if center_bins > 0:
-                total_bins = emb_can.shape[2]
-                start = (total_bins - center_bins) // 2
-                emb_can = emb_can[:, :, start : start + center_bins].mean(dim=2)
-                emb_rc = emb_rc[:, :, start : start + center_bins].mean(dim=2)
-            else:
-                emb_can = emb_can.mean(dim=2)  # (B, 1536)
-                emb_rc = emb_rc.mean(dim=2)
+                if extraction_mode.startswith("pre_transformer"):
+                    # Extract BEFORE self-attention (local conv features only)
+                    n_center = (
+                        int(extraction_mode.split("_c")[-1]) if "_c" in extraction_mode else 5
+                    )
+                    h = model.conv_dna(can_padded)
+                    h0 = model.res_tower(h)
+                    h1 = model.unet1(h0)
+                    h_pool = model._max_pool(h1)  # (B, 1536, 1536)
+                    c = h_pool.shape[2] // 2
+                    emb_can = h_pool[:, :, c - n_center // 2 : c + (n_center + 1) // 2].mean(dim=2)
+                    # RC
+                    h = model.conv_dna(rc_padded)
+                    h0 = model.res_tower(h)
+                    h1 = model.unet1(h0)
+                    h_pool = model._max_pool(h1)
+                    emb_rc = h_pool[:, :, c - n_center // 2 : c + (n_center + 1) // 2].mean(dim=2)
+                elif extraction_mode.startswith("unet0"):
+                    # Extract at res_tower output (1280-dim, 6144 bins)
+                    n_center = (
+                        int(extraction_mode.split("_c")[-1]) if "_c" in extraction_mode else 20
+                    )
+                    h = model.conv_dna(can_padded)
+                    h0 = model.res_tower(h)  # (B, 1280, 6144)
+                    c = h0.shape[2] // 2
+                    emb_can = h0[:, :, c - n_center // 2 : c + (n_center + 1) // 2].mean(dim=2)
+                    h = model.conv_dna(rc_padded)
+                    h0 = model.res_tower(h)
+                    emb_rc = h0[:, :, c - n_center // 2 : c + (n_center + 1) // 2].mean(dim=2)
+                elif extraction_mode.startswith("unet1"):
+                    # Extract at unet1 output (1536-dim, 3072 bins)
+                    n_center = (
+                        int(extraction_mode.split("_c")[-1]) if "_c" in extraction_mode else 10
+                    )
+                    h = model.conv_dna(can_padded)
+                    h0 = model.res_tower(h)
+                    h1 = model.unet1(h0)  # (B, 1536, 3072)
+                    c = h1.shape[2] // 2
+                    emb_can = h1[:, :, c - n_center // 2 : c + (n_center + 1) // 2].mean(dim=2)
+                    h = model.conv_dna(rc_padded)
+                    h0 = model.res_tower(h)
+                    h1 = model.unet1(h0)
+                    emb_rc = h1[:, :, c - n_center // 2 : c + (n_center + 1) // 2].mean(dim=2)
+                elif extraction_mode.startswith("post_transformer"):
+                    # Post-attention center bins (same as v5 approach)
+                    n_center = (
+                        int(extraction_mode.split("_c")[-1]) if "_c" in extraction_mode else 5
+                    )
+                    h = model.conv_dna(can_padded)
+                    h0 = model.res_tower(h)
+                    h1 = model.unet1(h0)
+                    h_pool = model._max_pool(h1).permute(0, 2, 1)
+                    h_post = model.transformer(h_pool).permute(0, 2, 1)  # (B, 1536, L)
+                    c = h_post.shape[2] // 2
+                    emb_can = h_post[:, :, c - n_center // 2 : c + (n_center + 1) // 2].mean(dim=2)
+                    h = model.conv_dna(rc_padded)
+                    h0 = model.res_tower(h)
+                    h1 = model.unet1(h0)
+                    h_pool = model._max_pool(h1).permute(0, 2, 1)
+                    h_post = model.transformer(h_pool).permute(0, 2, 1)
+                    emb_rc = h_post[:, :, c - n_center // 2 : c + (n_center + 1) // 2].mean(dim=2)
+                else:
+                    # Default: full pipeline (get_embs_after_crop + pool)
+                    emb_can = model.get_embs_after_crop(can_padded)  # (B, 1536, 6144)
+                    emb_rc = model.get_embs_after_crop(rc_padded)
+                    if center_bins > 0:
+                        total_bins = emb_can.shape[2]
+                        start = (total_bins - center_bins) // 2
+                        emb_can = emb_can[:, :, start : start + center_bins].mean(dim=2)
+                        emb_rc = emb_rc[:, :, start : start + center_bins].mean(dim=2)
+                    else:
+                        emb_can = emb_can.mean(dim=2)
+                        emb_rc = emb_rc.mean(dim=2)
 
             has_nan = torch.isnan(emb_can).any() or torch.isnan(emb_rc).any()
             if not has_nan:
@@ -189,6 +251,12 @@ def main():
     )
     parser.add_argument("--include-test", action="store_true")
     parser.add_argument("--test-only", action="store_true", help="Only rebuild test caches.")
+    parser.add_argument(
+        "--extraction-mode",
+        default="full_pipeline_allbins",
+        help="Embedding extraction point: pre_transformer_cN, unet0_cN, unet1_cN, "
+        "post_transformer_cN, or full_pipeline_allbins (default).",
+    )
     parser.add_argument("--chr-split", action="store_true", help="Use chromosome-based splits.")
     parser.add_argument("--cell-line", default="k562", help="Cell line (k562/hepg2/sknsh).")
     parser.add_argument(
@@ -262,8 +330,19 @@ def main():
     if cb > 0:
         print(f"Center-crop mode: pooling center {cb} bins (of 6144)")
 
+    extraction_mode = getattr(args, "extraction_mode", "full_pipeline_allbins")
+
     def _save(seqs, prefix):
-        _encode_and_save(model, seqs, cache_dir, prefix, device, args.batch_size, center_bins=cb)
+        _encode_and_save(
+            model,
+            seqs,
+            cache_dir,
+            prefix,
+            device,
+            args.batch_size,
+            center_bins=cb,
+            extraction_mode=extraction_mode,
+        )
 
     if args.test_only:
         args.include_test = True
