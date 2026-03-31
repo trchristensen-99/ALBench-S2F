@@ -168,8 +168,8 @@ case ${T} in
 8)
     echo "NTv3 S2 K562 3 seeds (redo — existing stage2_final was broken)"
     for SEED in 0 1 2; do
-        uv run --no-sync python experiments/train_foundation_stage2.py \
-            ++model_name="ntv3_post" \
+        uv run --no-sync python experiments/train_ntv3_stage2.py \
+            ++model_variant="post" \
             ++cell_line="k562" \
             ++output_dir="outputs/ntv3_post_k562_stage2_3seeds/seed_${SEED}" \
             ++seed=${SEED} \
@@ -183,8 +183,8 @@ case ${T} in
 9)
     echo "NTv3 S2 HepG2 seeds 1,2"
     for SEED in 1 2; do
-        uv run --no-sync python experiments/train_foundation_stage2.py \
-            ++model_name="ntv3_post" \
+        uv run --no-sync python experiments/train_ntv3_stage2.py \
+            ++model_variant="post" \
             ++cell_line="hepg2" \
             ++output_dir="outputs/ntv3_post_hepg2_stage2/seed_${SEED}" \
             ++seed=${SEED} \
@@ -198,8 +198,8 @@ case ${T} in
 10)
     echo "NTv3 S2 SKNSH seeds 1,2"
     for SEED in 1 2; do
-        uv run --no-sync python experiments/train_foundation_stage2.py \
-            ++model_name="ntv3_post" \
+        uv run --no-sync python experiments/train_ntv3_stage2.py \
+            ++model_variant="post" \
             ++cell_line="sknsh" \
             ++output_dir="outputs/ntv3_post_sknsh_stage2/seed_${SEED}" \
             ++seed=${SEED} \
