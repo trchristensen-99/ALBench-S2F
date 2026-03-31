@@ -123,13 +123,13 @@ S2_CONFIG = {
         "warmup_epochs": 3,  # head-only warmup before unfreezing encoder
     },
     "yeast": {
-        "unfreeze_blocks": [4, 5],
+        "unfreeze_blocks": [0, 1, 2, 3, 4, 5],  # unfreeze all 6 downres blocks for yeast
         "head_lr": 1e-3,
         "weight_decay": 1e-6,
         "max_shift": 0,  # no shift aug for yeast (80bp is the full region)
-        "epochs": 30,
-        "early_stop_patience": 7,
-        "warmup_epochs": 3,
+        "epochs": 50,
+        "early_stop_patience": 10,
+        "warmup_epochs": 5,  # longer warmup since more blocks unfrozen
     },
 }
 

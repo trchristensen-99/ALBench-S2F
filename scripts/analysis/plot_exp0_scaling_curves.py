@@ -533,6 +533,42 @@ def load_real_label_data(task: str) -> dict[str, dict[str, dict[int, list[float]
                         mk_data[mk].setdefault(n, []).append(val)
             data[student] = mk_data
 
+        # AG S2 real labels (old format: summary.json, fraction-based dirs)
+        base = REPO / "outputs" / "exp0_yeast_scaling_ag_s2"
+        if base.exists():
+            student = "alphagenome_yeast_s2"
+            mk_data = {
+                "in_dist_pearson": {},
+                "ood_pearson": {},
+                "snv_delta_pearson": {},
+                "in_dist_mse": {},
+            }
+            yeast_total = 6_065_324
+            for sj in base.rglob("summary.json"):
+                r = json.loads(sj.read_text())
+                # Derive n from fraction directory name
+                frac_dir = sj.parent.parent.name  # e.g., "fraction_0.05"
+                try:
+                    frac = float(frac_dir.split("_")[1])
+                    n = round(yeast_total * frac)
+                except (IndexError, ValueError):
+                    continue
+                if n <= 0:
+                    continue
+                tm = r.get("test_metrics", {})
+                for cat, mk in [
+                    ("in_dist", "in_dist_pearson"),
+                    ("ood", "ood_pearson"),
+                    ("snv_delta", "snv_delta_pearson"),
+                    ("in_dist", "in_dist_mse"),
+                ]:
+                    field = "mse" if "mse" in mk else "pearson_r"
+                    # summary.json uses "random" for in-dist, "genomic" for ood
+                    val = _get_metric(tm, cat, field)
+                    if val is not None:
+                        mk_data[mk].setdefault(n, []).append(val)
+            data[student] = mk_data
+
     return data
 
 
@@ -833,7 +869,7 @@ def main():
         plot_oracle_vs_real(
             "yeast",
             "Yeast",
-            ["dream_rnn", "alphagenome_yeast_s1"],
+            ["dream_rnn", "alphagenome_yeast_s1", "alphagenome_yeast_s2"],
             yeast_data,
             yeast_real,
             "yeast_oracle_vs_real",
