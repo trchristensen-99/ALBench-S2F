@@ -926,11 +926,20 @@ def train(cfg: dict):
             pred = head(emb)
             loss = F.mse_loss(pred, labels) / grad_accum_steps
 
-            if torch.isnan(loss):
-                print(
-                    f"  [WARN] NaN loss at batch {batch_idx + 1}, skipping",
-                    flush=True,
-                )
+            # Skip NaN or extremely large losses (gradient explosion protection)
+            # Large losses (>5.0 per sample) indicate pathological batches that
+            # would corrupt model weights through enormous gradients.
+            loss_threshold = 5.0 / grad_accum_steps
+            if torch.isnan(loss) or loss.item() > loss_threshold:
+                if torch.isnan(loss):
+                    reason = "NaN"
+                else:
+                    reason = f"large ({loss.item() * grad_accum_steps:.1f})"
+                if (batch_idx + 1) % 500 == 0 or torch.isnan(loss):
+                    print(
+                        f"  [WARN] {reason} loss at batch {batch_idx + 1}, skipping",
+                        flush=True,
+                    )
                 optimizer.zero_grad(set_to_none=True)
                 if scaler is not None:
                     scaler.update()
@@ -948,6 +957,9 @@ def train(cfg: dict):
                 if scaler is not None:
                     scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(all_trainable, grad_clip)
+                # Extra tight clipping for LoRA adapters to prevent spike corruption
+                if lora_adapters is not None:
+                    torch.nn.utils.clip_grad_norm_(lora_adapters.parameters(), grad_clip * 0.1)
                 if scaler is not None:
                     scaler.step(optimizer)
                     scaler.update()
