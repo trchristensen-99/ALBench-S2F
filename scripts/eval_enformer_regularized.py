@@ -74,6 +74,14 @@ def evaluate_head(head, cache_dir, test_set_dir, cell_line="k562"):
         if preds is not None:
             label_col = fc_col if fc_col in df.columns else "K562_log2FC"
             true = df[label_col].to_numpy(dtype=np.float32)
+            # Handle cache/file size mismatch (OOD file may have been regenerated)
+            n_min = min(len(preds), len(true))
+            if len(preds) != len(true):
+                print(
+                    f"  [WARN] OOD size mismatch: cache={len(preds)} vs file={len(true)}, using first {n_min}"
+                )
+                preds = preds[:n_min]
+                true = true[:n_min]
             metrics["ood"] = {
                 "pearson_r": _safe_corr(preds, true, pearsonr),
                 "spearman_r": _safe_corr(preds, true, spearmanr),
