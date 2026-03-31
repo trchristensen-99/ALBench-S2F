@@ -111,6 +111,7 @@ _COMBINED_RESULT_DIRS = {
     ],
     # Malinois (from-scratch, all 3 cells)
     ("Malinois", "k562"): [
+        "outputs/malinois_k562_sweep/lr0.001_wd1e-3",
         "outputs/malinois_k562_with_preds",
         "outputs/malinois_k562_3seeds",
     ],
@@ -162,10 +163,12 @@ _COMBINED_RESULT_DIRS = {
         "outputs/ag_fold_1_k562_s1_full",
     ],
     ("AG fold 1", "hepg2"): [
+        "outputs/ag_fold_1_hepg2_s2_from_s1",
         "outputs/ag_fold_1_hepg2_s2",
         "outputs/ag_fold_1_hepg2_s1",
     ],
     ("AG fold 1", "sknsh"): [
+        "outputs/ag_fold_1_sknsh_s2_from_s1",
         "outputs/ag_fold_1_sknsh_s2",
         "outputs/ag_fold_1_sknsh_s1",
     ],
@@ -185,12 +188,12 @@ _COMBINED_RESULT_DIRS = {
         "outputs/stage2_k562_full_train",
     ],
     ("AG S2", "hepg2"): [
+        "outputs/ag_all_folds_hepg2_s2_from_s1",
         "outputs/ag_hepg2_stage2",
-        "outputs/ag_s2_hepg2",
     ],
     ("AG S2", "sknsh"): [
+        "outputs/ag_all_folds_sknsh_s2_from_s1",
         "outputs/ag_sknsh_stage2",
-        "outputs/ag_s2_sknsh",
     ],
 }
 
@@ -217,6 +220,7 @@ _S1_RESULT_DIRS = {
         "outputs/dream_cnn_sknsh_real",
     ],
     ("Malinois", "k562"): [
+        "outputs/malinois_k562_sweep/lr0.001_wd1e-3",
         "outputs/malinois_k562_with_preds",
         "outputs/malinois_k562_3seeds",
     ],
