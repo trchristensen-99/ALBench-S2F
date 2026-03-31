@@ -71,6 +71,10 @@ DEFAULT_CONFIG = {
     "head_warmup_epochs": 0,  # train head with encoder frozen before unfreezing
     "normalize_embeddings": False,  # L2-normalize encoder embeddings before head
     "cell_line": "k562",
+    # LoRA adapter config (Borzoi only)
+    "use_lora": False,  # inject LoRA adapters into Borzoi transformer blocks
+    "lora_rank": 32,  # bottleneck dimension for adapters
+    "lora_blocks": "",  # comma-separated block indices, e.g., "4,5,6,7"
 }
 
 CELL_LINE_LABEL_COLS = {
@@ -300,6 +304,50 @@ def _forward_enformer(model, one_hot_batch):
     center = ENFORMER_TARGET_LEN // 2  # 448
     center_emb = emb[:, center - 2 : center + 2, :]  # center 4 bins
     return center_emb.mean(dim=1)  # (B, 3072)
+
+
+class BottleneckAdapter(nn.Module):
+    """Residual bottleneck adapter for LoRA-style fine-tuning."""
+
+    def __init__(self, dim: int, rank: int = 32, dropout: float = 0.1):
+        super().__init__()
+        self.down = nn.Linear(dim, rank, bias=False)
+        self.up = nn.Linear(rank, dim, bias=False)
+        self.act = nn.ReLU()
+        self.drop = nn.Dropout(dropout)
+        # Initialize up projection to near-zero so adapter starts as identity
+        nn.init.zeros_(self.up.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.drop(self.up(self.act(self.down(x))))
+
+
+def inject_lora_adapters(model, block_indices: list[int], rank: int = 32):
+    """Inject LoRA adapters into Borzoi transformer blocks.
+
+    Wraps each specified transformer block so the adapter runs after it.
+    Returns the list of adapter modules (for optimizer).
+    """
+    adapters = nn.ModuleList()
+    dim = 1536  # Borzoi hidden dim
+    new_blocks = list(model.transformer)
+    for idx in block_indices:
+        adapter = BottleneckAdapter(dim, rank)
+        original_block = new_blocks[idx]
+
+        class AdaptedBlock(nn.Module):
+            def __init__(self, block, adapt):
+                super().__init__()
+                self.block = block
+                self.adapter = adapt
+
+            def forward(self, x):
+                return self.adapter(self.block(x))
+
+        new_blocks[idx] = AdaptedBlock(original_block, adapter)
+        adapters.append(adapter)
+    model.transformer = nn.Sequential(*new_blocks)
+    return adapters
 
 
 def _forward_borzoi(model, one_hot_batch, center_bins: int = 0, normalize: bool = False):
@@ -662,6 +710,20 @@ def train(cfg: dict):
     else:
         raise ValueError(f"Unknown model_name: {model_name}")
 
+    # ── LoRA adapters (Borzoi only) ─────────────────────────────────────────
+    lora_adapters = None
+    if model_name == "borzoi" and cfg.get("use_lora", False):
+        lora_block_str = str(cfg.get("lora_blocks", "4,5,6,7"))
+        lora_block_indices = [int(b) for b in lora_block_str.split(",") if b.strip()]
+        lora_rank = int(cfg.get("lora_rank", 32))
+        lora_adapters = inject_lora_adapters(encoder_model, lora_block_indices, rank=lora_rank)
+        lora_params = sum(p.numel() for p in lora_adapters.parameters())
+        print(
+            f"LoRA adapters injected: rank={lora_rank}, blocks={lora_block_indices}, "
+            f"params={lora_params:,}",
+            flush=True,
+        )
+
     encoder_model.to(device)
     encoder_model.eval()
     print(f"Encoder loaded in {time.time() - t0:.1f}s", flush=True)
@@ -698,21 +760,34 @@ def train(cfg: dict):
     encoder_params = []
     frozen_count = 0
 
-    for name, param in encoder_model.named_parameters():
-        if should_unfreeze(name, unfreeze_mode):
-            param.requires_grad = True
-            encoder_params.append(param)
-        else:
+    if lora_adapters is not None:
+        # With LoRA: freeze entire encoder, only adapters are trainable
+        for param in encoder_model.parameters():
             param.requires_grad = False
             frozen_count += param.numel()
+        # Unfreeze adapter parameters
+        for adapter in lora_adapters:
+            for param in adapter.parameters():
+                param.requires_grad = True
+                encoder_params.append(param)
+                frozen_count -= param.numel()  # don't double-count
+    else:
+        for name, param in encoder_model.named_parameters():
+            if should_unfreeze(name, unfreeze_mode):
+                param.requires_grad = True
+                encoder_params.append(param)
+            else:
+                param.requires_grad = False
+                frozen_count += param.numel()
 
     head_params = list(head.parameters())
     n_head = sum(p.numel() for p in head_params)
     n_encoder = sum(p.numel() for p in encoder_params)
 
+    label = "LoRA adapters" if lora_adapters is not None else "encoder"
     print(
         f"Param groups — head: {n_head:,}  "
-        f"encoder (trainable): {n_encoder:,}  "
+        f"{label} (trainable): {n_encoder:,}  "
         f"frozen: {frozen_count:,}  "
         f"total: {n_head + n_encoder + frozen_count:,}",
         flush=True,
