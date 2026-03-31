@@ -151,6 +151,11 @@ def main():
     )
     parser.add_argument("--include-test", action="store_true")
     parser.add_argument(
+        "--test-only",
+        action="store_true",
+        help="Only rebuild test set caches (skip train/val). Implies --include-test.",
+    )
+    parser.add_argument(
         "--chr-split", action="store_true", help="Use chromosome-based splits instead of HashFrag."
     )
     parser.add_argument(
@@ -190,6 +195,10 @@ def main():
 
     cache_dir = Path(args.cache_dir)
     data_path = Path(args.data_path)
+
+    if args.test_only:
+        args.include_test = True
+        args.splits = []  # skip train/val
 
     CELL_LABEL_COLS = {"k562": "K562_log2FC", "hepg2": "HepG2_log2FC", "sknsh": "SKNSH_log2FC"}
     label_col = CELL_LABEL_COLS.get(args.cell_line, "K562_log2FC")

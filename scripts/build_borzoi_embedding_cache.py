@@ -188,6 +188,7 @@ def main():
         "--splits", nargs="+", default=["train", "val"], help="K562Dataset splits to cache."
     )
     parser.add_argument("--include-test", action="store_true")
+    parser.add_argument("--test-only", action="store_true", help="Only rebuild test caches.")
     parser.add_argument("--chr-split", action="store_true", help="Use chromosome-based splits.")
     parser.add_argument("--cell-line", default="k562", help="Cell line (k562/hepg2/sknsh).")
     parser.add_argument(
@@ -263,6 +264,10 @@ def main():
 
     def _save(seqs, prefix):
         _encode_and_save(model, seqs, cache_dir, prefix, device, args.batch_size, center_bins=cb)
+
+    if args.test_only:
+        args.include_test = True
+        args.splits = []
 
     CELL_LABEL_COLS = {"k562": "K562_log2FC", "hepg2": "HepG2_log2FC", "sknsh": "SKNSH_log2FC"}
     label_col = CELL_LABEL_COLS.get(args.cell_line, "K562_log2FC")
