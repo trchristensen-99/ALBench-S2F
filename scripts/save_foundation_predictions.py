@@ -94,8 +94,15 @@ def main():
     result_dirs = RESULT_DIRS.get((args.model, args.cell), [])
 
     if not cache_dir or not Path(cache_dir).exists():
-        print(f"Cache dir not found: {cache_dir}")
-        return
+        # Fall back to K562 cache (same sequences, different labels)
+        k562_cache = CACHE_DIRS.get((args.model, "k562"))
+        if k562_cache and Path(k562_cache).exists():
+            print(f"Cache dir not found: {cache_dir}")
+            print(f"Falling back to K562 cache: {k562_cache}")
+            cache_dir = k562_cache
+        else:
+            print(f"Cache dir not found: {cache_dir} (and no K562 fallback)")
+            return
 
     print(f"Model: {args.model}, Cell: {args.cell}")
     print(f"Cache: {cache_dir}")
