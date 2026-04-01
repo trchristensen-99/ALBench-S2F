@@ -240,10 +240,23 @@ def main():
         test_dir = data_path / "test_sets"
         print("\nBuilding test set caches...")
 
-        in_dist_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
+        if args.chr_split:
+            # For chr_split: in-dist test = chr7+13 from K562Dataset
+            test_ds = K562Dataset(
+                data_path=str(data_path),
+                split="test",
+                label_column=label_col,
+                use_hashfrag=False,
+                use_chromosome_fallback=True,
+            )
+            in_dist_seqs = list(test_ds.sequences)
+            print(f"  Chr-split in-dist test: {len(in_dist_seqs)} sequences (chr7+13)")
+        else:
+            in_dist_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
+            in_dist_seqs = in_dist_df["sequence"].tolist()
         _encode_and_save(
             model,
-            in_dist_df["sequence"].tolist(),
+            in_dist_seqs,
             cache_dir,
             "test_in_dist",
             device,
@@ -251,6 +264,7 @@ def main():
             args.n_center_bins,
         )
 
+        # SNV pairs — always build from full file (filtered at eval time for chr_split)
         snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
         _encode_and_save(
             model,

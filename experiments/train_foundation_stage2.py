@@ -71,6 +71,9 @@ DEFAULT_CONFIG = {
     "head_warmup_epochs": 0,  # train head with encoder frozen before unfreezing
     "normalize_embeddings": False,  # L2-normalize encoder embeddings before head
     "cell_line": "k562",
+    "chr_split": False,  # use chromosome-based splits (test=chr7+13, val=chr19+21+X)
+    "shift_aug": False,  # random shift augmentation during training
+    "max_shift": 15,  # max shift in bp (±max_shift)
     # LoRA adapter config (Borzoi only)
     "use_lora": False,  # inject LoRA adapters into Borzoi transformer blocks
     "lora_rank": 32,  # bottleneck dimension for adapters
@@ -147,8 +150,16 @@ def _rc_onehot(oh: np.ndarray) -> np.ndarray:
 
 
 # ── Collate functions ────────────────────────────────────────────────────────
-def _collate_train(batch, rc_aug: bool = True):
-    """Collate K562Dataset items -> (B, 4, 600) one-hot with optional RC aug."""
+def _shift_onehot(oh: np.ndarray, max_shift: int) -> np.ndarray:
+    """Random circular shift of (4, L) one-hot by up to ±max_shift bp."""
+    shift = np.random.randint(-max_shift, max_shift + 1)
+    if shift != 0:
+        return np.roll(oh, shift, axis=1)
+    return oh
+
+
+def _collate_train(batch, rc_aug: bool = True, shift_aug: bool = False, max_shift: int = 15):
+    """Collate K562Dataset items -> (B, 4, 600) one-hot with optional RC + shift aug."""
     ohs = []
     labels = []
     for seq_5ch, label in batch:
@@ -156,6 +167,8 @@ def _collate_train(batch, rc_aug: bool = True):
         oh_600 = _add_flanks(oh_4ch)  # (4, 600)
         if rc_aug and np.random.rand() > 0.5:
             oh_600 = _rc_onehot(oh_600)
+        if shift_aug and np.random.rand() > 0.5:
+            oh_600 = _shift_onehot(oh_600, max_shift)
         ohs.append(oh_600)
         labels.append(float(label.numpy()) if hasattr(label, "numpy") else float(label))
     return (
@@ -810,8 +823,17 @@ def train(cfg: dict):
     data_path = Path(cfg["data_path"])
     cell_line = cfg.get("cell_line", "k562")
     label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
-    train_ds = K562Dataset(data_path=str(data_path), split="train", label_column=label_col)
-    val_ds = K562Dataset(data_path=str(data_path), split="val", label_column=label_col)
+    use_chr_split = bool(cfg.get("chr_split", False))
+    ds_kwargs = {
+        "data_path": str(data_path),
+        "label_column": label_col,
+    }
+    if use_chr_split:
+        ds_kwargs["use_hashfrag"] = False
+        ds_kwargs["use_chromosome_fallback"] = True
+        print("Using chromosome-based splits (test=chr7+13, val=chr19+21+X)", flush=True)
+    train_ds = K562Dataset(split="train", **ds_kwargs)
+    val_ds = K562Dataset(split="val", **ds_kwargs)
 
     max_train = int(cfg["max_train_sequences"])
     max_val = int(cfg["max_val_sequences"])
@@ -831,16 +853,23 @@ def train(cfg: dict):
     print(f"Train: {len(train_ds):,}  Val: {len(val_ds):,}", flush=True)
 
     rc_aug = bool(cfg["rc_aug"])
+    shift_aug = bool(cfg.get("shift_aug", False))
+    max_shift = int(cfg.get("max_shift", 15))
     batch_size = int(cfg["batch_size"])
     grad_accum_steps = int(cfg["grad_accum_steps"])
     n_workers = int(cfg["num_workers"])
+
+    if shift_aug:
+        print(f"Shift augmentation enabled: ±{max_shift}bp", flush=True)
 
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
         num_workers=n_workers,
-        collate_fn=lambda b: _collate_train(b, rc_aug=rc_aug),
+        collate_fn=lambda b: _collate_train(
+            b, rc_aug=rc_aug, shift_aug=shift_aug, max_shift=max_shift
+        ),
         pin_memory=True,
         drop_last=True,
     )

@@ -164,8 +164,13 @@ def evaluate_test_sets_cached(
     data_path: Path,
     device: torch.device,
     cell_line: str = "k562",
+    chr_split: bool = False,
 ) -> dict[str, dict[str, float]]:
-    """Evaluate on test sets using cached embeddings (RC-averaged)."""
+    """Evaluate on test sets using cached embeddings (RC-averaged).
+
+    For chr_split mode, uses K562Dataset test split (chr7+13) for in-dist
+    and filters SNV pairs to chr7+13 chromosomes only.
+    """
     import pandas as pd
 
     fc_col = CELL_LINE_LABEL_COLS[cell_line]
@@ -187,55 +192,113 @@ def evaluate_test_sets_cached(
                 preds.append(((p_can + p_rc) / 2.0).cpu().numpy())
         return np.concatenate(preds)
 
-    # In-distribution
-    in_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
-    in_pred = _predict_cached("test_in_dist")
-    in_true = in_df[fc_col].to_numpy(dtype=np.float32)
-    metrics["in_distribution"] = {
-        "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
-        "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
-        "mse": float(np.mean((in_pred - in_true) ** 2)),
-    }
+    if chr_split:
+        # For chr_split: in-dist test = chr7+13 from K562Dataset
+        # The cache was built from K562Dataset(split="test", chr_split=True)
+        # Labels come from the same dataset
+        from data.k562 import K562Dataset
+
+        test_ds = K562Dataset(
+            data_path=str(data_path),
+            split="test",
+            label_column=fc_col,
+            use_hashfrag=False,
+            use_chromosome_fallback=True,
+        )
+        in_true = test_ds.labels.astype(np.float32)
+        in_pred = _predict_cached("test_in_dist")
+        # Verify lengths match
+        if len(in_pred) == len(in_true):
+            metrics["in_dist"] = {
+                "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
+                "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
+                "mse": float(np.mean((in_pred - in_true) ** 2)),
+            }
+        else:
+            print(
+                f"WARNING: in_dist length mismatch: pred={len(in_pred)} vs true={len(in_true)}. "
+                f"Falling back to hashfrag TSV labels.",
+                flush=True,
+            )
+            in_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
+            in_true = in_df[fc_col].to_numpy(dtype=np.float32)
+            metrics["in_dist"] = {
+                "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
+                "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
+                "mse": float(np.mean((in_pred - in_true) ** 2)),
+            }
+    else:
+        # HashFrag: use TSV labels
+        in_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
+        in_pred = _predict_cached("test_in_dist")
+        in_true = in_df[fc_col].to_numpy(dtype=np.float32)
+        metrics["in_distribution"] = {
+            "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
+            "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
+            "mse": float(np.mean((in_pred - in_true) ** 2)),
+        }
 
     # SNV pairs
     snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
+    # For chr_split, filter to chr7+13 only
+    if chr_split and "IDs_ref" in snv_df.columns:
+        test_chrs = {"7", "13", "chr7", "chr13"}
+        chroms = snv_df["IDs_ref"].str.split(":", expand=True)[0]
+        chr_mask = chroms.isin(test_chrs)
+        n_before = len(snv_df)
+        snv_df = snv_df[chr_mask].reset_index(drop=True)
+        print(f"Chr-split SNV filter: {n_before} -> {len(snv_df)} (chr7+13 only)", flush=True)
     ref_pred = _predict_cached("test_snv_ref")
     alt_pred = _predict_cached("test_snv_alt")
+    # For chr_split, we need to filter predictions to match filtered SNV df
+    if chr_split and "IDs_ref" in snv_df.columns:
+        # The cached predictions are for ALL SNV pairs; we need the filtered subset
+        snv_full = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
+        chroms_full = snv_full["IDs_ref"].str.split(":", expand=True)[0]
+        chr_mask_full = chroms_full.isin(test_chrs)
+        ref_pred = ref_pred[chr_mask_full.to_numpy()]
+        alt_pred = alt_pred[chr_mask_full.to_numpy()]
     # Try cell-line-specific alt column, fall back to generic
     alt_col = f"{fc_col}_alt"
     if alt_col not in snv_df.columns:
         alt_col = "K562_log2FC_alt"  # fallback for K562
-    alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
-    metrics["snv_abs"] = {
-        "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
-        "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
-        "mse": float(np.mean((alt_pred - alt_true) ** 2)),
-    }
+    if alt_col in snv_df.columns:
+        alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
+        metrics["snv_abs"] = {
+            "pearson_r": _safe_corr(alt_pred, alt_true, pearsonr),
+            "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
+            "mse": float(np.mean((alt_pred - alt_true) ** 2)),
+        }
     delta_pred = alt_pred - ref_pred
     delta_col = f"delta_{fc_col}"
     if delta_col not in snv_df.columns:
         delta_col = "delta_log2FC"
-    delta_true = snv_df[delta_col].to_numpy(dtype=np.float32)
-    metrics["snv_delta"] = {
-        "pearson_r": _safe_corr(delta_pred, delta_true, pearsonr),
-        "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
-        "mse": float(np.mean((delta_pred - delta_true) ** 2)),
-    }
+    if delta_col in snv_df.columns:
+        delta_true = snv_df[delta_col].to_numpy(dtype=np.float32)
+        metrics["snv_delta"] = {
+            "pearson_r": _safe_corr(delta_pred, delta_true, pearsonr),
+            "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
+            "mse": float(np.mean((delta_pred - delta_true) ** 2)),
+        }
 
-    # OOD (may not exist for non-K562 cell lines yet)
+    # OOD — only evaluate when cell_line has matching labels (K562 only)
     ood_file = test_dir / f"test_ood_designed_{cell_line}.tsv"
-    if not ood_file.exists():
+    if not ood_file.exists() and cell_line == "k562":
         ood_file = test_dir / "test_ood_designed_k562.tsv"
     if ood_file.exists() and (cache_dir / "test_ood_canonical.npy").exists():
         ood_df = pd.read_csv(ood_file, sep="\t")
-        ood_pred = _predict_cached("test_ood")
         if fc_col in ood_df.columns:
             ood_true = ood_df[fc_col].to_numpy(dtype=np.float32)
-        elif "K562_log2FC" in ood_df.columns:
+        elif cell_line == "k562" and "K562_log2FC" in ood_df.columns:
             ood_true = ood_df["K562_log2FC"].to_numpy(dtype=np.float32)
         else:
             ood_true = None
+            print(
+                f"Skipping OOD eval for {cell_line}: no matching labels in {ood_file.name}",
+                flush=True,
+            )
         if ood_true is not None:
+            ood_pred = _predict_cached("test_ood")
             metrics["ood"] = {
                 "pearson_r": _safe_corr(ood_pred, ood_true, pearsonr),
                 "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
@@ -387,7 +450,7 @@ def train(cfg: dict):
     model.to(device)
 
     test_metrics = evaluate_test_sets_cached(
-        model, cache_dir, data_path, device, cell_line=cell_line
+        model, cache_dir, data_path, device, cell_line=cell_line, chr_split=chr_split
     )
 
     result = {

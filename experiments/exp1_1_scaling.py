@@ -1268,6 +1268,8 @@ def _train_student(
     early_stopping_patience: int | None = None,
     val_sequences: list[str] | None = None,
     val_labels: np.ndarray | None = None,
+    shift_aug: bool = False,
+    max_shift: int = 15,
 ) -> SequenceModel:
     """Train a student model and return it."""
     if student_type == "dream_rnn":
@@ -1290,6 +1292,8 @@ def _train_student(
                 lr_lstm=lr,
                 epochs=epochs,
                 early_stopping_patience=early_stopping_patience,
+                shift_aug=shift_aug,
+                max_shift=max_shift,
             ),
         )
         student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
@@ -1324,6 +1328,8 @@ def _train_student(
                 lr=lr,
                 epochs=epochs,
                 early_stopping_patience=early_stopping_patience,
+                shift_aug=shift_aug,
+                max_shift=max_shift,
             ),
         )
         student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
@@ -1379,6 +1385,8 @@ def run_scaling_experiment(
     lr_override: float | None = None,
     batch_size_override: int | None = None,
     save_predictions: bool = False,
+    shift_aug: bool = False,
+    max_shift: int = 15,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -1952,6 +1960,8 @@ def run_scaling_experiment(
                         early_stopping_patience=early_stopping_patience,
                         val_sequences=val_seqs,
                         val_labels=val_labels,
+                        shift_aug=shift_aug,
+                        max_shift=max_shift,
                     )
 
                     # Validation evaluation
@@ -2165,6 +2175,17 @@ def main():
         action="store_true",
         help="Save test predictions as test_predictions.npz for scatter plots.",
     )
+    parser.add_argument(
+        "--shift-aug",
+        action="store_true",
+        help="Enable random shift augmentation during training.",
+    )
+    parser.add_argument(
+        "--max-shift",
+        type=int,
+        default=15,
+        help="Maximum shift in bp for shift augmentation (default: 15).",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -2228,6 +2249,8 @@ def main():
             lr_override=args.lr,
             batch_size_override=args.batch_size_override,
             save_predictions=args.save_predictions,
+            shift_aug=args.shift_aug,
+            max_shift=args.max_shift,
         )
         all_results.extend(results)
 

@@ -30,6 +30,8 @@ class TrainConfig:
     pct_start: float = 0.3
     early_stopping_patience: int | None = None
     num_workers: int = 2
+    shift_aug: bool = False
+    max_shift: int = 15
 
 
 class _InMemorySequenceDataset(Dataset):
@@ -248,4 +250,6 @@ class DREAMRNNStudent(SequenceModel):
                 metric_for_best="pearson_r",
                 use_amp=True,
                 use_compile=False,
+                shift_aug=getattr(self.train_config, "shift_aug", False),
+                max_shift=getattr(self.train_config, "max_shift", 15),
             )

@@ -34,6 +34,21 @@ def _reverse_complement_batch(sequences: torch.Tensor) -> torch.Tensor:
     return x_rc_swapped
 
 
+def _shift_augment_batch(sequences: torch.Tensor, max_shift: int) -> torch.Tensor:
+    """Apply random shift augmentation to 50% of batch samples."""
+    mask = torch.rand(sequences.shape[0], device=sequences.device) > 0.5
+    if mask.any():
+        shifts = torch.randint(
+            -max_shift, max_shift + 1, (int(mask.sum()),), device=sequences.device
+        )
+        shifted = sequences.clone()
+        for idx, s in zip(torch.where(mask)[0], shifts):
+            if s != 0:
+                shifted[idx] = torch.roll(sequences[idx], int(s.item()), dims=-1)
+        return shifted
+    return sequences
+
+
 def train_epoch_optimized(
     model: nn.Module,
     dataloader: DataLoader,
@@ -43,6 +58,8 @@ def train_epoch_optimized(
     scheduler: Optional[Any] = None,
     use_reverse_complement: bool = False,
     use_amp: bool = True,
+    shift_aug: bool = False,
+    max_shift: int = 15,
 ) -> Dict[str, float]:
     """
     Train for one epoch with optional mixed precision.
@@ -56,6 +73,8 @@ def train_epoch_optimized(
         scheduler: Optional learning rate scheduler (called after each batch)
         use_reverse_complement: Whether to average predictions with reverse complement
         use_amp: Whether to use automatic mixed precision
+        shift_aug: Whether to apply random shift augmentation
+        max_shift: Maximum shift in bp for shift augmentation
 
     Returns:
         Dictionary with training metrics
@@ -74,6 +93,8 @@ def train_epoch_optimized(
     for batch_idx, (sequences, targets) in enumerate(pbar):
         sequences = sequences.to(device)
         targets = targets.to(device)
+        if shift_aug:
+            sequences = _shift_augment_batch(sequences, max_shift)
         rc_sequences = _reverse_complement_batch(sequences) if use_reverse_complement else None
 
         # Zero gradients
@@ -180,6 +201,8 @@ def train_model_optimized(
     metric_for_best: str = "pearson_r",
     use_amp: bool = True,
     use_compile: bool = True,
+    shift_aug: bool = False,
+    max_shift: int = 15,
 ) -> Dict[str, Any]:
     """
     Train a model with validation, checkpointing, and optimizations.
@@ -305,6 +328,8 @@ def train_model_optimized(
             scheduler=scheduler,
             use_reverse_complement=use_reverse_complement,
             use_amp=use_amp and device.type == "cuda",
+            shift_aug=shift_aug,
+            max_shift=max_shift,
         )
 
         # Validate (use standard evaluate function)

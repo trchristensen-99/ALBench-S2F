@@ -43,6 +43,30 @@ MODEL_ORDER = [
 
 # ── Result directories ───────────────────────────────────────────────────────
 # Maps (model_label, cell) -> list of result dirs to search
+
+# Chr-split result directories
+CHR_SPLIT_DIRS = {
+    ("Malinois", "k562"): ["outputs/chr_split/k562/malinois"],
+    ("Malinois", "hepg2"): ["outputs/chr_split/hepg2/malinois"],
+    ("Malinois", "sknsh"): ["outputs/chr_split/sknsh/malinois"],
+    ("DREAM-RNN", "k562"): ["outputs/chr_split/k562/dream_rnn"],
+    ("DREAM-RNN", "hepg2"): ["outputs/chr_split/hepg2/dream_rnn"],
+    ("DREAM-RNN", "sknsh"): ["outputs/chr_split/sknsh/dream_rnn"],
+    ("Enf. (Probing)", "k562"): ["outputs/chr_split/k562/enformer_s1"],
+    ("Enf. (Probing)", "hepg2"): ["outputs/chr_split/hepg2/enformer_s1"],
+    ("Enf. (Probing)", "sknsh"): ["outputs/chr_split/sknsh/enformer_s1"],
+    ("Enf. (Fine-tuned)", "k562"): [],  # No chr-split S2 yet
+    ("Enf. (Fine-tuned)", "hepg2"): [],
+    ("Enf. (Fine-tuned)", "sknsh"): [],
+    ("AG (Probing)", "k562"): ["outputs/chr_split/k562/ag_all_folds_s1"],
+    ("AG (Probing)", "hepg2"): ["outputs/chr_split/hepg2/ag_all_folds_s1"],
+    ("AG (Probing)", "sknsh"): ["outputs/chr_split/sknsh/ag_all_folds_s1"],
+    ("AG (Fine-tuned)", "k562"): ["outputs/chr_split/k562/ag_all_folds_s2"],
+    ("AG (Fine-tuned)", "hepg2"): ["outputs/chr_split/hepg2/ag_all_folds_s2"],
+    ("AG (Fine-tuned)", "sknsh"): ["outputs/chr_split/sknsh/ag_all_folds_s2"],
+}
+
+# HashFrag result directories
 RESULT_DIRS = {
     # Malinois (from-scratch baseline)
     ("Malinois", "k562"): ["outputs/malinois_k562_sweep/lr0.001_wd1e-3"],
@@ -98,24 +122,35 @@ def _safe_float(x):
     return float(x)
 
 
-def collect_metrics():
+def collect_metrics(split_type="hashfrag"):
     """Collect metrics for all models × cells × test sets.
+
+    Args:
+        split_type: "hashfrag" or "chr_split"
 
     Returns:
         {model_label: {metric_name: {"mean": float, "std": float, "values": list}}}
     """
+    dir_map = CHR_SPLIT_DIRS if split_type == "chr_split" else RESULT_DIRS
     results = {}
 
     for model in MODEL_ORDER:
         results[model] = {}
         for metric_name, (tm_key, field) in METRICS.items():
+            # OOD (Synthetic Seqs) only has K562 labels — skip other cells
+            # to avoid label mismatch (OOD sequences were designed/measured in K562 only)
+            if tm_key == "ood":
+                cells_to_use = ["k562"]
+            else:
+                cells_to_use = ["k562", "hepg2", "sknsh"]
+
             # Collect values across cells (weighted)
             all_values = []
             cell_means = []
             cell_weights = []
 
-            for cell in ["k562", "hepg2", "sknsh"]:
-                dirs = RESULT_DIRS.get((model, cell), [])
+            for cell in cells_to_use:
+                dirs = dir_map.get((model, cell), [])
                 cell_values = []
                 for d in dirs:
                     p = REPO / d
@@ -133,7 +168,7 @@ def collect_metrics():
                             ]:
                                 if key in tm and field in tm[key]:
                                     val = _safe_float(tm[key][field])
-                                    if val is not None and val > 0.01:
+                                    if val is not None:
                                         cell_values.append(val)
                                     break
                     if cell_values:
@@ -169,16 +204,24 @@ def collect_metrics():
     return results
 
 
-def plot_alan_style(results, out_stem="mpra_benchmark"):
-    """Create Alan-style grouped bar plot."""
-    fig, ax = plt.subplots(figsize=(10, 6))
+def plot_alan_style(results, out_stem="mpra_benchmark", title="MPRA Model Comparison"):
+    """Create Alan-style grouped bar plot matching reference lenti_starr_res.png."""
+    # Filter to models that have at least one non-zero metric
+    active_models = [
+        m for m in MODEL_ORDER if any(results[m].get(mn, {}).get("n", 0) > 0 for mn in METRICS)
+    ]
+    if not active_models:
+        print(f"  No data for {out_stem}, skipping plot")
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
 
     metric_names = list(METRICS.keys())
     x_pos = np.arange(len(metric_names))
-    n_models = len(MODEL_ORDER)
-    width = 0.12
+    n_models = len(active_models)
+    width = 0.13
 
-    for i, model in enumerate(MODEL_ORDER):
+    for i, model in enumerate(active_models):
         means = []
         stds = []
         for metric_name in metric_names:
@@ -195,41 +238,39 @@ def plot_alan_style(results, out_stem="mpra_benchmark"):
             capsize=2,
             label=model,
             color=MODEL_COLORS[model],
-            alpha=0.9,
             edgecolor="black",
-            linewidth=0.8,
-            error_kw={"linewidth": 0.8},
+            linewidth=0.5,
+            error_kw={"linewidth": 0.8, "capthick": 0.8},
         )
 
-        # Value labels on top
-        for bar, val in zip(bars, means):
-            if val > 0:
+        # Value labels on top — italic, color-matched, like reference
+        for bar, val, std_val in zip(bars, means, stds):
+            if val > 0.01:
+                y_top = val + std_val + 0.008
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + 0.005,
+                    y_top,
                     f"{val:.3f}",
                     ha="center",
                     va="bottom",
-                    fontsize=7,
-                    fontweight="bold",
+                    fontsize=6.5,
+                    fontstyle="italic",
                     color=MODEL_COLORS[model],
-                    rotation=90,
                 )
 
     ax.set_ylabel("Pearson Correlation", fontsize=12)
-    ax.set_title("MPRA Model Comparison (HashFrag Split)", fontsize=14)
+    ax.set_title(title, fontsize=13, fontweight="semibold")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.set_xticks(x_pos)
     ax.set_xticklabels(metric_names, fontsize=11)
-    ax.set_ylim([0.15, 1.0])
-    ax.grid(axis="y", alpha=0.3, linestyle="--")
+    ax.set_ylim([0, 1.05])
     ax.legend(
         loc="upper left",
-        bbox_to_anchor=(0, 1.02),
+        bbox_to_anchor=(1.01, 1.0),
         frameon=False,
         fontsize=9,
-        ncol=3,
+        ncol=1,
     )
 
     plt.tight_layout()
@@ -243,20 +284,33 @@ def plot_alan_style(results, out_stem="mpra_benchmark"):
 
 
 def main():
-    print("Collecting metrics...")
-    results = collect_metrics()
+    for split_type, stem, title in [
+        (
+            "chr_split",
+            "mpra_benchmark_chr_split",
+            "lentiMPRA",
+        ),
+    ]:
+        print(f"\n=== {split_type} ===")
+        results = collect_metrics(split_type=split_type)
 
-    # Print summary
-    for model in MODEL_ORDER:
-        for metric_name in METRICS:
-            m = results[model].get(metric_name, {})
-            mean = m.get("mean", 0)
-            n = m.get("n", 0)
-            print(f"  {model:25s} {metric_name:15s}: {mean:.4f} (n={n})")
+        for model in MODEL_ORDER:
+            for metric_name in METRICS:
+                m = results[model].get(metric_name, {})
+                mean = m.get("mean", 0)
+                std = m.get("std", 0)
+                n = m.get("n", 0)
+                vals = m.get("values", [])
+                if n > 0:
+                    print(
+                        f"  {model:25s} {metric_name:15s}: "
+                        f"{mean:.4f} ± {std:.4f} (n={n}, vals={[round(v, 4) for v in vals]})"
+                    )
 
-    print("\nPlotting...")
-    plot_alan_style(results)
-    print("Done.")
+        print(f"\nPlotting {stem}...")
+        plot_alan_style(results, out_stem=stem, title=title)
+
+    print("\nDone.")
 
 
 if __name__ == "__main__":

@@ -68,6 +68,8 @@ DEFAULT_CONFIG = {
     "weight_decay": 0.000344,
     "early_stop_patience": 15,
     "use_reverse_complement": True,
+    "shift_aug": False,
+    "max_shift": 15,
     "num_workers": 4,
     "pretrained_weights": None,
     "cell_line": "k562",
@@ -476,6 +478,18 @@ def train_malinois(cfg: dict):
                 mask = torch.rand(xb.shape[0], device=device) > 0.5
                 if mask.any():
                     xb[mask] = xb[mask].flip(-1)[:, [3, 2, 1, 0], :]
+
+            # Shift augmentation: randomly shift half the batch by ±max_shift bp
+            if cfg.get("shift_aug", False):
+                max_shift = int(cfg.get("max_shift", 15))
+                shift_mask = torch.rand(xb.shape[0], device=device) > 0.5
+                if shift_mask.any():
+                    shifts = torch.randint(
+                        -max_shift, max_shift + 1, (int(shift_mask.sum()),), device=device
+                    )
+                    for idx, s in zip(torch.where(shift_mask)[0], shifts):
+                        if s != 0:
+                            xb[idx] = torch.roll(xb[idx], int(s.item()), dims=-1)
 
             with torch.amp.autocast("cuda"):
                 pred = model(xb)  # (batch, 1)
