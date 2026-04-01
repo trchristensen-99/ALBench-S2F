@@ -71,6 +71,7 @@ DEFAULT_CONFIG = {
     "cell_line": "k562",
     "chr_split": False,
     "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
+    "duplication_cutoff": None,  # If set, duplicate training sequences with label >= cutoff
 }
 
 
@@ -342,6 +343,10 @@ def train(cfg: dict):
         ds_kwargs["use_hashfrag"] = False
         ds_kwargs["use_chromosome_fallback"] = True
     ds_kwargs["include_alt_alleles"] = include_alt
+    dup_cutoff = cfg.get("duplication_cutoff")
+    if dup_cutoff is not None:
+        dup_cutoff = float(dup_cutoff)
+        ds_kwargs["duplication_cutoff"] = dup_cutoff
     train_ds = K562Dataset(split="train", **ds_kwargs)
     val_ds = K562Dataset(split="val", **ds_kwargs)
     train_labels = train_ds.labels

@@ -61,6 +61,7 @@ class K562Dataset(SequenceDataset):
         use_chromosome_fallback: bool = False,
         label_column: str = "K562_log2FC",
         include_alt_alleles: bool = False,
+        duplication_cutoff: Optional[float] = None,
     ):
         """
         Initialize K562 dataset.
@@ -77,6 +78,9 @@ class K562Dataset(SequenceDataset):
             use_chromosome_fallback: If True, use chromosome-based splits as fallback (default: False)
             include_alt_alleles: If True, include both ref and alt alleles (default: False).
                 The original Malinois paper trained on all 798K oligos (ref+alt).
+            duplication_cutoff: If set, duplicate training sequences whose label >= cutoff.
+                Follows the boda2 approach to balance the dataset toward high-activity CREs.
+                Only applied when split=="train". Default 0.5 is typical.
         """
         self.subset_size = subset_size
         self.use_hashfrag = use_hashfrag
@@ -85,6 +89,7 @@ class K562Dataset(SequenceDataset):
         self.use_chromosome_fallback = use_chromosome_fallback
         self.label_column = label_column
         self.include_alt_alleles = include_alt_alleles
+        self.duplication_cutoff = duplication_cutoff
         super().__init__(data_path, split, transform, target_transform)
 
     def load_data(self) -> None:
@@ -138,6 +143,19 @@ class K562Dataset(SequenceDataset):
 
         # Standardize sequences to 200bp
         self.sequences = self._standardize_to_200bp(self.sequences)
+
+        # Duplicate high-activity sequences (boda2-style balancing)
+        if self.duplication_cutoff is not None and self.split == "train":
+            high_mask = self.labels >= self.duplication_cutoff
+            n_high = int(np.sum(high_mask))
+            if n_high > 0:
+                self.sequences = np.concatenate([self.sequences, self.sequences[high_mask]])
+                self.labels = np.concatenate([self.labels, self.labels[high_mask]])
+                logger.info(
+                    f"Duplicated {n_high:,} high-activity sequences "
+                    f"(label >= {self.duplication_cutoff}), "
+                    f"total now {len(self.sequences):,}"
+                )
 
         # Apply subset size if specified (for downsampling experiments)
         # Use random sampling without replacement (seedless unless caller sets global seed)

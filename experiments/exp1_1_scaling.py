@@ -207,6 +207,7 @@ def _load_pool_sequences(
     cell_line: str | None = None,
     chr_split: bool = False,
     include_alt_alleles: bool = False,
+    duplication_cutoff: float | None = None,
 ) -> tuple[list[str], np.ndarray | None]:
     """Load genomic pool sequences for the task.
 
@@ -214,6 +215,7 @@ def _load_pool_sequences(
         task: ``"k562"`` or ``"yeast"``.
         cell_line: Override label column for K562 data.  One of
             ``"k562"`` (default), ``"hepg2"``, or ``"sknsh"``.
+        duplication_cutoff: If set, duplicate training sequences with label >= cutoff.
     """
     if task == "k562":
         from data.k562 import K562Dataset
@@ -226,6 +228,7 @@ def _load_pool_sequences(
             use_hashfrag=not chr_split,
             use_chromosome_fallback=chr_split,
             include_alt_alleles=include_alt_alleles,
+            duplication_cutoff=duplication_cutoff,
         )
         return list(ds.sequences), ds.labels.astype(np.float32)
     else:
@@ -1468,6 +1471,7 @@ def run_scaling_experiment(
     shift_aug: bool = False,
     max_shift: int = 15,
     s1_checkpoint: str | None = None,
+    duplication_cutoff: float | None = None,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -1646,6 +1650,7 @@ def run_scaling_experiment(
             cell_line=cell_line,
             chr_split=chr_split,
             include_alt_alleles=include_alt_alleles,
+            duplication_cutoff=duplication_cutoff,
         )
         logger.info(f"Pool size: {len(pool_seqs):,}")
 
@@ -2277,6 +2282,12 @@ def main():
         help="Save test predictions as test_predictions.npz for scatter plots.",
     )
     parser.add_argument(
+        "--duplication-cutoff",
+        type=float,
+        default=None,
+        help="Duplicate training sequences with label >= cutoff (boda2 class balancing).",
+    )
+    parser.add_argument(
         "--shift-aug",
         action="store_true",
         help="Enable random shift augmentation during training.",
@@ -2354,6 +2365,7 @@ def main():
             shift_aug=args.shift_aug,
             max_shift=args.max_shift,
             s1_checkpoint=args.s1_checkpoint,
+            duplication_cutoff=args.duplication_cutoff,
         )
         all_results.extend(results)
 

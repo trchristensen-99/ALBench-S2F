@@ -75,6 +75,7 @@ DEFAULT_CONFIG = {
     "cell_line": "k562",
     "chr_split": False,
     "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
+    "duplication_cutoff": None,  # If set, duplicate training sequences with label >= cutoff
 }
 
 
@@ -414,6 +415,9 @@ def train_malinois(cfg: dict):
         include_alt = chr_split  # default: True for chr_split to match Malinois paper
     elif isinstance(include_alt, str):
         include_alt = include_alt.lower() in ("true", "1", "yes")
+    dup_cutoff = cfg.get("duplication_cutoff")
+    if dup_cutoff is not None:
+        dup_cutoff = float(dup_cutoff)
     ds_kwargs = dict(
         data_path=str(data_path),
         label_column=label_col,
@@ -421,7 +425,10 @@ def train_malinois(cfg: dict):
         use_chromosome_fallback=chr_split,
         include_alt_alleles=include_alt,
     )
-    train_ds = K562MalinoisDataset(K562Dataset(split="train", **ds_kwargs))
+    train_kwargs = {**ds_kwargs}
+    if dup_cutoff is not None:
+        train_kwargs["duplication_cutoff"] = dup_cutoff
+    train_ds = K562MalinoisDataset(K562Dataset(split="train", **train_kwargs))
     val_ds = K562MalinoisDataset(K562Dataset(split="val", **ds_kwargs))
 
     train_loader = DataLoader(
