@@ -71,6 +71,8 @@ DEFAULT_CONFIG = {
     "shift_aug": False,
     "max_shift": 15,
     "num_workers": 4,
+    "lr_schedule": "cosine",  # "cosine" = CosineAnnealingWarmRestarts, "onecycle" = OneCycleLR
+    "rc_mode": "flip",  # "flip" = random 50% RC per batch, "interleave" = double dataset with RC (boda2 style)
     "pretrained_weights": None,
     "cell_line": "k562",
     "chr_split": False,
@@ -154,6 +156,28 @@ class K562MalinoisDataset(Dataset):
         seq_4ch = seq_tensor[:4]
         # Pad to 600bp with MPRA flanks
         padded = torch.cat([_LEFT_FLANK, seq_4ch, _RIGHT_FLANK], dim=-1)  # (4, 600)
+        return padded, label
+
+
+class K562MalinoisInterleavedDataset(Dataset):
+    """Wraps K562MalinoisDataset to double with RC sequences (boda2 style).
+
+    Index layout: [seq0, RC(seq0), seq1, RC(seq1), ...].
+    RC of one-hot (4, L): flip channels [3,2,1,0] then reverse sequence dim.
+    """
+
+    def __init__(self, base_ds: K562MalinoisDataset):
+        self.base = base_ds
+
+    def __len__(self) -> int:
+        return len(self.base) * 2
+
+    def __getitem__(self, idx: int):
+        real_idx = idx // 2
+        padded, label = self.base[real_idx]
+        if idx % 2 == 1:
+            # Reverse complement: swap channels [3,2,1,0] and reverse sequence
+            padded = padded[[3, 2, 1, 0], :].flip(-1)
         return padded, label
 
 
@@ -429,6 +453,12 @@ def train_malinois(cfg: dict):
     if dup_cutoff is not None:
         train_kwargs["duplication_cutoff"] = dup_cutoff
     train_ds = K562MalinoisDataset(K562Dataset(split="train", **train_kwargs))
+    rc_mode = cfg.get("rc_mode", "flip")
+    if rc_mode == "interleave":
+        train_ds = K562MalinoisInterleavedDataset(train_ds)
+        print(f"RC mode: interleave (dataset doubled to {len(train_ds)})")
+    else:
+        print(f"RC mode: flip (random 50% RC per batch)")
     val_ds = K562MalinoisDataset(K562Dataset(split="val", **ds_kwargs))
 
     train_loader = DataLoader(
@@ -467,9 +497,20 @@ def train_malinois(cfg: dict):
 
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=len(train_loader) * 4, T_mult=1
-    )
+    lr_schedule = cfg.get("lr_schedule", "cosine")
+    if lr_schedule == "onecycle":
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=cfg["lr"],
+            steps_per_epoch=len(train_loader),
+            epochs=cfg["epochs"],
+        )
+    else:
+        # Default: CosineAnnealingWarmRestarts (matching boda2)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, T_0=len(train_loader) * 4, T_mult=1
+        )
+    print(f"LR schedule: {lr_schedule}")
 
     # Output
     out_dir = Path(cfg["output_dir"]) / f"seed_{seed}"
@@ -488,7 +529,8 @@ def train_malinois(cfg: dict):
             yb = yb.to(device, non_blocking=True).unsqueeze(-1)  # (batch, 1)
 
             # RC augmentation: randomly reverse-complement half the batch
-            if cfg["use_reverse_complement"]:
+            # Skip when rc_mode="interleave" (RC already in dataset)
+            if cfg["use_reverse_complement"] and rc_mode != "interleave":
                 mask = torch.rand(xb.shape[0], device=device) > 0.5
                 if mask.any():
                     xb[mask] = xb[mask].flip(-1)[:, [3, 2, 1, 0], :]

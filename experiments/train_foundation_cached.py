@@ -98,7 +98,15 @@ class MLPHead(nn.Module):
 
 # ── Cached dataset ───────────────────────────────────────────────────────────
 class CachedEmbeddingDataset(Dataset):
-    """Loads pre-computed embeddings (N, D) from numpy files."""
+    """Loads pre-computed embeddings (N, D) from numpy files.
+
+    RC augmentation here doubles the dataset by appending pre-cached RC
+    embeddings (index 0..N-1 = canonical, N..2N-1 = RC).  This differs from:
+    - train_malinois_k562 rc_mode="flip": random 50% per-batch RC at sequence level
+    - train_malinois_k562 rc_mode="interleave": interleaved RC at sequence level
+      (index 0=seq, 1=RC(seq), 2=seq2, 3=RC(seq2), ...) matching boda2 convention
+    All three share the same label for canonical and RC of the same sequence.
+    """
 
     def __init__(
         self,

@@ -71,6 +71,10 @@ HP_GRIDS = {
         "learning_rate": [3e-4, 1e-3],
         "batch_size": [128, 256],
     },
+    "alphagenome_k562_s1_multitask": {
+        "learning_rate": [3e-4, 1e-3],
+        "batch_size": [128, 256],
+    },
     "alphagenome_yeast_s1": {
         "learning_rate": [3e-4, 1e-3],
         "batch_size": [128, 256],
@@ -105,6 +109,10 @@ HP_GRIDS_LARGE_N = {
     "alphagenome_k562_s1": {
         "learning_rate": [3e-4, 1e-3],
         "batch_size": [256],  # drop bs=128
+    },
+    "alphagenome_k562_s1_multitask": {
+        "learning_rate": [3e-4, 1e-3],
+        "batch_size": [256],
     },
     "alphagenome_yeast_s1": {
         "learning_rate": [3e-4, 1e-3],
@@ -869,6 +877,71 @@ def _get_ag_model_and_encoder(task: str):
     return result
 
 
+_AG_MULTITASK_CACHE: dict[str, Any] = {}
+
+
+def _get_ag_model_and_encoder_multitask(task: str):
+    """Load AG model with a 3-output multitask head (K562, HepG2, SknSh).
+
+    Similar to ``_get_ag_model_and_encoder`` but registers a head with
+    ``num_tracks=3`` for simultaneous prediction of all three cell types.
+    """
+    cache_key = f"{task}_multitask"
+    if cache_key in _AG_MULTITASK_CACHE:
+        return _AG_MULTITASK_CACHE[cache_key]
+
+    from alphagenome_ft import create_model_with_heads
+
+    from models.alphagenome_heads import register_s2f_head
+    from models.embedding_cache import (
+        build_encoder_fn,
+        build_head_only_predict_fn,
+        build_head_only_train_fn,
+        reinit_head_params,
+    )
+
+    head_name = "exp1_s1_k562_multitask"
+    num_tokens, num_tracks = 5, 3
+    task_mode = "human"
+
+    register_s2f_head(
+        head_name=head_name,
+        arch="boda-flatten-512-512",
+        task_mode=task_mode,
+        num_tracks=num_tracks,
+        dropout_rate=0.1,
+    )
+    weights_path = os.environ.get(
+        "ALPHAGENOME_WEIGHTS",
+        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+    )
+    model = create_model_with_heads(
+        "all_folds",
+        heads=[head_name],
+        checkpoint_path=weights_path,
+        use_encoder_output=True,
+        detach_backbone=True,
+    )
+    reinit_head_params(model, head_name, num_tokens=num_tokens, dim=1536)
+
+    encoder_fn = build_encoder_fn(model)
+    head_predict_fn = build_head_only_predict_fn(model, head_name)
+    head_train_fn = build_head_only_train_fn(model, head_name)
+
+    result = {
+        "model": model,
+        "head_name": head_name,
+        "encoder_fn": encoder_fn,
+        "head_predict_fn": head_predict_fn,
+        "head_train_fn": head_train_fn,
+        "num_tokens": num_tokens,
+        "num_tracks": num_tracks,
+    }
+    _AG_MULTITASK_CACHE[cache_key] = result
+    logger.info(f"AG S1 multitask model loaded for {task} (T={num_tokens}, tracks={num_tracks})")
+    return result
+
+
 def _encode_sequences_for_ag(
     sequences: list[str], task: str, encoder_fn, batch_size: int = 128
 ) -> np.ndarray:
@@ -938,6 +1011,7 @@ def _train_ag_s1_student(
     batch_size: int,
     seed: int,
     pre_encoded_embs: np.ndarray | None = None,
+    multitask_labels: dict[str, np.ndarray] | None = None,
 ) -> SequenceModel:
     """Train an AG S1 student (frozen encoder, head-only).
 
@@ -945,12 +1019,24 @@ def _train_ag_s1_student(
         pre_encoded_embs: If provided, skip encoding and use these embeddings
             directly. Shape ``(N, T, 1536)`` in float16. This avoids re-encoding
             the same sequences for each HP config / replicate.
+        multitask_labels: If provided, train a 3-output head predicting all
+            cell types simultaneously.  Dict mapping cell line name to label
+            array, e.g. ``{"k562": arr0, "hepg2": arr1, "sknsh": arr2}``.
+            Labels may contain NaN for missing values (masked in loss).
+            When set, ``labels`` is ignored and the returned student exposes a
+            ``cell_type_idx`` attribute to select the output column for
+            ``predict()`` (default 0 = K562).
     """
     import jax
     import jax.numpy as jnp
     import optax
 
-    ag = _get_ag_model_and_encoder(task)
+    is_multitask = multitask_labels is not None
+
+    if is_multitask:
+        ag = _get_ag_model_and_encoder_multitask(task)
+    else:
+        ag = _get_ag_model_and_encoder(task)
     model = ag["model"]
     head_train_fn = ag["head_train_fn"]
     head_predict_fn = ag["head_predict_fn"]
@@ -970,26 +1056,72 @@ def _train_ag_s1_student(
         train_embs = _encode_sequences_for_ag(sequences, task, encoder_fn)
         logger.info(f"  Embeddings shape: {train_embs.shape}")
 
+    # Build target array: (N,) for single-task, (N, 3) for multitask
+    if is_multitask:
+        # Stack cell-type labels into (N, 3) array; order: k562, hepg2, sknsh
+        _mt_order = ["k562", "hepg2", "sknsh"]
+        mt_arrays = []
+        for cl in _mt_order:
+            if cl in multitask_labels:
+                mt_arrays.append(multitask_labels[cl].astype(np.float32))
+            else:
+                # Missing cell line -> all NaN (will be masked in loss)
+                mt_arrays.append(np.full(len(sequences), np.nan, dtype=np.float32))
+        all_targets = np.stack(mt_arrays, axis=1)  # (N, 3)
+        # Pre-compute NaN mask (True = valid)
+        valid_mask_np = ~np.isnan(all_targets)
+        logger.info(
+            f"  Multitask targets shape: {all_targets.shape}, "
+            f"valid per track: {valid_mask_np.sum(axis=0).tolist()}"
+        )
+    else:
+        all_targets = labels
+
     # Setup optimizer
     optimizer = optax.adamw(learning_rate=lr, weight_decay=1e-6)
     opt_state = optimizer.init(model._params)
     jax_rng = jax.random.PRNGKey(seed)
 
-    @jax.jit
-    def train_step(params, current_opt_state, step_rng, emb, targets, org_idx):
-        def loss_func(p):
-            preds = head_train_fn(p, step_rng, emb, org_idx)
-            pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
-            return jnp.mean((pred - targets) ** 2)
+    if is_multitask:
 
-        loss, grads = jax.value_and_grad(loss_func)(params)
-        updates, next_opt_state = optimizer.update(grads, current_opt_state, params)
-        return optax.apply_updates(params, updates), next_opt_state, loss
+        @jax.jit
+        def train_step(params, current_opt_state, step_rng, emb, targets, org_idx):
+            def loss_func(p):
+                preds = head_train_fn(p, step_rng, emb, org_idx)  # (B, 3)
+                # Mask NaN targets: replace NaN with 0 in both pred and target
+                valid = jnp.isfinite(targets)  # (B, 3)
+                safe_targets = jnp.where(valid, targets, 0.0)
+                safe_preds = jnp.where(valid, preds, 0.0)
+                sq_err = (safe_preds - safe_targets) ** 2
+                # Mean over valid entries only
+                return jnp.sum(sq_err) / jnp.maximum(jnp.sum(valid), 1.0)
 
-    @jax.jit
-    def eval_step(params, emb, org_idx):
-        preds = head_predict_fn(params, emb, org_idx)
-        return jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
+            loss, grads = jax.value_and_grad(loss_func)(params)
+            updates, next_opt_state = optimizer.update(grads, current_opt_state, params)
+            return optax.apply_updates(params, updates), next_opt_state, loss
+
+        @jax.jit
+        def eval_step(params, emb, org_idx):
+            preds = head_predict_fn(params, emb, org_idx)  # (B, 3)
+            return preds
+
+    else:
+
+        @jax.jit
+        def train_step(params, current_opt_state, step_rng, emb, targets, org_idx):
+            def loss_func(p):
+                preds = head_train_fn(p, step_rng, emb, org_idx)
+                pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
+                return jnp.mean((pred - targets) ** 2)
+
+            loss, grads = jax.value_and_grad(loss_func)(params)
+            updates, next_opt_state = optimizer.update(grads, current_opt_state, params)
+            return optax.apply_updates(params, updates), next_opt_state, loss
+
+        @jax.jit
+        def eval_step(params, emb, org_idx):
+            preds = head_predict_fn(params, emb, org_idx)
+            return jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
 
     # Training loop
     n_train = len(sequences)
@@ -1002,7 +1134,7 @@ def _train_ag_s1_student(
         for start in range(0, n_train, batch_size):
             idx = perm[start : start + batch_size]
             emb = jnp.array(train_embs[idx].astype(np.float32))
-            targets = jnp.array(labels[idx])
+            targets = jnp.array(all_targets[idx])
             org_idx = jnp.zeros(len(idx), dtype=jnp.int32)
             jax_rng, step_rng = jax.random.split(jax_rng)
             model._params, opt_state, loss = train_step(
@@ -1023,20 +1155,51 @@ def _train_ag_s1_student(
     # Return a SequenceModel wrapper
     frozen_params = jax.device_get(model._params)
 
-    class _AGS1Student(SequenceModel):
-        _frozen_params = frozen_params  # expose for checkpoint saving
+    if is_multitask:
 
-        def predict(self, seqs: list[str]) -> np.ndarray:
-            embs = _encode_sequences_for_ag(seqs, task, encoder_fn)
-            preds = []
-            for i in range(0, len(seqs), 256):
-                emb = jnp.array(embs[i : i + 256].astype(np.float32))
-                org = jnp.zeros(emb.shape[0], dtype=jnp.int32)
-                p = eval_step(frozen_params, emb, org)
-                preds.append(np.array(p).reshape(-1))
-            return np.concatenate(preds)
+        class _AGS1MultitaskStudent(SequenceModel):
+            _frozen_params = frozen_params  # expose for checkpoint saving
+            cell_type_idx: int = 0  # default: K562 (0=k562, 1=hepg2, 2=sknsh)
 
-    return _AGS1Student()
+            def predict(self, seqs: list[str]) -> np.ndarray:
+                embs = _encode_sequences_for_ag(seqs, task, encoder_fn)
+                preds = []
+                for i in range(0, len(seqs), 256):
+                    emb = jnp.array(embs[i : i + 256].astype(np.float32))
+                    org = jnp.zeros(emb.shape[0], dtype=jnp.int32)
+                    p = eval_step(frozen_params, emb, org)  # (B, 3)
+                    preds.append(np.array(p)[:, self.cell_type_idx])
+                return np.concatenate(preds)
+
+            def predict_all(self, seqs: list[str]) -> np.ndarray:
+                """Predict all 3 cell types. Returns (N, 3) array."""
+                embs = _encode_sequences_for_ag(seqs, task, encoder_fn)
+                preds = []
+                for i in range(0, len(seqs), 256):
+                    emb = jnp.array(embs[i : i + 256].astype(np.float32))
+                    org = jnp.zeros(emb.shape[0], dtype=jnp.int32)
+                    p = eval_step(frozen_params, emb, org)  # (B, 3)
+                    preds.append(np.array(p))
+                return np.concatenate(preds, axis=0)
+
+        return _AGS1MultitaskStudent()
+
+    else:
+
+        class _AGS1Student(SequenceModel):
+            _frozen_params = frozen_params  # expose for checkpoint saving
+
+            def predict(self, seqs: list[str]) -> np.ndarray:
+                embs = _encode_sequences_for_ag(seqs, task, encoder_fn)
+                preds = []
+                for i in range(0, len(seqs), 256):
+                    emb = jnp.array(embs[i : i + 256].astype(np.float32))
+                    org = jnp.zeros(emb.shape[0], dtype=jnp.int32)
+                    p = eval_step(frozen_params, emb, org)
+                    preds.append(np.array(p).reshape(-1))
+                return np.concatenate(preds)
+
+        return _AGS1Student()
 
 
 def _train_ag_s2_student(
@@ -1326,6 +1489,7 @@ def _train_student(
     shift_aug: bool = False,
     max_shift: int = 15,
     s1_checkpoint: str | None = None,
+    multitask_labels: dict[str, np.ndarray] | None = None,
 ) -> SequenceModel:
     """Train a student model and return it."""
     if student_type == "dream_rnn":
@@ -1363,6 +1527,17 @@ def _train_student(
             batch_size,
             seed,
             pre_encoded_embs=pre_encoded_embs,
+        )
+    elif student_type == "alphagenome_k562_s1_multitask":
+        return _train_ag_s1_student(
+            task,
+            sequences,
+            labels,
+            lr,
+            batch_size,
+            seed,
+            pre_encoded_embs=pre_encoded_embs,
+            multitask_labels=multitask_labels,
         )
     elif student_type == "dream_cnn":
         from models.dream_cnn_student import DREAMCNNStudent
@@ -1423,6 +1598,7 @@ def _save_student_checkpoint(student: Any, student_type: str, run_dir: Path) -> 
 
     elif student_type in (
         "alphagenome_k562_s1",
+        "alphagenome_k562_s1_multitask",
         "alphagenome_yeast_s1",
         "alphagenome_k562_s2",
         "alphagenome_yeast_s2",
@@ -1985,8 +2161,15 @@ def run_scaling_experiment(
 
         # Pre-encode embeddings once for AG S1 (avoid redundant encoder passes)
         train_embs_cached = None
-        if student_type in ("alphagenome_k562_s1", "alphagenome_yeast_s1"):
-            ag = _get_ag_model_and_encoder(task)
+        if student_type in (
+            "alphagenome_k562_s1",
+            "alphagenome_k562_s1_multitask",
+            "alphagenome_yeast_s1",
+        ):
+            if student_type == "alphagenome_k562_s1_multitask":
+                ag = _get_ag_model_and_encoder_multitask(task)
+            else:
+                ag = _get_ag_model_and_encoder(task)
             logger.info(f"  Pre-encoding {len(train_seqs):,} training sequences for AG S1...")
             enc_start = time.perf_counter()
             train_embs_cached = _encode_sequences_for_ag(train_seqs, task, ag["encoder_fn"])
@@ -1994,6 +2177,54 @@ def run_scaling_experiment(
                 f"  Pre-encoding took {time.perf_counter() - enc_start:.1f}s, "
                 f"shape={train_embs_cached.shape}"
             )
+
+        # Load multitask labels for AG S1 multitask student
+        multitask_train_labels = None
+        if student_type == "alphagenome_k562_s1_multitask" and task == "k562":
+            from data.k562 import K562Dataset
+
+            mt_labels = {}
+            for cl, col in CELL_LINE_LABEL_COLUMNS.items():
+                cl_ds = K562Dataset(
+                    data_path=str(REPO / "data" / "k562"),
+                    split="train",
+                    label_column=col,
+                    use_hashfrag=not chr_split,
+                    use_chromosome_fallback=chr_split,
+                    include_alt_alleles=include_alt_alleles,
+                )
+                mt_labels[cl] = cl_ds.labels.astype(np.float32)
+            # Subset to the same train indices used for the primary labels
+            # train_seqs was built from pool_seqs which matches the K562Dataset ordering
+            # For genomic reservoir with ground_truth, labels come directly from the dataset
+            # For other reservoirs, sequences may not match the dataset order, so we need
+            # to match by sequence identity
+            if oracle_type == "ground_truth" and reservoir_name == "genomic":
+                # Labels are aligned with pool_seqs; use the same train_mask/indices
+                if chr_split:
+                    # chr-split: train_seqs = all sequences, labels already aligned
+                    multitask_train_labels = mt_labels
+                else:
+                    # Random holdout: need to apply same mask
+                    multitask_train_labels = {cl: arr[train_mask] for cl, arr in mt_labels.items()}
+            else:
+                # For non-ground-truth oracles, the sequences come from a reservoir
+                # and the oracle provides single-task labels. Multitask makes most
+                # sense with ground_truth labels from the dataset.
+                logger.warning(
+                    "Multitask training with non-ground-truth oracle: only the primary "
+                    "cell line will have valid labels. Other tracks will be NaN."
+                )
+                # Build labels aligned with train_seqs by matching to pool
+                pool_seq_to_idx = {s: i for i, s in enumerate(pool_seqs)}
+                for cl in mt_labels:
+                    aligned = np.full(len(train_seqs), np.nan, dtype=np.float32)
+                    for j, s in enumerate(train_seqs):
+                        pool_idx = pool_seq_to_idx.get(s)
+                        if pool_idx is not None:
+                            aligned[j] = mt_labels[cl][pool_idx]
+                    mt_labels[cl] = aligned
+                multitask_train_labels = mt_labels
 
         hp_configs = _build_hp_configs(n_train)
         # Filter out configs where batch_size > training samples (causes 0 steps with drop_last)
@@ -2053,6 +2284,7 @@ def run_scaling_experiment(
                         shift_aug=shift_aug,
                         max_shift=max_shift,
                         s1_checkpoint=s1_checkpoint,
+                        multitask_labels=multitask_train_labels,
                     )
 
                     # Validation evaluation
@@ -2193,6 +2425,7 @@ def main():
             "dream_rnn",
             "dream_cnn",
             "alphagenome_k562_s1",
+            "alphagenome_k562_s1_multitask",
             "alphagenome_yeast_s1",
             "alphagenome_k562_s2",
             "alphagenome_yeast_s2",
@@ -2298,12 +2531,26 @@ def main():
         default=15,
         help="Maximum shift in bp for shift augmentation (default: 15).",
     )
+    parser.add_argument(
+        "--multitask",
+        action="store_true",
+        help="Train a 3-output multitask head (K562, HepG2, SknSh) instead of single-output. "
+        "Automatically remaps alphagenome_k562_s1 to alphagenome_k562_s1_multitask.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+
+    # Remap student type if --multitask is set
+    if args.multitask:
+        if args.student == "alphagenome_k562_s1":
+            args.student = "alphagenome_k562_s1_multitask"
+            logger.info("--multitask: remapped student to alphagenome_k562_s1_multitask")
+        elif args.student != "alphagenome_k562_s1_multitask":
+            parser.error("--multitask is only supported with alphagenome_k562_s1 student")
 
     training_sizes = args.training_sizes or DEFAULT_TRAINING_SIZES
     oracle_suffix = f"_{args.oracle}" if args.oracle != "default" else ""
