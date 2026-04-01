@@ -104,11 +104,34 @@ run_ag_s1() {
         --training-sizes 700000 --epochs 50 --early-stop-patience 7
 }
 
-# Helper: AG S2
+# Helper: AG S2 (requires S1 checkpoint for warm start)
 run_ag_s2() {
     local CELL=$1 OUT=$2
     local CELL_FLAG=""
     [[ "${CELL}" != "k562" ]] && CELL_FLAG="--cell-line ${CELL}"
+
+    # Find best S1 checkpoint for warm start
+    S1_DIR="outputs/chr_split_v2/${CELL}/ag_all_folds_s1"
+    S1_CKPT=""
+    # Search for S1 checkpoint in standard locations
+    for CANDIDATE in \
+        "${S1_DIR}/genomic/n700000/hp0/seed42/best_model/checkpoint" \
+        "${S1_DIR}/genomic/n700000/hp0/seed42" \
+        "outputs/chr_split/${CELL}/ag_all_folds_s1/genomic/n400000/hp0/seed42"; do
+        if [ -d "${CANDIDATE}" ]; then
+            S1_CKPT="${CANDIDATE}"
+            break
+        fi
+    done
+
+    S1_FLAG=""
+    if [ -n "${S1_CKPT}" ]; then
+        echo "  S2 warm start from S1: ${S1_CKPT}"
+        S1_FLAG="--s1-checkpoint ${S1_CKPT}"
+    else
+        echo "  WARNING: No S1 checkpoint found; S2 will cold start"
+    fi
+
     uv run --no-sync python experiments/exp1_1_scaling.py \
         --task k562 --student alphagenome_k562_s2 \
         --oracle ground_truth --reservoir genomic --chr-split \
@@ -116,14 +139,23 @@ run_ag_s2() {
         ${CELL_FLAG} \
         --n-replicates 1 --no-hp-sweep --seed 42 \
         --output-dir "${OUT}" \
-        --training-sizes 700000 --epochs 50 --early-stop-patience 7
+        --training-sizes 700000 --epochs 50 --early-stop-patience 7 \
+        ${S1_FLAG}
 }
 
 case ${MODEL_IDX} in
     0) echo "DREAM-RNN ${CELL}"; run_dream "${CELL}" "${OUT_BASE}/dream_rnn" ;;
     1) echo "Malinois ${CELL}";   run_malinois "${CELL}" "${OUT_BASE}/malinois" ;;
     2) echo "AG S1 ${CELL}";      run_ag_s1 "${CELL}" "${OUT_BASE}/ag_all_folds_s1" ;;
-    3) echo "AG S2 ${CELL}";      run_ag_s2 "${CELL}" "${OUT_BASE}/ag_all_folds_s2" ;;
+    3) echo "AG S2 ${CELL}";
+       # S2 depends on S1 — run S1 first if checkpoint doesn't exist
+       S1_OUT="${OUT_BASE}/ag_all_folds_s1"
+       S1_CKPT_CHECK="${S1_OUT}/genomic/n700000/hp0/seed42/best_model/checkpoint"
+       if [ ! -d "${S1_CKPT_CHECK}" ]; then
+           echo "  Running AG S1 first (no existing checkpoint)..."
+           run_ag_s1 "${CELL}" "${S1_OUT}"
+       fi
+       run_ag_s2 "${CELL}" "${OUT_BASE}/ag_all_folds_s2" ;;
 esac
 
 echo "=== task=${T} DONE — $(date) ==="

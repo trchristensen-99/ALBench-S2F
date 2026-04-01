@@ -1021,6 +1021,8 @@ def _train_ag_s1_student(
     frozen_params = jax.device_get(model._params)
 
     class _AGS1Student(SequenceModel):
+        _frozen_params = frozen_params  # expose for checkpoint saving
+
         def predict(self, seqs: list[str]) -> np.ndarray:
             embs = _encode_sequences_for_ag(seqs, task, encoder_fn)
             preds = []
@@ -1041,11 +1043,15 @@ def _train_ag_s2_student(
     encoder_lr: float,
     batch_size: int,
     seed: int,
+    s1_checkpoint: str | None = None,
 ) -> SequenceModel:
     """Train an AG S2 student (joint encoder + head fine-tuning).
 
     Uses differential learning rates: encoder_lr for unfrozen encoder blocks,
     head_lr (from S2_CONFIG) for the head, and zero for frozen layers.
+
+    If s1_checkpoint is provided, loads S1 head weights for warm start.
+    Otherwise starts from random head initialization (cold start).
     """
     import jax
     import jax.numpy as jnp
@@ -1094,6 +1100,44 @@ def _train_ag_s2_student(
     )
     num_tokens = 5 if task == "k562" else 3
     reinit_head_params(model, head_name, num_tokens=num_tokens, dim=1536, rng=seed)
+
+    # ── Load S1 head checkpoint for warm start ────────────────────────────
+    if s1_checkpoint:
+        s1_path = Path(s1_checkpoint)
+        # Try multiple checkpoint formats
+        ckpt_path = None
+        for candidate in [
+            s1_path / "best_model" / "checkpoint",
+            s1_path / "checkpoint",
+            s1_path,
+        ]:
+            if candidate.exists() and candidate.is_dir():
+                ckpt_path = candidate
+                break
+        if ckpt_path:
+            import orbax.checkpoint as ocp
+
+            checkpointer = ocp.StandardCheckpointer()
+            s1_params, _ = checkpointer.restore(ckpt_path)
+
+            # Merge S1 head params into model (keeps encoder weights from pretrained)
+            def _merge(current, loaded):
+                import jax
+
+                def _merge_leaf(cur, ld):
+                    return ld if ld is not None else cur
+
+                return jax.tree_util.tree_map(_merge_leaf, current, loaded)
+
+            model._params = jax.device_put(_merge(model._params, s1_params))
+            logger.info(f"  S2: Loaded S1 head checkpoint from {ckpt_path} (warm start)")
+        else:
+            logger.warning(
+                f"  S2: S1 checkpoint not found at {s1_path}; "
+                "starting from random head initialization (cold start)"
+            )
+    else:
+        logger.info("  S2: No S1 checkpoint provided; cold start")
 
     # Per-group optimizer: head / encoder (unfrozen blocks) / frozen
     unfreeze_set = {f"downres_block_{b}" for b in unfreeze_blocks}
@@ -1243,6 +1287,8 @@ def _train_ag_s2_student(
 
     # Return a SequenceModel wrapper using best params
     class _AGS2Student(SequenceModel):
+        _frozen_params = best_params  # expose for checkpoint saving
+
         def predict(self, seqs: list[str]) -> np.ndarray:
             x = np.stack([_encode_one(s) for s in seqs])
             preds = []
@@ -1276,6 +1322,7 @@ def _train_student(
     val_labels: np.ndarray | None = None,
     shift_aug: bool = False,
     max_shift: int = 15,
+    s1_checkpoint: str | None = None,
 ) -> SequenceModel:
     """Train a student model and return it."""
     if student_type == "dream_rnn":
@@ -1341,30 +1388,56 @@ def _train_student(
         student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
         return student
     elif student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
-        return _train_ag_s2_student(task, sequences, labels, lr, batch_size, seed)
+        return _train_ag_s2_student(
+            task,
+            sequences,
+            labels,
+            lr,
+            batch_size,
+            seed,
+            s1_checkpoint=s1_checkpoint,
+        )
     else:
         raise ValueError(f"Unknown student type: {student_type}")
 
 
 def _save_student_checkpoint(student: Any, student_type: str, run_dir: Path) -> None:
-    """Save student model checkpoint to run_dir/best_model.pt.
+    """Save student model checkpoint.
 
-    Supports DREAM-RNN and DREAM-CNN ensemble students (PyTorch).
-    Other student types are silently skipped.
+    Supports DREAM-RNN/CNN (PyTorch) and AG S1/S2 (JAX/orbax).
     """
-    if student_type not in ("dream_rnn", "dream_cnn"):
-        return
+    if student_type in ("dream_rnn", "dream_cnn"):
+        import torch
 
-    import torch
+        ckpt_path = run_dir / "best_model.pt"
+        state = {
+            "student_type": student_type,
+            "ensemble_size": len(student.models),
+            "model_state_dicts": [m.state_dict() for m in student.models],
+        }
+        torch.save(state, ckpt_path)
+        logger.info(f"    Saved checkpoint to {ckpt_path}")
 
-    ckpt_path = run_dir / "best_model.pt"
-    state = {
-        "student_type": student_type,
-        "ensemble_size": len(student.models),
-        "model_state_dicts": [m.state_dict() for m in student.models],
-    }
-    torch.save(state, ckpt_path)
-    logger.info(f"    Saved checkpoint to {ckpt_path}")
+    elif student_type in (
+        "alphagenome_k562_s1",
+        "alphagenome_yeast_s1",
+        "alphagenome_k562_s2",
+        "alphagenome_yeast_s2",
+    ):
+        # Save JAX params via orbax for S1→S2 warm start
+        try:
+            import orbax.checkpoint as ocp
+
+            ckpt_dir = run_dir / "best_model" / "checkpoint"
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            if hasattr(student, "_frozen_params"):
+                checkpointer = ocp.StandardCheckpointer()
+                checkpointer.save(ckpt_dir, student._frozen_params)
+                logger.info(f"    Saved AG checkpoint to {ckpt_dir}")
+            else:
+                logger.warning("    AG student has no _frozen_params; skipping checkpoint save")
+        except Exception as e:
+            logger.warning(f"    Failed to save AG checkpoint: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1394,6 +1467,7 @@ def run_scaling_experiment(
     save_predictions: bool = False,
     shift_aug: bool = False,
     max_shift: int = 15,
+    s1_checkpoint: str | None = None,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -1973,6 +2047,7 @@ def run_scaling_experiment(
                         val_labels=val_labels,
                         shift_aug=shift_aug,
                         max_shift=max_shift,
+                        s1_checkpoint=s1_checkpoint,
                     )
 
                     # Validation evaluation
@@ -2177,6 +2252,13 @@ def main():
         "Matches the original Malinois paper training setup.",
     )
     parser.add_argument(
+        "--s1-checkpoint",
+        type=str,
+        default=None,
+        help="Path to S1 checkpoint dir (best_model/checkpoint) for AG S2 warm start. "
+        "If not provided, S2 starts from random head initialization.",
+    )
+    parser.add_argument(
         "--lr",
         type=float,
         default=None,
@@ -2271,6 +2353,7 @@ def main():
             save_predictions=args.save_predictions,
             shift_aug=args.shift_aug,
             max_shift=args.max_shift,
+            s1_checkpoint=args.s1_checkpoint,
         )
         all_results.extend(results)
 
