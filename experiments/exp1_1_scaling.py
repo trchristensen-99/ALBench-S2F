@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
@@ -1377,6 +1378,7 @@ def run_scaling_experiment(
     chr_split: bool = False,
     lr_override: float | None = None,
     batch_size_override: int | None = None,
+    save_predictions: bool = False,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -1985,6 +1987,38 @@ def run_scaling_experiment(
                         logger.error(f"    Test evaluation failed: {e}")
                         logger.error(traceback.format_exc())
 
+                    # Save predictions if requested
+                    if save_predictions and student is not None:
+                        try:
+                            pred_arrays = {}
+                            test_dir = REPO / task_cfg["test_set_dir"]
+                            if task == "k562":
+                                in_df = pd.read_csv(
+                                    test_dir / "test_in_distribution_hashfrag.tsv", sep="\t"
+                                )
+                                pred_arrays["in_dist_pred"] = student.predict(
+                                    in_df["sequence"].tolist()
+                                )
+                                snv_df = pd.read_csv(
+                                    test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t"
+                                )
+                                pred_arrays["snv_ref_pred"] = student.predict(
+                                    snv_df["sequence_ref"].tolist()
+                                )
+                                pred_arrays["snv_alt_pred"] = student.predict(
+                                    snv_df["sequence_alt"].tolist()
+                                )
+                                ood_path = test_dir / f"test_ood_designed_{cell_line or 'k562'}.tsv"
+                                if ood_path.exists():
+                                    ood_df = pd.read_csv(ood_path, sep="\t")
+                                    pred_arrays["ood_pred"] = student.predict(
+                                        ood_df["sequence"].tolist()
+                                    )
+                            np.savez_compressed(run_dir / "test_predictions.npz", **pred_arrays)
+                            logger.info(f"    Saved predictions: {list(pred_arrays.keys())}")
+                        except Exception as e:
+                            logger.error(f"    Prediction saving failed: {e}")
+
                     wall_s = time.perf_counter() - run_start
 
                     result = RunResult(
@@ -2126,6 +2160,11 @@ def main():
         dest="batch_size_override",
         help="Override batch size (forces single HP config, ignores sweep/grid).",
     )
+    parser.add_argument(
+        "--save-predictions",
+        action="store_true",
+        help="Save test predictions as test_predictions.npz for scatter plots.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -2188,6 +2227,7 @@ def main():
             chr_split=args.chr_split,
             lr_override=args.lr,
             batch_size_override=args.batch_size_override,
+            save_predictions=args.save_predictions,
         )
         all_results.extend(results)
 

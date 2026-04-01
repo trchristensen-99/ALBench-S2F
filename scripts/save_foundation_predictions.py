@@ -38,12 +38,26 @@ RESULT_DIRS = {
         "outputs/ntv3_post_k562_3seeds_v2",
         "outputs/ntv3_post_k562_3seeds",
     ],
+    # HepG2
+    ("enformer", "hepg2"): ["outputs/enformer_hepg2_cached"],
+    ("borzoi", "hepg2"): ["outputs/borzoi_hepg2_cached"],
+    ("ntv3_post", "hepg2"): ["outputs/ntv3_post_hepg2_cached"],
+    # SKNSH
+    ("enformer", "sknsh"): ["outputs/enformer_sknsh_cached"],
+    ("borzoi", "sknsh"): ["outputs/borzoi_sknsh_cached"],
+    ("ntv3_post", "sknsh"): ["outputs/ntv3_post_sknsh_cached"],
 }
 
 CACHE_DIRS = {
     ("enformer", "k562"): "outputs/enformer_k562_cached/embedding_cache",
     ("borzoi", "k562"): "outputs/borzoi_k562_cached/embedding_cache",
     ("ntv3_post", "k562"): "outputs/ntv3_post_k562_cached/embedding_cache",
+    ("enformer", "hepg2"): "outputs/enformer_hepg2_cached/embedding_cache",
+    ("borzoi", "hepg2"): "outputs/borzoi_hepg2_cached/embedding_cache",
+    ("ntv3_post", "hepg2"): "outputs/ntv3_post_hepg2_cached/embedding_cache",
+    ("enformer", "sknsh"): "outputs/enformer_sknsh_cached/embedding_cache",
+    ("borzoi", "sknsh"): "outputs/borzoi_sknsh_cached/embedding_cache",
+    ("ntv3_post", "sknsh"): "outputs/ntv3_post_sknsh_cached/embedding_cache",
 }
 
 
