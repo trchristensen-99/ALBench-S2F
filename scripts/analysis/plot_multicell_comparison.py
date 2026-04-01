@@ -125,6 +125,7 @@ _COMBINED_RESULT_DIRS = {
     ("NTv3", "k562"): [
         "outputs/ntv3_post_k562_stage2",
         "outputs/ntv3_k562_stage2_final",
+        "outputs/ntv3_post_k562_3seeds_v2",  # OOD-fixed
         "outputs/ntv3_post_k562_3seeds",
     ],
     ("NTv3", "hepg2"): [
@@ -228,6 +229,7 @@ _S1_RESULT_DIRS = {
     ("Malinois", "sknsh"): ["outputs/malinois_sknsh_3seeds"],
     # Foundation models S1 only
     ("NTv3 S1", "k562"): [
+        "outputs/ntv3_post_k562_3seeds_v2",  # OOD-fixed
         "outputs/ntv3_post_k562_3seeds",
         "outputs/ntv3_k562_3seeds",
     ],
