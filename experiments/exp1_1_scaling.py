@@ -203,7 +203,10 @@ CELL_LINE_LABEL_COLUMNS = {
 
 
 def _load_pool_sequences(
-    task: str, cell_line: str | None = None, chr_split: bool = False
+    task: str,
+    cell_line: str | None = None,
+    chr_split: bool = False,
+    include_alt_alleles: bool = False,
 ) -> tuple[list[str], np.ndarray | None]:
     """Load genomic pool sequences for the task.
 
@@ -222,6 +225,7 @@ def _load_pool_sequences(
             label_column=label_column,
             use_hashfrag=not chr_split,
             use_chromosome_fallback=chr_split,
+            include_alt_alleles=include_alt_alleles,
         )
         return list(ds.sequences), ds.labels.astype(np.float32)
     else:
@@ -240,6 +244,7 @@ def _evaluate_ground_truth_test(
     cell_line: str | None,
     evaluate_predictions_fn: Any,
     chr_split: bool = False,
+    include_alt_alleles: bool = False,
 ) -> dict[str, dict[str, float]]:
     """Evaluate student on K562Dataset test split with the specified cell line labels.
 
@@ -272,6 +277,7 @@ def _evaluate_ground_truth_test(
             label_column=label_column,
             use_hashfrag=not chr_split,
             use_chromosome_fallback=chr_split,
+            include_alt_alleles=include_alt_alleles,
         )
         sequences = list(ds.sequences)
         labels = ds.labels.astype(np.float32)
@@ -1382,6 +1388,7 @@ def run_scaling_experiment(
     transfer_hp_from: int | None = None,
     cell_line: str | None = None,
     chr_split: bool = False,
+    include_alt_alleles: bool = False,
     lr_override: float | None = None,
     batch_size_override: int | None = None,
     save_predictions: bool = False,
@@ -1561,7 +1568,10 @@ def run_scaling_experiment(
     if _needs_pool:
         logger.info("Loading genomic pool sequences...")
         pool_seqs, pool_labels = _load_pool_sequences(
-            task, cell_line=cell_line, chr_split=chr_split
+            task,
+            cell_line=cell_line,
+            chr_split=chr_split,
+            include_alt_alleles=include_alt_alleles,
         )
         logger.info(f"Pool size: {len(pool_seqs):,}")
 
@@ -1872,6 +1882,7 @@ def run_scaling_experiment(
                 label_column=val_label_col,
                 use_hashfrag=False,
                 use_chromosome_fallback=True,
+                include_alt_alleles=include_alt_alleles,
             )
             train_seqs = list(sequences)
             train_labels = labels
@@ -1990,6 +2001,7 @@ def run_scaling_experiment(
                                 cell_line or "k562",
                                 evaluate_predictions,
                                 chr_split=chr_split,
+                                include_alt_alleles=include_alt_alleles,
                             )
                         else:
                             test_metrics = evaluate_on_exp1_test_panel(student, task, test_set_dir)
@@ -2158,6 +2170,13 @@ def main():
         help="Use chromosome-based train/test splits instead of hashFrag splits.",
     )
     parser.add_argument(
+        "--include-alt-alleles",
+        action="store_true",
+        default=False,
+        help="Include alt alleles in K562 training data (ref+alt, ~798K vs ref-only ~401K). "
+        "Matches the original Malinois paper training setup.",
+    )
+    parser.add_argument(
         "--lr",
         type=float,
         default=None,
@@ -2246,6 +2265,7 @@ def main():
             transfer_hp_from=args.transfer_hp_from,
             cell_line=args.cell_line,
             chr_split=args.chr_split,
+            include_alt_alleles=args.include_alt_alleles,
             lr_override=args.lr,
             batch_size_override=args.batch_size_override,
             save_predictions=args.save_predictions,

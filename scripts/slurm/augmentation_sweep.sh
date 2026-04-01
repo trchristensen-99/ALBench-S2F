@@ -72,9 +72,10 @@ if [ ${MODEL_GROUP} -eq 0 ]; then
     uv run --no-sync python experiments/exp1_1_scaling.py \
         --task k562 --student dream_rnn \
         --oracle ground_truth --reservoir genomic --chr-split \
+        --include-alt-alleles \
         --n-replicates 3 --seed 42 \
         --output-dir "${OUT}" \
-        --training-sizes 400000 --epochs 80 --ensemble-size 1 \
+        --training-sizes 700000 --epochs 80 --ensemble-size 1 \
         --early-stop-patience 10 \
         ${SHIFT_FLAG}
 
@@ -91,6 +92,7 @@ elif [ ${MODEL_GROUP} -eq 1 ]; then
             ++seed="${SEED}" \
             ++cell_line="k562" \
             ++chr_split=True \
+            ++include_alt_alleles=True \
             ++use_reverse_complement="${RC}" \
             ++shift_aug="${SHIFT}" \
             ++max_shift=15
@@ -116,6 +118,7 @@ elif [ ${MODEL_GROUP} -eq 2 ]; then
             ++data_path="data/k562" \
             ++cell_line="k562" \
             ++chr_split=True \
+            ++include_alt_alleles=True \
             ++seed="${SEED}" \
             ++epochs=15 \
             ++batch_size=4 \

@@ -70,7 +70,7 @@ if [ $T -le 8 ]; then
         ntv3_post) EMBED_DIM=1536; BUILD_SCRIPT="scripts/build_ntv3_embedding_cache.py" ;;
     esac
 
-    # Step 1: Build embedding cache with chr-split (includes corrected test sets)
+    # Step 1: Build embedding cache with chr-split + alt alleles (matching Malinois paper)
     echo "=== Building embedding cache ==="
     uv run --no-sync python "${BUILD_SCRIPT}" \
         --data-path "data/k562" \
@@ -78,7 +78,8 @@ if [ $T -le 8 ]; then
         --splits train val \
         --include-test \
         --chr-split \
-        --cell-line "${CELL}"
+        --cell-line "${CELL}" \
+        --include-alt-alleles
 
     # Step 2: Train S1 heads (3 seeds)
     echo "=== Training S1 heads ==="
@@ -92,6 +93,7 @@ if [ $T -le 8 ]; then
             ++output_dir="${OUT_DIR}/seed_${SEED}" \
             ++seed="${SEED}" \
             ++chr_split=True \
+            ++include_alt_alleles=True \
             ++lr=0.0005 ++weight_decay=1e-6 ++dropout=0.1 \
             ++epochs=50 ++early_stop_patience=7
     done
@@ -124,6 +126,7 @@ elif [ $T -le 11 ]; then
             ++data_path="data/${CELL}" \
             ++cell_line="${CELL}" \
             ++chr_split=True \
+            ++include_alt_alleles=True \
             ++seed="${SEED}" \
             ++epochs=15 \
             ++batch_size=4 \

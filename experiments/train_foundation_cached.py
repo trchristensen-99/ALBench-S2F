@@ -70,6 +70,7 @@ DEFAULT_CONFIG = {
     "rc_aug": True,
     "cell_line": "k562",
     "chr_split": False,
+    "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
 }
 
 
@@ -165,6 +166,7 @@ def evaluate_test_sets_cached(
     device: torch.device,
     cell_line: str = "k562",
     chr_split: bool = False,
+    include_alt_alleles: bool = False,
 ) -> dict[str, dict[str, float]]:
     """Evaluate on test sets using cached embeddings (RC-averaged).
 
@@ -204,6 +206,7 @@ def evaluate_test_sets_cached(
             label_column=fc_col,
             use_hashfrag=False,
             use_chromosome_fallback=True,
+            include_alt_alleles=include_alt_alleles,
         )
         in_true = test_ds.labels.astype(np.float32)
         in_pred = _predict_cached("test_in_dist")
@@ -329,10 +332,16 @@ def train(cfg: dict):
     cell_line = cfg.get("cell_line", "k562")
     label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
     chr_split = cfg.get("chr_split", False)
+    include_alt = cfg.get("include_alt_alleles")
+    if include_alt is None:
+        include_alt = chr_split  # default: True for chr_split to match Malinois paper
+    elif isinstance(include_alt, str):
+        include_alt = include_alt.lower() in ("true", "1", "yes")
     ds_kwargs: dict = {"data_path": str(data_path), "label_column": label_col}
     if chr_split:
         ds_kwargs["use_hashfrag"] = False
         ds_kwargs["use_chromosome_fallback"] = True
+    ds_kwargs["include_alt_alleles"] = include_alt
     train_ds = K562Dataset(split="train", **ds_kwargs)
     val_ds = K562Dataset(split="val", **ds_kwargs)
     train_labels = train_ds.labels
@@ -450,7 +459,13 @@ def train(cfg: dict):
     model.to(device)
 
     test_metrics = evaluate_test_sets_cached(
-        model, cache_dir, data_path, device, cell_line=cell_line, chr_split=chr_split
+        model,
+        cache_dir,
+        data_path,
+        device,
+        cell_line=cell_line,
+        chr_split=chr_split,
+        include_alt_alleles=include_alt,
     )
 
     result = {

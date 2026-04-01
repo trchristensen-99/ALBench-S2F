@@ -161,6 +161,12 @@ def main():
     parser.add_argument(
         "--cell-line", default="k562", help="Cell line for label column (k562/hepg2/sknsh)."
     )
+    parser.add_argument(
+        "--include-alt-alleles",
+        action="store_true",
+        default=False,
+        help="Include alt alleles in K562 dataset (ref+alt, ~798K vs ref-only ~401K).",
+    )
     parser.add_argument("--n-center-bins", type=int, default=4)
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument(
@@ -206,6 +212,8 @@ def main():
     if args.chr_split:
         ds_kwargs["use_hashfrag"] = False
         ds_kwargs["use_chromosome_fallback"] = True
+    if args.include_alt_alleles:
+        ds_kwargs["include_alt_alleles"] = True
 
     for split in args.splits:
         ds = K562Dataset(split=split, **ds_kwargs)

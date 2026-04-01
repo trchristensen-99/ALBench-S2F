@@ -74,6 +74,7 @@ DEFAULT_CONFIG = {
     "pretrained_weights": None,
     "cell_line": "k562",
     "chr_split": False,
+    "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
 }
 
 
@@ -408,11 +409,17 @@ def train_malinois(cfg: dict):
     cell_line = cfg.get("cell_line", "k562")
     label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
     chr_split = cfg.get("chr_split", False)
+    include_alt = cfg.get("include_alt_alleles")
+    if include_alt is None:
+        include_alt = chr_split  # default: True for chr_split to match Malinois paper
+    elif isinstance(include_alt, str):
+        include_alt = include_alt.lower() in ("true", "1", "yes")
     ds_kwargs = dict(
         data_path=str(data_path),
         label_column=label_col,
         use_hashfrag=not chr_split,
         use_chromosome_fallback=chr_split,
+        include_alt_alleles=include_alt,
     )
     train_ds = K562MalinoisDataset(K562Dataset(split="train", **ds_kwargs))
     val_ds = K562MalinoisDataset(K562Dataset(split="val", **ds_kwargs))

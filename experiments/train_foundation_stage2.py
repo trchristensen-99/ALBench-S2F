@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
     "normalize_embeddings": False,  # L2-normalize encoder embeddings before head
     "cell_line": "k562",
     "chr_split": False,  # use chromosome-based splits (test=chr7+13, val=chr19+21+X)
+    "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
     "shift_aug": False,  # random shift augmentation during training
     "max_shift": 15,  # max shift in bp (±max_shift)
     # LoRA adapter config (Borzoi only)
@@ -824,9 +825,15 @@ def train(cfg: dict):
     cell_line = cfg.get("cell_line", "k562")
     label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
     use_chr_split = bool(cfg.get("chr_split", False))
+    include_alt = cfg.get("include_alt_alleles")
+    if include_alt is None:
+        include_alt = use_chr_split  # default: True for chr_split to match Malinois paper
+    elif isinstance(include_alt, str):
+        include_alt = include_alt.lower() in ("true", "1", "yes")
     ds_kwargs = {
         "data_path": str(data_path),
         "label_column": label_col,
+        "include_alt_alleles": include_alt,
     }
     if use_chr_split:
         ds_kwargs["use_hashfrag"] = False
