@@ -72,7 +72,7 @@ case ${T} in
         --include-alt-alleles \
         --n-replicates 1 --no-hp-sweep --seed 42 \
         --output-dir "${OUT_BASE}/ag_s1_multitask" \
-        --training-sizes 700000 --epochs 50 --early-stop-patience 7
+        --training-sizes 658000 --epochs 50 --early-stop-patience 7
     ;;
 
 1)  echo "AG S1 multi-task + duplication"
@@ -82,7 +82,7 @@ case ${T} in
         --include-alt-alleles --duplication-cutoff 0.5 \
         --n-replicates 1 --no-hp-sweep --seed 42 \
         --output-dir "${OUT_BASE}/ag_s1_multitask_dup" \
-        --training-sizes 700000 --epochs 50 --early-stop-patience 7
+        --training-sizes 658000 --epochs 50 --early-stop-patience 7
     ;;
 
 2)  echo "AG S1 single-task + duplication (ablation)"
@@ -92,7 +92,7 @@ case ${T} in
         --include-alt-alleles --duplication-cutoff 0.5 \
         --n-replicates 1 --no-hp-sweep --seed 42 \
         --output-dir "${OUT_BASE}/ag_s1_dup" \
-        --training-sizes 700000 --epochs 50 --early-stop-patience 7
+        --training-sizes 658000 --epochs 50 --early-stop-patience 7
     ;;
 
 3)  echo "AG S2 from multi-task S1 (warm start)"
@@ -106,7 +106,7 @@ case ${T} in
             --include-alt-alleles \
             --n-replicates 1 --no-hp-sweep --seed 42 \
             --output-dir "${OUT_BASE}/ag_s1_multitask" \
-            --training-sizes 700000 --epochs 50 --early-stop-patience 7
+            --training-sizes 658000 --epochs 50 --early-stop-patience 7
     fi
     echo "  Running AG S2 with warm start from multi-task S1"
     uv run --no-sync python experiments/exp1_1_scaling.py \
@@ -116,7 +116,7 @@ case ${T} in
         --s1-checkpoint "${OUT_BASE}/ag_s1_multitask/genomic/n700000/hp0/seed42" \
         --n-replicates 1 --no-hp-sweep --seed 42 \
         --output-dir "${OUT_BASE}/ag_s2_from_mt" \
-        --training-sizes 700000 --epochs 50 --early-stop-patience 7
+        --training-sizes 658000 --epochs 50 --early-stop-patience 7
     ;;
 
 # ── Enformer S1 multi-task ──

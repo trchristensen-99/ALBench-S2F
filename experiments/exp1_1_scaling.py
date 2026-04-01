@@ -1063,7 +1063,16 @@ def _train_ag_s1_student(
         mt_arrays = []
         for cl in _mt_order:
             if cl in multitask_labels:
-                mt_arrays.append(multitask_labels[cl].astype(np.float32))
+                cl_labels = multitask_labels[cl].astype(np.float32)
+                # If training sequences were oversampled (N > pool), re-index
+                if len(sequences) > len(cl_labels):
+                    # The main `labels` was built by the oracle from sampled sequences.
+                    # Map back to pool indices: sequences[i] → pool index → cl_labels[pool_idx]
+                    # For ground_truth oracle, labels == pool_labels[sampled_indices].
+                    # Use modulo indexing as sequences are sampled with replacement from pool.
+                    indices = np.arange(len(sequences)) % len(cl_labels)
+                    cl_labels = cl_labels[indices]
+                mt_arrays.append(cl_labels)
             else:
                 # Missing cell line -> all NaN (will be masked in loss)
                 mt_arrays.append(np.full(len(sequences), np.nan, dtype=np.float32))
