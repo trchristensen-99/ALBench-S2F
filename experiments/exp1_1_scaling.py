@@ -1301,7 +1301,9 @@ def _train_ag_s2_student(
             import orbax.checkpoint as ocp
 
             checkpointer = ocp.StandardCheckpointer()
-            s1_params, _ = checkpointer.restore(ckpt_path.resolve())
+            s1_restore = checkpointer.restore(ckpt_path.resolve())
+            # orbax returns either params directly or (params, extra)
+            s1_params = s1_restore[0] if isinstance(s1_restore, (tuple, list)) else s1_restore
 
             # Merge S1 head params into model (keeps encoder weights from pretrained)
             def _merge(current, loaded):
