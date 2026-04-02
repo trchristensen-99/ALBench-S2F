@@ -1618,12 +1618,14 @@ def _save_student_checkpoint(student: Any, student_type: str, run_dir: Path) -> 
 
             ckpt_dir = run_dir / "best_model" / "checkpoint"
             if hasattr(student, "_frozen_params"):
-                # Remove existing checkpoint dir to avoid "already exists" error
+                # Remove existing checkpoint dir — orbax refuses to save if it exists
+                # and also refuses if we pre-create it with mkdir
                 import shutil
 
                 if ckpt_dir.exists():
                     shutil.rmtree(ckpt_dir)
-                ckpt_dir.mkdir(parents=True, exist_ok=True)
+                # Create PARENT dir only; let orbax create the checkpoint dir itself
+                ckpt_dir.parent.mkdir(parents=True, exist_ok=True)
                 checkpointer = ocp.StandardCheckpointer()
                 checkpointer.save(ckpt_dir, student._frozen_params)
                 logger.info(f"    Saved AG checkpoint to {ckpt_dir}")
