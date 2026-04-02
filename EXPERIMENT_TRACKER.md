@@ -69,16 +69,16 @@
 
 | Student | AG oracle (default) | DRNN oracle | Ground truth | Status |
 |---|---|---|---|---|
-| LegNet | 63 results (6/7 sizes) | 62 results (5/7) | 62 results (6/7) | **RUNNING** |
+| LegNet | 7/7 sizes ✅ (0.888 at 320K) | 62 results (5/7) | 62 results (6/7) | K562 AG oracle **DONE** |
 | DREAM-CNN | 31 results ✅ | 36 results ✅ | 26 results (4/7) | GT **RUNNING** |
 | DREAM-RNN | 30 results ✅ | 36 results ✅ | 22 results (3/7) | GT **RUNNING** |
 | AG S1 | 72 results ✅ | 72 results ✅ | — | Not needed (cached) |
 | AG S2 cold | 21 results ✅ | — | — | Has dropout bug |
-| AG S2 warm | 21 results ✅ | — | — | Fixed warm start |
+| AG S2 warm | 21 results ✅ | — | — | Fixed warm start, S2≈S1 on oracle labels |
 
 **HP configs used:**
-- LegNet: lr=[0.001, 0.005], bs=[512, 1024] — best: lr=0.005, bs=1024
-- DREAM-CNN: lr=[0.005], bs=[512, 1024] — **only 1 LR tested, sweep running**
+- LegNet: lr=[0.001, 0.003, 0.005, 0.01], bs=[512, 1024] — best: **lr=0.005-0.01, bs=512** (HP probe confirmed)
+- DREAM-CNN: lr=[0.001, 0.005, 0.01], bs=[512, 1024] — best: **lr=0.005, bs=512** (HP probe: lr=0.01 ≈ same, lr=0.001 worse)
 - DREAM-RNN: lr=[0.005], bs=[128, 512]
 - AG S1: lr=[3e-4, 1e-3], bs=[128, 256]
 
@@ -116,13 +116,13 @@
 | Model | K562 | HepG2 | SknSh | Predictions? |
 |---|---|---|---|---|
 | Malinois | 3 seeds (v2) ✅ | 3 seeds (v2) ✅ | 1 seed (v2) + 2 **RUNNING** | No |
-| LegNet | 2 seeds **RUNNING** (fast) | 2 seeds **RUNNING** (slow) | 2 seeds **RUNNING** (slow) | No |
+| LegNet | 1 seed done (0.812) + 1 running | 2 seeds **PENDING** (slow) | 2 seeds **PENDING** (slow) | No |
 | DREAM-RNN | 1 seed (v2) + 1 **RUNNING** | 2 seeds **RUNNING** | 2 seeds **RUNNING** | No |
 | Enf. S1 | 3 seeds (v1 ref-only) | 3 seeds (v1) | 3 seeds (v1) | No |
 | Enf. S1 v2 | **REBUILDING** cache | **REBUILDING** | **REBUILDING** | No |
 | Enf. S2 | **MISSING** (needs S1) | **MISSING** | **MISSING** | No |
 | AG S1 | 1 seed (v2) ✅ | 1 seed (v2) ✅ | 1 seed (v2) ✅ | No |
-| AG S2 warm | **RUNNING** (fast) | **PENDING** (default) | **PENDING** (default) | No |
+| AG S2 warm | 1 seed ✅ (0.875) | **RUNNING** (default) | **RUNNING** (default) | No |
 | AG S2 cold | 1 seed (v1 ref-only) | 1 (v1) | 1 (v1) | No |
 
 **Result dirs:** `outputs/chr_split_v2/{cell}/{model}/...`
@@ -136,7 +136,8 @@
 | DREAM-RNN | 0.836 | 0.305 | 0.404 |
 | Enf. (Probing) | 0.862 | 0.295 | 0.331 |
 | AG (Probing) | 0.878 | 0.355 | 0.707 |
-| AG (Fine-tuned) | 0.869 (cold!) | 0.343 | 0.641 |
+| AG (Fine-tuned) cold | 0.869 (cold!) | 0.343 | 0.641 |
+| AG (Fine-tuned) warm | 0.875 | 0.337 | 0.668 |
 
 ### Colors (from PI meeting notes)
 - Malinois/LegNet: `#E8DCCF` (baseline beige) / `#D4A017` (gold)
@@ -199,7 +200,11 @@ All on K562 chr_split, ref+alt.
 ## 8. Gap List / TODO <a name="gaps"></a>
 
 ### Priority 1 (Currently Running)
-- [ ] LegNet K562 Exp0 final 1-2 sizes
+- [x] LegNet K562 Exp0 — ALL 7 sizes DONE (0.888 at 320K)
+- [x] AG S2 warm K562 chr_split — DONE (0.875, OOD improved over cold)
+- [x] HP probe — DONE (LegNet best at lr=0.005-0.01, DREAM-CNN best at lr=0.005)
+- [x] DREAM-RNN K562 v2 seed 2 — DONE (0.834)
+- [x] LegNet K562 bar plot seed 1 — DONE (0.812)
 - [ ] LegNet Yeast Exp0 oracle runs (6/10 and 7/10 sizes remaining)
 - [ ] Yeast S2 warm-start
 - [ ] Ground truth scaling (6 jobs: CNN+RNN+LegNet × K562+Yeast)
