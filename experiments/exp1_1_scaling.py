@@ -67,6 +67,10 @@ HP_GRIDS = {
         "learning_rate": [0.005],
         "batch_size": [512, 1024],
     },
+    "legnet": {
+        "learning_rate": [0.005, 0.001],
+        "batch_size": [512, 1024],
+    },
     "alphagenome_k562_s1": {
         "learning_rate": [3e-4, 1e-3],
         "batch_size": [128, 256],
@@ -104,6 +108,10 @@ HP_GRIDS_LARGE_N = {
     },
     "dream_cnn": {
         "learning_rate": [0.005],
+        "batch_size": [1024],
+    },
+    "legnet": {
+        "learning_rate": [0.001],
         "batch_size": [1024],
     },
     "alphagenome_k562_s1": {
@@ -1574,6 +1582,32 @@ def _train_student(
         )
         student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
         return student
+    elif student_type == "legnet":
+        from models.legnet_student import LegNetStudent
+        from models.legnet_student import TrainConfig as LegNetTrainConfig
+
+        cfg = TASK_CONFIGS[task]
+        np.random.seed(seed)
+        import torch
+
+        torch.manual_seed(seed)
+
+        student = LegNetStudent(
+            in_channels=4,  # LegNet uses 4-channel one-hot (no RC flag)
+            sequence_length=cfg["sequence_length"],
+            task_mode=cfg["task_mode"],
+            ensemble_size=ensemble_size,
+            train_config=LegNetTrainConfig(
+                batch_size=batch_size,
+                lr=lr,
+                epochs=epochs,
+                early_stopping_patience=early_stopping_patience,
+                shift_aug=shift_aug,
+                max_shift=max_shift,
+            ),
+        )
+        student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
+        return student
     elif student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
         return _train_ag_s2_student(
             task,
@@ -1593,7 +1627,7 @@ def _save_student_checkpoint(student: Any, student_type: str, run_dir: Path) -> 
 
     Supports DREAM-RNN/CNN (PyTorch) and AG S1/S2 (JAX/orbax).
     """
-    if student_type in ("dream_rnn", "dream_cnn"):
+    if student_type in ("dream_rnn", "dream_cnn", "legnet"):
         import torch
 
         ckpt_path = run_dir / "best_model.pt"
@@ -2440,6 +2474,7 @@ def main():
         choices=[
             "dream_rnn",
             "dream_cnn",
+            "legnet",
             "alphagenome_k562_s1",
             "alphagenome_k562_s1_multitask",
             "alphagenome_yeast_s1",

@@ -28,8 +28,14 @@ OUT = REPO / "results" / "exp0_scaling_plots"
 
 # --- Model definitions -----------------------------------------------------------
 
-K562_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_k562_s1", "alphagenome_k562_s2"]
-YEAST_STUDENTS = ["dream_cnn", "dream_rnn", "alphagenome_yeast_s1", "alphagenome_yeast_s2"]
+K562_STUDENTS = ["legnet", "dream_cnn", "dream_rnn", "alphagenome_k562_s1", "alphagenome_k562_s2"]
+YEAST_STUDENTS = [
+    "legnet",
+    "dream_cnn",
+    "dream_rnn",
+    "alphagenome_yeast_s1",
+    "alphagenome_yeast_s2",
+]
 # AG S2 yeast: softmax bug fixed; _hlr variant merged in load_scaling_data
 
 # Extra directories to merge into main student results (same student, different HP)
@@ -38,6 +44,7 @@ YEAST_MERGE_DIRS = {
 }
 
 COLORS = {
+    "legnet": "#D4A017",
     "dream_cnn": "#E8602C",
     "dream_rnn": "#7B2D8E",
     "alphagenome_k562_s1": "#66BB6A",
@@ -47,6 +54,7 @@ COLORS = {
 }
 
 LABELS = {
+    "legnet": "LegNet",
     "dream_cnn": "DREAM-CNN",
     "dream_rnn": "DREAM-RNN",
     "alphagenome_k562_s1": "AG S1",
@@ -56,6 +64,7 @@ LABELS = {
 }
 
 MARKERS = {
+    "legnet": "P",
     "dream_cnn": "o",
     "dream_rnn": "s",
     "alphagenome_k562_s1": "D",
