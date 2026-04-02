@@ -1,6 +1,6 @@
 # ALBench-S2F Experiment Tracker
 
-> **Last updated:** 2026-04-02
+> **Last updated:** 2026-04-02 (evening)
 > **Purpose:** Track all experiments, hyperparameters, results, and gaps.
 
 ---
@@ -25,7 +25,9 @@
 - **Total oligos:** ~798K (ref + alt alleles), ~401K (ref-only)
 - **Sequence length:** 200bp variable inserts, padded to 600bp with MPRA vector flanks
 - **Cell types:** K562, HepG2, SK-N-SH (3 label columns)
-- **Quality filter:** max SE < 1.0, ±6σ outlier removal
+- **Quality filter (added 2026-04-02):** project filter (UKBB/GTEX/CRE), max SE < 1.0, ±6σ outlier removal (+4 upper shift)
+- **After quality filter:** ref+alt ~738K (from 798K), ref-only ~401K
+- **NOTE:** All runs before 2026-04-02 evening used UNFILTERED data
 
 ### Splits
 
@@ -221,6 +223,13 @@ All on K562 chr_split, ref+alt.
 - [ ] LegNet k-fold oracle ensemble (needs implementation)
 - [ ] Prediction saving pass for scatter plots (all bar plot models)
 - [ ] Ensemble comparison (ensemble_size=1 vs 3)
+
+### Active (Systematic Comparison, submitted 2026-04-02 evening)
+- [ ] Malinois × 4 configs (baseline/shift/dup/shift+dup) — quality-filtered, K562 chr_split
+- [ ] LegNet × 4 configs (same)
+- [ ] AG S1 × 2 configs (baseline/dup)
+- [ ] AG S2 all-blocks × 20K subsample (matching hashfrag S2 config)
+- All use quality-filtered data + ref+alt + chr_split
 
 ### Priority 3 (Nice to Have)
 - [ ] AG S1/S2 ground truth Exp0 (needs custom pipeline)
