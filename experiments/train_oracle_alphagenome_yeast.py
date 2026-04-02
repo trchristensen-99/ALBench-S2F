@@ -495,6 +495,7 @@ def main(cfg: DictConfig) -> None:
                 batch["organism_index"],
                 negative_strand_mask=jnp.zeros(len(batch["sequences"]), dtype=bool),
                 strand_reindexing=None,
+                is_training=True,
             )[unique_head_name]
             return loss_fn(preds, batch)["loss"]
 
@@ -856,6 +857,7 @@ def main(cfg: DictConfig) -> None:
                     batch["organism_index"],
                     negative_strand_mask=jnp.zeros(len(batch["sequences"]), dtype=bool),
                     strand_reindexing=None,
+                    is_training=True,
                 )[unique_head_name]
                 return loss_fn(preds, batch)["loss"]
 

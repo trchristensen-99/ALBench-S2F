@@ -509,6 +509,7 @@ def main(cfg: DictConfig) -> None:
                 batch["organism_index"],
                 negative_strand_mask=jnp.zeros(len(batch["sequences"]), dtype=bool),
                 strand_reindexing=None,
+                is_training=True,
             )[unique_head_name]
             pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
             return jnp.mean((pred - batch["targets"]) ** 2)
