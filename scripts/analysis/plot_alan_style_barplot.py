@@ -44,26 +44,68 @@ MODEL_ORDER = [
 # ── Result directories ───────────────────────────────────────────────────────
 # Maps (model_label, cell) -> list of result dirs to search
 
-# Chr-split result directories
+# Chr-split result directories (prefer v2 = ref+alt, fall back to v1 = ref-only)
 CHR_SPLIT_DIRS = {
-    ("Malinois", "k562"): ["outputs/chr_split/k562/malinois"],
-    ("Malinois", "hepg2"): ["outputs/chr_split/hepg2/malinois"],
-    ("Malinois", "sknsh"): ["outputs/chr_split/sknsh/malinois"],
-    ("DREAM-RNN", "k562"): ["outputs/chr_split/k562/dream_rnn"],
-    ("DREAM-RNN", "hepg2"): ["outputs/chr_split/hepg2/dream_rnn"],
-    ("DREAM-RNN", "sknsh"): ["outputs/chr_split/sknsh/dream_rnn"],
-    ("Enf. (Probing)", "k562"): ["outputs/chr_split/k562/enformer_s1"],
-    ("Enf. (Probing)", "hepg2"): ["outputs/chr_split/hepg2/enformer_s1"],
-    ("Enf. (Probing)", "sknsh"): ["outputs/chr_split/sknsh/enformer_s1"],
-    ("Enf. (Fine-tuned)", "k562"): [],  # No chr-split S2 yet
-    ("Enf. (Fine-tuned)", "hepg2"): [],
-    ("Enf. (Fine-tuned)", "sknsh"): [],
-    ("AG (Probing)", "k562"): ["outputs/chr_split/k562/ag_all_folds_s1"],
-    ("AG (Probing)", "hepg2"): ["outputs/chr_split/hepg2/ag_all_folds_s1"],
-    ("AG (Probing)", "sknsh"): ["outputs/chr_split/sknsh/ag_all_folds_s1"],
-    ("AG (Fine-tuned)", "k562"): ["outputs/chr_split/k562/ag_all_folds_s2"],
-    ("AG (Fine-tuned)", "hepg2"): ["outputs/chr_split/hepg2/ag_all_folds_s2"],
-    ("AG (Fine-tuned)", "sknsh"): ["outputs/chr_split/sknsh/ag_all_folds_s2"],
+    ("Malinois", "k562"): ["outputs/chr_split_v2/k562/malinois", "outputs/chr_split/k562/malinois"],
+    ("Malinois", "hepg2"): [
+        "outputs/chr_split_v2/hepg2/malinois",
+        "outputs/chr_split/hepg2/malinois",
+    ],
+    ("Malinois", "sknsh"): [
+        "outputs/chr_split_v2/sknsh/malinois",
+        "outputs/chr_split/sknsh/malinois",
+    ],
+    ("DREAM-RNN", "k562"): [
+        "outputs/chr_split_v2/k562/dream_rnn",
+        "outputs/chr_split/k562/dream_rnn",
+    ],
+    ("DREAM-RNN", "hepg2"): [
+        "outputs/chr_split_v2/hepg2/dream_rnn",
+        "outputs/chr_split/hepg2/dream_rnn",
+    ],
+    ("DREAM-RNN", "sknsh"): [
+        "outputs/chr_split_v2/sknsh/dream_rnn",
+        "outputs/chr_split/sknsh/dream_rnn",
+    ],
+    ("Enf. (Probing)", "k562"): [
+        "outputs/chr_split/k562/enformer_s1_v2",
+        "outputs/chr_split/k562/enformer_s1",
+    ],
+    ("Enf. (Probing)", "hepg2"): [
+        "outputs/chr_split/hepg2/enformer_s1_v2",
+        "outputs/chr_split/hepg2/enformer_s1",
+    ],
+    ("Enf. (Probing)", "sknsh"): [
+        "outputs/chr_split/sknsh/enformer_s1_v2",
+        "outputs/chr_split/sknsh/enformer_s1",
+    ],
+    ("Enf. (Fine-tuned)", "k562"): ["outputs/chr_split/k562/enformer_s2"],
+    ("Enf. (Fine-tuned)", "hepg2"): ["outputs/chr_split/hepg2/enformer_s2"],
+    ("Enf. (Fine-tuned)", "sknsh"): ["outputs/chr_split/sknsh/enformer_s2"],
+    ("AG (Probing)", "k562"): [
+        "outputs/chr_split_v2/k562/ag_all_folds_s1",
+        "outputs/chr_split/k562/ag_all_folds_s1",
+    ],
+    ("AG (Probing)", "hepg2"): [
+        "outputs/chr_split_v2/hepg2/ag_all_folds_s1",
+        "outputs/chr_split/hepg2/ag_all_folds_s1",
+    ],
+    ("AG (Probing)", "sknsh"): [
+        "outputs/chr_split_v2/sknsh/ag_all_folds_s1",
+        "outputs/chr_split/sknsh/ag_all_folds_s1",
+    ],
+    ("AG (Fine-tuned)", "k562"): [
+        "outputs/chr_split_v2/k562/ag_all_folds_s2",
+        "outputs/chr_split/k562/ag_all_folds_s2",
+    ],
+    ("AG (Fine-tuned)", "hepg2"): [
+        "outputs/chr_split_v2/hepg2/ag_all_folds_s2",
+        "outputs/chr_split/hepg2/ag_all_folds_s2",
+    ],
+    ("AG (Fine-tuned)", "sknsh"): [
+        "outputs/chr_split_v2/sknsh/ag_all_folds_s2",
+        "outputs/chr_split/sknsh/ag_all_folds_s2",
+    ],
 }
 
 # HashFrag result directories

@@ -24,26 +24,40 @@ OUT_DIR = REPO / "results" / "exp0_plots"
 # K562 uses AlphaGenome as the oracle ensemble.
 # Yeast uses DREAM-RNN as the oracle ensemble.
 STYLE = {
-    # K562
+    # K562 — 4 models × 2 label conditions
+    "DREAM-CNN (real)": dict(color="#FF8C00", marker="^", ls="-"),
+    "DREAM-CNN (oracle)": dict(color="#FF8C00", marker="^", ls="--"),
+    "DREAM-RNN (real)": dict(color="#E05E4B", marker="o", ls="-"),
+    "DREAM-RNN (oracle)": dict(color="#E05E4B", marker="o", ls="--"),
+    "AG S1 (real)": dict(color="#4B7BE0", marker="s", ls="-"),
+    "AG S1 (oracle)": dict(color="#4B7BE0", marker="s", ls="--"),
+    "AG S2 (real)": dict(color="#2CA02C", marker="D", ls="-"),
+    "AG S2 (oracle)": dict(color="#2CA02C", marker="D", ls="--"),
+    # Legacy K562 names (for backward compat with old data loading)
     "DREAM-RNN (real labels)": dict(color="#E05E4B", marker="o", ls="-"),
     "DREAM-RNN (AG Ensemble labels)": dict(color="#E05E4B", marker="o", ls="--"),
     "AlphaGenome (real labels, frozen)": dict(color="#4B7BE0", marker="s", ls="-"),
     "AlphaGenome (AG Ensemble labels, frozen)": dict(color="#4B7BE0", marker="s", ls="--"),
     # Yeast
-    "DREAM-RNN (real)": dict(color="#E05E4B", marker="o", ls="-"),
-    "DREAM-RNN (oracle)": dict(color="#E05E4B", marker="o", ls="--"),
     "AlphaGenome S1 (frozen)": dict(color="#4B7BE0", marker="s", ls="-"),
     "AlphaGenome S2 (fine-tuned)": dict(color="#2CA02C", marker="D", ls="-"),
     # Short names (used in real-label-only plots)
+    "DREAM-CNN": dict(color="#FF8C00", marker="^", ls="-"),
     "DREAM-RNN": dict(color="#E05E4B", marker="o", ls="-"),
     "AlphaGenome": dict(color="#4B7BE0", marker="s", ls="-"),
+    "AG S1": dict(color="#4B7BE0", marker="s", ls="-"),
+    "AG S2": dict(color="#2CA02C", marker="D", ls="-"),
 }
 
 # Map verbose real-label keys to short legend labels
 _SHORT_LABELS = {
-    "DREAM-RNN (real labels)": "DREAM-RNN",
-    "AlphaGenome (real labels, frozen)": "AlphaGenome",
+    "DREAM-CNN (real)": "DREAM-CNN",
+    "DREAM-CNN (real labels)": "DREAM-CNN",
     "DREAM-RNN (real)": "DREAM-RNN",
+    "DREAM-RNN (real labels)": "DREAM-RNN",
+    "AG S1 (real)": "AG S1",
+    "AG S2 (real)": "AG S2",
+    "AlphaGenome (real labels, frozen)": "AlphaGenome",
     "AlphaGenome S1 (frozen)": "AlphaGenome S1",
     "AlphaGenome S2 (fine-tuned)": "AlphaGenome S2",
 }
@@ -267,56 +281,80 @@ def generate_k562_plots():
         f"{ {k: f'{v:.4f}' for k, v in oracle_baselines.items()} }"
     )
 
-    # Require all 4 test metric keys to exclude old runs that used a different
-    # OOD test set (run_05/run_10/run_25 — missing snv_abs, spurious OOD values).
+    # ── Load v4 results (preferred: all 4 models with real labels) ──────────
+    _v4_base = REPO / "outputs" / "exp0_oracle_scaling_v4" / "k562"
     _k562_test_keys = {"in_distribution", "ood", "snv_abs", "snv_delta"}
-    # Use v2 results (batch_size=128) if available, fall back to v1 (batch_size=1024)
-    _dream_real_dir = REPO / "outputs" / "exp0_k562_scaling_v2"
-    if not _dream_real_dir.exists() or not list(_dream_real_dir.rglob("result.json")):
-        _dream_real_dir = REPO / "outputs" / "exp0_k562_scaling"
-    dream_real = make_df(
-        load_results(
-            _dream_real_dir,
-            require_test_keys=_k562_test_keys,
-        ),
-        "DREAM-RNN (real labels)",
-        K562_METRICS,
-    )
-    dream_real = snap_k562_fracs(dream_real)
+    _k562_test_keys_alt = {"in_dist", "ood", "snv_abs", "snv_delta"}
 
-    ag_real = make_df(
-        load_results(REPO / "outputs" / "exp0_k562_scaling_alphagenome_cached_rcaug"),
-        "AlphaGenome (real labels, frozen)",
-        K562_METRICS,
-    )
+    def _try_load_v4(model_dir: str, label: str):
+        d = _v4_base / model_dir
+        if d.exists():
+            df = make_df(
+                load_results(d, require_test_keys=_k562_test_keys)
+                or load_results(d, require_test_keys=_k562_test_keys_alt)
+                or load_results(d),
+                label,
+                K562_METRICS,
+            )
+            if not df.empty:
+                return snap_k562_fracs(df)
+        return pd.DataFrame()
 
-    # Oracle-label scaling: prefer S2 pseudolabels if available, fall back to S1
-    _ag_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_s2_ag"
-    if not _ag_oracle_dir.exists() or not list(_ag_oracle_dir.rglob("result.json")):
-        _ag_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_ag"
-    ag_oracle = make_df(
-        load_results(_ag_oracle_dir),
-        "AlphaGenome (AG Ensemble labels, frozen)",
-        K562_METRICS,
-    )
+    # V4 real-label results (all 4 models)
+    dream_cnn_real = _try_load_v4("dream_cnn", "DREAM-CNN (real)")
+    dream_rnn_real = _try_load_v4("dream_rnn", "DREAM-RNN (real)")
+    ag_s1_real = _try_load_v4("alphagenome_k562_s1", "AG S1 (real)")
+    ag_s2_real = _try_load_v4("alphagenome_k562_s2", "AG S2 (real)")
 
-    _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_s2"
-    if not _dream_oracle_dir.exists() or not list(_dream_oracle_dir.rglob("result.json")):
-        _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels_v2"
-        if not _dream_oracle_dir.exists() or not list(_dream_oracle_dir.rglob("result.json")):
-            _dream_oracle_dir = REPO / "outputs" / "exp0_k562_scaling_oracle_labels"
-    dream_oracle = make_df(
-        load_results(_dream_oracle_dir),
-        "DREAM-RNN (AG Ensemble labels)",
-        K562_METRICS,
-    )
+    # V4 oracle-label results
+    dream_cnn_oracle = _try_load_v4("dream_cnn_oracle_dream_rnn", "DREAM-CNN (oracle)")
+    dream_rnn_oracle = _try_load_v4("dream_rnn_oracle_dream_rnn", "DREAM-RNN (oracle)")
+    ag_s1_oracle = _try_load_v4("alphagenome_k562_s1_oracle_dream_rnn", "AG S1 (oracle)")
+
+    # Fallback to legacy dirs if v4 is empty
+    if dream_rnn_real.empty:
+        _dream_real_dir = REPO / "outputs" / "exp0_k562_scaling_v2"
+        if not _dream_real_dir.exists() or not list(_dream_real_dir.rglob("result.json")):
+            _dream_real_dir = REPO / "outputs" / "exp0_k562_scaling"
+        dream_rnn_real = snap_k562_fracs(
+            make_df(
+                load_results(_dream_real_dir, require_test_keys=_k562_test_keys),
+                "DREAM-RNN (real)",
+                K562_METRICS,
+            )
+        )
+    if ag_s1_real.empty:
+        ag_s1_real = make_df(
+            load_results(REPO / "outputs" / "exp0_k562_scaling_alphagenome_cached_rcaug"),
+            "AG S1 (real)",
+            K562_METRICS,
+        )
+    if dream_rnn_oracle.empty:
+        for _d in [
+            "exp0_k562_scaling_oracle_labels_s2",
+            "exp0_k562_scaling_oracle_labels_v2",
+            "exp0_k562_scaling_oracle_labels",
+        ]:
+            _p = REPO / "outputs" / _d
+            if _p.exists() and list(_p.rglob("result.json")):
+                dream_rnn_oracle = make_df(load_results(_p), "DREAM-RNN (oracle)", K562_METRICS)
+                break
+    if ag_s1_oracle.empty:
+        for _d in ["exp0_k562_scaling_oracle_labels_s2_ag", "exp0_k562_scaling_oracle_labels_ag"]:
+            _p = REPO / "outputs" / _d
+            if _p.exists() and list(_p.rglob("result.json")):
+                ag_s1_oracle = make_df(load_results(_p), "AG S1 (oracle)", K562_METRICS)
+                break
 
     dfs_all = {}
     for label, df in [
-        ("DREAM-RNN (real labels)", dream_real),
-        ("AlphaGenome (real labels, frozen)", ag_real),
-        ("DREAM-RNN (AG Ensemble labels)", dream_oracle),
-        ("AlphaGenome (AG Ensemble labels, frozen)", ag_oracle),
+        ("DREAM-CNN (real)", dream_cnn_real),
+        ("DREAM-RNN (real)", dream_rnn_real),
+        ("AG S1 (real)", ag_s1_real),
+        ("AG S2 (real)", ag_s2_real),
+        ("DREAM-CNN (oracle)", dream_cnn_oracle),
+        ("DREAM-RNN (oracle)", dream_rnn_oracle),
+        ("AG S1 (oracle)", ag_s1_oracle),
     ]:
         if not df.empty:
             dfs_all[label] = df
