@@ -61,7 +61,7 @@ run_s2_warm() {
         echo "  No S1 checkpoint at n=${N}. Running S1 first..."
         uv run --no-sync python experiments/exp1_1_scaling.py \
             --task "${TASK}" --student "${STUDENT_S1}" \
-            --oracle ground_truth --reservoir random \
+            --oracle default --reservoir random \
             --n-replicates 1 --no-hp-sweep --seed 42 \
             --output-dir "outputs/exp0_s2_warm/${TASK}/${STUDENT_S1}" \
             --training-sizes "${N}" --epochs 50 --early-stop-patience 7
