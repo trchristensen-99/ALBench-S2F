@@ -1293,7 +1293,7 @@ def _train_ag_s2_student(
             import orbax.checkpoint as ocp
 
             checkpointer = ocp.StandardCheckpointer()
-            s1_params, _ = checkpointer.restore(ckpt_path)
+            s1_params, _ = checkpointer.restore(ckpt_path.resolve())
 
             # Merge S1 head params into model (keeps encoder weights from pretrained)
             def _merge(current, loaded):
@@ -1616,7 +1616,7 @@ def _save_student_checkpoint(student: Any, student_type: str, run_dir: Path) -> 
         try:
             import orbax.checkpoint as ocp
 
-            ckpt_dir = run_dir / "best_model" / "checkpoint"
+            ckpt_dir = (run_dir / "best_model" / "checkpoint").resolve()
             if hasattr(student, "_frozen_params"):
                 # Remove existing checkpoint dir — orbax refuses to save if it exists
                 # and also refuses if we pre-create it with mkdir
