@@ -25,6 +25,7 @@ OUT = REPO / "results" / "alan_style_plots"
 # Matching alphagenome_FT_MPRA-main/scripts/plot_benchmark_results.py
 MODEL_COLORS = {
     "Malinois": "#E8DCCF",  # lightest beige (baseline model color)
+    "LegNet": "#D4A017",  # gold (new from-scratch baseline)
     "DREAM-RNN": "#8B9DAF",  # medium blue-gray
     "Enf. (Probing)": "#E7CDC2",  # light salmon/pink-beige
     "Enf. (Fine-tuned)": "#A65141",  # dark terracotta/rust red
@@ -34,6 +35,7 @@ MODEL_COLORS = {
 
 MODEL_ORDER = [
     "Malinois",
+    "LegNet",
     "DREAM-RNN",
     "Enf. (Probing)",
     "Enf. (Fine-tuned)",
@@ -55,6 +57,9 @@ CHR_SPLIT_DIRS = {
         "outputs/chr_split_v2/sknsh/malinois",
         "outputs/chr_split/sknsh/malinois",
     ],
+    ("LegNet", "k562"): ["outputs/chr_split_v2/k562/legnet"],
+    ("LegNet", "hepg2"): ["outputs/chr_split_v2/hepg2/legnet"],
+    ("LegNet", "sknsh"): ["outputs/chr_split_v2/sknsh/legnet"],
     ("DREAM-RNN", "k562"): [
         "outputs/chr_split_v2/k562/dream_rnn",
         "outputs/chr_split/k562/dream_rnn",
