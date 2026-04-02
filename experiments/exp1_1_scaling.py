@@ -1302,20 +1302,33 @@ def _train_ag_s2_student(
 
             checkpointer = ocp.StandardCheckpointer()
             s1_restore = checkpointer.restore(ckpt_path.resolve())
-            # orbax returns either params directly or (params, extra)
             s1_params = s1_restore[0] if isinstance(s1_restore, (tuple, list)) else s1_restore
 
-            # Merge S1 head params into model (keeps encoder weights from pretrained)
-            def _merge(current, loaded):
-                import jax
-
-                def _merge_leaf(cur, ld):
-                    return ld if ld is not None else cur
-
-                return jax.tree_util.tree_map(_merge_leaf, current, loaded)
-
-            model._params = jax.device_put(_merge(model._params, s1_params))
-            logger.info(f"  S2: Loaded S1 head checkpoint from {ckpt_path} (warm start)")
+            # Copy S1 head weights to S2 model.
+            # S1 and S2 have different head names, so we can't do tree_map directly.
+            # Instead, find the S1 head key and copy its sublayers to the S2 head.
+            s2_params = model._params
+            s1_head_key = None
+            s2_head_key = None
+            for k in s1_params:
+                if "exp1_s1" in k or "head_hashfrag" in k:
+                    s1_head_key = k
+                    break
+            for k in s2_params:
+                if "s2f_exp1_s2" in k or head_name in k:
+                    s2_head_key = k
+                    break
+            if s1_head_key and s2_head_key:
+                s2_params[s2_head_key] = s1_params[s1_head_key]
+                model._params = jax.device_put(s2_params)
+                logger.info(
+                    f"  S2: Copied S1 head '{s1_head_key}' -> S2 head '{s2_head_key}' (warm start)"
+                )
+            else:
+                logger.warning(
+                    f"  S2: Could not match S1 head key (found: {s1_head_key}) "
+                    f"to S2 head key (found: {s2_head_key}). Falling back to cold start."
+                )
         else:
             logger.warning(
                 f"  S2: S1 checkpoint not found at {s1_path}; "
