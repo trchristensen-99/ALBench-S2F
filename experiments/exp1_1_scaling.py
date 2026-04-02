@@ -1304,30 +1304,46 @@ def _train_ag_s2_student(
             s1_restore = checkpointer.restore(ckpt_path.resolve())
             s1_params = s1_restore[0] if isinstance(s1_restore, (tuple, list)) else s1_restore
 
-            # Copy S1 head weights to S2 model.
-            # S1 and S2 have different head names, so we can't do tree_map directly.
-            # Instead, find the S1 head key and copy its sublayers to the S2 head.
+            # Copy ALL S1 head layer weights to S2 model.
+            # S1 and S2 have different head names in the flat param dict.
+            # Keys look like "head/exp1_s1_k562/~predict/hidden_0" etc.
+            # Find the S1 head prefix and S2 head prefix, then copy all matching layers.
             s2_params = model._params
-            s1_head_key = None
-            s2_head_key = None
+
+            # Find head prefixes (everything before the sublayer name)
+            s1_head_prefix = None
+            s2_head_prefix = None
             for k in s1_params:
                 if "exp1_s1" in k or "head_hashfrag" in k:
-                    s1_head_key = k
+                    # Extract prefix: "head/exp1_s1_k562/~predict"
+                    parts = k.rsplit("/", 1)
+                    s1_head_prefix = parts[0] if len(parts) > 1 else k
                     break
             for k in s2_params:
                 if "s2f_exp1_s2" in k or head_name in k:
-                    s2_head_key = k
+                    parts = k.rsplit("/", 1)
+                    s2_head_prefix = parts[0] if len(parts) > 1 else k
                     break
-            if s1_head_key and s2_head_key:
-                s2_params[s2_head_key] = s1_params[s1_head_key]
+
+            if s1_head_prefix and s2_head_prefix:
+                n_copied = 0
+                for s1_key in list(s1_params.keys()):
+                    if s1_key.startswith(s1_head_prefix):
+                        # Map S1 key to S2 key by replacing prefix
+                        suffix = s1_key[len(s1_head_prefix) :]
+                        s2_key = s2_head_prefix + suffix
+                        if s2_key in s2_params:
+                            s2_params[s2_key] = s1_params[s1_key]
+                            n_copied += 1
                 model._params = jax.device_put(s2_params)
                 logger.info(
-                    f"  S2: Copied S1 head '{s1_head_key}' -> S2 head '{s2_head_key}' (warm start)"
+                    f"  S2: Copied {n_copied} layers from S1 '{s1_head_prefix}' "
+                    f"-> S2 '{s2_head_prefix}' (warm start)"
                 )
             else:
                 logger.warning(
-                    f"  S2: Could not match S1 head key (found: {s1_head_key}) "
-                    f"to S2 head key (found: {s2_head_key}). Falling back to cold start."
+                    f"  S2: Could not match S1 head prefix (found: {s1_head_prefix}) "
+                    f"to S2 head prefix (found: {s2_head_prefix}). Falling back to cold start."
                 )
         else:
             logger.warning(
