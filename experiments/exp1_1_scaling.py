@@ -1327,18 +1327,30 @@ def _train_ag_s2_student(
 
             if s1_head_prefix and s2_head_prefix:
                 n_copied = 0
+                n_skipped = 0
                 for s1_key in list(s1_params.keys()):
                     if s1_key.startswith(s1_head_prefix):
-                        # Map S1 key to S2 key by replacing prefix
                         suffix = s1_key[len(s1_head_prefix) :]
                         s2_key = s2_head_prefix + suffix
                         if s2_key in s2_params:
+                            # Skip if shapes don't match (e.g. yeast output 1 vs 18)
+                            s1_val = s1_params[s1_key]
+                            s2_val = s2_params[s2_key]
+                            if hasattr(s1_val, "shape") and hasattr(s2_val, "shape"):
+                                if s1_val.shape != s2_val.shape:
+                                    logger.info(
+                                        f"  S2: Skipping {suffix} — shape mismatch "
+                                        f"{s1_val.shape} vs {s2_val.shape}"
+                                    )
+                                    n_skipped += 1
+                                    continue
                             s2_params[s2_key] = s1_params[s1_key]
                             n_copied += 1
                 model._params = jax.device_put(s2_params)
                 logger.info(
                     f"  S2: Copied {n_copied} layers from S1 '{s1_head_prefix}' "
                     f"-> S2 '{s2_head_prefix}' (warm start)"
+                    + (f", skipped {n_skipped} shape mismatches" if n_skipped else "")
                 )
             else:
                 logger.warning(
