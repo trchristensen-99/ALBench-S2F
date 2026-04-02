@@ -128,10 +128,12 @@ HP_GRIDS_LARGE_N = {
     },
 }
 
-# S2 config: which encoder blocks to unfreeze (from Exp 0 best: blocks 4,5)
+# S2 config: which encoder blocks to unfreeze
+# Changed from [4,5] to all blocks — matching hashfrag S2 that achieved 0.916.
+# With only blocks [4,5], S2 barely improves over S1 (+0.1-0.5%).
 S2_CONFIG = {
     "k562": {
-        "unfreeze_blocks": [4, 5],
+        "unfreeze_blocks": [0, 1, 2, 3, 4, 5],  # ALL downres blocks
         "head_lr": 1e-3,
         "weight_decay": 1e-6,
         "max_shift": 15,

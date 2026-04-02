@@ -212,6 +212,38 @@ class K562Dataset(SequenceDataset):
             f"Filtered to {n_after:,} reference alleles (excluded {n_before - n_after:,} alternate alleles)"
         )
 
+        # Quality filters matching Malinois paper (boda2 preprocessing)
+        # 1. Project filter
+        if "data_project" in df.columns:
+            allowed_projects = ["UKBB", "GTEX", "CRE"]
+            n_pre = len(df)
+            df = df[df["data_project"].isin(allowed_projects)].reset_index(drop=True)
+            if len(df) < n_pre:
+                logger.info(f"Project filter: {n_pre:,} -> {len(df):,}")
+
+        # 2. Stderr quality filter (max SE across all cell types < 1.0)
+        stderr_cols = [c for c in df.columns if c.endswith("_lfcSE")]
+        if stderr_cols:
+            n_pre = len(df)
+            quality_mask = df[stderr_cols].max(axis=1) < 1.0
+            df = df[quality_mask].reset_index(drop=True)
+            if len(df) < n_pre:
+                logger.info(f"Stderr filter (max < 1.0): {n_pre:,} -> {len(df):,}")
+
+        # 3. Outlier removal (±6σ with +4 upper shift, matching boda2)
+        activity_cols = [c for c in df.columns if c.endswith("_log2FC")]
+        if activity_cols:
+            means = df[activity_cols].mean().to_numpy()
+            stds = df[activity_cols].std().to_numpy()
+            up_cut = means + stds * 6.0 + 4.0
+            down_cut = means - stds * 6.0
+            n_pre = len(df)
+            b_up = (df[activity_cols] < up_cut).all(axis=1)
+            b_down = (df[activity_cols] > down_cut).all(axis=1)
+            df = df[b_up & b_down].reset_index(drop=True)
+            if len(df) < n_pre:
+                logger.info(f"Outlier filter (±6σ): {n_pre:,} -> {len(df):,}")
+
         # Filter by sequence length (paper uses sequences >= 198bp for ~367K total)
         df["seq_len"] = df["sequence"].str.len()
         n_before_len = len(df)
