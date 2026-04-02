@@ -111,7 +111,7 @@ HP_GRIDS_LARGE_N = {
         "batch_size": [1024],
     },
     "legnet": {
-        "learning_rate": [0.001],
+        "learning_rate": [0.005],
         "batch_size": [1024],
     },
     "alphagenome_k562_s1": {
