@@ -73,7 +73,7 @@ run_s2_warm() {
 
     uv run --no-sync python experiments/exp1_1_scaling.py \
         --task "${TASK}" --student "${STUDENT_S2}" \
-        --oracle ground_truth --reservoir random \
+        --oracle default --reservoir random \
         --s1-checkpoint "${S1_CKPT}" \
         --n-replicates 3 --no-hp-sweep --seed 42 \
         --output-dir "${OUT_DIR}" \
