@@ -140,6 +140,7 @@ def evaluate(
     criterion: nn.Module,
     device: torch.device,
     use_reverse_complement: bool = True,
+    multitask: bool = False,
 ) -> Dict[str, float]:
     """
     Evaluate model on a dataset.
@@ -150,6 +151,7 @@ def evaluate(
         criterion: Loss function
         device: Device to evaluate on
         use_reverse_complement: Whether to average predictions with reverse complement
+        multitask: If True, compute metrics on first output (K562) only.
 
     Returns:
         Dictionary with evaluation metrics
@@ -191,7 +193,13 @@ def evaluate(
 
     # Compute metrics
     avg_loss = total_loss / len(dataloader)
-    metrics = compute_metrics(np.array(all_predictions), np.array(all_targets))
+    preds_arr = np.array(all_predictions)
+    tgts_arr = np.array(all_targets)
+    if multitask and preds_arr.ndim == 2 and preds_arr.shape[1] > 1:
+        # For multitask: compute metrics on first column (K562) for early stopping
+        metrics = compute_metrics(preds_arr[:, 0], tgts_arr[:, 0])
+    else:
+        metrics = compute_metrics(preds_arr.reshape(-1), tgts_arr.reshape(-1))
     metrics["loss"] = avg_loss
 
     return metrics

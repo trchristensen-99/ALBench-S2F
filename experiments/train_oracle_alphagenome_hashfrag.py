@@ -416,7 +416,7 @@ def main(cfg: DictConfig) -> None:
                 batch["organism_index"],
                 negative_strand_mask=jnp.zeros(len(batch["sequences"]), dtype=bool),
                 strand_reindexing=None,
-                is_training=True,
+                # is_training=True,  # alphagenome-ft 0.1.8 handles dropout via RNG, not kwarg
             )[unique_head_name]
             return loss_fn(preds, batch)["loss"]
 

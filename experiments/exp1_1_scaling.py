@@ -1457,7 +1457,7 @@ def _train_ag_s2_student(
                 jnp.zeros(len(seqs), dtype=jnp.int32),
                 negative_strand_mask=jnp.zeros(len(seqs), dtype=bool),
                 strand_reindexing=None,
-                is_training=True,
+                # is_training=True,  # alphagenome-ft 0.1.8 handles dropout via RNG, not kwarg
             )[head_name]
             if task == "yeast" and preds.ndim == 2 and preds.shape[-1] > 1:
                 # Yeast multi-track: mean-pool to scalar (matches S1 behavior)
