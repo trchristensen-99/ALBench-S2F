@@ -503,6 +503,7 @@ def _load_k562_ag_oracle():
             state,
             sequences,
             jnp.zeros(len(sequences), dtype=jnp.int32),
+            requested_outputs=[head_name],
             negative_strand_mask=jnp.zeros(len(sequences), dtype=bool),
             strand_reindexing=None,
         )[head_name]
@@ -1455,9 +1456,9 @@ def _train_ag_s2_student(
                 model._state,
                 seqs,
                 jnp.zeros(len(seqs), dtype=jnp.int32),
+                requested_outputs=[head_name],
                 negative_strand_mask=jnp.zeros(len(seqs), dtype=bool),
                 strand_reindexing=None,
-                # is_training=True,  # alphagenome-ft 0.1.8 handles dropout via RNG, not kwarg
             )[head_name]
             if task == "yeast" and preds.ndim == 2 and preds.shape[-1] > 1:
                 # Yeast multi-track: mean-pool to scalar (matches S1 behavior)
@@ -1477,6 +1478,7 @@ def _train_ag_s2_student(
             model._state,
             seqs,
             jnp.zeros(len(seqs), dtype=jnp.int32),
+            requested_outputs=[head_name],
             negative_strand_mask=jnp.zeros(len(seqs), dtype=bool),
             strand_reindexing=None,
         )[head_name]
