@@ -1483,40 +1483,87 @@ def _train_ag_s2_student(
             pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
         return pred
 
-    # Training loop
-    n_train = len(sequences)
-    rng_perm = np.random.default_rng(seed)
-    best_loss = float("inf")
+    # ── Split into train/val for proper early stopping ──────────────────
+    n_total = len(sequences)
+    val_frac = 0.1
+    rng_split = np.random.default_rng(seed)
+    perm_split = rng_split.permutation(n_total)
+    n_val = max(int(n_total * val_frac), 100)
+    val_idx = perm_split[:n_val]
+    train_idx = perm_split[n_val:]
+    train_onehot = all_onehot[train_idx]
+    train_labels = labels[train_idx]
+    val_onehot = all_onehot[val_idx]
+    val_labels_np = labels[val_idx]
+    n_train = len(train_idx)
+    logger.info(f"  S2: train={n_train}, val={n_val}")
+
+    # ── RC augmentation helper ────────────────────────────────────────
+    def _rc_onehot_batch(x):
+        """Reverse complement batch of one-hot (B, L, 4+)."""
+        # Flip channels ACGT→TGCA and reverse sequence
+        rc = x[:, ::-1, :]
+        # Swap: A(0)↔T(3), C(1)↔G(2)
+        rc = rc.at[:, :, :4].set(rc[:, :, [3, 2, 1, 0]])
+        return rc
+
+    # ── Training loop with val-Pearson early stopping ─────────────────
+    rng_perm = np.random.default_rng(seed + 1)
+    best_val_pearson = -float("inf")
+    best_params = jax.device_get(model._params)
     patience_counter = 0
 
     for epoch in range(epochs):
         # Switch from warmup to full S2 after warmup_epochs
+        # Keep optimizer state to avoid disruption — just update LR schedule
         if epoch == warmup_epochs:
             logger.info(f"  S2: Unfreezing encoder blocks {unfreeze_blocks} (epoch {epoch + 1})")
             optimizer = _make_optimizer(encoder_lr)
             opt_state = optimizer.init(model._params)
 
         perm = rng_perm.permutation(n_train)
-        epoch_losses = []
         for start in range(0, n_train, batch_size):
             idx = perm[start : start + batch_size]
-            seqs = jnp.array(all_onehot[idx])
-            targets = jnp.array(labels[idx])
+            seqs = jnp.array(train_onehot[idx])
+            # RC augmentation: randomly flip 50% of batch
+            if np.random.rand() > 0.5:
+                seqs = _rc_onehot_batch(seqs)
+            targets = jnp.array(train_labels[idx])
             model._params, opt_state, loss = train_step(model._params, opt_state, seqs, targets)
-            epoch_losses.append(float(loss))
 
-        epoch_loss = float(np.mean(epoch_losses))
-        if epoch_loss < best_loss - 1e-5:
-            best_loss = epoch_loss
+        # ── Validation: RC-averaged Pearson ───────────────────────────
+        val_preds = []
+        for i in range(0, n_val, 64):
+            batch_v = jnp.array(val_onehot[i : i + 64])
+            p_fwd = predict_step(model._params, batch_v)
+            p_rc = predict_step(model._params, _rc_onehot_batch(batch_v))
+            p_avg = (np.array(p_fwd) + np.array(p_rc)) / 2.0
+            val_preds.append(p_avg.reshape(-1))
+        val_preds = np.concatenate(val_preds)
+
+        from scipy.stats import pearsonr as _pr
+
+        val_pearson = float(_pr(val_preds, val_labels_np)[0]) if np.std(val_preds) > 0 else 0.0
+
+        if val_pearson > best_val_pearson:
+            best_val_pearson = val_pearson
             best_params = jax.device_get(model._params)
             patience_counter = 0
         else:
             patience_counter += 1
             if patience_counter >= patience and epoch >= warmup_epochs:
-                logger.info(f"  AG S2 early stop at epoch {epoch + 1}")
+                logger.info(
+                    f"  AG S2 early stop at epoch {epoch + 1} "
+                    f"(best val Pearson={best_val_pearson:.4f})"
+                )
                 break
 
-    # Return a SequenceModel wrapper using best params
+        if epoch % 5 == 0 or epoch == epochs - 1:
+            logger.info(f"  S2 epoch {epoch + 1}: val_pearson={val_pearson:.4f}")
+
+    logger.info(f"  S2 best val Pearson: {best_val_pearson:.4f}")
+
+    # Return a SequenceModel wrapper using best params with RC averaging
     class _AGS2Student(SequenceModel):
         _frozen_params = best_params  # expose for checkpoint saving
 
@@ -1525,8 +1572,10 @@ def _train_ag_s2_student(
             preds = []
             for i in range(0, len(seqs), 64):
                 batch_x = jnp.array(x[i : i + 64])
-                p = predict_step(best_params, batch_x)
-                preds.append(np.array(p).reshape(-1))
+                p_fwd = predict_step(best_params, batch_x)
+                p_rc = predict_step(best_params, _rc_onehot_batch(batch_x))
+                p_avg = (np.array(p_fwd) + np.array(p_rc)) / 2.0
+                preds.append(p_avg.reshape(-1))
             return np.concatenate(preds)
 
     return _AGS2Student()
