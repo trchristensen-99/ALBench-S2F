@@ -1,6 +1,6 @@
 # ALBench-S2F Experiment Tracker
 
-> **Last updated:** 2026-04-02 (evening)
+> **Last updated:** 2026-04-03 morning
 > **Purpose:** Track all experiments, hyperparameters, results, and gaps.
 
 ---
@@ -139,7 +139,8 @@
 | Enf. (Probing) | 0.862 | 0.295 | 0.331 |
 | AG (Probing) | 0.878 | 0.355 | 0.707 |
 | AG (Fine-tuned) cold | 0.869 (cold!) | 0.343 | 0.641 |
-| AG (Fine-tuned) warm | 0.875 | 0.337 | 0.668 |
+| AG (Fine-tuned) warm blocks[4,5] | 0.875 | 0.337 | 0.668 |
+| **AG (Fine-tuned) FIXED RC+shift** | **0.895** | **0.347** | **0.697** |
 
 ### Colors (from PI meeting notes)
 - Malinois/LegNet: `#E8DCCF` (baseline beige) / `#D4A017` (gold)
@@ -184,7 +185,8 @@ All on K562 chr_split, ref+alt.
 2. **Malinois shift+dup = 0.858** (best from-scratch result, approaching paper 0.88-0.89)
 3. **LegNet shift is HARMFUL** (-4%): k=5 kernel too sensitive to positional shifts
 4. **AG S1 at 0.902** with quality filter — near paper level
-5. **AG S2 via exp1_1_scaling.py still < S1** — needs dedicated hashfrag S2 pipeline
+5. **AG S2 FIXED (2026-04-02): 0.895 with RC+shift** — 5 fixes applied (val split, Pearson stopping, RC aug, shift aug, RC-averaged eval). Now beats S1 by +1.0%
+6. **LegNet shift ALWAYS hurts** — even ±3bp (-3.1%). Use baseline only.
 
 **Result dirs:** `outputs/aug_sweep/`, `outputs/techniques_sweep/`, `outputs/multitask/`
 
