@@ -157,6 +157,8 @@
 
 All on K562 chr_split, ref+alt.
 
+### Pre-quality-filter results (unfiltered data)
+
 | Technique | Malinois | DREAM-RNN | AG S1 |
 |---|---|---|---|
 | **Baseline (RC only)** | 0.835 | 0.822 | 0.881 |
@@ -167,7 +169,22 @@ All on K562 chr_split, ref+alt.
 | + Cosine LR | 0.838 (≈0) | — | — |
 | No augmentation | 0.827 (-0.8%) | — | — |
 
-**Key finding:** Duplication is the biggest win for DREAM-RNN (+3%). Shift helps modestly. Combining shift+dup hurts DREAM-RNN (overfitting?).
+### Quality-filtered results (boda2 preprocessing, 2026-04-02)
+
+| Technique | Malinois | LegNet | AG S1 | AG S2 (20K) |
+|---|---|---|---|---|
+| **Baseline (QF + ref+alt + RC)** | 0.847 (+1.2%) | 0.837 | **0.902** (+2.1%) | — |
+| **+ Shift (±15bp)** | 0.851 | **0.797 (HURTS!)** | — | — |
+| **+ Dup (cutoff=0.5)** | 0.850 | 0.831 | 0.901 | — |
+| **+ Shift + Dup** | **0.858** | pending | — | — |
+| AG S2 all-blocks 20K | — | — | 0.883 (S1@20K) | 0.853 (still < S1) |
+
+**Key findings:**
+1. **Quality filter = +1-2% for ALL models** (single biggest improvement)
+2. **Malinois shift+dup = 0.858** (best from-scratch result, approaching paper 0.88-0.89)
+3. **LegNet shift is HARMFUL** (-4%): k=5 kernel too sensitive to positional shifts
+4. **AG S1 at 0.902** with quality filter — near paper level
+5. **AG S2 via exp1_1_scaling.py still < S1** — needs dedicated hashfrag S2 pipeline
 
 **Result dirs:** `outputs/aug_sweep/`, `outputs/techniques_sweep/`, `outputs/multitask/`
 
@@ -224,12 +241,18 @@ All on K562 chr_split, ref+alt.
 - [ ] Prediction saving pass for scatter plots (all bar plot models)
 - [ ] Ensemble comparison (ensemble_size=1 vs 3)
 
-### Active (Systematic Comparison, submitted 2026-04-02 evening)
-- [ ] Malinois × 4 configs (baseline/shift/dup/shift+dup) — quality-filtered, K562 chr_split
-- [ ] LegNet × 4 configs (same)
-- [ ] AG S1 × 2 configs (baseline/dup)
-- [ ] AG S2 all-blocks × 20K subsample (matching hashfrag S2 config)
-- All use quality-filtered data + ref+alt + chr_split
+### Active: Systematic Comparison (2026-04-02 evening)
+- [x] Malinois × 4 configs — **DONE.** Best: shift+dup = 0.858
+- [x] LegNet × 3 configs (shift+dup still running) — baseline=0.837, **shift HURTS (0.797)**
+- [x] AG S1 × 2 configs — **DONE.** baseline=0.902, dup=0.901
+- [x] AG S2 all-blocks 20K — **DONE.** 0.853 (still < S1, pipeline issue)
+
+### Active: Final Bar Plot Reruns (quality-filtered, best configs)
+- [ ] Malinois shift+dup × 3 cells × 3 seeds — running (slow_nice)
+- [ ] LegNet baseline × K562 × 2 seeds — running (fast)
+- [ ] DREAM-RNN +dup × K562 × 2 seeds — running (fast)
+- [ ] AG S1 baseline × 3 cells — running (slow_nice)
+- All with --save-predictions for scatter plots, quality-filtered data
 
 ### Priority 3 (Nice to Have)
 - [ ] AG S1/S2 ground truth Exp0 (needs custom pipeline)
