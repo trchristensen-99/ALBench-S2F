@@ -70,6 +70,37 @@ class NaNMaskedMSELoss(nn.Module):
         return F.mse_loss(predictions[mask], targets[mask])
 
 
+class L1KLMixedLoss(nn.Module):
+    """L1 + KL divergence mixed loss (matching Malinois paper / boda2).
+
+    Combines L1 regression loss with KL divergence on softmax-normalized
+    predictions. The KL term encourages the prediction distribution to
+    match the target distribution across samples, providing implicit
+    regularization beyond simple regression.
+
+    Args:
+        alpha: Weight for L1 component (default 1.0).
+        beta: Weight for KL component (default 1.0).
+    """
+
+    def __init__(self, alpha: float = 1.0, beta: float = 1.0):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+
+    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        # L1 component
+        l1_loss = F.l1_loss(predictions, targets)
+
+        # KL divergence component: softmax-normalize both pred and target
+        # to get probability-like distributions, then compute KL
+        pred_log_probs = F.log_softmax(predictions.view(-1), dim=0).view_as(predictions)
+        target_probs = F.softmax(targets.view(-1), dim=0).view_as(targets)
+        kl_loss = F.kl_div(pred_log_probs, target_probs, reduction="batchmean")
+
+        return self.alpha * l1_loss + self.beta * kl_loss
+
+
 class YeastKLLoss(nn.Module):
     """
     KL divergence loss for yeast 18-bin classification.
