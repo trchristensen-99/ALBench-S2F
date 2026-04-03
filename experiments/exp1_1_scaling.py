@@ -1498,14 +1498,29 @@ def _train_ag_s2_student(
     n_train = len(train_idx)
     logger.info(f"  S2: train={n_train}, val={n_val}")
 
-    # ── RC augmentation helper ────────────────────────────────────────
+    # ── Augmentation helpers (matching alphagenome_FT_MPRA) ─────────────
+    max_shift_aug = s2_cfg.get("max_shift", 15) if task == "k562" else 0
+
     def _rc_onehot_batch(x):
         """Reverse complement batch of one-hot (B, L, 4+)."""
-        # Flip channels ACGT→TGCA and reverse sequence
         rc = x[:, ::-1, :]
-        # Swap: A(0)↔T(3), C(1)↔G(2)
         rc = rc.at[:, :, :4].set(rc[:, :, [3, 2, 1, 0]])
         return rc
+
+    def _shift_onehot_batch(x, max_shift):
+        """Random circular shift of one-hot batch (B, L, 4), 50% probability."""
+        if max_shift <= 0:
+            return x
+        shift = np.random.randint(-max_shift, max_shift + 1)
+        if shift != 0:
+            return jnp.roll(x, shift, axis=1)
+        return x
+
+    logger.info(
+        f"  S2 augmentation: RC (50%), shift ±{max_shift_aug}bp (50%)"
+        if max_shift_aug > 0
+        else "  S2 augmentation: RC (50%), no shift"
+    )
 
     # ── Training loop with val-Pearson early stopping ─────────────────
     rng_perm = np.random.default_rng(seed + 1)
@@ -1525,9 +1540,12 @@ def _train_ag_s2_student(
         for start in range(0, n_train, batch_size):
             idx = perm[start : start + batch_size]
             seqs = jnp.array(train_onehot[idx])
-            # RC augmentation: randomly flip 50% of batch
+            # Augmentation matching alphagenome_FT_MPRA:
+            # RC (50% prob) + shift ±max_shift (50% prob)
             if np.random.rand() > 0.5:
                 seqs = _rc_onehot_batch(seqs)
+            if max_shift_aug > 0 and np.random.rand() > 0.5:
+                seqs = _shift_onehot_batch(seqs, max_shift_aug)
             targets = jnp.array(train_labels[idx])
             model._params, opt_state, loss = train_step(model._params, opt_state, seqs, targets)
 
