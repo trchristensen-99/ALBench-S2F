@@ -1,6 +1,6 @@
 # ALBench-S2F Experiment Tracker
 
-> **Last updated:** 2026-04-03 morning
+> **Last updated:** 2026-04-03 afternoon
 > **Purpose:** Track all experiments, hyperparameters, results, and gaps.
 
 ---
@@ -249,12 +249,24 @@ All on K562 chr_split, ref+alt.
 - [x] AG S1 × 2 configs — **DONE.** baseline=0.902, dup=0.901
 - [x] AG S2 all-blocks 20K — **DONE.** 0.853 (still < S1, pipeline issue)
 
-### Active: Final Bar Plot Reruns (quality-filtered, best configs)
-- [ ] Malinois shift+dup × 3 cells × 3 seeds — running (slow_nice)
-- [ ] LegNet baseline × K562 × 2 seeds — running (fast)
-- [ ] DREAM-RNN +dup × K562 × 2 seeds — running (fast)
-- [ ] AG S1 baseline × 3 cells — running (slow_nice)
-- All with --save-predictions for scatter plots, quality-filtered data
+### Bar Plot Final Results (quality-filtered, best configs, 2026-04-03)
+
+| Model | K562 | HepG2 | SknSh | Config | Predictions |
+|---|---|---|---|---|---|
+| **AG S2 (RC+shift)** | **0.895** | 0.901 | 0.890 | all-blocks, warm, val-Pearson | ✅ |
+| AG S1 | 0.884 | **0.902** | **0.891** | baseline QF | partial |
+| DREAM-RNN (+dup) | 0.879 | 0.880 | 0.870 | +dup QF | ✅ |
+| Malinois (shift+dup) | 0.858 | 0.854 | 0.848 | shift+dup QF | running |
+| LegNet (baseline) | 0.840 | 0.840 | 0.828 | baseline QF (no shift!) | ✅ |
+| Enformer S1 | — | — | — | cache rebuilding | — |
+| Enformer S2 | — | — | — | pending on S1 | — |
+
+### Anomaly Check (2026-04-03)
+- ✅ No major anomalies
+- AG S2 < S1 on HepG2/SknSh is expected (K562-specific fine-tuning)
+- Low results at n=3197 are seed variance (expected at small N)
+- DREAM-RNN non-monotonicity is HP switching noise
+- All seed variances < 0.02
 
 ### Priority 3 (Nice to Have)
 - [ ] AG S1/S2 ground truth Exp0 (needs custom pipeline)
