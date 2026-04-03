@@ -1336,16 +1336,21 @@ def _train_ag_s2_student(
                         s2_key = s2_head_prefix + suffix
                         if s2_key in s2_params:
                             # Skip if shapes don't match (e.g. yeast output 1 vs 18)
+                            # Values may be arrays or dicts of arrays — check recursively
                             s1_val = s1_params[s1_key]
                             s2_val = s2_params[s2_key]
-                            if hasattr(s1_val, "shape") and hasattr(s2_val, "shape"):
-                                if s1_val.shape != s2_val.shape:
-                                    logger.info(
-                                        f"  S2: Skipping {suffix} — shape mismatch "
-                                        f"{s1_val.shape} vs {s2_val.shape}"
-                                    )
-                                    n_skipped += 1
-                                    continue
+
+                            def _shapes_match(a, b):
+                                if hasattr(a, "shape") and hasattr(b, "shape"):
+                                    return a.shape == b.shape
+                                if isinstance(a, dict) and isinstance(b, dict):
+                                    return all(_shapes_match(a[k], b[k]) for k in a if k in b)
+                                return True  # unknown structure, assume OK
+
+                            if not _shapes_match(s1_val, s2_val):
+                                logger.info(f"  S2: Skipping {suffix} — shape mismatch")
+                                n_skipped += 1
+                                continue
                             s2_params[s2_key] = s1_params[s1_key]
                             n_copied += 1
                 model._params = jax.device_put(s2_params)
