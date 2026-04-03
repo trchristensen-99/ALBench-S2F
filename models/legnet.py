@@ -202,6 +202,7 @@ class LegNet(nn.Module):
         se_reduction: int = 4,
         inner_dim_calculation: str = "out",
         task_mode: str = "k562",
+        multitask: bool = False,
     ):
         super().__init__()
         if block_sizes is None:
@@ -209,7 +210,13 @@ class LegNet(nn.Module):
 
         self.block_sizes = block_sizes
         self.task_mode = task_mode
-        self.final_ch = 18 if task_mode == "yeast" else 1
+        self.multitask = multitask
+        if task_mode == "yeast":
+            self.final_ch = 18
+        elif multitask:
+            self.final_ch = 3
+        else:
+            self.final_ch = 1
 
         # Stem
         self.stem_block = LocalBlock(
@@ -279,6 +286,8 @@ class LegNet(nn.Module):
         if self.task_mode == "yeast":
             probs = F.softmax(x, dim=1)
             return (probs * self.bin_centers).sum(dim=1)
+        if self.multitask:
+            return x  # (B, 3) for multi-cell-type regression
         return x.squeeze(-1)
 
     def get_logits(self, x: torch.Tensor) -> torch.Tensor:

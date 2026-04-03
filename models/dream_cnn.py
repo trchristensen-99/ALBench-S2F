@@ -192,10 +192,17 @@ class DREAMCNN(nn.Module):
         head_hidden: int = 256,
         dropout: float = 0.2,
         task_mode: str = "k562",
+        multitask: bool = False,
     ):
         super().__init__()
         self.task_mode = task_mode
-        output_dim = 18 if task_mode == "yeast" else 1
+        self.multitask = multitask
+        if task_mode == "yeast":
+            output_dim = 18
+        elif multitask:
+            output_dim = 3
+        else:
+            output_dim = 1
         self.output_dim = output_dim
 
         self.stem = DREAMCNNStem(
@@ -243,6 +250,8 @@ class DREAMCNN(nn.Module):
         if self.task_mode == "yeast":
             probs = F.softmax(logits, dim=1)
             return (probs * self.bin_centers).sum(dim=1)
+        if self.multitask:
+            return logits  # (B, 3) for multi-cell-type regression
         return logits.squeeze(-1)
 
     def get_logits(self, x: torch.Tensor) -> torch.Tensor:

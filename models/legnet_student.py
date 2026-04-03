@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from albench.model import SequenceModel
 from models.legnet import LegNet, one_hot_encode_batch
-from models.loss_utils import YeastKLLoss
+from models.loss_utils import NaNMaskedMSELoss, YeastKLLoss
 from models.training import train_model_optimized
 from models.training_base import create_optimizer_and_scheduler
 
@@ -61,11 +61,13 @@ class LegNetStudent(SequenceModel):
         train_config: TrainConfig | None = None,
         block_sizes: list[int] | None = None,
         ks: int = 5,
+        multitask: bool = False,
     ) -> None:
         self.in_channels = in_channels
         self.sequence_length = sequence_length
         self.task_mode = task_mode
         self.ensemble_size = ensemble_size
+        self.multitask = multitask
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.train_config = train_config or TrainConfig()
 
@@ -75,6 +77,7 @@ class LegNetStudent(SequenceModel):
                 block_sizes=block_sizes,
                 ks=ks,
                 task_mode=task_mode,
+                multitask=multitask,
             ).to(self.device)
             for _ in range(ensemble_size)
         ]
@@ -103,14 +106,26 @@ class LegNetStudent(SequenceModel):
             for i in range(0, len(x), bs):
                 batch = x[i : i + bs].to(self.device)
                 out = model(batch).detach().cpu().numpy()
-                preds.append(out.reshape(-1))
+                if self.multitask:
+                    preds.append(out)  # (bs, 3)
+                else:
+                    preds.append(out.reshape(-1))
         return np.concatenate(preds)
 
-    def predict(self, sequences: list[str]) -> np.ndarray:
-        """Predict as mean across ensemble members."""
+    def predict(self, sequences: list[str], cell_type_idx: int = 0) -> np.ndarray:
+        """Predict as mean across ensemble members.
+
+        Args:
+            sequences: Input DNA sequences.
+            cell_type_idx: For multitask models, which cell type to return
+                (0=K562, 1=HepG2, 2=SknSh). Ignored for single-task.
+        """
         x = self._encode_sequences(sequences)
         preds = [self._predict_member(model, x) for model in self.models]
-        return np.mean(np.stack(preds, axis=0), axis=0)
+        mean_pred = np.mean(np.stack(preds, axis=0), axis=0)
+        if self.multitask:
+            return mean_pred[:, cell_type_idx]
+        return mean_pred
 
     def uncertainty(self, sequences: list[str]) -> np.ndarray:
         """MC dropout variance (30 passes per member)."""
@@ -202,7 +217,12 @@ class LegNetStudent(SequenceModel):
                 total_steps=total_steps,
                 pct_start=self.train_config.pct_start,
             )
-            criterion: nn.Module = YeastKLLoss() if self.task_mode == "yeast" else nn.MSELoss()
+            if self.task_mode == "yeast":
+                criterion: nn.Module = YeastKLLoss()
+            elif self.multitask:
+                criterion = NaNMaskedMSELoss()
+            else:
+                criterion = nn.MSELoss()
             train_model_optimized(
                 model=model,
                 train_loader=loader,
@@ -220,4 +240,5 @@ class LegNetStudent(SequenceModel):
                 use_compile=True,
                 shift_aug=self.train_config.shift_aug,
                 max_shift=self.train_config.max_shift,
+                multitask=self.multitask,
             )

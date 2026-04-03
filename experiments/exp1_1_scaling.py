@@ -1629,6 +1629,33 @@ def _train_student(
     multitask_labels: dict[str, np.ndarray] | None = None,
 ) -> SequenceModel:
     """Train a student model and return it."""
+    is_multitask = multitask_labels is not None and student_type in (
+        "dream_rnn",
+        "dream_cnn",
+        "legnet",
+    )
+
+    # Build multitask label array: (N, 3) with NaN for missing cell types
+    if is_multitask:
+        _mt_cell_types = ["k562", "hepg2", "sknsh"]
+        mt_labels_arr = np.full((len(labels), 3), np.nan, dtype=np.float32)
+        mt_labels_arr[:, 0] = labels  # K562 is always present as primary
+        for ci, cl in enumerate(_mt_cell_types[1:], start=1):
+            if cl in multitask_labels:
+                cl_arr = multitask_labels[cl].astype(np.float32)
+                mt_labels_arr[: len(cl_arr), ci] = cl_arr[: len(labels)]
+        fit_labels = mt_labels_arr
+        if val_labels is not None and val_sequences is not None:
+            # Build multitask val labels too
+            mt_val_arr = np.full((len(val_labels), 3), np.nan, dtype=np.float32)
+            mt_val_arr[:, 0] = val_labels
+            fit_val_labels = mt_val_arr
+        else:
+            fit_val_labels = val_labels
+    else:
+        fit_labels = labels
+        fit_val_labels = val_labels
+
     if student_type == "dream_rnn":
         from models.dream_rnn_student import DREAMRNNStudent, TrainConfig
 
@@ -1643,6 +1670,7 @@ def _train_student(
             sequence_length=cfg["sequence_length"],
             task_mode=cfg["task_mode"],
             ensemble_size=ensemble_size,
+            multitask=is_multitask,
             train_config=TrainConfig(
                 batch_size=batch_size,
                 lr=lr,
@@ -1653,7 +1681,7 @@ def _train_student(
                 max_shift=max_shift,
             ),
         )
-        student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
+        student.fit(sequences, fit_labels, val_sequences=val_sequences, val_labels=fit_val_labels)
         return student
     elif student_type in ("alphagenome_k562_s1", "alphagenome_yeast_s1"):
         return _train_ag_s1_student(
@@ -1691,6 +1719,7 @@ def _train_student(
             sequence_length=cfg["sequence_length"],
             task_mode=cfg["task_mode"],
             ensemble_size=ensemble_size,
+            multitask=is_multitask,
             train_config=CNNTrainConfig(
                 batch_size=batch_size,
                 lr=lr,
@@ -1700,7 +1729,7 @@ def _train_student(
                 max_shift=max_shift,
             ),
         )
-        student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
+        student.fit(sequences, fit_labels, val_sequences=val_sequences, val_labels=fit_val_labels)
         return student
     elif student_type == "legnet":
         from models.legnet_student import LegNetStudent
@@ -1717,6 +1746,7 @@ def _train_student(
             sequence_length=cfg["sequence_length"],
             task_mode=cfg["task_mode"],
             ensemble_size=ensemble_size,
+            multitask=is_multitask,
             train_config=LegNetTrainConfig(
                 batch_size=batch_size,
                 lr=lr,
@@ -1726,7 +1756,7 @@ def _train_student(
                 max_shift=max_shift,
             ),
         )
-        student.fit(sequences, labels, val_sequences=val_sequences, val_labels=val_labels)
+        student.fit(sequences, fit_labels, val_sequences=val_sequences, val_labels=fit_val_labels)
         return student
     elif student_type in ("alphagenome_k562_s2", "alphagenome_yeast_s2"):
         return _train_ag_s2_student(
@@ -1818,6 +1848,7 @@ def run_scaling_experiment(
     max_shift: int = 15,
     s1_checkpoint: str | None = None,
     duplication_cutoff: float | None = None,
+    multitask: bool = False,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -2348,9 +2379,12 @@ def run_scaling_experiment(
                 f"shape={train_embs_cached.shape}"
             )
 
-        # Load multitask labels for AG S1 multitask student
+        # Load multitask labels for multitask students
         multitask_train_labels = None
-        if student_type == "alphagenome_k562_s1_multitask" and task == "k562":
+        _is_multitask_run = task == "k562" and (
+            student_type == "alphagenome_k562_s1_multitask" or multitask
+        )
+        if _is_multitask_run:
             from data.k562 import K562Dataset
 
             mt_labels = {}
@@ -2722,8 +2756,13 @@ def main():
         if args.student == "alphagenome_k562_s1":
             args.student = "alphagenome_k562_s1_multitask"
             logger.info("--multitask: remapped student to alphagenome_k562_s1_multitask")
+        elif args.student in ("dream_rnn", "dream_cnn", "legnet"):
+            logger.info(f"--multitask: will train {args.student} with 3-output heads")
         elif args.student != "alphagenome_k562_s1_multitask":
-            parser.error("--multitask is only supported with alphagenome_k562_s1 student")
+            parser.error(
+                "--multitask is only supported with alphagenome_k562_s1, "
+                "dream_rnn, dream_cnn, or legnet students"
+            )
 
     training_sizes = args.training_sizes or DEFAULT_TRAINING_SIZES
     oracle_suffix = f"_{args.oracle}" if args.oracle != "default" else ""
@@ -2786,6 +2825,7 @@ def main():
             max_shift=args.max_shift,
             s1_checkpoint=args.s1_checkpoint,
             duplication_cutoff=args.duplication_cutoff,
+            multitask=args.multitask,
         )
         all_results.extend(results)
 

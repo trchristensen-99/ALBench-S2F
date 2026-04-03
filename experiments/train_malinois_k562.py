@@ -78,6 +78,7 @@ DEFAULT_CONFIG = {
     "chr_split": False,
     "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
     "duplication_cutoff": None,  # If set, duplicate training sequences with label >= cutoff
+    "multitask": False,  # If True, train with 3 cell-type outputs (K562, HepG2, SknSh)
 }
 
 
@@ -202,6 +203,46 @@ class EncodedMalinoisDataset(Dataset):
         return self.x[idx]
 
 
+class K562MalinoisMultitaskDataset(Dataset):
+    """Wraps multiple K562Datasets (one per cell type) for multi-task training.
+
+    Returns (4, 600) input tensors with labels of shape (3,) where
+    missing labels are NaN.
+    """
+
+    CELL_TYPES = ["K562_log2FC", "HepG2_log2FC", "SKNSH_log2FC"]
+
+    def __init__(self, base_ds: K562MalinoisDataset, data_path: str, split: str, **ds_kwargs):
+        self.base = base_ds
+        # Load extra label columns from the same split
+        self._extra_labels: list[np.ndarray | None] = []
+        for col in self.CELL_TYPES[1:]:  # HepG2, SknSh
+            try:
+                extra_ds = K562Dataset(
+                    data_path=data_path,
+                    split=split,
+                    label_column=col,
+                    **ds_kwargs,
+                )
+                self._extra_labels.append(extra_ds.labels)
+            except Exception:
+                # Column missing — fill with NaN
+                self._extra_labels.append(None)
+
+    def __len__(self) -> int:
+        return len(self.base)
+
+    def __getitem__(self, idx: int):
+        padded, k562_label = self.base[idx]
+        labels = [k562_label]
+        for extra in self._extra_labels:
+            if extra is not None:
+                labels.append(float(extra[idx]))
+            else:
+                labels.append(float("nan"))
+        return padded, torch.tensor(labels, dtype=torch.float32)
+
+
 def _standardize_to_200bp(sequence: str) -> str:
     target_len = 200
     curr_len = len(sequence)
@@ -226,8 +267,18 @@ def _safe_corr(pred: np.ndarray, target: np.ndarray, fn) -> float:
 
 
 def _predict_sequences(
-    model: nn.Module, sequences: list[str], device: torch.device, cfg: dict
+    model: nn.Module,
+    sequences: list[str],
+    device: torch.device,
+    cfg: dict,
+    cell_type_idx: int | None = None,
 ) -> np.ndarray:
+    """Predict on sequences.
+
+    Args:
+        cell_type_idx: For multitask models, extract this column from the
+            (N, 3) output. If None, squeeze for single-output models.
+    """
     if not sequences:
         return np.asarray([], dtype=np.float32)
 
@@ -239,12 +290,19 @@ def _predict_sequences(
     with torch.no_grad():
         for xb in loader:
             xb = xb.to(device, non_blocking=True)
-            out = model(xb).squeeze(-1)  # (batch,)
+            out = model(xb)
+            if cell_type_idx is None:
+                out = out.squeeze(-1)  # (batch,)
             if cfg["use_reverse_complement"]:
                 xb_rc = xb.flip(-1)[:, [3, 2, 1, 0], :]
-                out_rc = model(xb_rc).squeeze(-1)
+                out_rc = model(xb_rc)
+                if cell_type_idx is None:
+                    out_rc = out_rc.squeeze(-1)
                 out = (out + out_rc) / 2.0
-            preds.append(out.cpu().numpy().reshape(-1))
+            if cell_type_idx is not None:
+                preds.append(out[:, cell_type_idx].cpu().numpy().reshape(-1))
+            else:
+                preds.append(out.cpu().numpy().reshape(-1))
     return np.concatenate(preds, axis=0)
 
 
@@ -343,7 +401,11 @@ def _evaluate_chr_split_test(
 
 
 def evaluate_test_sets(
-    model: nn.Module, device: torch.device, test_set_dir: Path, cfg: dict
+    model: nn.Module,
+    device: torch.device,
+    test_set_dir: Path,
+    cfg: dict,
+    cell_type_idx: int | None = None,
 ) -> dict[str, dict[str, float]]:
     cell_line = cfg.get("cell_line", "k562")
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
@@ -355,7 +417,9 @@ def evaluate_test_sets(
     metrics: dict[str, dict[str, float]] = {}
 
     in_df = pd.read_csv(in_path, sep="\t")
-    in_pred = _predict_sequences(model, in_df["sequence"].astype(str).tolist(), device, cfg)
+    in_pred = _predict_sequences(
+        model, in_df["sequence"].astype(str).tolist(), device, cfg, cell_type_idx=cell_type_idx
+    )
     fc_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
     in_true = in_df[fc_col].to_numpy(dtype=np.float32)
     metrics["in_distribution"] = {
@@ -367,10 +431,18 @@ def evaluate_test_sets(
     snv_df = pd.read_csv(snv_path, sep="\t")
     if len(snv_df) > 0:
         ref_pred = _predict_sequences(
-            model, snv_df["sequence_ref"].astype(str).tolist(), device, cfg
+            model,
+            snv_df["sequence_ref"].astype(str).tolist(),
+            device,
+            cfg,
+            cell_type_idx=cell_type_idx,
         )
         alt_pred = _predict_sequences(
-            model, snv_df["sequence_alt"].astype(str).tolist(), device, cfg
+            model,
+            snv_df["sequence_alt"].astype(str).tolist(),
+            device,
+            cfg,
+            cell_type_idx=cell_type_idx,
         )
         alt_col = f"{fc_col}_alt"
         if alt_col not in snv_df.columns:
@@ -402,7 +474,11 @@ def evaluate_test_sets(
             ood_label_col = None
         if ood_label_col is not None:
             ood_pred = _predict_sequences(
-                model, ood_df["sequence"].astype(str).tolist(), device, cfg
+                model,
+                ood_df["sequence"].astype(str).tolist(),
+                device,
+                cfg,
+                cell_type_idx=cell_type_idx,
             )
             ood_true = ood_df[ood_label_col].to_numpy(dtype=np.float32)
             metrics["ood"] = {
@@ -452,14 +528,36 @@ def train_malinois(cfg: dict):
     train_kwargs = {**ds_kwargs}
     if dup_cutoff is not None:
         train_kwargs["duplication_cutoff"] = dup_cutoff
-    train_ds = K562MalinoisDataset(K562Dataset(split="train", **train_kwargs))
+    train_base_ds = K562MalinoisDataset(K562Dataset(split="train", **train_kwargs))
+    multitask = cfg.get("multitask", False)
+    if isinstance(multitask, str):
+        multitask = multitask.lower() in ("true", "1", "yes")
+    if multitask:
+        train_ds = K562MalinoisMultitaskDataset(
+            train_base_ds,
+            data_path=str(data_path),
+            split="train",
+            **{k: v for k, v in ds_kwargs.items() if k != "label_column"},
+        )
+        print(f"Multitask mode: training with 3 cell-type outputs")
+    else:
+        train_ds = train_base_ds
     rc_mode = cfg.get("rc_mode", "flip")
-    if rc_mode == "interleave":
+    if rc_mode == "interleave" and not multitask:
         train_ds = K562MalinoisInterleavedDataset(train_ds)
         print(f"RC mode: interleave (dataset doubled to {len(train_ds)})")
     else:
         print(f"RC mode: flip (random 50% RC per batch)")
-    val_ds = K562MalinoisDataset(K562Dataset(split="val", **ds_kwargs))
+    val_base_ds = K562MalinoisDataset(K562Dataset(split="val", **ds_kwargs))
+    if multitask:
+        val_ds = K562MalinoisMultitaskDataset(
+            val_base_ds,
+            data_path=str(data_path),
+            split="val",
+            **{k: v for k, v in ds_kwargs.items() if k != "label_column"},
+        )
+    else:
+        val_ds = val_base_ds
 
     train_loader = DataLoader(
         train_ds,
@@ -479,10 +577,11 @@ def train_malinois(cfg: dict):
 
     print(f"Train: {len(train_ds)}, Val: {len(val_ds)}")
 
-    # Model: BassetBranched with n_outputs=1 for K562 only
+    # Model: BassetBranched
+    n_outputs = 3 if multitask else 1
     model = BassetBranched(
         input_len=600,
-        n_outputs=1,
+        n_outputs=n_outputs,
         n_linear_layers=2,
         linear_channels=1000,
         n_branched_layers=1,
@@ -495,7 +594,12 @@ def train_malinois(cfg: dict):
         n_loaded = _load_basset_pretrained(model, cfg["pretrained_weights"])
         print(f"Loaded {n_loaded:,} pretrained conv parameters from {cfg['pretrained_weights']}")
 
-    criterion = nn.MSELoss()
+    if multitask:
+        from models.loss_utils import NaNMaskedMSELoss
+
+        criterion = NaNMaskedMSELoss()
+    else:
+        criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     lr_schedule = cfg.get("lr_schedule", "cosine")
     if lr_schedule == "onecycle":
@@ -526,7 +630,10 @@ def train_malinois(cfg: dict):
         train_losses = []
         for xb, yb in train_loader:
             xb = xb.to(device, non_blocking=True)
-            yb = yb.to(device, non_blocking=True).unsqueeze(-1)  # (batch, 1)
+            if multitask:
+                yb = yb.to(device, non_blocking=True)  # (batch, 3)
+            else:
+                yb = yb.to(device, non_blocking=True).unsqueeze(-1)  # (batch, 1)
 
             # RC augmentation: randomly reverse-complement half the batch
             # Skip when rc_mode="interleave" (RC already in dataset)
@@ -565,17 +672,25 @@ def train_malinois(cfg: dict):
             for xb, yb in val_loader:
                 xb = xb.to(device, non_blocking=True)
                 with torch.amp.autocast("cuda"):
-                    pred = model(xb).squeeze(-1)
+                    pred = model(xb)
+                    if not multitask:
+                        pred = pred.squeeze(-1)
                     if cfg["use_reverse_complement"]:
                         xb_rc = xb.flip(-1)[:, [3, 2, 1, 0], :]
-                        pred_rc = model(xb_rc).squeeze(-1)
+                        pred_rc = model(xb_rc)
+                        if not multitask:
+                            pred_rc = pred_rc.squeeze(-1)
                         pred = (pred + pred_rc) / 2.0
                 val_preds.append(pred.cpu().numpy())
                 val_trues.append(yb.numpy())
 
         val_preds = np.concatenate(val_preds)
         val_trues = np.concatenate(val_trues)
-        val_pearson = _safe_corr(val_preds, val_trues, pearsonr)
+        if multitask:
+            # Use K562 (column 0) for early stopping
+            val_pearson = _safe_corr(val_preds[:, 0], val_trues[:, 0], pearsonr)
+        else:
+            val_pearson = _safe_corr(val_preds, val_trues, pearsonr)
         train_loss = np.mean(train_losses)
 
         print(
@@ -601,32 +716,97 @@ def train_malinois(cfg: dict):
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
 
-    if chr_split:
-        # Chr-split: evaluate on K562Dataset test split (chr7+13)
-        test_ds = K562MalinoisDataset(K562Dataset(split="test", **ds_kwargs))
-        test_metrics = _evaluate_chr_split_test(model, device, test_ds, cfg)
+    if multitask:
+        # Multitask evaluation: per-cell-type metrics
+        cell_type_names = ["k562", "hepg2", "sknsh"]
+        cell_type_cols = ["K562_log2FC", "HepG2_log2FC", "SKNSH_log2FC"]
+        test_metrics: dict = {}
+        for ct_idx, (ct_name, ct_col) in enumerate(zip(cell_type_names, cell_type_cols)):
+            ct_cfg = {**cfg, "cell_line": ct_name}
+            ct_label_col = ct_col
+            if chr_split:
+                try:
+                    ct_ds_kwargs = {k: v for k, v in ds_kwargs.items() if k != "label_column"}
+                    ct_ds_kwargs["label_column"] = ct_label_col
+                    test_ds = K562MalinoisDataset(K562Dataset(split="test", **ct_ds_kwargs))
+                    ct_metrics = _evaluate_chr_split_test(
+                        model,
+                        device,
+                        test_ds,
+                        ct_cfg,
+                    )
+                    # Override predictions to use correct cell_type_idx
+                    # Re-evaluate with the right output column
+                    loader = DataLoader(test_ds, batch_size=256, shuffle=False, num_workers=4)
+                    preds_list, trues_list = [], []
+                    model.eval()
+                    with torch.no_grad():
+                        for x, y in loader:
+                            x = x.to(device)
+                            out = model(x)[:, ct_idx]
+                            preds_list.append(out.cpu().numpy().reshape(-1))
+                            trues_list.append(y.numpy().reshape(-1))
+                    pred = np.concatenate(preds_list)
+                    true = np.concatenate(trues_list)
+                    ct_metrics["in_distribution"] = {
+                        "pearson_r": _safe_corr(pred, true, pearsonr),
+                        "spearman_r": _safe_corr(pred, true, spearmanr),
+                        "mse": float(np.mean((pred - true) ** 2)),
+                        "n": len(true),
+                    }
+                except Exception as e:
+                    print(f"  Warning: could not evaluate {ct_name}: {e}")
+                    ct_metrics = {}
+            else:
+                test_dir = data_path / "test_sets"
+                ct_cfg_predict = {**cfg}
+                ct_cfg_predict["cell_line"] = ct_name
+                try:
+                    ct_metrics = evaluate_test_sets(
+                        model,
+                        device,
+                        test_dir,
+                        ct_cfg_predict,
+                        cell_type_idx=ct_idx,
+                    )
+                except Exception as e:
+                    print(f"  Warning: could not evaluate {ct_name}: {e}")
+                    ct_metrics = {}
+            test_metrics[ct_name] = ct_metrics
     else:
-        test_dir = data_path / "test_sets"
-        test_metrics = evaluate_test_sets(model, device, test_dir, cfg)
+        if chr_split:
+            # Chr-split: evaluate on K562Dataset test split (chr7+13)
+            test_ds = K562MalinoisDataset(K562Dataset(split="test", **ds_kwargs))
+            test_metrics = _evaluate_chr_split_test(model, device, test_ds, cfg)
+        else:
+            test_dir = data_path / "test_sets"
+            test_metrics = evaluate_test_sets(model, device, test_dir, cfg)
 
     result = {
-        "model": "malinois",
+        "model": "malinois" + ("_multitask" if multitask else ""),
         "seed": seed,
         "best_val_pearson_r": best_val_pearson,
         "best_epoch": int(ckpt["epoch"]) + 1,
         "n_train": len(train_ds),
         "test_metrics": test_metrics,
+        "multitask": multitask,
     }
     with open(out_dir / "result.json", "w") as f:
         json.dump(result, f, indent=2)
     print(f"\nResults saved to {out_dir / 'result.json'}")
-    print(f"  in_dist Pearson: {test_metrics['in_distribution']['pearson_r']:.4f}")
-    if "ood" in test_metrics:
-        print(f"  OOD Pearson:     {test_metrics['ood']['pearson_r']:.4f}")
-    if "snv_abs" in test_metrics:
-        print(f"  SNV abs Pearson: {test_metrics['snv_abs']['pearson_r']:.4f}")
-    if "snv_delta" in test_metrics:
-        print(f"  SNV delta Pearson: {test_metrics['snv_delta']['pearson_r']:.4f}")
+    if multitask:
+        for ct_name in ["k562", "hepg2", "sknsh"]:
+            ct_m = test_metrics.get(ct_name, {})
+            if "in_distribution" in ct_m:
+                print(f"  {ct_name} in_dist Pearson: {ct_m['in_distribution']['pearson_r']:.4f}")
+    else:
+        print(f"  in_dist Pearson: {test_metrics['in_distribution']['pearson_r']:.4f}")
+        if "ood" in test_metrics:
+            print(f"  OOD Pearson:     {test_metrics['ood']['pearson_r']:.4f}")
+        if "snv_abs" in test_metrics:
+            print(f"  SNV abs Pearson: {test_metrics['snv_abs']['pearson_r']:.4f}")
+        if "snv_delta" in test_metrics:
+            print(f"  SNV delta Pearson: {test_metrics['snv_delta']['pearson_r']:.4f}")
 
     return result
 

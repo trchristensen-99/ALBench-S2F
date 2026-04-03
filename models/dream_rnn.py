@@ -59,17 +59,21 @@ class DREAMRNN(SequenceModel):
         dropout_cnn: float = 0.2,
         dropout_lstm: float = 0.5,
         task_mode: str = "k562",  # 'yeast' or 'k562'
+        multitask: bool = False,  # If True, output 3 cell types (K562, HepG2, SknSh)
     ):
         # Auto-detect output_dim from task_mode if not specified
         if output_dim is None:
             if task_mode == "yeast":
                 output_dim = 18  # 18 bins for yeast
+            elif multitask:
+                output_dim = 3  # Multi-cell-type regression
             else:
                 output_dim = 1  # Direct regression for K562
 
         super().__init__(input_channels, sequence_length, output_dim)
 
         self.task_mode = task_mode
+        self.multitask = multitask
 
         self.hidden_dim = hidden_dim
         self.cnn_filters = cnn_filters
@@ -213,8 +217,10 @@ class DREAMRNN(SequenceModel):
             output = torch.sum(bin_probs * self.bin_centers.unsqueeze(0), dim=1)  # (batch,)
         else:
             # K562: Direct regression output
-            # If output_dim == 1, squeeze to (batch,)
-            if self.output_dim == 1:
+            if self.multitask:
+                # Multi-task: return (batch, 3) for 3 cell types
+                output = logits
+            elif self.output_dim == 1:
                 output = logits.squeeze(1)
             else:
                 output = logits
@@ -288,7 +294,11 @@ class DREAMRNN(SequenceModel):
 
 
 def create_dream_rnn(
-    input_channels: int, sequence_length: int, task_mode: str = "k562", **kwargs
+    input_channels: int,
+    sequence_length: int,
+    task_mode: str = "k562",
+    multitask: bool = False,
+    **kwargs,
 ) -> DREAMRNN:
     """
     Factory function to create a DREAM-RNN model with sensible defaults.
@@ -310,6 +320,7 @@ def create_dream_rnn(
         input_channels=input_channels,
         sequence_length=sequence_length,
         task_mode=task_mode,
+        multitask=multitask,
         **kwargs,
     )
 

@@ -60,6 +60,7 @@ def train_epoch_optimized(
     use_amp: bool = True,
     shift_aug: bool = False,
     max_shift: int = 15,
+    multitask: bool = False,
 ) -> Dict[str, float]:
     """
     Train for one epoch with optional mixed precision.
@@ -180,7 +181,13 @@ def train_epoch_optimized(
 
     # Compute epoch metrics
     avg_loss = total_loss / len(dataloader)
-    metrics = compute_metrics(np.array(all_predictions), np.array(all_targets))
+    preds_arr = np.array(all_predictions)
+    tgts_arr = np.array(all_targets)
+    if multitask and preds_arr.ndim == 2 and preds_arr.shape[1] > 1:
+        # For multitask: compute metrics on first column (K562) for early stopping
+        metrics = compute_metrics(preds_arr[:, 0], tgts_arr[:, 0])
+    else:
+        metrics = compute_metrics(preds_arr.reshape(-1), tgts_arr.reshape(-1))
     metrics["loss"] = avg_loss
 
     return metrics
@@ -203,6 +210,7 @@ def train_model_optimized(
     use_compile: bool = True,
     shift_aug: bool = False,
     max_shift: int = 15,
+    multitask: bool = False,
 ) -> Dict[str, Any]:
     """
     Train a model with validation, checkpointing, and optimizations.
@@ -330,11 +338,17 @@ def train_model_optimized(
             use_amp=use_amp and device.type == "cuda",
             shift_aug=shift_aug,
             max_shift=max_shift,
+            multitask=multitask,
         )
 
         # Validate (use standard evaluate function)
         val_metrics = evaluate(
-            model, val_loader, criterion, device, use_reverse_complement=use_reverse_complement
+            model,
+            val_loader,
+            criterion,
+            device,
+            use_reverse_complement=use_reverse_complement,
+            multitask=multitask,
         )
 
         # Record history

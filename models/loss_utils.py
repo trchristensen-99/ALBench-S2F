@@ -44,6 +44,32 @@ def continuous_to_bin_probabilities(
     return bin_probs
 
 
+class NaNMaskedMSELoss(nn.Module):
+    """MSE loss that ignores NaN values in targets.
+
+    Designed for multi-task training where some cell-type labels may be
+    missing (NaN) for certain sequences. Computes MSE only over valid
+    (non-NaN) entries, averaged across all valid entries.
+
+    Expects predictions and targets of shape (batch, n_tasks).
+    """
+
+    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute NaN-masked MSE loss.
+
+        Args:
+            predictions: Model outputs of shape (batch, n_tasks).
+            targets: Labels of shape (batch, n_tasks), may contain NaN.
+
+        Returns:
+            Scalar loss averaged over non-NaN entries.
+        """
+        mask = ~torch.isnan(targets)
+        if not mask.any():
+            return torch.tensor(0.0, device=predictions.device, requires_grad=True)
+        return F.mse_loss(predictions[mask], targets[mask])
+
+
 class YeastKLLoss(nn.Module):
     """
     KL divergence loss for yeast 18-bin classification.

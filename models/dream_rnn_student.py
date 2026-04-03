@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 from albench.model import SequenceModel
 from data.utils import one_hot_encode
 from models.dream_rnn import DREAMRNN, create_dream_rnn
-from models.loss_utils import YeastKLLoss
+from models.loss_utils import NaNMaskedMSELoss, YeastKLLoss
 from models.training import train_model_optimized
 from models.training_base import create_optimizer_and_scheduler
 
@@ -59,6 +59,7 @@ class DREAMRNNStudent(SequenceModel):
         ensemble_size: int = 3,
         device: str | None = None,
         train_config: TrainConfig | None = None,
+        multitask: bool = False,
     ) -> None:
         """Initialize the student and its ensemble.
 
@@ -69,11 +70,13 @@ class DREAMRNNStudent(SequenceModel):
             ensemble_size: Number of ensemble members.
             device: Torch device string; auto-detected when omitted.
             train_config: Training configuration used in ``fit``.
+            multitask: If True, use 3-output heads (K562, HepG2, SknSh).
         """
         self.input_channels = input_channels
         self.sequence_length = sequence_length
         self.task_mode = task_mode
         self.ensemble_size = ensemble_size
+        self.multitask = multitask
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.train_config = train_config or TrainConfig()
         self.models = [
@@ -81,6 +84,7 @@ class DREAMRNNStudent(SequenceModel):
                 input_channels=input_channels,
                 sequence_length=sequence_length,
                 task_mode=task_mode,
+                multitask=multitask,
             ).to(self.device)
             for _ in range(ensemble_size)
         ]
@@ -117,6 +121,8 @@ class DREAMRNNStudent(SequenceModel):
         model.eval()
         with torch.no_grad():
             out = model(x.to(self.device)).detach().cpu().numpy()
+        if self.multitask:
+            return out  # (N, 3)
         return out.reshape(-1)
 
     def _embed_member(self, model: DREAMRNN, x: torch.Tensor) -> np.ndarray:
@@ -142,8 +148,20 @@ class DREAMRNNStudent(SequenceModel):
             pooled = torch.mean(conv3_out, dim=2)
         return pooled.detach().cpu().numpy()
 
-    def predict(self, sequences: list[str], batch_size: int = 4096) -> np.ndarray:
-        """Predict activity as the mean across ensemble members."""
+    def predict(
+        self, sequences: list[str], batch_size: int = 4096, cell_type_idx: int = 0
+    ) -> np.ndarray:
+        """Predict activity as the mean across ensemble members.
+
+        Args:
+            sequences: Input DNA sequences.
+            batch_size: Batch size for inference.
+            cell_type_idx: For multitask models, which cell type to return
+                (0=K562, 1=HepG2, 2=SknSh). Ignored for single-task.
+
+        Returns:
+            Predictions of shape (N,).
+        """
         x = self._encode_sequences(sequences)
         if len(x) <= batch_size:
             preds = [self._predict_member(model, x) for model in self.models]
@@ -155,7 +173,10 @@ class DREAMRNNStudent(SequenceModel):
                     for i in range(0, len(x), batch_size)
                 ]
                 preds.append(np.concatenate(chunks))
-        return np.mean(np.stack(preds, axis=0), axis=0)
+        mean_pred = np.mean(np.stack(preds, axis=0), axis=0)
+        if self.multitask:
+            return mean_pred[:, cell_type_idx]
+        return mean_pred
 
     def uncertainty(self, sequences: list[str]) -> np.ndarray:
         """Estimate uncertainty via MC dropout variance over 30 passes."""
@@ -234,7 +255,12 @@ class DREAMRNNStudent(SequenceModel):
                 weight_decay=self.train_config.weight_decay,
                 pct_start=self.train_config.pct_start,
             )
-            criterion: nn.Module = YeastKLLoss() if self.task_mode == "yeast" else nn.MSELoss()
+            if self.task_mode == "yeast":
+                criterion: nn.Module = YeastKLLoss()
+            elif self.multitask:
+                criterion = NaNMaskedMSELoss()
+            else:
+                criterion = nn.MSELoss()
             train_model_optimized(
                 model=model,
                 train_loader=loader,
@@ -252,4 +278,5 @@ class DREAMRNNStudent(SequenceModel):
                 use_compile=False,
                 shift_aug=getattr(self.train_config, "shift_aug", False),
                 max_shift=getattr(self.train_config, "max_shift", 15),
+                multitask=self.multitask,
             )
