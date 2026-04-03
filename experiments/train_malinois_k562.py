@@ -533,11 +533,12 @@ def train_malinois(cfg: dict):
     if isinstance(multitask, str):
         multitask = multitask.lower() in ("true", "1", "yes")
     if multitask:
+        mt_kwargs = {k: v for k, v in ds_kwargs.items() if k not in ("label_column", "data_path")}
         train_ds = K562MalinoisMultitaskDataset(
             train_base_ds,
             data_path=str(data_path),
             split="train",
-            **{k: v for k, v in ds_kwargs.items() if k != "label_column"},
+            **mt_kwargs,
         )
         print(f"Multitask mode: training with 3 cell-type outputs")
     else:
@@ -554,7 +555,7 @@ def train_malinois(cfg: dict):
             val_base_ds,
             data_path=str(data_path),
             split="val",
-            **{k: v for k, v in ds_kwargs.items() if k != "label_column"},
+            **mt_kwargs,
         )
     else:
         val_ds = val_base_ds
