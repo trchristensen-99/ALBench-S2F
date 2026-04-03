@@ -2458,6 +2458,8 @@ def run_scaling_experiment(
                     )
 
                     # Validation evaluation
+                    # For multitask students, predict() returns K562 (cell_type_idx=0)
+                    # which is fine for HP selection. Multi-task eval happens at test time.
                     val_preds = student.predict(val_seqs)
                     val_r = float(np.corrcoef(val_preds, val_labels)[0, 1])
                     if np.isnan(val_r):
