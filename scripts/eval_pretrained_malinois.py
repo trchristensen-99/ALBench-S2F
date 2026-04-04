@@ -133,13 +133,16 @@ def evaluate_pretrained(
                 }
                 print(f"  in_dist Pearson: {ct_results['chr_split_in_dist']['pearson_r']:.4f}")
 
-                # SNV and OOD via the existing eval function
-                snv_ood = _evaluate_chr_split_test(model, device, test_ds, ct_cfg)
-                # Re-do with correct ct_idx for predictions
-                for key in ["snv_abs", "snv_delta", "ood"]:
-                    if key in snv_ood:
-                        ct_results[f"chr_split_{key}"] = snv_ood[key]
-                        print(f"  {key} Pearson: {snv_ood[key]['pearson_r']:.4f}")
+                # SNV and OOD via evaluate_test_sets with cell_type_idx
+                test_set_dir = Path("data/k562/test_sets")
+                if test_set_dir.exists():
+                    snv_ood = evaluate_test_sets(
+                        model, device, test_set_dir, ct_cfg, cell_type_idx=ct_idx
+                    )
+                    for key in ["snv_abs", "snv_delta", "ood"]:
+                        if key in snv_ood:
+                            ct_results[f"chr_split_{key}"] = snv_ood[key]
+                            print(f"  {key} Pearson: {snv_ood[key]['pearson_r']:.4f}")
             except Exception as e:
                 print(f"  Error: {e}")
 
