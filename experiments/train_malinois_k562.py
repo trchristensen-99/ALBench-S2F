@@ -139,10 +139,14 @@ _BASSET_CONV_MAP = {
 
 
 def _load_basset_pretrained(model: BassetBranched, weights_path: str) -> int:
-    """Load Basset pretrained conv weights (Kelley 2016) into BassetBranched.
+    """Load Basset pretrained conv weights into BassetBranched.
 
-    Only loads conv1/conv2/conv3 + their BatchNorm layers. Linear layers are
-    skipped because the original Basset uses valid convolutions (flatten=2000)
+    Supports two weight formats:
+    1. Zenodo format (Kelley 2016): keys like "0.weight", "1.weight" (Conv2d)
+    2. GCS/boda2 format: keys like "conv1.conv.weight" (Conv1d, same as our model)
+
+    Only loads conv1/conv2/conv3 + their BatchNorm layers. Linear/branched layers
+    are skipped because the original Basset uses valid convolutions (flatten=2000)
     while BassetBranched uses padded convolutions (flatten=2600).
 
     Returns number of parameters loaded.
@@ -150,20 +154,37 @@ def _load_basset_pretrained(model: BassetBranched, weights_path: str) -> int:
     sd = torch.load(weights_path, map_location="cpu", weights_only=False)
     model_sd = model.state_dict()
     n_loaded = 0
-    for src_key, (dst_key, is_conv2d) in _BASSET_CONV_MAP.items():
-        if src_key not in sd:
-            print(f"  WARNING: {src_key} not found in pretrained weights")
-            continue
-        w = sd[src_key]
-        if is_conv2d:
-            w = w.squeeze(-1)  # Conv2d (out, in, K, 1) → Conv1d (out, in, K)
-        if w.shape != model_sd[dst_key].shape:
-            print(
-                f"  WARNING: shape mismatch {src_key} {w.shape} vs {dst_key} {model_sd[dst_key].shape}"
-            )
-            continue
-        model_sd[dst_key] = w
-        n_loaded += w.numel()
+
+    # Detect format by checking for a key from each format
+    if "0.weight" in sd:
+        # Zenodo format: numeric keys, Conv2d weights
+        for src_key, (dst_key, is_conv2d) in _BASSET_CONV_MAP.items():
+            if src_key not in sd:
+                print(f"  WARNING: {src_key} not found in pretrained weights")
+                continue
+            w = sd[src_key]
+            if is_conv2d:
+                w = w.squeeze(-1)  # Conv2d (out, in, K, 1) → Conv1d (out, in, K)
+            if w.shape != model_sd[dst_key].shape:
+                print(
+                    f"  WARNING: shape mismatch {src_key} {w.shape} vs {dst_key} {model_sd[dst_key].shape}"
+                )
+                continue
+            model_sd[dst_key] = w
+            n_loaded += w.numel()
+    else:
+        # GCS/boda2 format: keys match our model's conv layer names directly
+        conv_prefixes = ("conv1.", "conv2.", "conv3.")
+        for key in sd:
+            if any(key.startswith(p) for p in conv_prefixes):
+                if key in model_sd and sd[key].shape == model_sd[key].shape:
+                    model_sd[key] = sd[key]
+                    n_loaded += sd[key].numel()
+                elif key in model_sd:
+                    print(
+                        f"  WARNING: shape mismatch {key} {sd[key].shape} vs {model_sd[key].shape}"
+                    )
+
     model.load_state_dict(model_sd)
     return n_loaded
 
@@ -231,43 +252,72 @@ class EncodedMalinoisDataset(Dataset):
 
 
 class K562MalinoisMultitaskDataset(Dataset):
-    """Wraps multiple K562Datasets (one per cell type) for multi-task training.
+    """Wraps K562MalinoisDataset for multi-task training with 3 cell types.
 
     Returns (4, 600) input tensors with labels of shape (3,) where
     missing labels are NaN.
+
+    Reads all 3 label columns from a single K562Dataset's underlying data,
+    guaranteeing perfect alignment regardless of duplication/filtering.
     """
 
-    CELL_TYPES = ["K562_log2FC", "HepG2_log2FC", "SKNSH_log2FC"]
+    LABEL_COLS = ["K562_log2FC", "HepG2_log2FC", "SKNSH_log2FC"]
 
     def __init__(self, base_ds: K562MalinoisDataset, data_path: str, split: str, **ds_kwargs):
         self.base = base_ds
-        # Load extra label columns from the same split
-        self._extra_labels: list[np.ndarray | None] = []
-        for col in self.CELL_TYPES[1:]:  # HepG2, SknSh
+        inner_ds = base_ds.ds
+        n = len(inner_ds)
+
+        # Build (N, 3) label array aligned to the base dataset
+        self._labels = np.full((n, 3), np.nan, dtype=np.float32)
+        self._labels[:, 0] = inner_ds.labels  # K562 (already loaded)
+
+        # Read extra columns from the same raw data file, using the same
+        # sequence-level filtering and split indices as the base dataset.
+        # The key insight: create datasets WITHOUT duplication_cutoff,
+        # then manually duplicate the same rows as the base did.
+        base_label_col = inner_ds.label_column
+        for col_idx, col in enumerate(self.LABEL_COLS[1:], start=1):
+            if col == base_label_col:
+                continue  # skip if same as base (shouldn't happen)
             try:
+                # Load with same split/filter but NO duplication and different label_column
                 extra_ds = K562Dataset(
                     data_path=data_path,
                     split=split,
                     label_column=col,
                     **ds_kwargs,
                 )
-                self._extra_labels.append(extra_ds.labels)
-            except Exception:
-                # Column missing — fill with NaN
-                self._extra_labels.append(None)
+                extra_labels = extra_ds.labels
+
+                # If base has duplication, the base's labels array is:
+                #   [original_labels..., duplicated_labels...]
+                # We need to replicate the same duplication pattern
+                dup_cutoff = getattr(inner_ds, "duplication_cutoff", None)
+                if dup_cutoff is not None and split == "train":
+                    # The base duplicated sequences where BASE_LABEL >= cutoff
+                    # Get the original (pre-dup) labels to find the mask
+                    n_orig = len(extra_labels)
+                    # Base used its own label column for the mask
+                    orig_base_labels = inner_ds.labels[:n_orig]
+                    high_mask = orig_base_labels >= dup_cutoff
+                    # Append the same duplicated rows for the extra column
+                    dup_extra = extra_labels[high_mask]
+                    extra_labels = np.concatenate([extra_labels, dup_extra])
+
+                if len(extra_labels) == n:
+                    self._labels[:, col_idx] = extra_labels
+                else:
+                    print(f"  MT warning: {col} has {len(extra_labels)} vs {n}, using NaN")
+            except Exception as e:
+                print(f"  MT warning: could not load {col}: {e}")
 
     def __len__(self) -> int:
         return len(self.base)
 
     def __getitem__(self, idx: int):
-        padded, k562_label = self.base[idx]
-        labels = [k562_label]
-        for extra in self._extra_labels:
-            if extra is not None:
-                labels.append(float(extra[idx]))
-            else:
-                labels.append(float("nan"))
-        return padded, torch.tensor(labels, dtype=torch.float32)
+        padded, _ = self.base[idx]
+        return padded, torch.tensor(self._labels[idx], dtype=torch.float32)
 
 
 def _standardize_to_200bp(sequence: str) -> str:
