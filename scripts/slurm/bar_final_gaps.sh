@@ -52,10 +52,9 @@ run_from_scratch() {
         --reservoir genomic \
         --output-dir "${OUT_BASE}" \
         --training-sizes 618000 \
-        --seeds "${SEED}" \
+        --seed "${SEED}" \
         --chr-split \
         --include-alt-alleles \
-        \
         --save-predictions \
         --cell-line "${CELL}" \
         --ensemble-size 1
@@ -95,7 +94,7 @@ for STUDENT in dream_rnn legnet; do
             --reservoir genomic \
             --output-dir "${OUT}" \
             --training-sizes 618000 \
-            --seeds 42 \
+            --seed 42 \
             --chr-split \
             --include-alt-alleles \
             \
