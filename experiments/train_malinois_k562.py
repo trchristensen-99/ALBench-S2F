@@ -388,6 +388,7 @@ def _evaluate_chr_split_test(
     device: torch.device,
     test_ds: "K562MalinoisDataset",
     cfg: dict,
+    cell_type_idx: int | None = None,
 ) -> tuple[dict[str, dict[str, float]], dict[str, np.ndarray]]:
     """Evaluate on chromosome-split test set (in-dist + SNV + OOD).
 
@@ -401,7 +402,16 @@ def _evaluate_chr_split_test(
     with torch.no_grad():
         for x, y in loader:
             x = x.to(device)
-            preds.append(model(x).cpu().numpy().reshape(-1))
+            out = model(x)
+            if cell_type_idx is not None:
+                out = out[:, cell_type_idx]
+            if cfg["use_reverse_complement"]:
+                x_rc = x.flip(-1)[:, [3, 2, 1, 0], :]
+                out_rc = model(x_rc)
+                if cell_type_idx is not None:
+                    out_rc = out_rc[:, cell_type_idx]
+                out = (out + out_rc) / 2.0
+            preds.append(out.cpu().numpy().reshape(-1))
             trues.append(y.numpy().reshape(-1))
     pred = np.concatenate(preds)
     true = np.concatenate(trues)
@@ -435,10 +445,18 @@ def _evaluate_chr_split_test(
             snv_df = snv_df[snv_df["chr"].isin(["chr7", "chr13"])]
         if len(snv_df) > 0:
             ref_pred = _predict_sequences(
-                model, snv_df["sequence_ref"].astype(str).tolist(), device, cfg
+                model,
+                snv_df["sequence_ref"].astype(str).tolist(),
+                device,
+                cfg,
+                cell_type_idx=cell_type_idx,
             )
             alt_pred = _predict_sequences(
-                model, snv_df["sequence_alt"].astype(str).tolist(), device, cfg
+                model,
+                snv_df["sequence_alt"].astype(str).tolist(),
+                device,
+                cfg,
+                cell_type_idx=cell_type_idx,
             )
             alt_col = f"{fc_col}_alt"
             if alt_col not in snv_df.columns:
@@ -476,7 +494,11 @@ def _evaluate_chr_split_test(
         ood_label_col = fc_col if fc_col in ood_df.columns else "K562_log2FC"
         if ood_label_col in ood_df.columns:
             ood_pred = _predict_sequences(
-                model, ood_df["sequence"].astype(str).tolist(), device, cfg
+                model,
+                ood_df["sequence"].astype(str).tolist(),
+                device,
+                cfg,
+                cell_type_idx=cell_type_idx,
             )
             ood_true = ood_df[ood_label_col].to_numpy(dtype=np.float32)
             metrics["ood"] = {
@@ -881,6 +903,7 @@ def train_malinois(cfg: dict):
                         device,
                         test_ds,
                         ct_cfg,
+                        cell_type_idx=ct_idx,
                     )
                     # Override predictions to use correct cell_type_idx
                     # Re-evaluate with the right output column
