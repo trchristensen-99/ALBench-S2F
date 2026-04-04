@@ -176,17 +176,21 @@ def evaluate_test_sets_cached(
     cell_line: str = "k562",
     chr_split: bool = False,
     include_alt_alleles: bool = False,
-) -> dict[str, dict[str, float]]:
+) -> tuple[dict[str, dict[str, float]], dict[str, np.ndarray]]:
     """Evaluate on test sets using cached embeddings (RC-averaged).
 
     For chr_split mode, uses K562Dataset test split (chr7+13) for in-dist
     and filters SNV pairs to chr7+13 chromosomes only.
+
+    Returns (metrics_dict, predictions_dict) where predictions_dict contains
+    raw numpy arrays for saving to predictions.npz.
     """
     import pandas as pd
 
     fc_col = CELL_LINE_LABEL_COLS[cell_line]
     test_dir = data_path / "test_sets"
     metrics: dict[str, dict[str, float]] = {}
+    predictions: dict[str, np.ndarray] = {}
 
     def _predict_cached(prefix: str) -> np.ndarray:
         can = np.load(cache_dir / f"{prefix}_canonical.npy", mmap_mode="r")
@@ -226,6 +230,8 @@ def evaluate_test_sets_cached(
                 "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
                 "mse": float(np.mean((in_pred - in_true) ** 2)),
             }
+            predictions["in_dist_pred"] = in_pred
+            predictions["in_dist_true"] = in_true
         else:
             print(
                 f"WARNING: in_dist length mismatch: pred={len(in_pred)} vs true={len(in_true)}. "
@@ -239,6 +245,8 @@ def evaluate_test_sets_cached(
                 "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
                 "mse": float(np.mean((in_pred - in_true) ** 2)),
             }
+            predictions["in_dist_pred"] = in_pred
+            predictions["in_dist_true"] = in_true
     else:
         # HashFrag: use TSV labels
         in_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
@@ -249,6 +257,8 @@ def evaluate_test_sets_cached(
             "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
             "mse": float(np.mean((in_pred - in_true) ** 2)),
         }
+        predictions["in_dist_pred"] = in_pred
+        predictions["in_dist_true"] = in_true
 
     # SNV pairs
     snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
@@ -274,6 +284,8 @@ def evaluate_test_sets_cached(
     alt_col = f"{fc_col}_alt"
     if alt_col not in snv_df.columns:
         alt_col = "K562_log2FC_alt"  # fallback for K562
+    predictions["snv_ref_pred"] = ref_pred
+    predictions["snv_alt_pred"] = alt_pred
     if alt_col in snv_df.columns:
         alt_true = snv_df[alt_col].to_numpy(dtype=np.float32)
         metrics["snv_abs"] = {
@@ -281,10 +293,12 @@ def evaluate_test_sets_cached(
             "spearman_r": _safe_corr(alt_pred, alt_true, spearmanr),
             "mse": float(np.mean((alt_pred - alt_true) ** 2)),
         }
+        predictions["snv_alt_true"] = alt_true
     delta_pred = alt_pred - ref_pred
     delta_col = f"delta_{fc_col}"
     if delta_col not in snv_df.columns:
         delta_col = "delta_log2FC"
+    predictions["snv_delta_pred"] = delta_pred
     if delta_col in snv_df.columns:
         delta_true = snv_df[delta_col].to_numpy(dtype=np.float32)
         metrics["snv_delta"] = {
@@ -292,6 +306,7 @@ def evaluate_test_sets_cached(
             "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
             "mse": float(np.mean((delta_pred - delta_true) ** 2)),
         }
+        predictions["snv_delta_true"] = delta_true
 
     # OOD — only evaluate when cell_line has matching labels (K562 only)
     ood_file = test_dir / f"test_ood_designed_{cell_line}.tsv"
@@ -316,8 +331,10 @@ def evaluate_test_sets_cached(
                 "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
                 "mse": float(np.mean((ood_pred - ood_true) ** 2)),
             }
+            predictions["ood_pred"] = ood_pred
+            predictions["ood_true"] = ood_true
 
-    return metrics
+    return metrics, predictions
 
 
 # ── Training loop ────────────────────────────────────────────────────────────
@@ -471,7 +488,7 @@ def train(cfg: dict):
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
 
-    test_metrics = evaluate_test_sets_cached(
+    test_metrics, test_predictions = evaluate_test_sets_cached(
         model,
         cache_dir,
         data_path,
@@ -480,6 +497,11 @@ def train(cfg: dict):
         chr_split=chr_split,
         include_alt_alleles=include_alt,
     )
+
+    # Save predictions for scatter plots
+    if test_predictions:
+        np.savez(out_dir / "predictions.npz", **test_predictions)
+        print(f"Predictions saved to {out_dir / 'predictions.npz'}")
 
     result = {
         "model": cfg["model_name"],

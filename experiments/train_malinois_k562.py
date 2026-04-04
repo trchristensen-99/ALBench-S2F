@@ -388,8 +388,11 @@ def _evaluate_chr_split_test(
     device: torch.device,
     test_ds: "K562MalinoisDataset",
     cfg: dict,
-) -> dict[str, dict[str, float]]:
-    """Evaluate on chromosome-split test set (in-dist + SNV + OOD)."""
+) -> tuple[dict[str, dict[str, float]], dict[str, np.ndarray]]:
+    """Evaluate on chromosome-split test set (in-dist + SNV + OOD).
+
+    Returns (metrics_dict, predictions_dict).
+    """
     from torch.utils.data import DataLoader
 
     loader = DataLoader(test_ds, batch_size=256, shuffle=False, num_workers=4)
@@ -409,6 +412,10 @@ def _evaluate_chr_split_test(
             "mse": float(np.mean((pred - true) ** 2)),
             "n": len(true),
         },
+    }
+    pred_arrays: dict[str, np.ndarray] = {
+        "in_dist_pred": pred,
+        "in_dist_true": true,
     }
 
     # Also evaluate SNV and OOD using the hashfrag eval path
@@ -454,6 +461,11 @@ def _evaluate_chr_split_test(
                 "mse": float(np.mean((delta_pred - delta_true) ** 2)),
                 "n": len(delta_true),
             }
+            pred_arrays["snv_ref_pred"] = ref_pred
+            pred_arrays["snv_alt_pred"] = alt_pred
+            pred_arrays["snv_alt_true"] = alt_true
+            pred_arrays["snv_delta_pred"] = delta_pred
+            pred_arrays["snv_delta_true"] = delta_true
 
     # OOD
     ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
@@ -473,8 +485,10 @@ def _evaluate_chr_split_test(
                 "mse": float(np.mean((ood_pred - ood_true) ** 2)),
                 "n": len(ood_true),
             }
+            pred_arrays["ood_pred"] = ood_pred
+            pred_arrays["ood_true"] = ood_true
 
-    return metrics
+    return metrics, pred_arrays
 
 
 def evaluate_test_sets(
@@ -483,7 +497,11 @@ def evaluate_test_sets(
     test_set_dir: Path,
     cfg: dict,
     cell_type_idx: int | None = None,
-) -> dict[str, dict[str, float]]:
+) -> tuple[dict[str, dict[str, float]], dict[str, np.ndarray]]:
+    """Evaluate on hashfrag test sets.
+
+    Returns (metrics_dict, predictions_dict).
+    """
     cell_line = cfg.get("cell_line", "k562")
     in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
     snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
@@ -492,6 +510,7 @@ def evaluate_test_sets(
         ood_path = test_set_dir / "test_ood_designed_k562.tsv"
 
     metrics: dict[str, dict[str, float]] = {}
+    pred_arrays: dict[str, np.ndarray] = {}
 
     in_df = pd.read_csv(in_path, sep="\t")
     in_pred = _predict_sequences(
@@ -504,6 +523,8 @@ def evaluate_test_sets(
         "spearman_r": _safe_corr(in_pred, in_true, spearmanr),
         "mse": float(np.mean((in_pred - in_true) ** 2)),
     }
+    pred_arrays["in_dist_pred"] = in_pred
+    pred_arrays["in_dist_true"] = in_true
 
     snv_df = pd.read_csv(snv_path, sep="\t")
     if len(snv_df) > 0:
@@ -540,6 +561,11 @@ def evaluate_test_sets(
             "spearman_r": _safe_corr(delta_pred, delta_true, spearmanr),
             "mse": float(np.mean((delta_pred - delta_true) ** 2)),
         }
+        pred_arrays["snv_ref_pred"] = ref_pred
+        pred_arrays["snv_alt_pred"] = alt_pred
+        pred_arrays["snv_alt_true"] = alt_true
+        pred_arrays["snv_delta_pred"] = delta_pred
+        pred_arrays["snv_delta_true"] = delta_true
 
     if ood_path.exists():
         ood_df = pd.read_csv(ood_path, sep="\t")
@@ -563,8 +589,10 @@ def evaluate_test_sets(
                 "spearman_r": _safe_corr(ood_pred, ood_true, spearmanr),
                 "mse": float(np.mean((ood_pred - ood_true) ** 2)),
             }
+            pred_arrays["ood_pred"] = ood_pred
+            pred_arrays["ood_true"] = ood_true
 
-    return metrics
+    return metrics, pred_arrays
 
 
 # ── Training loop ────────────────────────────────────────────────────────────
@@ -833,6 +861,8 @@ def train_malinois(cfg: dict):
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
 
+    all_pred_arrays: dict[str, np.ndarray] = {}
+
     if multitask:
         # Multitask evaluation: per-cell-type metrics
         cell_type_names = ["k562", "hepg2", "sknsh"]
@@ -846,7 +876,7 @@ def train_malinois(cfg: dict):
                     ct_ds_kwargs = {k: v for k, v in ds_kwargs.items() if k != "label_column"}
                     ct_ds_kwargs["label_column"] = ct_label_col
                     test_ds = K562MalinoisDataset(K562Dataset(split="test", **ct_ds_kwargs))
-                    ct_metrics = _evaluate_chr_split_test(
+                    ct_metrics, ct_preds = _evaluate_chr_split_test(
                         model,
                         device,
                         test_ds,
@@ -871,6 +901,11 @@ def train_malinois(cfg: dict):
                         "mse": float(np.mean((pred - true) ** 2)),
                         "n": len(true),
                     }
+                    # Override in_dist predictions with correct cell_type_idx
+                    ct_preds["in_dist_pred"] = pred
+                    ct_preds["in_dist_true"] = true
+                    for k, v in ct_preds.items():
+                        all_pred_arrays[f"{k}_{ct_name}"] = v
                 except Exception as e:
                     print(f"  Warning: could not evaluate {ct_name}: {e}")
                     ct_metrics = {}
@@ -879,13 +914,15 @@ def train_malinois(cfg: dict):
                 ct_cfg_predict = {**cfg}
                 ct_cfg_predict["cell_line"] = ct_name
                 try:
-                    ct_metrics = evaluate_test_sets(
+                    ct_metrics, ct_preds = evaluate_test_sets(
                         model,
                         device,
                         test_dir,
                         ct_cfg_predict,
                         cell_type_idx=ct_idx,
                     )
+                    for k, v in ct_preds.items():
+                        all_pred_arrays[f"{k}_{ct_name}"] = v
                 except Exception as e:
                     print(f"  Warning: could not evaluate {ct_name}: {e}")
                     ct_metrics = {}
@@ -894,10 +931,10 @@ def train_malinois(cfg: dict):
         if chr_split:
             # Chr-split: evaluate on K562Dataset test split (chr7+13)
             test_ds = K562MalinoisDataset(K562Dataset(split="test", **ds_kwargs))
-            test_metrics = _evaluate_chr_split_test(model, device, test_ds, cfg)
+            test_metrics, all_pred_arrays = _evaluate_chr_split_test(model, device, test_ds, cfg)
         else:
             test_dir = data_path / "test_sets"
-            test_metrics = evaluate_test_sets(model, device, test_dir, cfg)
+            test_metrics, all_pred_arrays = evaluate_test_sets(model, device, test_dir, cfg)
 
     result = {
         "model": "malinois" + ("_multitask" if multitask else ""),
@@ -911,6 +948,12 @@ def train_malinois(cfg: dict):
     with open(out_dir / "result.json", "w") as f:
         json.dump(result, f, indent=2)
     print(f"\nResults saved to {out_dir / 'result.json'}")
+
+    # Save predictions for scatter plots
+    if all_pred_arrays:
+        pred_path = out_dir / "predictions.npz"
+        np.savez_compressed(pred_path, **all_pred_arrays)
+        print(f"Predictions saved to {pred_path} (keys: {list(all_pred_arrays.keys())})")
     if multitask:
         for ct_name in ["k562", "hepg2", "sknsh"]:
             ct_m = test_metrics.get(ct_name, {})

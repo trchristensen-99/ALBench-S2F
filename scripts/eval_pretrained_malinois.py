@@ -136,7 +136,7 @@ def evaluate_pretrained(
                 # SNV and OOD via evaluate_test_sets with cell_type_idx
                 test_set_dir = Path("data/k562/test_sets")
                 if test_set_dir.exists():
-                    snv_ood = evaluate_test_sets(
+                    snv_ood, _ = evaluate_test_sets(
                         model, device, test_set_dir, ct_cfg, cell_type_idx=ct_idx
                     )
                     for key in ["snv_abs", "snv_delta", "ood"]:
@@ -151,7 +151,7 @@ def evaluate_pretrained(
             try:
                 test_dir = Path("data/k562/test_sets")
                 ct_cfg = {**cfg, "cell_line": ct_name}
-                hf_metrics = evaluate_test_sets(
+                hf_metrics, _ = evaluate_test_sets(
                     model, device, test_dir, ct_cfg, cell_type_idx=ct_idx
                 )
                 for key, val in hf_metrics.items():
