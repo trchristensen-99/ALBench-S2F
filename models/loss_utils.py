@@ -73,32 +73,60 @@ class NaNMaskedMSELoss(nn.Module):
 class L1KLMixedLoss(nn.Module):
     """L1 + KL divergence mixed loss (matching Malinois paper / boda2).
 
-    Combines L1 regression loss with KL divergence on softmax-normalized
-    predictions. The KL term encourages the prediction distribution to
-    match the target distribution across samples, providing implicit
-    regularization beyond simple regression.
+    Combines L1 regression loss with KL divergence on log-softmax-normalized
+    predictions. The KL term is computed across the cell-type output dimension
+    (dim=-1), treating the multi-task outputs as a probability distribution.
+    This encourages the model to match the relative ranking across cell types,
+    not just absolute values.
+
+    For single-output models (n_outputs=1), the KL term is meaningless
+    (softmax of a scalar = 1.0). Use multitask=True only with n_outputs >= 2.
+
+    The boda2 paper uses alpha=1.0, beta=5.0 with reduction='mean' (not 'batchmean').
 
     Args:
         alpha: Weight for L1 component (default 1.0).
-        beta: Weight for KL component (default 1.0).
+        beta: Weight for KL component (default 5.0).
+        multitask: If True, compute KL across dim=-1 (cell-type outputs).
+            If False, falls back to flattened KL (legacy behavior).
     """
 
-    def __init__(self, alpha: float = 1.0, beta: float = 1.0):
+    def __init__(self, alpha: float = 1.0, beta: float = 5.0, multitask: bool = False):
         super().__init__()
         self.alpha = alpha
         self.beta = beta
+        self.multitask = multitask
 
     def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        # Mask NaN targets for multi-task training
+        if self.multitask and targets.dim() == 2:
+            nan_mask = torch.isnan(targets)
+            if nan_mask.any():
+                # For L1: zero out NaN positions
+                safe_targets = targets.clone()
+                safe_targets[nan_mask] = predictions[nan_mask].detach()
+            else:
+                safe_targets = targets
+        else:
+            safe_targets = targets
+
         # L1 component
-        l1_loss = F.l1_loss(predictions, targets)
+        l1_loss = F.l1_loss(predictions, safe_targets)
 
-        # KL divergence component: softmax-normalize both pred and target
-        # to get probability-like distributions, then compute KL
-        pred_log_probs = F.log_softmax(predictions.view(-1), dim=0).view_as(predictions)
-        target_probs = F.softmax(targets.view(-1), dim=0).view_as(targets)
-        kl_loss = F.kl_div(pred_log_probs, target_probs, reduction="batchmean")
+        # KL divergence component
+        if self.multitask and predictions.dim() == 2 and predictions.shape[-1] > 1:
+            # boda2 style: log_softmax across cell-type dim (dim=-1)
+            pred_log_probs = F.log_softmax(predictions, dim=-1)
+            target_log_probs = F.log_softmax(safe_targets, dim=-1)
+            # KL(target || pred) with log_target=True
+            kl_loss = F.kl_div(pred_log_probs, target_log_probs, reduction="mean", log_target=True)
+        else:
+            # Legacy: flatten and normalize across all values
+            pred_log_probs = F.log_softmax(predictions.view(-1), dim=0).view_as(predictions)
+            target_probs = F.softmax(safe_targets.view(-1), dim=0).view_as(safe_targets)
+            kl_loss = F.kl_div(pred_log_probs, target_probs, reduction="batchmean")
 
-        return self.alpha * l1_loss + self.beta * kl_loss
+        return (self.alpha * l1_loss + self.beta * kl_loss) / (self.alpha + self.beta)
 
 
 class YeastKLLoss(nn.Module):

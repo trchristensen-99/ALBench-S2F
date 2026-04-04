@@ -273,10 +273,17 @@ class K562Dataset(SequenceDataset):
             Each value: (sequences, labels, indices)
         """
         # Set cache directory
+        # When no explicit override, derive the subdirectory name from filter
+        # settings so that differently-filtered datasets get separate caches.
+        # Quality filters (stderr < 1.0, outlier removal, project filter) are
+        # always active in _load_and_filter_data(), so the old unfiltered
+        # "hashfrag_splits/" cache is never used for new runs.
         if self.hashfrag_cache_dir:
             cache_dir = Path(self.hashfrag_cache_dir)
+        elif self.include_alt_alleles:
+            cache_dir = data_dir / "hashfrag_splits_qf_alt"
         else:
-            cache_dir = data_dir / "hashfrag_splits"
+            cache_dir = data_dir / "hashfrag_splits_qf"
 
         required_cache_files = {
             "train": cache_dir / "train_indices.npy",

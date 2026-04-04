@@ -79,6 +79,33 @@ DEFAULT_CONFIG = {
     "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
     "duplication_cutoff": None,  # If set, duplicate training sequences with label >= cutoff
     "multitask": False,  # If True, train with 3 cell-type outputs (K562, HepG2, SknSh)
+    "paper_mode": False,  # If True, use exact boda2 paper settings (overrides arch + training)
+    "loss": "mse",  # "mse", "l1kl" (L1KLmixed with beta=5 across cell-type dim)
+    "adam_betas": None,  # None = default (0.9, 0.999); "paper" = (0.866, 0.879)
+    "adam_amsgrad": False,
+    # Architecture overrides (paper_mode sets these automatically)
+    "n_linear_layers": 2,
+    "linear_dropout_p": 0.3,
+    "n_branched_layers": 1,
+    "branched_channels": 250,
+    "branched_dropout_p": 0.0,
+}
+
+# Paper-exact settings (Gosai et al. 2024, Nature)
+PAPER_OVERRIDES = {
+    "multitask": True,
+    "loss": "l1kl",
+    "rc_mode": "interleave",
+    "duplication_cutoff": 0.5,
+    "early_stop_patience": 30,
+    "adam_betas": "paper",
+    "adam_amsgrad": True,
+    "n_linear_layers": 1,
+    "linear_dropout_p": 0.116,
+    "n_branched_layers": 3,
+    "branched_channels": 140,
+    "branched_dropout_p": 0.576,
+    "include_alt_alleles": True,
 }
 
 
@@ -492,6 +519,15 @@ def evaluate_test_sets(
 
 # ── Training loop ────────────────────────────────────────────────────────────
 def train_malinois(cfg: dict):
+    # Apply paper_mode overrides if requested
+    paper_mode = cfg.get("paper_mode", False)
+    if isinstance(paper_mode, str):
+        paper_mode = paper_mode.lower() in ("true", "1", "yes")
+    if paper_mode:
+        print("=== PAPER MODE: using exact boda2 settings ===")
+        for k, v in PAPER_OVERRIDES.items():
+            cfg[k] = v
+
     seed = cfg["seed"]
     if seed is not None:
         seed = int(seed)
@@ -583,10 +619,12 @@ def train_malinois(cfg: dict):
     model = BassetBranched(
         input_len=600,
         n_outputs=n_outputs,
-        n_linear_layers=2,
+        n_linear_layers=int(cfg.get("n_linear_layers", 2)),
         linear_channels=1000,
-        n_branched_layers=1,
-        branched_channels=250,
+        linear_dropout_p=float(cfg.get("linear_dropout_p", 0.3)),
+        n_branched_layers=int(cfg.get("n_branched_layers", 1)),
+        branched_channels=int(cfg.get("branched_channels", 250)),
+        branched_dropout_p=float(cfg.get("branched_dropout_p", 0.0)),
     ).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Model parameters: {n_params:,}")
@@ -595,13 +633,41 @@ def train_malinois(cfg: dict):
         n_loaded = _load_basset_pretrained(model, cfg["pretrained_weights"])
         print(f"Loaded {n_loaded:,} pretrained conv parameters from {cfg['pretrained_weights']}")
 
-    if multitask:
+    # Loss function
+    loss_type = cfg.get("loss", "mse")
+    if loss_type == "l1kl":
+        from models.loss_utils import L1KLMixedLoss
+
+        criterion = L1KLMixedLoss(alpha=1.0, beta=5.0, multitask=True)
+        print("Loss: L1KLmixed (alpha=1, beta=5, across cell-type dim)")
+    elif multitask:
         from models.loss_utils import NaNMaskedMSELoss
 
         criterion = NaNMaskedMSELoss()
+        print("Loss: NaN-masked MSE (multitask)")
     else:
         criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
+
+    # Optimizer
+    adam_betas_cfg = cfg.get("adam_betas")
+    if adam_betas_cfg == "paper":
+        adam_betas = (0.866, 0.879)
+    elif adam_betas_cfg and adam_betas_cfg != "None":
+        adam_betas = tuple(float(x) for x in adam_betas_cfg.split(","))
+    else:
+        adam_betas = (0.9, 0.999)
+    adam_amsgrad = cfg.get("adam_amsgrad", False)
+    if isinstance(adam_amsgrad, str):
+        adam_amsgrad = adam_amsgrad.lower() in ("true", "1", "yes")
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=cfg["lr"],
+        weight_decay=cfg["weight_decay"],
+        betas=adam_betas,
+        amsgrad=adam_amsgrad,
+    )
+    if adam_betas != (0.9, 0.999) or adam_amsgrad:
+        print(f"Optimizer: Adam(betas={adam_betas}, amsgrad={adam_amsgrad})")
     lr_schedule = cfg.get("lr_schedule", "cosine")
     if lr_schedule == "onecycle":
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
