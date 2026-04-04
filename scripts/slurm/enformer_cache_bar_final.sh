@@ -66,18 +66,25 @@ for CELL in k562 hepg2 sknsh; do
         continue
     fi
     echo "  Training ${CELL}..."
-    uv run --no-sync python experiments/train_foundation_cached.py \
-        --model enformer \
-        --cache-dir "$CACHE_DIR" \
-        --output-dir "$OUT" \
-        --cell-line "$CELL" \
-        --chr-split \
-        --include-alt-alleles \
-        --seeds 42 123 456 \
-        --lr 0.001 \
-        --dropout 0.1 \
-        --weight-decay 1e-6 \
-        --patience 10
+    for SEED in 42 123 456; do
+        if [ -f "${OUT}/seed_${SEED}/seed_${SEED}/result.json" ]; then
+            echo "    seed ${SEED}: already done"
+            continue
+        fi
+        uv run --no-sync python experiments/train_foundation_cached.py \
+            ++model_name=enformer \
+            ++cache_dir="$CACHE_DIR" \
+            ++embed_dim=3072 \
+            ++output_dir="$OUT" \
+            ++cell_line="$CELL" \
+            ++chr_split=True \
+            ++include_alt_alleles=True \
+            ++seed=${SEED} \
+            ++lr=0.001 \
+            ++dropout=0.1 \
+            ++weight_decay=1e-6 \
+            ++early_stop_patience=10
+    done
 done
 
 echo "=== All done — $(date) ==="
