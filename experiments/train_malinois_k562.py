@@ -106,6 +106,7 @@ PAPER_OVERRIDES = {
     "branched_channels": 140,
     "branched_dropout_p": 0.576,
     "include_alt_alleles": True,
+    "batch_size": 1076,  # matches pretrained model (was 512)
 }
 
 
@@ -778,8 +779,10 @@ def train_malinois(cfg: dict):
         )
     else:
         # Default: CosineAnnealingWarmRestarts (matching boda2)
+        # Paper used T_0=4096 steps; use that when paper_mode, else scale with loader
+        t0 = 4096 if cfg.get("paper_mode") else len(train_loader) * 4
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=len(train_loader) * 4, T_mult=1
+            optimizer, T_0=t0, T_mult=1
         )
     print(f"LR schedule: {lr_schedule}")
 

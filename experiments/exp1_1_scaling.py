@@ -418,7 +418,9 @@ def _load_oracle(task: str, oracle_type: str = "default") -> SequenceModel:
 
     loaders = {
         ("k562", "ag"): _load_k562_ag_oracle,
+        ("k562", "ag_s2"): _load_k562_ag_s2_oracle,
         ("k562", "dream_rnn"): _load_k562_dream_oracle,
+        ("k562", "legnet"): _load_k562_legnet_oracle,
         ("yeast", "dream_rnn"): _load_yeast_dream_oracle,
         ("yeast", "ag"): _load_yeast_ag_oracle,
     }
@@ -813,6 +815,118 @@ def _load_yeast_ag_oracle():
 
     logger.info(f"Loaded yeast AG oracle with {len(params_list)} folds")
     return _AGOracleYeast()
+
+
+def _load_k562_legnet_oracle():
+    """Load K562 LegNet 10-fold oracle ensemble."""
+    import torch
+
+    from data.utils import one_hot_encode
+    from models.legnet import LegNet
+
+    oracle_dir = REPO / "outputs" / "oracle_legnet_k562_ensemble"
+    runs = []
+    for run_dir in sorted(oracle_dir.glob("oracle_*")):
+        best = run_dir / "best_model.pt"
+        last = run_dir / "last_model.pt"
+        if best.exists():
+            runs.append(best)
+        elif last.exists():
+            runs.append(last)
+
+    if not runs:
+        raise FileNotFoundError(f"No K562 LegNet oracle checkpoints in {oracle_dir}")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    models = []
+    for ckpt_path in runs:
+        try:
+            state = torch.load(ckpt_path, map_location="cpu")
+        except Exception:
+            alt = ckpt_path.parent / (
+                "last_model.pt" if ckpt_path.name == "best_model.pt" else "best_model.pt"
+            )
+            if alt.exists():
+                try:
+                    state = torch.load(alt, map_location="cpu")
+                except Exception:
+                    logger.warning(f"Skipping corrupt checkpoint: {ckpt_path.parent.name}")
+                    continue
+            else:
+                logger.warning(f"Skipping corrupt checkpoint: {ckpt_path.parent.name}")
+                continue
+        m = LegNet(in_channels=4, task_mode="k562")
+        m.load_state_dict(state["model_state_dict"], strict=True)
+        m.to(device).eval()
+        models.append(m)
+
+    def _encode_k562(seq: str) -> np.ndarray:
+        seq = seq.upper()
+        if len(seq) < 200:
+            pad = 200 - len(seq)
+            seq = "N" * (pad // 2) + seq + "N" * (pad - pad // 2)
+        elif len(seq) > 200:
+            start = (len(seq) - 200) // 2
+            seq = seq[start : start + 200]
+        return one_hot_encode(seq, add_singleton_channel=False)
+
+    class _LegNetOracleK562(SequenceModel):
+        def predict(self, sequences: list[str], batch_size: int = 512) -> np.ndarray:
+            encoded = np.stack([_encode_k562(s) for s in sequences])
+            all_preds = []
+            for m in models:
+                fold_preds = []
+                for i in range(0, len(encoded), batch_size):
+                    batch = torch.from_numpy(encoded[i : i + batch_size]).float().to(device)
+                    with torch.no_grad():
+                        p = m(batch).cpu().numpy().reshape(-1)
+                        fold_preds.append(p)
+                all_preds.append(np.concatenate(fold_preds))
+            return np.stack(all_preds).mean(axis=0).astype(np.float32)
+
+    logger.info(f"Loaded K562 LegNet oracle with {len(models)} folds")
+    return _LegNetOracleK562()
+
+
+def _load_k562_ag_s2_oracle():
+    """Load K562 AlphaGenome S2 (fine-tuned) oracle ensemble.
+
+    Uses pre-computed pseudo-labels if available, otherwise falls back
+    to loading full S2 models for on-the-fly prediction.
+    """
+    pseudolabel_dir = REPO / "outputs" / "oracle_pseudolabels_stage2_k562_ag"
+    if (pseudolabel_dir / "summary.json").exists():
+        # Use pre-computed pseudo-labels
+        import json
+
+        summary = json.load(open(pseudolabel_dir / "summary.json"))
+        logger.info(f"Loading AG S2 oracle from pre-computed pseudo-labels: {summary}")
+
+        # Return a wrapper that loads pseudo-labels on demand
+        class _AGS2PseudolabelOracle(SequenceModel):
+            def __init__(self):
+                self._cache = {}
+
+            def predict(self, sequences: list[str], batch_size: int = 512) -> np.ndarray:
+                # This oracle works via pre-computed labels, not live prediction
+                # The scaling experiment framework handles pseudo-label loading separately
+                raise NotImplementedError(
+                    "AG S2 oracle uses pre-computed pseudo-labels. "
+                    "Use --oracle ag_s2 with the scaling framework's pseudo-label path."
+                )
+
+        return _AGS2PseudolabelOracle()
+
+    # Fallback: try to load from stage2_k562_oracle fold checkpoints
+    oracle_dir = REPO / "outputs" / "stage2_k562_oracle"
+    if not oracle_dir.exists():
+        raise FileNotFoundError(
+            f"AG S2 oracle not found. Run the 10-fold S2 training first:\n"
+            f"  sbatch scripts/slurm/train_stage2_k562_oracle_array.sh\n"
+            f"Then generate pseudo-labels:\n"
+            f"  sbatch scripts/slurm/generate_oracle_pseudolabels_stage2_k562_ag.sh"
+        )
+    raise NotImplementedError("AG S2 oracle live prediction not yet implemented")
 
 
 # ---------------------------------------------------------------------------
@@ -2642,8 +2756,9 @@ def main():
     parser.add_argument(
         "--oracle",
         default="default",
-        choices=["default", "ag", "dream_rnn", "ground_truth"],
-        help="Oracle type: 'default' (AG for K562, DREAM for yeast), 'ag', 'dream_rnn', "
+        choices=["default", "ag", "ag_s2", "dream_rnn", "legnet", "ground_truth"],
+        help="Oracle type: 'default' (AG for K562, DREAM for yeast), 'ag' (AG S1), "
+        "'ag_s2' (AG S2 fine-tuned), 'dream_rnn', 'legnet', "
         "or 'ground_truth' (use real dataset labels, requires --reservoir genomic)",
     )
     parser.add_argument(
