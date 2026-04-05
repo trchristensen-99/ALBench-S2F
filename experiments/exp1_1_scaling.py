@@ -889,44 +889,77 @@ def _load_k562_legnet_oracle():
 
 
 def _load_k562_ag_s2_oracle():
-    """Load K562 AlphaGenome S2 (fine-tuned) oracle ensemble.
+    """Load K562 AlphaGenome S2 (fine-tuned) oracle from pre-computed pseudo-labels.
 
-    Uses pre-computed pseudo-labels if available, otherwise falls back
-    to loading full S2 models for on-the-fly prediction.
+    Uses out-of-fold predictions from the 10-fold S2 ensemble stored in npz files.
+    Builds a sequence→label lookup dict for the training pool, and uses ensemble
+    mean for val/test sequences.
     """
     pseudolabel_dir = REPO / "outputs" / "oracle_pseudolabels_stage2_k562_ag"
-    if (pseudolabel_dir / "summary.json").exists():
-        # Use pre-computed pseudo-labels
-        import json
-
-        summary = json.load(open(pseudolabel_dir / "summary.json"))
-        logger.info(f"Loading AG S2 oracle from pre-computed pseudo-labels: {summary}")
-
-        # Return a wrapper that loads pseudo-labels on demand
-        class _AGS2PseudolabelOracle(SequenceModel):
-            def __init__(self):
-                self._cache = {}
-
-            def predict(self, sequences: list[str], batch_size: int = 512) -> np.ndarray:
-                # This oracle works via pre-computed labels, not live prediction
-                # The scaling experiment framework handles pseudo-label loading separately
-                raise NotImplementedError(
-                    "AG S2 oracle uses pre-computed pseudo-labels. "
-                    "Use --oracle ag_s2 with the scaling framework's pseudo-label path."
-                )
-
-        return _AGS2PseudolabelOracle()
-
-    # Fallback: try to load from stage2_k562_oracle fold checkpoints
-    oracle_dir = REPO / "outputs" / "stage2_k562_oracle"
-    if not oracle_dir.exists():
+    if not (pseudolabel_dir / "summary.json").exists():
         raise FileNotFoundError(
-            f"AG S2 oracle not found. Run the 10-fold S2 training first:\n"
-            f"  sbatch scripts/slurm/train_stage2_k562_oracle_array.sh\n"
-            f"Then generate pseudo-labels:\n"
-            f"  sbatch scripts/slurm/generate_oracle_pseudolabels_stage2_k562_ag.sh"
+            f"AG S2 oracle pseudo-labels not found at {pseudolabel_dir}. "
+            f"Run: sbatch scripts/slurm/train_stage2_k562_oracle_array.sh"
         )
-    raise NotImplementedError("AG S2 oracle live prediction not yet implemented")
+
+    import json
+
+    logger.info(f"Loading AG S2 oracle from pre-computed pseudo-labels at {pseudolabel_dir}")
+
+    # Load all pseudo-labels and build sequence→label lookup
+    from data.k562 import K562Dataset
+
+    ds_train = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train")
+    train_seqs = ds_train.sequences
+    train_npz = np.load(pseudolabel_dir / "train_oracle_labels.npz")
+    oof_labels = train_npz[
+        "oof_oracle"
+    ]  # out-of-fold: each seq predicted by model that didn't see it
+
+    # Build lookup: sequence string → oracle label
+    seq_to_label: dict[str, float] = {}
+    for i, seq in enumerate(train_seqs):
+        seq_to_label[str(seq).upper()] = float(oof_labels[i])
+    logger.info(f"  Built lookup with {len(seq_to_label):,} training sequences")
+
+    # Also load val/test ensemble predictions for non-training sequences
+    for npz_name in [
+        "val_oracle_labels.npz",
+        "test_in_dist_oracle_labels.npz",
+        "test_ood_oracle_labels.npz",
+    ]:
+        npz_path = pseudolabel_dir / npz_name
+        if npz_path.exists():
+            split_name = npz_name.replace("_oracle_labels.npz", "")
+            ds_split = None
+            if split_name == "val":
+                ds_split = K562Dataset(data_path=str(REPO / "data" / "k562"), split="val")
+            # For test sets, sequences are in the npz itself or we skip (handled by eval)
+            if ds_split is not None:
+                split_npz = np.load(npz_path)
+                split_labels = split_npz["oracle_mean"]
+                for i, seq in enumerate(ds_split.sequences):
+                    seq_to_label[str(seq).upper()] = float(split_labels[i])
+
+    class _AGS2PseudolabelOracle(SequenceModel):
+        def predict(self, sequences: list[str], batch_size: int = 512) -> np.ndarray:
+            labels = np.zeros(len(sequences), dtype=np.float32)
+            n_found = 0
+            for i, seq in enumerate(sequences):
+                key = str(seq).upper()
+                if key in seq_to_label:
+                    labels[i] = seq_to_label[key]
+                    n_found += 1
+                else:
+                    labels[i] = np.nan  # unknown sequence
+            if n_found < len(sequences):
+                logger.warning(
+                    f"AG S2 oracle: {n_found}/{len(sequences)} sequences found in lookup"
+                )
+            return labels
+
+    logger.info(f"  Total lookup: {len(seq_to_label):,} sequences")
+    return _AGS2PseudolabelOracle()
 
 
 # ---------------------------------------------------------------------------
