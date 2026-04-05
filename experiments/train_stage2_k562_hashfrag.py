@@ -509,7 +509,7 @@ def main(cfg: DictConfig) -> None:
                 batch["organism_index"],
                 negative_strand_mask=jnp.zeros(len(batch["sequences"]), dtype=bool),
                 strand_reindexing=None,
-                # is_training=True,  # alphagenome-ft 0.1.8 handles dropout via RNG, not kwarg
+                requested_outputs=[unique_head_name],
             )[unique_head_name]
             pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
             return jnp.mean((pred - batch["targets"]) ** 2)
@@ -527,6 +527,7 @@ def main(cfg: DictConfig) -> None:
             organism_index,
             negative_strand_mask=jnp.zeros(len(sequences), dtype=bool),
             strand_reindexing=None,
+            requested_outputs=[unique_head_name],
         )[unique_head_name]
         return jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
 
@@ -540,6 +541,7 @@ def main(cfg: DictConfig) -> None:
             jnp.zeros(len(sequences), dtype=jnp.int32),
             negative_strand_mask=jnp.zeros(len(sequences), dtype=bool),
             strand_reindexing=None,
+            requested_outputs=[unique_head_name],
         )[unique_head_name]
 
     # ── Training loop ──────────────────────────────────────────────────────────
