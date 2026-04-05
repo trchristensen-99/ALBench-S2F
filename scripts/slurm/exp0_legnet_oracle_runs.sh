@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=48:00:00
-#SBATCH --dependency=afterok:1276561
+# dependency removed — oracle already complete; submit with --dependency if needed
 
 set -euo pipefail
 set +u; source /etc/profile.d/modules.sh; set -u
