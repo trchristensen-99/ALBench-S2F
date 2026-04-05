@@ -275,6 +275,7 @@ def main(cfg: DictConfig) -> None:
             jnp.zeros(len(sequences), dtype=jnp.int32),
             negative_strand_mask=jnp.zeros(len(sequences), dtype=bool),
             strand_reindexing=None,
+            requested_outputs=[unique_head_name],
         )[unique_head_name]
 
     # ── Labels ────────────────────────────────────────────────────────────────
