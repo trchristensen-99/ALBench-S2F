@@ -68,16 +68,21 @@
 
 **Setup:** HashFrag splits, ref-only (~400K pool), random reservoir sampling at 7 sizes (K562) or 10 sizes (yeast), 3 seeds per HP config.
 
-### K562 Exp0 Completeness
+### K562 Exp0 Completeness (updated 2026-04-04)
 
-| Student | AG oracle (default) | DRNN oracle | Ground truth | Status |
-|---|---|---|---|---|
-| LegNet | 7/7 sizes ✅ (0.888 at 320K) | 62 results (5/7) | 62 results (6/7) | K562 AG oracle **DONE** |
-| DREAM-CNN | 31 results ✅ | 36 results ✅ | 26 results (4/7) | GT **RUNNING** |
-| DREAM-RNN | 30 results ✅ | 36 results ✅ | 22 results (3/7) | GT **RUNNING** |
-| AG S1 | 72 results ✅ | 72 results ✅ | — | Not needed (cached) |
-| AG S2 cold | 21 results ✅ | — | — | Has dropout bug |
-| AG S2 warm | 21 results ✅ | — | — | Fixed warm start, S2≈S1 on oracle labels |
+| Student | AG S1 oracle (def) | DRNN oracle | LegNet oracle | AG S2 oracle | Ground truth |
+|---|---|---|---|---|---|
+| AG S1 | COMPLETE (72) | COMPLETE (72) | **ln_oracle RUNNING** | **ag_s2_oracle RUNNING** | N/A |
+| AG S2 warm | 21 (3/size) | — | pending | pending | N/A |
+| DREAM-RNN | 30 (gaps@4) | 36 (gaps@2) | pending | pending | 22 (gaps@2 large) |
+| DREAM-CNN | 31 (gaps@5) | 36 (gaps@2) | pending | pending | 26 (gaps@2 large) |
+| LegNet | 66 (gaps@2) | 66 (gaps@2) | pending | pending | 75 (gaps@2 large) |
+
+**Oracle label status:**
+- AG S1 oracle: ✅ COMPLETE (10-fold, `ag_hashfrag_oracle_cached/oracle_{0-9}`)
+- DREAM-RNN oracle: ✅ COMPLETE (10-fold, `oracle_dream_rnn_k562_ensemble/oracle_{0-9}`)
+- LegNet oracle: **RUNNING** (10-fold, `oracle_legnet_k562_ensemble/`)
+- AG S2 oracle: **RUNNING** (10-fold S2 fine-tuning, `stage2_k562_oracle/fold_{0-9}`)
 
 **HP configs used:**
 - LegNet: lr=[0.001, 0.003, 0.005, 0.01], bs=[512, 1024] — best: **lr=0.005-0.01, bs=512** (HP probe confirmed)
@@ -183,11 +188,27 @@ All on K562 chr_split, ref+alt.
 
 **Key findings:**
 1. **Quality filter = +1-2% for ALL models** (single biggest improvement)
-2. **Malinois shift+dup = 0.858** (best from-scratch result, approaching paper 0.88-0.89)
+2. **Malinois shift+dup = 0.858** (best from-scratch with our default architecture)
 3. **LegNet shift is HARMFUL** (-4%): k=5 kernel too sensitive to positional shifts
 4. **AG S1 at 0.902** with quality filter — near paper level
-5. **AG S2 FIXED (2026-04-02): 0.895 with RC+shift** — 5 fixes applied (val split, Pearson stopping, RC aug, shift aug, RC-averaged eval). Now beats S1 by +1.0%
+5. **AG S2 FIXED (2026-04-02): 0.895 with RC+shift** — 5 fixes applied
 6. **LegNet shift ALWAYS hurts** — even ±3bp (-3.1%). Use baseline only.
+
+### Malinois Paper-Mode Investigation (2026-04-04)
+
+**Paper-mode (correct boda2 arch+loss+optimizer) underperforms pretrained model:**
+- Paper-mode K562 in_dist: **0.840-0.849** (3 seeds)
+- Pretrained Malinois: **0.883** (chr-split)
+- Our default architecture (MSE, 2 linear, wider): **0.858**
+
+**Root causes of gap (verified from pretrained checkpoint metadata):**
+1. **Different training data**: pretrained used private `MPRA_ALL_v3.txt` including **BODA synthetic CREs** — we only have public `Table_S2__MPRA_dataset.txt` without BODA project
+2. **Batch size**: pretrained used 1076 (fixed in paper_v2), our default was 512
+3. **Scheduler T_0**: pretrained used 4096 steps (fixed in paper_v2), ours scaled with loader
+4. **Early stopping**: pretrained used custom `entropy_spearman`, we use `val_pearson`
+5. **Outlier filter**: pretrained used `+3.0` upper shift, our code had `+4.0`
+
+**Conclusion**: Full replication from public data is NOT possible because the pretrained model was trained on data we don't have access to. The paper_v2 run (with fixed batch_size=1076 and T_0=4096) is **RUNNING** and should close part of the gap.
 
 **Result dirs:** `outputs/aug_sweep/`, `outputs/techniques_sweep/`, `outputs/multitask/`
 
