@@ -39,6 +39,7 @@ for CELL in k562 hepg2 sknsh; do
                 --chr-split \
                 --include-alt-alleles \
                 --cell-line "$CELL" \
+                --oracle ground_truth \
                 --save-predictions || true
         fi
 
@@ -58,6 +59,7 @@ for CELL in k562 hepg2 sknsh; do
                 --chr-split \
                 --include-alt-alleles \
                 --cell-line "$CELL" \
+                --oracle ground_truth \
                 --save-predictions || true
         fi
     done
