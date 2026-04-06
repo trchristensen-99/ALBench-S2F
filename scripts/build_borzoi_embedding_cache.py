@@ -280,6 +280,10 @@ def main():
 
     from borzoi_pytorch import Borzoi
 
+    # Fix for transformers >= 5.x compatibility
+    if not hasattr(Borzoi, "all_tied_weights_keys"):
+        Borzoi.all_tied_weights_keys = {}
+
     from data.k562 import K562Dataset
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
