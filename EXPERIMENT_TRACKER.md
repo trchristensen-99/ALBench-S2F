@@ -1,6 +1,6 @@
 # ALBench-S2F Experiment Tracker
 
-> **Last updated:** 2026-04-05 afternoon
+> **Last updated:** 2026-04-06 afternoon
 > **Purpose:** Track all experiments, hyperparameters, results, and gaps.
 
 ---
@@ -263,44 +263,45 @@ Our Malinois implementation had MAJOR differences from the paper (boda2):
 | DREAM-CNN | Intentional hybrid | BHI stem + smaller LegNet core |
 | Enformer S1 | Correct | Standard trunk embeddings, center 4 bins |
 
-### Jobs Pipeline (2026-04-05 afternoon)
+### Jobs Pipeline (2026-04-06 evening)
 
-**Running (13 jobs across all 3 QoS tiers):**
+**Running (8 jobs):**
 
 | Job | QoS | Task | Time |
 |---|---|---|---|
-| dcnn_k562 | **fast** | DREAM-CNN K562 3 seeds | just started |
-| dcnn_other | **default** | DREAM-CNN HepG2+SknSh 3 seeds each | just started |
-| mal_ablat | **default** | Malinois paper shift + nodup ablations | just started |
-| exp0_k562_dream_gaps | slow_nice | K562 DREAM gaps at medium fracs | 10h |
-| bar_3rdseed | slow_nice | 3rd seeds + HepG2/SknSh ensembles | just started |
-| gen_preds | slow_nice | Predictions.npz from all existing checkpoints | 1min |
-| ag_s2_pseudo | slow_nice | AG S2 pseudolabel generation (folds done) | 11min |
-| ag_seeds2 | slow_nice | AG S1/S2 extra seeds, all cells | 11min |
-| exp0_legnet_oracle | slow_nice | All students × LegNet oracle K562 | 10h |
-| exp0_large | slow_nice | K562 large-frac gaps | 23h |
-| exp0_yeast_large | slow_nice | Yeast large-frac gaps | 23h |
-| exp0_legnet | slow_nice | LegNet yeast scaling | 46h |
+| drnn_k562 | default | DREAM-RNN K562 (ensembles) | 8h |
+| drnn_hepg2 | default | DREAM-RNN HepG2 (ensembles) | 8h |
+| exp0_s2g | default | AG S2 oracle Exp0 (DRNN at 25, DCNN/LN pending) | 8.5h |
+| lgnt_k562/hepg2/sknsh | slow_nice | LegNet 3rd seeds (3 parallel) | 8h |
+| ln_o_dream_cnn | slow_nice | LegNet oracle → DREAM-CNN student | 8h |
+| dcnn_sk3 | slow_nice | SknSh DREAM-CNN 3rd seed | 4h |
 
-**Pending (2, chained):**
-
-| Job | Depends on | Task |
-|---|---|---|
-| exp0_ag_s2_o | ag_s2_pseudo | All students × AG S2 oracle K562 |
-
-### Completed (2026-04-04–05)
+### Completed (2026-04-04–06)
 
 | Job | Result |
 |---|---|
-| AG S2 oracle 10-fold | ✅ All 10 folds (15-20 min each) |
-| LegNet oracle 10-fold | ✅ All 10 folds (6h39m total) |
-| Malinois paper v2 (batch=1076, T_0=4096) | K562 in_dist = **0.850** |
-| Malinois paper (pretrained, 3 seeds) | K562 in_dist = 0.840-0.849 |
-| Malinois paper (nopretrain, 3 seeds) | K562 in_dist = 0.842-0.871 |
-| Malinois paper (chr_split ref-only, 6 runs) | ✅ DONE |
+| AG S2 oracle 10-fold | ✅ All 10 folds |
+| LegNet oracle 10-fold | ✅ All 10 folds |
+| AG S2 pseudolabel generation | ✅ DONE |
+| Malinois paper (all conditions) | ✅ 9 conditions across ref+alt and ref-only |
+| Malinois paper shift ablation | avg **0.860** (shift HELPS paper-mode) |
+| Malinois paper no-dup ablation | avg **0.849** (dup has no effect) |
 | Yeast S2 warm n=6M | ✅ DONE |
-| Malinois pretrained eval | K562=0.883, HepG2=0.887, SknSh=0.878 |
-| Enformer S1 K562 (bar_final) | val=0.894, 1 seed |
+| Enformer S1 K562 (bar_final) | val=0.894 |
+| Enformer S2 (all cells) | K562=0.883, HepG2=0.850, SknSh=0.853 |
+| Pretrained Malinois eval | K562=0.883, HepG2=0.887, SknSh=0.878 |
+| Prediction generation (gen_pred3/4) | 255 predictions.npz total |
+| Exp0 K562 DREAM gaps | ✅ gap_dream_rnn + gap_dream_cnn completed |
+| Exp0 LegNet oracle (LN student) | ✅ 35 results |
+| Bar_final 3rd seeds | DREAM-RNN/LegNet 3+ seeds for all cells ✅ |
+| HashFrag leakage analysis | 9.9% same-locus leakage, ~+0.004 inflation |
+
+### Failed/Known Issues
+| Issue | Detail |
+|---|---|
+| Borzoi chr_split rebuild | NaN in embeddings at batch 242K — numeric instability |
+| exp0_large/yeast_large | Timed out at 48h — some gaps at largest fractions remain |
+| AG predictions script | Head name format error — AG S1/S2 predictions NOT generated |
 
 ### Systematic Comparison: Malinois Paper Techniques
 
@@ -318,51 +319,62 @@ Our Malinois implementation had MAJOR differences from the paper (boda2):
 
 **Malinois performance gap explained:** The pretrained model was trained on a private data file (`MPRA_ALL_v3.txt`) including BODA synthetic CREs not in the public dataset. Our best from public data: **0.850** (paper_v2). Our default architecture (MSE, 2 linear): **0.858**. Gap is primarily from different training data, not settings.
 
-### Bar Plot Results (2026-04-05)
+### Bar Plot Results (2026-04-06)
 
 **bar_final ref+alt (outputs/bar_final/):**
 
-| Model | K562 | HepG2 | SknSh | Seeds | Status |
+| Model | K562 | HepG2 | SknSh | Seeds (K/H/S) | Status |
 |---|---|---|---|---|---|
-| AG S1 | 0.902 | 0.902 | 0.891 | 1→3 | **ag_seeds2 RUNNING** |
-| AG S2 (rc+shift) | 0.895 | 0.901 | 0.890 | 1→3 | **ag_seeds2 RUNNING** |
-| DREAM-RNN | 0.879/0.843 | ~0.87 | ~0.87 | 2→3 | **bar_3rdseed RUNNING** |
-| DREAM-RNN ens3 | 0.890 | — | — | 1 | **bar_3rdseed RUNNING** |
-| LegNet | 0.840/0.836 | ~0.84 | ~0.83 | 2→3 | **bar_3rdseed RUNNING** |
-| LegNet ens3 | 0.855 | — | — | 1 | **bar_3rdseed RUNNING** |
-| DREAM-CNN | — | — | — | 0→3 | **dcnn_k562 + dcnn_other RUNNING** |
-| Malinois (paper, pretrained) | 0.840-0.849 | — | — | 3 | ✅ DONE |
-| Malinois (paper v2) | 0.848-0.850 | — | — | 3 | ✅ DONE |
-| Malinois (our arch) | 0.858 | 0.854 | 0.848 | 3 | ✅ DONE |
-| Enformer S1 | 0.894 (K562 only) | — | — | 1 | K562 done, HepG2/SknSh use chr_split |
-| Enformer S2 | 0.883 | 0.850 | 0.853 | 3 | In separate dirs (usable) |
-| Pretrained Malinois | 0.883 | 0.887 | 0.878 | N/A | Eval only |
+| AG S1 | 0.900 | 0.902 | 0.891 | 7/1/1 | ✅ (K562 has many seeds) |
+| AG S2 (rc+shift) | 0.886 | 0.893 | 0.881 | 4/4/4 | ✅ DONE |
+| DREAM-RNN | ~0.86 | ~0.87 | ~0.87 | 4/5/4 | ✅ DONE (ensembles running) |
+| DREAM-RNN ens3 | 0.890 | — | — | 1/0/0 | K562 done, others running |
+| LegNet | ~0.84 | ~0.84 | ~0.83 | 5/5/5 | ✅ DONE |
+| LegNet ens3 | 0.855 | — | — | 1/0/0 | K562 done |
+| DREAM-CNN | ~0.90 | 0.899 | ~0.90 | 5/1/4 | SknSh 3rd seed running |
+| Malinois (our arch) | 0.857 | 0.854 | 0.847 | 3/3/3 | ✅ DONE |
+| Malinois (paper) | 0.847 | — | — | 3/0/0 | K562 only (multi-task has all 3 cells) |
+| Enformer S1 | 0.894 | 0.846 | 0.849 | 1/3/3 | ✅ (K562 bar_final, others chr_split) |
+| Enformer S2 | 0.883 | 0.850 | 0.853 | 3/1/1 | ✅ (in separate dirs) |
+| Pretrained Malinois | 0.883 | 0.887 | 0.878 | — | Eval only ✅ |
 
-**chr_split ref-only (outputs/chr_split/) — COMPLETE for most models:**
-AG S1/S2, DREAM-RNN (3), DREAM-CNN (3), Enformer S1 (3), Borzoi S1 (3), Malinois (3+6 paper), NTv3 (3) — all 3 cells.
+**chr_split ref-only (outputs/chr_split/) — COMPLETE:**
+AG S1/S2 (1-fold + 10-fold), DREAM-RNN (3 seeds), DREAM-CNN (3), Enformer S1 (3), Borzoi S1 (3, but broken 0.29), Malinois (3 + 6 paper-mode), NTv3 S1 (3, low 0.60) — all 3 cells.
 
-### Exp0 K562 Completeness (2026-04-05)
+**Borzoi/NTv3 note:** chr_split results show 0.29/0.60 due to cache build bug (NaN instability). HashFrag results correctly show 0.85/0.84. Borzoi rebuild failed again (NaN at batch 242K). These models may need a different embedding extraction approach for chr_split.
+
+### Exp0 K562 Completeness (2026-04-06)
 
 | Student | AG S1 oracle | DRNN oracle | LegNet oracle | AG S2 oracle | Ground truth |
 |---|---|---|---|---|---|
-| AG S1 | ✅ 72 | ✅ 72 | **RUNNING** | **PENDING** | N/A |
-| AG S2 | 21 (3/size) | — | **RUNNING** | **PENDING** | N/A |
-| DREAM-RNN | 30 (gaps filling) | 36 (gaps filling) | **RUNNING** | **PENDING** | 22 (gaps filling) |
-| DREAM-CNN | 31 (gaps filling) | 36 (gaps filling) | **RUNNING** | **PENDING** | 26 (gaps filling) |
-| LegNet | 66 (gaps filling) | 66 (gaps filling) | **RUNNING** | **PENDING** | 75 (gaps filling) |
+| AG S1 | ✅ 72 | ✅ 72 | ✅ 72 | ✅ 72 | N/A |
+| AG S2 | 21 | — | — | — | N/A |
+| DREAM-RNN | 30 | ✅ 36 | 12 | 25 (running) | 31 |
+| DREAM-CNN | 31 | ✅ 36 | 26 (running) | 0 (running) | 32 |
+| LegNet | 66 | ✅ 66 | 35 ✅ | 0 (running) | 66 |
 
 ### Exp0 Yeast Completeness
-All models incomplete at large fractions (n>=1.2M). exp0_legnet (46h) and exp0_yeast_large (23h) filling these.
+Both exp0_yeast_large and exp0_legnet timed out at 48h. Most sizes complete, large fractions (n>=1.2M) still incomplete for from-scratch models. AG S1 yeast is complete.
 
 ### Predictions for Scatter Plots
-**gen_preds RUNNING** — generating predictions.npz from all existing Malinois + Enformer checkpoints.
-New training runs (dcnn, bar_3rdseed, ag_seeds2) save predictions automatically.
+**255 predictions.npz** generated across bar_final (K562/HepG2/SknSh), chr_split, and systematic_comparison.
+Coverage: Malinois ✅, DREAM-RNN ✅ (partial), LegNet ✅ (partial), DREAM-CNN ✅ (partial).
+Missing: AG S1/S2 predictions (JAX script had head name format error — needs fix).
 
 ### Remaining After Current Jobs
 
 1. ✅ All oracle labels generated (AG S1, AG S2, DREAM-RNN, LegNet for K562; AG, DREAM-RNN for yeast)
-2. **AG S2 oracle Exp0** — chained to ag_s2_pseudo, auto-starts when pseudolabels ready
-3. **Fresh backup** — after all jobs complete
-4. **Plot regeneration** — after results are final
-5. **Enformer HepG2/SknSh** for bar_final — skipped (use chr_split ref-only results instead; cache building too expensive/slow)
-6. **Yeast LegNet oracle** — lower priority (no existing K562-style oracle pipeline for yeast LegNet)
+2. ✅ AG S2 oracle Exp0 running (AG S1 student complete, DRNN at 25)
+3. ✅ LegNet oracle Exp0 running (DCNN at 26, LN at 35)
+4. ✅ Bar_final has 3+ seeds for all from-scratch models across all cells
+5. ✅ 255 predictions.npz for scatter plots
+6. ✅ Malinois paper techniques complete (9 conditions + 2 ablations)
+7. ✅ HashFrag leakage analysis: 9.9% same-locus, ~+0.004 inflation (not a bug, biological)
+8. ✅ Backup: 10,754 result.json + 75 predictions backed up
+
+**Still running:** AG S2 oracle Exp0, LegNet oracle DCNN, DREAM-RNN ensembles, LegNet 3rd seeds, SknSh DCNN
+**Remaining after jobs:**
+- Fix AG predictions script (head name format error)
+- Borzoi chr_split: NaN instability — may need different embedding approach
+- Yeast large fractions timed out — resubmit if needed
+- Final backup + plot regeneration
