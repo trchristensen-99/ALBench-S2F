@@ -89,194 +89,88 @@ def load_results(base_dir: Path) -> list[dict]:
 
 _COMBINED_RESULT_DIRS = {
     # DREAM-RNN (from-scratch, all 3 cells)
-    ("DREAM-RNN", "k562"): [
-        "outputs/dream_rnn_k562_with_preds",
-        "outputs/dream_rnn_k562_3seeds",
-    ],
-    ("DREAM-RNN", "hepg2"): [
-        "outputs/dream_rnn_hepg2_3seeds",
-    ],
-    ("DREAM-RNN", "sknsh"): [
-        "outputs/dream_rnn_sknsh_3seeds",
-    ],
+    ("DREAM-RNN", "k562"): ["outputs/chr_split/k562/dream_rnn", "outputs/dream_rnn_k562_3seeds"],
+    ("DREAM-RNN", "hepg2"): ["outputs/chr_split/hepg2/dream_rnn", "outputs/dream_rnn_hepg2_3seeds"],
+    ("DREAM-RNN", "sknsh"): ["outputs/chr_split/sknsh/dream_rnn", "outputs/dream_rnn_sknsh_3seeds"],
     # DREAM-CNN (from-scratch, all 3 cells)
-    ("DREAM-CNN", "k562"): [
-        "outputs/dream_cnn_k562_real",
-    ],
-    ("DREAM-CNN", "hepg2"): [
-        "outputs/dream_cnn_hepg2_real",
-    ],
-    ("DREAM-CNN", "sknsh"): [
-        "outputs/dream_cnn_sknsh_real",
-    ],
+    ("DREAM-CNN", "k562"): ["outputs/chr_split/k562/dream_cnn", "outputs/dream_cnn_k562_real"],
+    ("DREAM-CNN", "hepg2"): ["outputs/chr_split/hepg2/dream_cnn", "outputs/dream_cnn_hepg2_real"],
+    ("DREAM-CNN", "sknsh"): ["outputs/chr_split/sknsh/dream_cnn", "outputs/dream_cnn_sknsh_real"],
     # Malinois (from-scratch, all 3 cells)
-    ("Malinois", "k562"): [
-        "outputs/malinois_k562_sweep/lr0.001_wd1e-3",
-        "outputs/malinois_k562_with_preds",
-        "outputs/malinois_k562_3seeds",
-    ],
-    ("Malinois", "hepg2"): [
-        "outputs/malinois_hepg2_3seeds",
-    ],
-    ("Malinois", "sknsh"): [
-        "outputs/malinois_sknsh_3seeds",
-    ],
-    # NTv3 (S2 where available, S1 fallback)
-    ("NTv3", "k562"): [
-        "outputs/ntv3_post_k562_stage2",
-        "outputs/ntv3_k562_stage2_final",
-        "outputs/ntv3_post_k562_3seeds_v2",  # OOD-fixed
-        "outputs/ntv3_post_k562_3seeds",
-    ],
-    ("NTv3", "hepg2"): [
-        "outputs/ntv3_post_hepg2_stage2",
-        "outputs/ntv3_post_hepg2_cached",
-    ],
-    ("NTv3", "sknsh"): [
-        "outputs/ntv3_post_sknsh_stage2",
-        "outputs/ntv3_post_sknsh_cached",
-    ],
-    # Borzoi (S1 only — S2 doesn't work for MPRA)
-    ("Borzoi", "k562"): [
-        "outputs/borzoi_k562_3seeds",
-    ],
-    ("Borzoi", "hepg2"): [
-        "outputs/borzoi_hepg2_cached",
-    ],
-    ("Borzoi", "sknsh"): [
-        "outputs/borzoi_sknsh_cached",
-    ],
-    # Enformer (S2 K562, S1 HepG2/SKNSH since S1 > S2 for those cells)
-    ("Enformer", "k562"): [
-        "outputs/enformer_k562_stage2_final",
-        "outputs/enformer_k562_stage2_final_v2",
-        "outputs/enformer_k562_3seeds",
-    ],
-    ("Enformer", "hepg2"): [
-        "outputs/enformer_hepg2_cached",  # S1 is better (0.858 vs 0.850)
-    ],
-    ("Enformer", "sknsh"): [
-        "outputs/enformer_sknsh_cached",  # S1 is better (0.857 vs 0.853)
-    ],
-    # AG fold 1 (S2 preferred, S1 fallback, all 3 cells)
-    ("AG fold 1", "k562"): [
-        "outputs/stage2_k562_fold1",
-        "outputs/ag_fold_1_k562_s1_full",
-    ],
-    ("AG fold 1", "hepg2"): [
-        "outputs/ag_fold_1_hepg2_s2_from_s1",
-        "outputs/ag_fold_1_hepg2_s2",
-        "outputs/ag_fold_1_hepg2_s1",
-    ],
-    ("AG fold 1", "sknsh"): [
-        "outputs/ag_fold_1_sknsh_s2_from_s1",
-        "outputs/ag_fold_1_sknsh_s2",
-        "outputs/ag_fold_1_sknsh_s1",
-    ],
-    # AG all folds S1 (all 3 cells)
-    ("AG all folds", "k562"): [
-        "outputs/ag_all_folds_k562_s1_full",
-        "outputs/ag_hashfrag_oracle_cached",
-    ],
-    ("AG all folds", "hepg2"): [
-        "outputs/ag_hashfrag_hepg2_cached",
-    ],
-    ("AG all folds", "sknsh"): [
-        "outputs/ag_hashfrag_sknsh_cached",
-    ],
-    # AG all folds S2 (K562 for now, HepG2/SKNSH when available)
-    ("AG S2", "k562"): [
-        "outputs/stage2_k562_full_train",
-    ],
-    ("AG S2", "hepg2"): [
-        "outputs/ag_all_folds_hepg2_s2_from_s1",
-        "outputs/ag_hepg2_stage2",
-    ],
-    ("AG S2", "sknsh"): [
-        "outputs/ag_all_folds_sknsh_s2_from_s1",
-        "outputs/ag_sknsh_stage2",
-    ],
-}
-
-# S1-only directories (frozen encoder + head, plus from-scratch baselines)
-_S1_RESULT_DIRS = {
-    # From-scratch baselines (same results regardless of S1/S2 distinction)
-    ("DREAM-RNN", "k562"): [
-        "outputs/dream_rnn_k562_with_preds",
-        "outputs/dream_rnn_k562_3seeds",
-    ],
-    ("DREAM-RNN", "hepg2"): [
-        "outputs/dream_rnn_hepg2_3seeds",
-    ],
-    ("DREAM-RNN", "sknsh"): [
-        "outputs/dream_rnn_sknsh_3seeds",
-    ],
-    ("DREAM-CNN", "k562"): [
-        "outputs/dream_cnn_k562_real",
-    ],
-    ("DREAM-CNN", "hepg2"): [
-        "outputs/dream_cnn_hepg2_real",
-    ],
-    ("DREAM-CNN", "sknsh"): [
-        "outputs/dream_cnn_sknsh_real",
-    ],
-    ("Malinois", "k562"): [
-        "outputs/malinois_k562_sweep/lr0.001_wd1e-3",
-        "outputs/malinois_k562_with_preds",
-        "outputs/malinois_k562_3seeds",
-    ],
-    ("Malinois", "hepg2"): ["outputs/malinois_hepg2_3seeds"],
-    ("Malinois", "sknsh"): ["outputs/malinois_sknsh_3seeds"],
-    # Foundation models S1 only
-    ("NTv3 S1", "k562"): [
-        "outputs/ntv3_post_k562_3seeds_v2",  # OOD-fixed
-        "outputs/ntv3_post_k562_3seeds",
-        "outputs/ntv3_k562_3seeds",
-    ],
+    ("Malinois", "k562"): ["outputs/chr_split/k562/malinois", "outputs/malinois_k562_3seeds"],
+    ("Malinois", "hepg2"): ["outputs/chr_split/hepg2/malinois", "outputs/malinois_hepg2_3seeds"],
+    ("Malinois", "sknsh"): ["outputs/chr_split/sknsh/malinois", "outputs/malinois_sknsh_3seeds"],
+    # NTv3 S1 only
+    ("NTv3 S1", "k562"): ["outputs/chr_split/k562/ntv3_post_s1", "outputs/ntv3_post_k562_3seeds"],
     ("NTv3 S1", "hepg2"): [
+        "outputs/chr_split/hepg2/ntv3_post_s1",
         "outputs/ntv3_post_hepg2_cached",
     ],
     ("NTv3 S1", "sknsh"): [
+        "outputs/chr_split/sknsh/ntv3_post_s1",
         "outputs/ntv3_post_sknsh_cached",
     ],
+    # Borzoi S1
     ("Borzoi S1", "k562"): [
+        "outputs/chr_split/k562/borzoi_s1_v2",
+        "outputs/chr_split/k562/borzoi_s1",
         "outputs/borzoi_k562_3seeds",
     ],
-    ("Borzoi S1", "hepg2"): [
-        "outputs/borzoi_hepg2_cached",
-    ],
-    ("Borzoi S1", "sknsh"): [
-        "outputs/borzoi_sknsh_cached",
-    ],
-    ("Enformer S1", "k562"): [
-        "outputs/enformer_k562_3seeds",
-    ],
+    ("Borzoi S1", "hepg2"): ["outputs/chr_split/hepg2/borzoi_s1", "outputs/borzoi_hepg2_cached"],
+    ("Borzoi S1", "sknsh"): ["outputs/chr_split/sknsh/borzoi_s1", "outputs/borzoi_sknsh_cached"],
+    # Enformer S1
+    ("Enformer S1", "k562"): ["outputs/chr_split/k562/enformer_s1", "outputs/enformer_k562_3seeds"],
     ("Enformer S1", "hepg2"): [
+        "outputs/chr_split/hepg2/enformer_s1",
         "outputs/enformer_hepg2_cached",
     ],
     ("Enformer S1", "sknsh"): [
+        "outputs/chr_split/sknsh/enformer_s1",
         "outputs/enformer_sknsh_cached",
     ],
-    ("AG fold 1 S1", "k562"): [
+    # Enformer S2
+    ("Enformer S2", "k562"): ["outputs/enformer_k562_stage2_final"],
+    ("Enformer S2", "hepg2"): ["outputs/enformer_hepg2_stage2"],
+    ("Enformer S2", "sknsh"): ["outputs/enformer_sknsh_stage2"],
+    # AG S1 (1-fold)
+    ("AG S1 (1-fold)", "k562"): [
+        "outputs/chr_split/k562/ag_fold_1_s1",
         "outputs/ag_fold_1_k562_s1_full",
     ],
-    ("AG fold 1 S1", "hepg2"): [
+    ("AG S1 (1-fold)", "hepg2"): [
+        "outputs/chr_split/hepg2/ag_fold_1_s1",
         "outputs/ag_fold_1_hepg2_s1",
     ],
-    ("AG fold 1 S1", "sknsh"): [
+    ("AG S1 (1-fold)", "sknsh"): [
+        "outputs/chr_split/sknsh/ag_fold_1_s1",
         "outputs/ag_fold_1_sknsh_s1",
     ],
-    ("AG S1", "k562"): [
+    # AG S2 (1-fold)
+    ("AG S2 (1-fold)", "k562"): ["outputs/chr_split/k562/ag_fold_1_s2"],
+    ("AG S2 (1-fold)", "hepg2"): ["outputs/chr_split/hepg2/ag_fold_1_s2"],
+    ("AG S2 (1-fold)", "sknsh"): ["outputs/chr_split/sknsh/ag_fold_1_s2"],
+    # AG S1 (10-fold)
+    ("AG S1 (10-fold)", "k562"): [
+        "outputs/chr_split/k562/ag_all_folds_s1",
         "outputs/ag_all_folds_k562_s1_full",
         "outputs/ag_hashfrag_oracle_cached",
     ],
-    ("AG S1", "hepg2"): [
+    ("AG S1 (10-fold)", "hepg2"): [
+        "outputs/chr_split/hepg2/ag_all_folds_s1",
         "outputs/ag_hashfrag_hepg2_cached",
     ],
-    ("AG S1", "sknsh"): [
+    ("AG S1 (10-fold)", "sknsh"): [
+        "outputs/chr_split/sknsh/ag_all_folds_s1",
         "outputs/ag_hashfrag_sknsh_cached",
     ],
+    # AG S2 (10-fold)
+    ("AG S2 (10-fold)", "k562"): ["outputs/chr_split/k562/ag_all_folds_s2"],
+    ("AG S2 (10-fold)", "hepg2"): ["outputs/chr_split/hepg2/ag_all_folds_s2"],
+    ("AG S2 (10-fold)", "sknsh"): ["outputs/chr_split/sknsh/ag_all_folds_s2"],
 }
+
+# S1-only directories — built dynamically in main() from S1_MODELS
+_S1_RESULT_DIRS = None  # populated at runtime
 
 
 def collect_metrics(result_dirs: dict) -> dict[tuple[str, str], list[dict]]:
@@ -306,12 +200,14 @@ MODELS_COMBINED = [
     ("DREAM-RNN", "#7B2D8E"),
     ("DREAM-CNN", "#9B59B6"),
     ("Malinois", "#B07CC6"),
-    ("NTv3", "#E8602C"),
-    ("Borzoi", "#DAA520"),
-    ("Enformer", "#3A86C8"),
-    ("AG fold 1", "#A5D6A7"),
-    ("AG all folds", "#66BB6A"),
-    ("AG S2", "#1B5E20"),
+    ("NTv3 S1", "#E8602C"),
+    ("Borzoi S1", "#DAA520"),
+    ("Enformer S1", "#80C4E8"),
+    ("Enformer S2", "#3A86C8"),
+    ("AG S1 (1-fold)", "#C8E6C9"),
+    ("AG S2 (1-fold)", "#81C784"),
+    ("AG S1 (10-fold)", "#66BB6A"),
+    ("AG S2 (10-fold)", "#1B5E20"),
 ]
 
 S1_MODELS = [
@@ -321,8 +217,8 @@ S1_MODELS = [
     ("NTv3 S1", "#E8602C"),
     ("Borzoi S1", "#DAA520"),
     ("Enformer S1", "#3A86C8"),
-    ("AG fold 1 S1", "#A5D6A7"),
-    ("AG S1", "#66BB6A"),
+    ("AG S1 (1-fold)", "#A5D6A7"),
+    ("AG S1 (10-fold)", "#66BB6A"),
 ]
 
 TEST_CONDITIONS = [
@@ -582,6 +478,7 @@ def _gen_cross_cell_plots(metrics: dict, models_order: list, prefix: str, title_
         ("in_distribution", "pearson_r", "In-Distribution Pearson R"),
         ("snv_abs", "pearson_r", "SNV Pearson R"),
         ("snv_delta", "pearson_r", "SNV Effect Size (Delta) Pearson R"),
+        ("ood", "pearson_r", "OOD / Synthetic Sequences Pearson R"),
         ("in_distribution", "mse", "In-Distribution MSE"),
     ]
     for test_key, metric, title in test_configs:
@@ -628,8 +525,10 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     print("Collecting multi-cell metrics...")
 
-    # S1-only metrics
-    s1_metrics = collect_metrics(_S1_RESULT_DIRS)
+    # S1-only metrics — filter combined dirs to S1 model names
+    s1_model_names = {m for m, _ in S1_MODELS}
+    s1_result_dirs = {k: v for k, v in _COMBINED_RESULT_DIRS.items() if k[0] in s1_model_names}
+    s1_metrics = collect_metrics(s1_result_dirs)
     _print_summary("S1 (frozen encoder + head)", s1_metrics)
 
     # Combined S1+S2 metrics (best available)

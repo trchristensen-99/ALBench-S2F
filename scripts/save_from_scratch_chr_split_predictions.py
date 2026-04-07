@@ -282,6 +282,26 @@ def load_dream_cnn(ckpt_path: Path, device: torch.device):
     return models, in_channels
 
 
+def load_legnet(ckpt_path: Path, device: torch.device):
+    """Load LegNet model(s) from checkpoint.
+
+    Returns a list of models for ensemble averaging.
+    """
+    from models.legnet import LegNet
+
+    state_dicts = _extract_state_dicts(ckpt_path)
+    in_channels = 4  # LegNet always uses 4 channels
+
+    models = []
+    for sd in state_dicts:
+        model = LegNet(in_channels=in_channels)
+        model.load_state_dict(sd)
+        model.to(device).eval()
+        models.append(model)
+
+    return models, in_channels
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
@@ -298,6 +318,7 @@ def generate_predictions(
     def predict_fn(seqs):
         if model_type == "dream_rnn":
             return _predict_sequences_dream_rnn(models, seqs, device, batch_size)
+        # dream_cnn and legnet both use 4-channel, same prediction logic
         return _predict_sequences_dream_cnn(models, seqs, device, batch_size)
 
     arrays = {}
@@ -380,7 +401,7 @@ def main():
         description="Save complete predictions for from-scratch models in chr_split"
     )
     parser.add_argument("--cell", required=True, choices=["k562", "hepg2", "sknsh"])
-    parser.add_argument("--model", required=True, choices=["dream_rnn", "dream_cnn"])
+    parser.add_argument("--model", required=True, choices=["dream_rnn", "dream_cnn", "legnet"])
     parser.add_argument("--force", action="store_true", help="Overwrite existing predictions.npz")
     parser.add_argument("--batch-size", type=int, default=512)
     args = parser.parse_args()
@@ -446,8 +467,10 @@ def main():
         try:
             if args.model == "dream_rnn":
                 models, in_ch = load_dream_rnn(ckpt_path, device)
-            else:
+            elif args.model == "dream_cnn":
                 models, in_ch = load_dream_cnn(ckpt_path, device)
+            else:  # legnet
+                models, in_ch = load_legnet(ckpt_path, device)
             print(f"    Loaded {len(models)} model(s) ({in_ch} channels)")
 
             arrays, metrics = generate_predictions(
