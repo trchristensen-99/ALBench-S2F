@@ -1,8 +1,19 @@
 #!/usr/bin/env python
 """Save predictions.npz for foundation model S1 heads in chr_split.
 
-Loads best_model.pt checkpoints from outputs/chr_split/{cell}/{model}_s1/
-and the corresponding embedding caches from outputs/chr_split/{cell}/{model}_cached/embedding_cache/.
+Searches for best_model.pt checkpoints and embedding caches across multiple
+possible directory layouts:
+
+  S1 checkpoints (searched in order, first match wins):
+    outputs/chr_split/{cell}/{model}_s1_v2/seed_*/seed_*/best_model.pt
+    outputs/chr_split/{cell}/{model}_s1/seed_*/seed_*/best_model.pt
+    outputs/{model}_{cell}_cached/seed_*/seed_*/best_model.pt
+
+  Embedding caches (searched in order, first with test_in_dist_canonical.npy wins):
+    outputs/chr_split/{cell}/{cache_name}_cached_v2/embedding_cache/
+    outputs/chr_split/{cell}/{cache_name}_cached_v3/embedding_cache/
+    outputs/chr_split/{cell}/{cache_name}_cached/embedding_cache/
+    outputs/{model}_{cell}_cached/embedding_cache/
 
 Produces predictions.npz with: in_dist_pred, in_dist_true, snv_ref_pred,
 snv_alt_pred, snv_alt_true, snv_delta_pred, snv_delta_true, ood_pred, ood_true.
@@ -33,11 +44,61 @@ from experiments.train_foundation_cached import (  # noqa: E402
 )
 
 # Foundation model configurations
+# cache_names: alternative directory name prefixes to search for embedding caches
+# (e.g. ntv3_post models may have caches under "ntv3" instead of "ntv3_post")
 FOUNDATION_MODELS = {
-    "enformer": {"embed_dim": 3072, "hidden_dim": 512},
-    "borzoi": {"embed_dim": 1536, "hidden_dim": 512},
-    "ntv3_post": {"embed_dim": 1536, "hidden_dim": 512},
+    "enformer": {"embed_dim": 3072, "hidden_dim": 512, "cache_names": ["enformer"]},
+    "borzoi": {"embed_dim": 1536, "hidden_dim": 512, "cache_names": ["borzoi"]},
+    "ntv3_post": {
+        "embed_dim": 1536,
+        "hidden_dim": 512,
+        "cache_names": ["ntv3_post", "ntv3"],
+    },
 }
+
+
+def _find_cache_dir(cell: str, model_name: str, cache_names: list[str]) -> Path | None:
+    """Search candidate cache directories, return first with test embeddings."""
+    candidates = []
+    chr_split_base = REPO / "outputs" / "chr_split" / cell
+    for name in cache_names:
+        # Versioned dirs under chr_split (higher version first)
+        candidates.append(chr_split_base / f"{name}_cached_v2" / "embedding_cache")
+        candidates.append(chr_split_base / f"{name}_cached_v3" / "embedding_cache")
+        candidates.append(chr_split_base / f"{name}_cached" / "embedding_cache")
+    # Flat layout: outputs/{model}_{cell}_cached/embedding_cache/
+    candidates.append(REPO / "outputs" / f"{model_name}_{cell}_cached" / "embedding_cache")
+
+    for d in candidates:
+        if d.is_dir() and (d / "test_in_dist_canonical.npy").exists():
+            return d
+
+    # If none have test embeddings, return first that exists at all (caller can
+    # decide whether to skip based on missing test files)
+    for d in candidates:
+        if d.is_dir():
+            return d
+    return None
+
+
+def _find_s1_dirs(cell: str, model_name: str) -> list[Path]:
+    """Return all seed directories containing best_model.pt across candidate S1 dirs."""
+    candidates = [
+        REPO / "outputs" / "chr_split" / cell / f"{model_name}_s1_v2",
+        REPO / "outputs" / "chr_split" / cell / f"{model_name}_s1",
+        REPO / "outputs" / f"{model_name}_{cell}_cached",
+    ]
+    seed_dirs: list[Path] = []
+    seen: set[str] = set()  # deduplicate by seed name
+    for base in candidates:
+        if not base.is_dir():
+            continue
+        for sd in sorted(base.glob("seed_*/seed_*")):
+            seed_name = sd.name  # e.g. "seed_42"
+            if seed_name not in seen and (sd / "best_model.pt").exists():
+                seed_dirs.append(sd)
+                seen.add(seed_name)
+    return seed_dirs
 
 
 def main():
@@ -54,27 +115,31 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
-    data_path = REPO / "data" / "k562"
+    data_path = REPO / "data" / args.cell
 
     for model_name, cfg in FOUNDATION_MODELS.items():
-        s1_dir = REPO / "outputs" / "chr_split" / args.cell / f"{model_name}_s1"
-        cache_dir = (
-            REPO / "outputs" / "chr_split" / args.cell / f"{model_name}_cached" / "embedding_cache"
+        cache_dir = _find_cache_dir(args.cell, model_name, cfg["cache_names"])
+        seed_dirs = _find_s1_dirs(args.cell, model_name)
+
+        if not seed_dirs:
+            print(f"\nSKIP {model_name}: no S1 seed dirs with best_model.pt found")
+            continue
+        if cache_dir is None:
+            print(f"\nSKIP {model_name}: no embedding cache directory found")
+            continue
+        if not (cache_dir / "test_in_dist_canonical.npy").exists():
+            print(
+                f"\nSKIP {model_name}: cache at {cache_dir} has no test embeddings "
+                f"(missing test_in_dist_canonical.npy)"
+            )
+            continue
+
+        print(f"\n  Found cache: {cache_dir}")
+        print(
+            f"  Found {len(seed_dirs)} seed dir(s): {[str(s.relative_to(REPO)) for s in seed_dirs]}"
         )
 
-        if not s1_dir.exists():
-            print(f"\nSKIP {model_name}: {s1_dir} does not exist")
-            continue
-        if not cache_dir.exists():
-            print(f"\nSKIP {model_name}: cache dir {cache_dir} does not exist")
-            continue
-        # Verify cache has test embeddings
-        if not (cache_dir / "test_in_dist_canonical.npy").exists():
-            print(f"\nSKIP {model_name}: test embeddings not in cache")
-            continue
-
-        # Find all seed directories
-        for seed_dir in sorted(s1_dir.glob("seed_*/seed_*")):
+        for seed_dir in seed_dirs:
             ckpt_path = seed_dir / "best_model.pt"
             pred_path = seed_dir / "predictions.npz"
 

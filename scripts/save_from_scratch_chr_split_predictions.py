@@ -65,31 +65,37 @@ def _encode_200bp(seq_str: str, n_channels: int = 4) -> np.ndarray:
 
 
 def _predict_sequences_dream_rnn(
-    model: torch.nn.Module,
+    models: list[torch.nn.Module],
     sequences: list[str],
     device: torch.device,
     batch_size: int = 512,
 ) -> np.ndarray:
-    """RC-averaged predictions for DREAM-RNN (5-channel, 200bp)."""
+    """RC-averaged predictions for DREAM-RNN (5-channel, 200bp).
+
+    Averages across all ensemble members.
+    """
     if not sequences:
         return np.array([], dtype=np.float32)
 
     encoded = np.stack([_encode_200bp(s, n_channels=5) for s in sequences])
     x = torch.from_numpy(encoded).float()
 
-    preds = []
-    model.eval()
-    with torch.no_grad():
-        for i in range(0, len(x), batch_size):
-            batch = x[i : i + batch_size].to(device)
-            p = model.predict(batch, use_reverse_complement=True)
-            preds.append(p.cpu().numpy().reshape(-1))
+    ensemble_preds = []
+    for model in models:
+        preds = []
+        model.eval()
+        with torch.no_grad():
+            for i in range(0, len(x), batch_size):
+                batch = x[i : i + batch_size].to(device)
+                p = model.predict(batch, use_reverse_complement=True)
+                preds.append(p.cpu().numpy().reshape(-1))
+        ensemble_preds.append(np.concatenate(preds))
 
-    return np.concatenate(preds)
+    return np.mean(np.stack(ensemble_preds, axis=0), axis=0)
 
 
 def _predict_sequences_dream_cnn(
-    model: torch.nn.Module,
+    models: list[torch.nn.Module],
     sequences: list[str],
     device: torch.device,
     batch_size: int = 512,
@@ -98,6 +104,7 @@ def _predict_sequences_dream_cnn(
 
     DREAM-CNN does not use RC-averaging (was not trained with RC flag).
     We still do RC-averaging at inference: forward(x) + forward(RC(x)) / 2.
+    Averages across all ensemble members.
     """
     if not sequences:
         return np.array([], dtype=np.float32)
@@ -105,20 +112,23 @@ def _predict_sequences_dream_cnn(
     encoded = np.stack([_encode_200bp(s, n_channels=4) for s in sequences])
     x = torch.from_numpy(encoded).float()
 
-    preds = []
-    model.eval()
-    with torch.no_grad():
-        for i in range(0, len(x), batch_size):
-            batch = x[i : i + batch_size].to(device)
-            out = model(batch)
+    ensemble_preds = []
+    for model in models:
+        preds = []
+        model.eval()
+        with torch.no_grad():
+            for i in range(0, len(x), batch_size):
+                batch = x[i : i + batch_size].to(device)
+                out = model(batch)
 
-            # RC averaging: reverse sequence, swap ACGT
-            batch_rc = batch.flip(-1)[:, [3, 2, 1, 0], :]
-            out_rc = model(batch_rc)
-            avg = ((out + out_rc) / 2.0).cpu().numpy().reshape(-1)
-            preds.append(avg)
+                # RC averaging: reverse sequence, swap ACGT
+                batch_rc = batch.flip(-1)[:, [3, 2, 1, 0], :]
+                out_rc = model(batch_rc)
+                avg = ((out + out_rc) / 2.0).cpu().numpy().reshape(-1)
+                preds.append(avg)
+        ensemble_preds.append(np.concatenate(preds))
 
-    return np.concatenate(preds)
+    return np.mean(np.stack(ensemble_preds, axis=0), axis=0)
 
 
 # ── Test data loading ────────────────────────────────────────────────────────
@@ -198,51 +208,85 @@ def load_test_data(cell_line: str):
 # ── Model loading ────────────────────────────────────────────────────────────
 
 
+def _extract_state_dicts(ckpt_path: Path) -> list[dict]:
+    """Extract model state dict(s) from a checkpoint file.
+
+    Handles both formats:
+    - Ensemble format (from exp1_1_scaling.py): has ``model_state_dicts`` key (list)
+    - Legacy single-model format: has ``model_state_dict`` key or is a raw state dict
+    """
+    state = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
+
+    # Ensemble format: {"student_type": ..., "ensemble_size": N, "model_state_dicts": [...]}
+    if "model_state_dicts" in state:
+        sds = state["model_state_dicts"]
+        print(f"    Ensemble checkpoint: {len(sds)} model(s)")
+        return sds
+
+    # Legacy single-model format
+    sd = state.get("model_state_dict", state)
+    return [sd]
+
+
 def load_dream_rnn(ckpt_path: Path, device: torch.device):
-    """Load a DREAM-RNN model from checkpoint."""
+    """Load DREAM-RNN model(s) from checkpoint.
+
+    Returns a list of models for ensemble averaging.
+    """
     from models.dream_rnn import create_dream_rnn
 
-    state = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
-    sd = state.get("model_state_dict", state)
+    state_dicts = _extract_state_dicts(ckpt_path)
 
-    # Detect input channels from state dict
+    # Detect input channels from first state dict
+    sd0 = state_dicts[0]
     first_conv_key = "conv1_short.0.weight"
-    if first_conv_key in sd:
-        in_channels = sd[first_conv_key].shape[1]
+    if first_conv_key in sd0:
+        in_channels = sd0[first_conv_key].shape[1]
     else:
         in_channels = 5
 
-    model = create_dream_rnn(input_channels=in_channels, sequence_length=200, task_mode="k562")
-    model.load_state_dict(sd)
-    model.to(device).eval()
-    return model, in_channels
+    models = []
+    for sd in state_dicts:
+        model = create_dream_rnn(input_channels=in_channels, sequence_length=200, task_mode="k562")
+        model.load_state_dict(sd)
+        model.to(device).eval()
+        models.append(model)
+
+    return models, in_channels
 
 
 def load_dream_cnn(ckpt_path: Path, device: torch.device):
-    """Load a DREAM-CNN model from checkpoint."""
+    """Load DREAM-CNN model(s) from checkpoint.
+
+    Returns a list of models for ensemble averaging.
+    """
     from models.dream_cnn import DREAMCNN
 
-    state = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
-    sd = state.get("model_state_dict", state)
+    state_dicts = _extract_state_dicts(ckpt_path)
 
-    # Detect input channels
+    # Detect input channels from first state dict
+    sd0 = state_dicts[0]
     stem_key = "stem.conv_short.0.weight"
-    if stem_key in sd:
-        in_channels = sd[stem_key].shape[1]
+    if stem_key in sd0:
+        in_channels = sd0[stem_key].shape[1]
     else:
         in_channels = 4
 
-    model = DREAMCNN(in_channels=in_channels, task_mode="k562")
-    model.load_state_dict(sd)
-    model.to(device).eval()
-    return model, in_channels
+    models = []
+    for sd in state_dicts:
+        model = DREAMCNN(in_channels=in_channels, task_mode="k562")
+        model.load_state_dict(sd)
+        model.to(device).eval()
+        models.append(model)
+
+    return models, in_channels
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
 def generate_predictions(
-    model,
+    models: list,
     model_type: str,
     in_channels: int,
     test_data: dict,
@@ -253,8 +297,8 @@ def generate_predictions(
 
     def predict_fn(seqs):
         if model_type == "dream_rnn":
-            return _predict_sequences_dream_rnn(model, seqs, device, batch_size)
-        return _predict_sequences_dream_cnn(model, seqs, device, batch_size)
+            return _predict_sequences_dream_rnn(models, seqs, device, batch_size)
+        return _predict_sequences_dream_cnn(models, seqs, device, batch_size)
 
     arrays = {}
     metrics = {}
@@ -401,13 +445,13 @@ def main():
         ckpt_path = run_dir / "best_model.pt"
         try:
             if args.model == "dream_rnn":
-                model, in_ch = load_dream_rnn(ckpt_path, device)
+                models, in_ch = load_dream_rnn(ckpt_path, device)
             else:
-                model, in_ch = load_dream_cnn(ckpt_path, device)
-            print(f"    Loaded model ({in_ch} channels)")
+                models, in_ch = load_dream_cnn(ckpt_path, device)
+            print(f"    Loaded {len(models)} model(s) ({in_ch} channels)")
 
             arrays, metrics = generate_predictions(
-                model, args.model, in_ch, test_data, device, args.batch_size
+                models, args.model, in_ch, test_data, device, args.batch_size
             )
 
             if arrays:

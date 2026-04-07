@@ -101,30 +101,35 @@ def _merge_params(base, override):
 def _detect_head_name(loaded_params: dict) -> str | None:
     """Detect the head name from loaded checkpoint params.
 
-    Walks the nested param dict looking for keys under
-    ``alphagenome/~_custom_heads/<head_name>`` or known head name patterns.
+    Handles two checkpoint formats:
+    1. Flat haiku-style keys: ``head/<head_name>/~predict/hidden_0`` (from exp1_1_scaling.py)
+    2. Nested dicts: ``alphagenome/~_custom_heads/<head_name>`` (from older training scripts)
+
+    Returns just the head name (e.g. ``exp1_s1_k562``), not the full path.
     """
+    import re
 
-    def _find_head_names(d, prefix=""):
-        names = set()
-        if isinstance(d, dict):
-            for k, v in d.items():
-                path = f"{prefix}/{k}" if prefix else k
-                # Pattern: alphagenome/~_custom_heads/<head_name>
-                if "_custom_heads" in str(k):
-                    if isinstance(v, dict):
-                        names.update(v.keys())
-                # Known S1/S2 head name patterns
-                if any(
-                    pat in str(k)
-                    for pat in ["exp1_s1_", "s2f_exp1_s2_", "head_hashfrag", "alphagenome_"]
-                ):
-                    if isinstance(v, dict):
-                        names.add(k)
-                names.update(_find_head_names(v, path))
-        return names
+    candidates = set()
 
-    candidates = _find_head_names(loaded_params)
+    # Pattern for flat haiku-style keys: head/<head_name>/~predict/...
+    _FLAT_HEAD_RE = re.compile(r"^head/([^/]+)/~predict/")
+
+    for k in loaded_params:
+        k_str = str(k)
+
+        # Match flat haiku keys like "head/exp1_s1_k562/~predict/hidden_0"
+        m = _FLAT_HEAD_RE.match(k_str)
+        if m:
+            candidates.add(m.group(1))
+            continue
+
+        # Match nested _custom_heads pattern
+        if "_custom_heads" in k_str:
+            v = loaded_params[k]
+            if isinstance(v, dict):
+                candidates.update(v.keys())
+            continue
+
     # Filter to likely head names, in priority order
     for pattern in ["exp1_s1_", "s2f_exp1_s2_", "head_hashfrag", "alphagenome_"]:
         matches = [n for n in candidates if pattern in n]
