@@ -81,6 +81,7 @@ def _encode_and_save(
     dtype: np.dtype = np.float16,
     center_bins: int = 0,
     extraction_mode: str = "full_pipeline_allbins",
+    force_fp32: bool = False,
 ) -> None:
     """Encode sequences with Borzoi and save canonical + RC caches.
 
@@ -126,7 +127,8 @@ def _encode_and_save(
         rc_padded = rc_padded.to(device)
 
         # Try with autocast first; retry without if NaN detected
-        for attempt, use_autocast in enumerate([device.type == "cuda", False]):
+        autocast_opts = [False] if force_fp32 else [device.type == "cuda", False]
+        for attempt, use_autocast in enumerate(autocast_opts):
             with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_autocast):
                 if extraction_mode.startswith("pre_transformer"):
                     # Extract BEFORE self-attention (local conv features only)
@@ -265,6 +267,11 @@ def main():
         default=0,
         help="If > 0, crop center N bins before mean-pooling (instead of all 6144).",
     )
+    parser.add_argument(
+        "--no-autocast",
+        action="store_true",
+        help="Disable mixed precision (use float32 for stability). Slower but avoids NaN.",
+    )
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument(
         "--shard-idx", type=int, default=0, help="Shard index (0-based) for parallel cache builds."
@@ -346,6 +353,7 @@ def main():
             args.batch_size,
             center_bins=cb,
             extraction_mode=extraction_mode,
+            force_fp32=getattr(args, "no_autocast", False),
         )
 
     if args.test_only:
