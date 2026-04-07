@@ -1,6 +1,6 @@
 # ALBench-S2F Experiment Tracker
 
-> **Last updated:** 2026-04-06 afternoon
+> **Last updated:** 2026-04-06 late evening
 > **Purpose:** Track all experiments, hyperparameters, results, and gaps.
 
 ---
@@ -376,9 +376,44 @@ Missing: AG S1/S2 predictions (JAX script had head name format error — needs f
 7. ✅ HashFrag leakage analysis: 9.9% same-locus, ~+0.004 inflation (not a bug, biological)
 8. ✅ Backup: 10,754 result.json + 75 predictions backed up
 
-**Still running:** AG S2 oracle Exp0, LegNet oracle DCNN, DREAM-RNN ensembles, LegNet 3rd seeds, SknSh DCNN
-**Remaining after jobs:**
-- Fix AG predictions script (head name format error)
-- Borzoi chr_split: NaN instability — may need different embedding approach
-- Yeast large fractions timed out — resubmit if needed
-- Final backup + plot regeneration
+### CRITICAL: Data Consistency Issues Found (2026-04-06 evening)
+
+Previous bar_final results were NOT on comparable splits:
+- Malinois/Enformer S1/DREAM-CNN/RNN: chr_split ref-only (n_train~337K, n_test~31K)
+- AG S1/S2 (bar_final): chr_split ref+alt (n_train~618K, n_test~62K)
+- Enformer S2: trained on HASHFRAG (different split entirely, n_test=40K)
+- AG (chr_split): 10-fold cross-validation ensemble (not single-split)
+
+**Fix: Standardized bar_std runs submitted.**
+
+### Standardized Bar Plot Comparison (bar_std)
+
+**Config A: `outputs/bar_std_refonly/`** — chr_split ref-only, all same split
+**Config B: `outputs/bar_std_refalt/`** — chr_split ref+alt, all same split
+
+| Model | Config A (ref-only) | Config B (ref+alt) | Augmentation | Status |
+|---|---|---|---|---|
+| Malinois | 3 seeds × 3 cells | 3 seeds × 3 cells | shift+dup | **RUNNING** (bar_std) |
+| DREAM-RNN | 3 seeds × 3 cells | 3 seeds × 3 cells | RC (default) | **RUNNING** |
+| DREAM-CNN | 3 seeds × 3 cells | 3 seeds × 3 cells | baseline | **RUNNING** |
+| LegNet | 3 seeds × 3 cells | 3 seeds × 3 cells | baseline (NO shift) | **RUNNING** |
+| AG S1 (probing) | 3 seeds × 3 cells | 3 seeds × 3 cells | cached embeddings | **RUNNING** |
+| AG S2 (fine-tuned) | 3 seeds × 3 cells (20K) | 3 seeds × 3 cells (20K) | RC+shift | **RUNNING** |
+| Enformer S1 | 3 seeds × 3 cells | TBD | cached embeddings | ✅ (in chr_split/) |
+| Enformer S2 | Needs chr_split training | TBD | fine-tuned | **TODO** |
+
+**Enformer S1** chr_split ref-only results already exist (3 seeds × 3 cells).
+**Enformer S2** needs to be retrained on chr_split data (currently only hashfrag).
+**Borzoi/NTv3** excluded from PI figure (per PI notes), but rebuilding anyway.
+
+### Still Running
+- bar_std (Config A): from-scratch + AG models on ref-only — **RUNNING**
+- bar_alt (Config B): same on ref+alt — **PENDING** (default QoS)
+- Borzoi fp32 rebuild (1356801) — RUNNING
+- NTv3 chr_split rebuild — RUNNING
+- Exp0 gaps: AG S2 oracle, LegNet oracle DCNN, yeast/K562 large fracs — RUNNING
+
+### Remaining
+- Enformer S2 chr_split training (needs S1 cache, which exists for K562)
+- Enformer S2 for HepG2/SknSh (needs caches that don't exist — expensive to build)
+- Final backup + plot regeneration after bar_std completes
