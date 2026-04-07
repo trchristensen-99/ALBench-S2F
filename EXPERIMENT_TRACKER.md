@@ -325,18 +325,22 @@ Our Malinois implementation had MAJOR differences from the paper (boda2):
 
 | Model | K562 | HepG2 | SknSh | Seeds (K/H/S) | Status |
 |---|---|---|---|---|---|
-| AG S1 | 0.900 | 0.902 | 0.891 | 7/1/1 | ✅ (K562 has many seeds) |
+| AG S1 | **0.900** | — | — | 7/0/0 | ✅ K562 (HepG2/SknSh from chr_split) |
 | AG S2 (rc+shift) | 0.886 | 0.893 | 0.881 | 4/4/4 | ✅ DONE |
-| DREAM-RNN | ~0.86 | ~0.87 | ~0.87 | 4/5/4 | ✅ DONE (ensembles running) |
-| DREAM-RNN ens3 | 0.890 | — | — | 1/0/0 | K562 done, others running |
-| LegNet | ~0.84 | ~0.84 | ~0.83 | 5/5/5 | ✅ DONE |
-| LegNet ens3 | 0.855 | — | — | 1/0/0 | K562 done |
-| DREAM-CNN | ~0.90 | 0.899 | ~0.90 | 5/1/4 | SknSh 3rd seed running |
+| DREAM-RNN | 0.868 | 0.873 | 0.869 | 4/5/4 | ✅ DONE |
+| DREAM-RNN ens3 | 0.890 | — | — | 1/0/0 | ✅ K562 done |
+| DREAM-CNN | **0.898** | **0.899** | **0.898** | 5/1/2 | ✅ (oracle-trained, in_dist_real) |
+| LegNet | 0.834 | 0.840 | 0.826 | 5/5/5 | ✅ DONE |
+| LegNet ens3 | 0.855 | — | — | 1/0/0 | ✅ K562 done |
 | Malinois (our arch) | 0.857 | 0.854 | 0.847 | 3/3/3 | ✅ DONE |
-| Malinois (paper) | 0.847 | — | — | 3/0/0 | K562 only (multi-task has all 3 cells) |
+| Malinois (paper) | 0.847 | 0.849 | 0.845 | 3 (multi-task) | ✅ (all 3 cells in K562 result) |
 | Enformer S1 | 0.894 | 0.846 | 0.849 | 1/3/3 | ✅ (K562 bar_final, others chr_split) |
 | Enformer S2 | 0.883 | 0.850 | 0.853 | 3/1/1 | ✅ (in separate dirs) |
 | Pretrained Malinois | 0.883 | 0.887 | 0.878 | — | Eval only ✅ |
+
+**Note:** DREAM-CNN was trained on oracle labels but `in_dist_real` stores the correct real-label evaluation (0.898). All other models trained on ground truth labels directly.
+
+**Anomaly resolved:** SknSh DREAM-CNN ground_truth results (0.732) were trained with K562 labels due to `--cell-line` bug in SLURM script — deleted. DREAM-CNN oracle-trained results with `in_dist_real` are correct.
 
 **chr_split ref-only (outputs/chr_split/) — COMPLETE:**
 AG S1/S2 (1-fold + 10-fold), DREAM-RNN (3 seeds), DREAM-CNN (3), Enformer S1 (3), Borzoi S1 (3, but broken 0.29), Malinois (3 + 6 paper-mode), NTv3 S1 (3, low 0.60) — all 3 cells.
