@@ -10,8 +10,8 @@ possible directory layouts:
     outputs/{model}_{cell}_cached/seed_*/seed_*/best_model.pt
 
   Embedding caches (searched in order, first with test_in_dist_canonical.npy wins):
+    outputs/chr_split/{cell}/{cache_name}_cached_v3/embedding_cache/  (preferred, correct alignment)
     outputs/chr_split/{cell}/{cache_name}_cached_v2/embedding_cache/
-    outputs/chr_split/{cell}/{cache_name}_cached_v3/embedding_cache/
     outputs/chr_split/{cell}/{cache_name}_cached/embedding_cache/
     outputs/{model}_{cell}_cached/embedding_cache/
 
@@ -63,8 +63,8 @@ def _find_cache_dir(cell: str, model_name: str, cache_names: list[str]) -> Path 
     chr_split_base = REPO / "outputs" / "chr_split" / cell
     for name in cache_names:
         # Versioned dirs under chr_split (higher version first)
-        candidates.append(chr_split_base / f"{name}_cached_v2" / "embedding_cache")
         candidates.append(chr_split_base / f"{name}_cached_v3" / "embedding_cache")
+        candidates.append(chr_split_base / f"{name}_cached_v2" / "embedding_cache")
         candidates.append(chr_split_base / f"{name}_cached" / "embedding_cache")
     # Flat layout: outputs/{model}_{cell}_cached/embedding_cache/
     candidates.append(REPO / "outputs" / f"{model_name}_{cell}_cached" / "embedding_cache")
