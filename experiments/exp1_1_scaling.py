@@ -58,6 +58,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TRAINING_SIZES = [1000, 5000, 10000, 20000, 50000, 100000, 200000, 500000]
 
+LEGNET_ARCH_VARIANTS = {
+    "narrow": [128, 128, 64, 64, 32, 32, 16, 16],  # ~500K params
+    "default": [256, 256, 128, 128, 64, 64, 32, 32],  # ~2.6M params
+    "wide": [512, 512, 256, 256, 128, 128, 64, 64],  # ~10M params
+}
+
 HP_GRIDS = {
     "dream_rnn": {
         "learning_rate": [0.005],
@@ -1890,6 +1896,7 @@ def _train_student(
     max_shift: int = 15,
     s1_checkpoint: str | None = None,
     multitask_labels: dict[str, np.ndarray] | None = None,
+    block_sizes: list[int] | None = None,
 ) -> SequenceModel:
     """Train a student model and return it."""
     is_multitask = multitask_labels is not None and student_type in (
@@ -2010,6 +2017,7 @@ def _train_student(
             task_mode=cfg["task_mode"],
             ensemble_size=ensemble_size,
             multitask=is_multitask,
+            block_sizes=block_sizes,
             train_config=LegNetTrainConfig(
                 batch_size=batch_size,
                 lr=lr,
@@ -2113,6 +2121,7 @@ def run_scaling_experiment(
     duplication_cutoff: float | None = None,
     multitask: bool = False,
     pool_base_dir: str | None = None,
+    arch_sweep: bool = False,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -2368,7 +2377,17 @@ def run_scaling_experiment(
                 return [{"learning_rate": 1e-3, "batch_size": 128}]
             return [{"learning_rate": 0.005, "batch_size": 1024}]
 
-        return [dict(zip(grid.keys(), vals)) for vals in itertools.product(*grid.values())]
+        configs = [dict(zip(grid.keys(), vals)) for vals in itertools.product(*grid.values())]
+
+        # Add architecture variants for LegNet when --arch-sweep is set
+        if arch_sweep and student_type == "legnet":
+            expanded = []
+            for arch_name, block_sizes in LEGNET_ARCH_VARIANTS.items():
+                for cfg in configs:
+                    expanded.append({**cfg, "block_sizes": block_sizes, "arch": arch_name})
+            return expanded
+
+        return configs
 
     results: list[RunResult] = []
 
@@ -2768,10 +2787,11 @@ def run_scaling_experiment(
                         pass
                     continue
 
+                arch_str = f", arch={hp['arch']}" if "arch" in hp else ""
                 logger.info(
                     f"  HP {hp_idx + 1}/{len(hp_configs)}, "
                     f"rep {rep + 1}/{n_replicates}, "
-                    f"lr={hp['learning_rate']}, bs={hp['batch_size']}"
+                    f"lr={hp['learning_rate']}, bs={hp['batch_size']}{arch_str}"
                 )
 
                 run_start = time.perf_counter()
@@ -2794,6 +2814,7 @@ def run_scaling_experiment(
                         max_shift=max_shift,
                         s1_checkpoint=s1_checkpoint,
                         multitask_labels=multitask_train_labels,
+                        block_sizes=hp.get("block_sizes"),
                     )
 
                     # Validation evaluation
@@ -3058,6 +3079,12 @@ def main():
         "Pool path auto-resolved as {pool_base_dir}/{reservoir}/pool.npz. "
         "When set, skips oracle loading entirely (runs on V100 without JAX).",
     )
+    parser.add_argument(
+        "--arch-sweep",
+        action="store_true",
+        help="Include architecture variants in HP sweep for LegNet "
+        "(narrow/default/wide block_sizes). 3 archs x 2 lr x 2 bs = 12 configs.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -3141,6 +3168,7 @@ def main():
             duplication_cutoff=args.duplication_cutoff,
             multitask=args.multitask,
             pool_base_dir=args.pool_base_dir,
+            arch_sweep=args.arch_sweep,
         )
         all_results.extend(results)
 
