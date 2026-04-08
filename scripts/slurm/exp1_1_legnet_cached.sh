@@ -54,10 +54,11 @@ uv run --no-sync python experiments/exp1_1_scaling.py \
     --n-replicates 3 --seed 42 \
     --output-dir "${OUT_DIR}" \
     --training-sizes 1000 5000 10000 20000 50000 \
+    --chr-split \
     --epochs 80 --ensemble-size 1 --early-stop-patience 10 \
     --save-predictions || true
 
-# Large tier (100K-296K): transfer HP from 50K
+# Large tier (100K-500K): transfer HP from 50K
 echo "--- Large tier (transfer HP, 1 config x 3 seeds) ---"
 uv run --no-sync python experiments/exp1_1_scaling.py \
     --task k562 --student legnet --oracle ag_s2 \
@@ -65,7 +66,8 @@ uv run --no-sync python experiments/exp1_1_scaling.py \
     --pool-base-dir "${POOL_DIR}" \
     --n-replicates 3 --seed 42 \
     --output-dir "${OUT_DIR}" \
-    --training-sizes 100000 200000 296000 \
+    --training-sizes 100000 200000 500000 \
+    --chr-split \
     --epochs 50 --ensemble-size 1 --early-stop-patience 10 \
     --transfer-hp-from 50000 \
     --save-predictions || true

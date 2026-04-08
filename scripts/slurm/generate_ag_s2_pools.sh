@@ -53,7 +53,8 @@ uv run --no-sync python scripts/generate_labeled_pools.py \
     --task k562 \
     --oracle ag_s2 \
     --reservoir "${STRATEGY}" \
-    --pool-size 500000 \
-    --seed 42
+    --pool-size 618000 \
+    --seed 42 \
+    --chr-split --include-alt-alleles
 
 echo "=== Done: $(date) ==="

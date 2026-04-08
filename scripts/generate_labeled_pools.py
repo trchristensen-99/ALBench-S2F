@@ -82,8 +82,10 @@ ALL_RESERVOIRS = [
     "activity_stratified_oracle",
 ]
 
-# Per-strategy pool size caps (genomic-derived limited to pool size)
-_MAX_POOL_SIZE = {
+# Per-strategy pool size caps (genomic-derived limited to pool size).
+# With --chr-split --include-alt-alleles, K562 pool grows to ~618K.
+# These caps are for hashfrag (296K); chr-split+alt auto-expands in generate_pool.
+_MAX_POOL_SIZE_HASHFRAG = {
     "genomic": 296_000,
     "gc_matched": 296_000,
     "dinuc_shuffle": 296_000,
@@ -92,6 +94,16 @@ _MAX_POOL_SIZE = {
     "activity_stratified_oracle": 296_000,
     "motif_clustering": 296_000,
     "motif_clustering_mutant": 296_000,
+}
+_MAX_POOL_SIZE_CHRSPLIT_ALT = {
+    "genomic": 618_000,
+    "gc_matched": 618_000,
+    "dinuc_shuffle": 618_000,
+    "snv": 618_000,
+    "activity_stratified": 618_000,
+    "activity_stratified_oracle": 618_000,
+    "motif_clustering": 618_000,
+    "motif_clustering_mutant": 618_000,
 }
 
 # Reservoirs that need pool (genomic) sequences loaded
@@ -143,12 +155,18 @@ def _load_reservoir(name: str, seed: int):
     return cls(**cfg)
 
 
-def _load_pool_sequences(task: str):
+def _load_pool_sequences(task: str, chr_split: bool = False, include_alt_alleles: bool = False):
     """Load genomic pool sequences for the task."""
     if task == "k562":
         from data.k562 import K562Dataset
 
-        ds = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train")
+        kwargs = {"data_path": str(REPO / "data" / "k562"), "split": "train"}
+        if chr_split:
+            kwargs["use_hashfrag"] = False
+            kwargs["use_chromosome_fallback"] = True
+        if include_alt_alleles:
+            kwargs["include_alt_alleles"] = True
+        ds = K562Dataset(**kwargs)
         return list(ds.sequences), ds.labels.astype(np.float32)
     else:
         from data.yeast import YeastDataset
@@ -233,6 +251,8 @@ def generate_pool(
     seed: int,
     output_dir: Path,
     dry_run: bool = False,
+    chr_split: bool = False,
+    include_alt_alleles: bool = False,
 ) -> Path:
     """Generate and label one pool, saving to NPZ.
 
@@ -242,7 +262,12 @@ def generate_pool(
     from experiments.exp1_1_scaling import _load_oracle
 
     # Cap pool size for genomic-derived strategies
-    max_pool = _MAX_POOL_SIZE.get(reservoir_name, pool_size)
+    caps = (
+        _MAX_POOL_SIZE_CHRSPLIT_ALT
+        if (chr_split and include_alt_alleles)
+        else _MAX_POOL_SIZE_HASHFRAG
+    )
+    max_pool = caps.get(reservoir_name, pool_size)
     if pool_size > max_pool:
         logger.info(f"Capping pool size from {pool_size:,} to {max_pool:,} for {reservoir_name}")
         pool_size = max_pool
@@ -262,7 +287,9 @@ def generate_pool(
     pool_seqs, pool_labels = None, None
     if reservoir_name in _NEEDS_POOL:
         logger.info(f"Loading genomic pool for {task}...")
-        pool_seqs, pool_labels = _load_pool_sequences(task)
+        pool_seqs, pool_labels = _load_pool_sequences(
+            task, chr_split=chr_split, include_alt_alleles=include_alt_alleles
+        )
         logger.info(f"Pool loaded: {len(pool_seqs):,} sequences")
 
     # Load oracle
@@ -408,6 +435,18 @@ def main():
         help="Base output directory",
     )
     parser.add_argument(
+        "--chr-split",
+        action="store_true",
+        help="Use chromosome-based splits (train=non-chr7/13, test=chr7+13). "
+        "Increases K562 genomic pool to ~316K (ref) or ~618K (ref+alt).",
+    )
+    parser.add_argument(
+        "--include-alt-alleles",
+        action="store_true",
+        help="Include ref+alt alleles in pool (K562 only). "
+        "Combined with --chr-split gives ~618K genomic training sequences.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be generated without running",
@@ -450,6 +489,8 @@ def main():
                 seed=args.seed,
                 output_dir=output_dir,
                 dry_run=args.dry_run,
+                chr_split=args.chr_split,
+                include_alt_alleles=args.include_alt_alleles,
             )
         except Exception:
             logger.exception(f"FAILED: {res_name}")
