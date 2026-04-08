@@ -2112,6 +2112,7 @@ def run_scaling_experiment(
     s1_checkpoint: str | None = None,
     duplication_cutoff: float | None = None,
     multitask: bool = False,
+    pool_base_dir: str | None = None,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -2147,7 +2148,10 @@ def run_scaling_experiment(
                 "Test evaluation will be skipped for missing NPZ files."
             )
 
-    if oracle_type == "ground_truth":
+    if pool_base_dir is not None:
+        logger.info("Using pre-cached pools — skipping oracle loading (no JAX needed).")
+        oracle = None
+    elif oracle_type == "ground_truth":
         logger.info("Using ground-truth labels from dataset (no oracle model).")
         oracle = None
     else:
@@ -2369,6 +2373,38 @@ def run_scaling_experiment(
     results: list[RunResult] = []
 
     # ── Pre-label all training sizes to cache oracle labels ──────────────
+    # When --pool-base-dir is set, use pre-cached pools from
+    # generate_labeled_pools.py instead of generating + labeling on-the-fly.
+    # This skips oracle loading entirely (no JAX needed → runs on V100).
+    if pool_base_dir is not None:
+        from scripts.generate_labeled_pools import load_pool_subset
+
+        pool_base = Path(pool_base_dir)
+        logger.info(f"Using pre-cached pools from {pool_base}")
+        for n_train in training_sizes:
+            label_cache_dir = output_base / reservoir_name / f"n{n_train}"
+            label_cache_path = label_cache_dir / "oracle_labels.npz"
+            if label_cache_path.exists():
+                continue
+            pool_path = pool_base / reservoir_name / "pool.npz"
+            if not pool_path.exists():
+                raise FileNotFoundError(
+                    f"Cached pool not found at {pool_path}. "
+                    f"Generate with: python scripts/generate_labeled_pools.py "
+                    f"--oracle ag_s2 --reservoir {reservoir_name}"
+                )
+            logger.info(f"[cached-pool] Loading n={n_train:,} from {pool_path}")
+            seqs, labels = load_pool_subset(pool_path, n_train, seed=seed)
+            label_cache_dir.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(
+                label_cache_path,
+                sequences=np.array(seqs, dtype=object),
+                labels=labels,
+            )
+            logger.info(f"[cached-pool] Cached {len(seqs):,} labels to {label_cache_path}")
+        # No oracle to free — skip directly to student training
+        oracle = None
+
     # This allows freeing the oracle from GPU before student training,
     # which is critical when oracle (JAX AG, ~80GB) and student (PyTorch
     # DREAM, ~15GB) together exceed the 93GB H100 GPU memory.
@@ -3014,6 +3050,14 @@ def main():
         help="Train a 3-output multitask head (K562, HepG2, SknSh) instead of single-output. "
         "Automatically remaps alphagenome_k562_s1 to alphagenome_k562_s1_multitask.",
     )
+    parser.add_argument(
+        "--pool-base-dir",
+        type=str,
+        default=None,
+        help="Base dir for pre-cached labeled pools (from generate_labeled_pools.py). "
+        "Pool path auto-resolved as {pool_base_dir}/{reservoir}/pool.npz. "
+        "When set, skips oracle loading entirely (runs on V100 without JAX).",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -3096,6 +3140,7 @@ def main():
             s1_checkpoint=args.s1_checkpoint,
             duplication_cutoff=args.duplication_cutoff,
             multitask=args.multitask,
+            pool_base_dir=args.pool_base_dir,
         )
         all_results.extend(results)
 

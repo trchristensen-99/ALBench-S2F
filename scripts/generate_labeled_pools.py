@@ -75,7 +75,24 @@ ALL_RESERVOIRS = [
     "motif_density_2",
     "motif_density_3",
     "motif_density_5",
+    "motif_planted",
+    "motif_grammar",
+    "motif_clustering",
+    "motif_clustering_mutant",
+    "activity_stratified_oracle",
 ]
+
+# Per-strategy pool size caps (genomic-derived limited to pool size)
+_MAX_POOL_SIZE = {
+    "genomic": 296_000,
+    "gc_matched": 296_000,
+    "dinuc_shuffle": 296_000,
+    "snv": 296_000,
+    "activity_stratified": 296_000,
+    "activity_stratified_oracle": 296_000,
+    "motif_clustering": 296_000,
+    "motif_clustering_mutant": 296_000,
+}
 
 # Reservoirs that need pool (genomic) sequences loaded
 _NEEDS_POOL = {
@@ -98,6 +115,8 @@ _NEEDS_POOL = {
     "motif_density_2",
     "motif_density_3",
     "motif_density_5",
+    "motif_clustering",
+    "motif_clustering_mutant",
 }
 
 DEFAULT_POOL_SIZE = 500_000
@@ -177,8 +196,12 @@ def _generate_sequences(
         seqs, _ = res.generate(n, pool_sequences=pool_seqs, student_model=oracle)
     elif reservoir_name == "activity_stratified_oracle":
         seqs, _ = res.generate(n, pool_sequences=pool_seqs, pool_labels=pool_labels)
-    elif reservoir_name.startswith("motif_density"):
+    elif reservoir_name.startswith("motif_density") or reservoir_name == "motif_planted":
         seqs, _ = res.generate(n, task=task)
+    elif reservoir_name == "motif_grammar":
+        seqs, _ = res.generate(n, task=task)
+    elif reservoir_name.startswith("motif_clustering"):
+        seqs, _ = res.generate(n, pool_sequences=pool_seqs, task=task)
     else:
         # Fallback: try task-only
         seqs, _ = res.generate(n, task=task)
@@ -217,6 +240,12 @@ def generate_pool(
     """
     # Import oracle loader from exp1_1
     from experiments.exp1_1_scaling import _load_oracle
+
+    # Cap pool size for genomic-derived strategies
+    max_pool = _MAX_POOL_SIZE.get(reservoir_name, pool_size)
+    if pool_size > max_pool:
+        logger.info(f"Capping pool size from {pool_size:,} to {max_pool:,} for {reservoir_name}")
+        pool_size = max_pool
 
     out_path = output_dir / "pool.npz"
     if out_path.exists():
@@ -351,7 +380,7 @@ def main():
     parser.add_argument(
         "--oracle",
         required=True,
-        choices=["ag", "dream_rnn", "default"],
+        choices=["ag", "ag_s2", "dream_rnn", "legnet", "default"],
         help="Oracle type for labeling",
     )
     parser.add_argument(
