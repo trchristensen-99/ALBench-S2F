@@ -1,0 +1,7 @@
+_target_: albench.reservoir.mixed_pool.MixedPoolSampler
+seed: ${seed}
+component_configs:
+  - name: genomic
+    fraction: 0.5
+  - name: evoaug_structural
+    fraction: 0.5

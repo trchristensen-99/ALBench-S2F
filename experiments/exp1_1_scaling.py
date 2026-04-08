@@ -2162,6 +2162,12 @@ def run_scaling_experiment(
         "uncertainty_balanced",
         "mixed_motif_snv",
         "mixed_motif_prm",
+        "mixed_genomic_random",
+        "mixed_genomic_dinuc_shuffle",
+        "mixed_genomic_evoaug",
+        "mixed_genomic_prm",
+        "mixed_genomic_recombination",
+        "mixed_genomic_snv",
         "motif_clustering",
         "motif_clustering_mutant",
     }

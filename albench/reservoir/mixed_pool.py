@@ -85,11 +85,22 @@ class MixedPoolSampler(ReservoirSampler):
                 try:
                     if name in ("random", "motif_planted", "motif_grammar", "motif_grammar_tight"):
                         seqs, meta = sampler.generate(n_component, task=task)
+                    elif name == "dinuc_shuffle":
+                        seqs, meta = sampler.generate(
+                            n_component,
+                            task=task,
+                            method="dinuc_shuffle",
+                            reference_sequences=pool_sequences,
+                        )
                     elif name in ("genomic", "gc_matched"):
                         seqs, meta = sampler.generate(
                             n_component, pool_sequences=pool_sequences, pool_labels=pool_labels
                         )
                     elif name.startswith("prm") or name == "snv":
+                        seqs, meta = sampler.generate(
+                            n_component, base_sequences=pool_sequences, task=task
+                        )
+                    elif name.startswith("recombination") or name.startswith("evoaug"):
                         seqs, meta = sampler.generate(
                             n_component, base_sequences=pool_sequences, task=task
                         )
