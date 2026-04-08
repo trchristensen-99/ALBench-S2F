@@ -32,6 +32,9 @@ import sys
 import time
 from pathlib import Path
 
+# Reduce CUDA memory fragmentation (helps avoid OOM on large models like Enformer)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -75,6 +78,7 @@ DEFAULT_CONFIG = {
     "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
     "shift_aug": False,  # random shift augmentation during training
     "max_shift": 15,  # max shift in bp (±max_shift)
+    "gradient_checkpointing": True,  # trade compute for memory (Enformer only)
     # LoRA adapter config (Borzoi only)
     "use_lora": False,  # inject LoRA adapters into Borzoi transformer blocks
     "lora_rank": 32,  # bottleneck dimension for adapters
@@ -706,6 +710,12 @@ def train(cfg: dict):
     t0 = time.time()
     if model_name == "enformer":
         encoder_model, embed_dim = _load_enformer()
+        # Enable gradient checkpointing: recomputes transformer activations
+        # during backward pass instead of storing them, saving ~18-36GB VRAM.
+        # Uses Enformer's built-in checkpoint_sequential support.
+        if cfg.get("gradient_checkpointing", True):
+            encoder_model.use_checkpointing = True
+            print("Gradient checkpointing ENABLED for Enformer transformer", flush=True)
         forward_fn = _forward_enformer
         should_unfreeze = _should_unfreeze_enformer
     elif model_name == "borzoi":
