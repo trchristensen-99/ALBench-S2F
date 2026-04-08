@@ -889,77 +889,193 @@ def _load_k562_legnet_oracle():
 
 
 def _load_k562_ag_s2_oracle():
-    """Load K562 AlphaGenome S2 (fine-tuned) oracle from pre-computed pseudo-labels.
+    """Load K562 AlphaGenome S2 (fine-tuned) 10-fold oracle with live inference.
 
-    Uses out-of-fold predictions from the 10-fold S2 ensemble stored in npz files.
-    Builds a sequence→label lookup dict for the training pool, and uses ensemble
-    mean for val/test sequences.
+    Loads the full S2 checkpoints (fine-tuned encoder + head) and runs live
+    inference, averaging predictions across folds with RC averaging.
+
+    Also loads pre-computed pseudo-labels as a fast lookup cache: sequences
+    found in the cache are returned immediately, novel sequences (e.g. from
+    EvoAug, mutagenesis, dinuc_shuffle) fall back to live model inference.
     """
-    pseudolabel_dir = REPO / "outputs" / "oracle_pseudolabels_stage2_k562_ag"
-    if not (pseudolabel_dir / "summary.json").exists():
+    import jax
+    import jax.numpy as jnp
+    import orbax.checkpoint as ocp
+    from alphagenome_ft import create_model_with_heads
+
+    from data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM
+    from models.alphagenome_heads import register_s2f_head
+
+    # ── Locate S2 oracle checkpoints ─────────────────────────────────────
+    oracle_dir = REPO / "outputs" / "stage2_k562_oracle"
+    ckpt_paths = sorted(
+        [
+            p / "best_model" / "checkpoint"
+            for p in sorted(oracle_dir.glob("fold_*"))
+            if (p / "best_model" / "checkpoint").exists()
+        ]
+    )
+    if not ckpt_paths:
         raise FileNotFoundError(
-            f"AG S2 oracle pseudo-labels not found at {pseudolabel_dir}. "
+            f"No AG S2 oracle checkpoints in {oracle_dir}. "
             f"Run: sbatch scripts/slurm/train_stage2_k562_oracle_array.sh"
         )
 
-    import json
+    # ── Flanking sequence encoding (same as S1 oracle) ───────────────────
+    flank_5 = MPRA_UPSTREAM[-200:]
+    flank_3 = MPRA_DOWNSTREAM[:200]
+    mapping = {"A": 0, "C": 1, "G": 2, "T": 3}
 
-    logger.info(f"Loading AG S2 oracle from pre-computed pseudo-labels at {pseudolabel_dir}")
+    def _encode_flanks(flank: str) -> np.ndarray:
+        enc = np.zeros((200, 4), dtype=np.float32)
+        for i, c in enumerate(flank):
+            if c in mapping:
+                enc[i, mapping[c]] = 1.0
+        return enc
 
-    # Load all pseudo-labels and build sequence→label lookup
-    from data.k562 import K562Dataset
+    f5_enc = _encode_flanks(flank_5)
+    f3_enc = _encode_flanks(flank_3)
 
-    ds_train = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train")
-    train_seqs = ds_train.sequences
-    train_npz = np.load(pseudolabel_dir / "train_oracle_labels.npz")
-    oof_labels = train_npz[
-        "oof_oracle"
-    ]  # out-of-fold: each seq predicted by model that didn't see it
+    # ── Build model with the S2 oracle head ──────────────────────────────
+    head_name = "alphagenome_k562_head_hashfrag_boda_flatten_512_512_v4"
+    register_s2f_head(
+        head_name=head_name,
+        arch="boda-flatten-512-512",
+        task_mode="human",
+        num_tracks=1,
+        dropout_rate=0.1,
+    )
+    weights_path = os.environ.get(
+        "ALPHAGENOME_WEIGHTS",
+        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+    )
+    model = create_model_with_heads(
+        "all_folds",
+        heads=[head_name],
+        checkpoint_path=weights_path,
+        use_encoder_output=True,
+        detach_backbone=False,  # S2: use fine-tuned encoder, no gradient detach
+    )
 
-    # Build lookup: sequence string → oracle label
+    @jax.jit
+    def predict_step(params, state, sequences):
+        return model._predict(
+            params,
+            state,
+            sequences,
+            jnp.zeros(len(sequences), dtype=jnp.int32),
+            requested_outputs=[head_name],
+            negative_strand_mask=jnp.zeros(len(sequences), dtype=bool),
+            strand_reindexing=None,
+        )[head_name]
+
+    # ── Load all fold checkpoints ────────────────────────────────────────
+    # S2 checkpoints contain the FULL model (encoder + head), so we load
+    # them directly (no _merge needed, unlike S1 head-only checkpoints).
+    checkpointer = ocp.StandardCheckpointer()
+    params_list = []
+    for ckpt_path in ckpt_paths:
+        loaded_params, _ = checkpointer.restore(ckpt_path)
+        params_list.append(jax.device_put(loaded_params))
+    model_state = model._state
+
+    # ── Build pseudo-label lookup cache (optional, for speed) ────────────
     seq_to_label: dict[str, float] = {}
-    for i, seq in enumerate(train_seqs):
-        seq_to_label[str(seq).upper()] = float(oof_labels[i])
-    logger.info(f"  Built lookup with {len(seq_to_label):,} training sequences")
+    pseudolabel_dir = REPO / "outputs" / "oracle_pseudolabels_stage2_k562_ag"
+    if (pseudolabel_dir / "summary.json").exists():
+        from data.k562 import K562Dataset
 
-    # Also load val/test ensemble predictions for non-training sequences
-    for npz_name in [
-        "val_oracle_labels.npz",
-        "test_in_dist_oracle_labels.npz",
-        "test_ood_oracle_labels.npz",
-    ]:
-        npz_path = pseudolabel_dir / npz_name
-        if npz_path.exists():
-            split_name = npz_name.replace("_oracle_labels.npz", "")
-            ds_split = None
-            if split_name == "val":
-                ds_split = K562Dataset(data_path=str(REPO / "data" / "k562"), split="val")
-            # For test sets, sequences are in the npz itself or we skip (handled by eval)
-            if ds_split is not None:
-                split_npz = np.load(npz_path)
-                split_labels = split_npz["oracle_mean"]
-                for i, seq in enumerate(ds_split.sequences):
-                    seq_to_label[str(seq).upper()] = float(split_labels[i])
+        logger.info(f"  Loading pseudo-label cache from {pseudolabel_dir}")
+        ds_train = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train")
+        train_npz = np.load(pseudolabel_dir / "train_oracle_labels.npz")
+        oof_labels = train_npz["oof_oracle"]
+        for i, seq in enumerate(ds_train.sequences):
+            seq_to_label[str(seq).upper()] = float(oof_labels[i])
 
-    class _AGS2PseudolabelOracle(SequenceModel):
-        def predict(self, sequences: list[str], batch_size: int = 512) -> np.ndarray:
-            labels = np.zeros(len(sequences), dtype=np.float32)
-            n_found = 0
+        for npz_name in [
+            "val_oracle_labels.npz",
+            "test_in_dist_oracle_labels.npz",
+            "test_ood_oracle_labels.npz",
+        ]:
+            npz_path = pseudolabel_dir / npz_name
+            if npz_path.exists():
+                split_name = npz_name.replace("_oracle_labels.npz", "")
+                ds_split = None
+                if split_name == "val":
+                    ds_split = K562Dataset(data_path=str(REPO / "data" / "k562"), split="val")
+                if ds_split is not None:
+                    split_npz = np.load(npz_path)
+                    split_labels = split_npz["oracle_mean"]
+                    for i, seq in enumerate(ds_split.sequences):
+                        seq_to_label[str(seq).upper()] = float(split_labels[i])
+        logger.info(f"  Pseudo-label cache: {len(seq_to_label):,} sequences")
+    else:
+        logger.info("  No pseudo-label cache found; all inference will be live")
+
+    # ── Oracle wrapper with cache + live inference fallback ───────────────
+    class _AGS2Oracle(SequenceModel):
+        def predict(self, sequences: list[str]) -> np.ndarray:
+            # Split into cached vs novel sequences
+            cached_idx = []
+            novel_idx = []
             for i, seq in enumerate(sequences):
                 key = str(seq).upper()
                 if key in seq_to_label:
-                    labels[i] = seq_to_label[key]
-                    n_found += 1
+                    cached_idx.append(i)
                 else:
-                    labels[i] = np.nan  # unknown sequence
-            if n_found < len(sequences):
-                logger.warning(
-                    f"AG S2 oracle: {n_found}/{len(sequences)} sequences found in lookup"
-                )
-            return labels
+                    novel_idx.append(i)
 
-    logger.info(f"  Total lookup: {len(seq_to_label):,} sequences")
-    return _AGS2PseudolabelOracle()
+            results = np.zeros(len(sequences), dtype=np.float32)
+
+            # Fill cached results
+            for i in cached_idx:
+                results[i] = seq_to_label[str(sequences[i]).upper()]
+
+            # Live inference for novel sequences
+            if novel_idx:
+                novel_seqs = [sequences[i] for i in novel_idx]
+                novel_preds = self._live_predict(novel_seqs)
+                for j, i in enumerate(novel_idx):
+                    results[i] = novel_preds[j]
+
+            if cached_idx and novel_idx:
+                logger.info(
+                    f"  AG S2 oracle: {len(cached_idx)} cached, {len(novel_idx)} live inference"
+                )
+            return results
+
+        def _live_predict(self, sequences: list[str]) -> np.ndarray:
+            """Run live S2 inference with RC averaging across all folds."""
+            n = len(sequences)
+            x_fwd = np.stack([self._encode(s) for s in sequences])
+            x_rev = x_fwd[:, ::-1, ::-1]
+            all_p = []
+            for params in params_list:
+                pf, pr = [], []
+                for i in range(0, n, 128):
+                    cf = jnp.array(x_fwd[i : i + 128])
+                    cr = jnp.array(x_rev[i : i + 128])
+                    pf.append(np.array(predict_step(params, model_state, cf)).reshape(-1))
+                    pr.append(np.array(predict_step(params, model_state, cr)).reshape(-1))
+                all_p.append((np.concatenate(pf) + np.concatenate(pr)) / 2.0)
+            return np.stack(all_p).mean(axis=0).astype(np.float32)
+
+        def _encode(self, seq: str) -> np.ndarray:
+            seq = seq.upper()
+            if len(seq) < 200:
+                pad = 200 - len(seq)
+                seq = "N" * (pad // 2) + seq + "N" * (pad - pad // 2)
+            elif len(seq) > 200:
+                start = (len(seq) - 200) // 2
+                seq = seq[start : start + 200]
+            core = np.zeros((200, 4), dtype=np.float32)
+            for i, c in enumerate(seq):
+                if c in mapping:
+                    core[i, mapping[c]] = 1.0
+            return np.concatenate([f5_enc, core, f3_enc], axis=0)
+
+    logger.info(f"Loaded K562 AG S2 oracle with {len(params_list)} folds (live inference)")
+    return _AGS2Oracle()
 
 
 # ---------------------------------------------------------------------------
