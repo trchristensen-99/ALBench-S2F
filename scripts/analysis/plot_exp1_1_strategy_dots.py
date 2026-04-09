@@ -155,7 +155,9 @@ def plot_strategy_dots(
                 hp_mean = np.mean(vals)
 
                 # Jitter x position slightly for visibility
-                jitter = np.random.default_rng(hash(f"{strat}_{n}_{hp_idx}")).uniform(-0.05, 0.05)
+                jitter = np.random.default_rng(abs(hash(f"{strat}_{n}_{hp_idx}"))).uniform(
+                    -0.05, 0.05
+                )
                 x = n * (10**jitter)
 
                 # Individual HP dots (small, semi-transparent)
