@@ -34,6 +34,15 @@ def one_hot_encode(seq: str) -> np.ndarray:
     return arr
 
 
+def pad_to_600bp(ohe_4xL: np.ndarray) -> np.ndarray:
+    """Pad a (4, 200) one-hot with MPRA flanks to (4, 600)."""
+    from experiments.train_malinois_k562 import MPRA_DOWNSTREAM, MPRA_UPSTREAM
+
+    left = one_hot_encode(MPRA_UPSTREAM[-200:])
+    right = one_hot_encode(MPRA_DOWNSTREAM[:200])
+    return np.concatenate([left, ohe_4xL, right], axis=1)
+
+
 def main():
     out_dir = Path("outputs/oracle_full_856k/random_bias_comparison")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -53,15 +62,15 @@ def main():
 
     model = load_pretrained_malinois("data/pretrained/malinois_trained/torch_checkpoint.pt", device)
 
-    # Predict K562 (output index 0)
+    # Predict K562 (output index 0) — pad to 600bp with MPRA flanks
     preds = []
     model.eval()
     with torch.no_grad():
         for i in range(0, len(rand_seqs), 256):
             batch = rand_seqs[i : i + 256]
-            encoded = np.stack([one_hot_encode(s) for s in batch])
+            encoded = np.stack([pad_to_600bp(one_hot_encode(s)) for s in batch])
             x = torch.from_numpy(encoded).float().to(device)
-            out = model(x)[:, 0]  # K562 output
+            out = model(x)[:, 0]  # K562 = output index 0
             x_rc = x.flip(-1)[:, [3, 2, 1, 0], :]
             out_rc = model(x_rc)[:, 0]
             avg = ((out + out_rc) / 2).cpu().numpy().reshape(-1)
