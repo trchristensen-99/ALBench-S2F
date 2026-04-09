@@ -114,50 +114,117 @@ def main():
         detach_backbone=True,
     )
 
-    # Initialize parameters
-    rng_key = jax.random.PRNGKey(args.seed + args.fold_id * 1000)
-    dummy_input = jnp.zeros((1, 16384, 4))
-    _, init_params = model.init_with_output(rng_key, dummy_input, is_training=False)
+    # Re-init head params for this fold (fresh random weights)
+    from models.embedding_cache import reinit_head_params
 
-    # Training loop (simplified — head-only on cached embeddings)
-    # For the cached approach, we directly train the head on (T*D,) flattened embeddings
-    # The BodaFlatten head takes (B, T, D) -> flatten -> MLP -> scalar
+    reinit_head_params(model, head_name, num_tokens=5, dim=1536, rng=args.seed + args.fold_id)
+
+    # Build head-only predict/train functions
+    from models.embedding_cache import build_head_only_predict_fn
+
+    head_predict_fn = build_head_only_predict_fn(model, head_name)
 
     logger.info("Training head on cached embeddings...")
     logger.info("  Architecture: BodaFlatten [512, 512], dropout=0.1")
     logger.info("  Optimizer: AdamW lr=%.4f wd=1e-6" % args.lr)
 
-    # Use the existing training infrastructure from the hashfrag oracle
-    from experiments.train_oracle_alphagenome_hashfrag_cached import (
-        train_s1_oracle_fold,
-    )
+    # Training loop: MSE loss on (canonical + RC) / 2 predictions
+    optimizer = optax.adamw(learning_rate=args.lr, weight_decay=1e-6)
+    opt_state = optimizer.init(model._params)
 
-    try:
-        result = train_s1_oracle_fold(
-            model=model,
-            head_name=head_name,
-            train_canonical=train_can,
-            train_rc=train_rc,
-            train_labels=train_labels,
-            val_canonical=val_can,
-            val_rc=val_rc,
-            val_labels=val_labels,
-            output_dir=args.output_dir,
-            lr=args.lr,
-            batch_size=args.batch_size,
-            epochs=args.epochs,
-            early_stop_patience=args.early_stop_patience,
-            seed=args.seed + args.fold_id,
-        )
-        logger.info(
-            "Fold %d best val pearson: %.4f" % (args.fold_id, result.get("best_val_pearson", 0))
-        )
-    except (ImportError, AttributeError) as e:
-        logger.warning("Could not import train function: %s" % e)
-        logger.info("Falling back to inline training...")
+    organism_index = jnp.zeros(args.batch_size, dtype=jnp.int32)
 
-        # Fallback: save error status
-        result = {"fold_id": args.fold_id, "status": "import_failed", "error": str(e)}
+    @jax.jit
+    def train_step(params, opt_state, emb_can, emb_rc, targets):
+        def loss_fn(p):
+            pred_can = head_predict_fn(p, emb_can, organism_index[: len(targets)])
+            pred_rc = head_predict_fn(p, emb_rc, organism_index[: len(targets)])
+            preds = (pred_can + pred_rc) / 2.0
+            return jnp.mean((preds - targets) ** 2)
+
+        loss, grads = jax.value_and_grad(loss_fn)(params)
+        updates, new_opt_state = optimizer.update(grads, opt_state, params)
+        new_params = optax.apply_updates(params, updates)
+        return new_params, new_opt_state, loss
+
+    @jax.jit
+    def predict_batch(params, emb_can, emb_rc):
+        pred_can = head_predict_fn(params, emb_can, organism_index[: emb_can.shape[0]])
+        pred_rc = head_predict_fn(params, emb_rc, organism_index[: emb_rc.shape[0]])
+        return (pred_can + pred_rc) / 2.0
+
+    # Training
+    best_val_r = -1.0
+    best_epoch = 0
+    patience_counter = 0
+    params = model._params
+
+    for epoch in range(args.epochs):
+        # Shuffle training data
+        rng_epoch = np.random.default_rng(args.seed + args.fold_id + epoch)
+        perm = rng_epoch.permutation(len(train_labels))
+
+        epoch_losses = []
+        for start in range(0, len(train_labels), args.batch_size):
+            end = min(start + args.batch_size, len(train_labels))
+            idx = perm[start:end]
+            batch_can = jnp.array(train_can[idx].astype(np.float32))
+            batch_rc = jnp.array(train_rc[idx].astype(np.float32))
+            batch_labels = jnp.array(train_labels[idx])
+            params, opt_state, loss = train_step(
+                params, opt_state, batch_can, batch_rc, batch_labels
+            )
+            epoch_losses.append(float(loss))
+
+        # Validate
+        val_preds = []
+        for start in range(0, len(val_labels), args.batch_size):
+            end = min(start + args.batch_size, len(val_labels))
+            batch_can = jnp.array(val_can[start:end].astype(np.float32))
+            batch_rc = jnp.array(val_rc[start:end].astype(np.float32))
+            pred = predict_batch(params, batch_can, batch_rc)
+            val_preds.append(np.array(pred))
+        val_preds = np.concatenate(val_preds)
+
+        from scipy.stats import pearsonr
+
+        val_r = float(pearsonr(val_preds, val_labels)[0])
+        train_loss = np.mean(epoch_losses)
+
+        if epoch % 5 == 0 or val_r > best_val_r:
+            logger.info(
+                "  Epoch %d: train_loss=%.4f val_r=%.4f%s"
+                % (epoch, train_loss, val_r, " *" if val_r > best_val_r else "")
+            )
+
+        if val_r > best_val_r:
+            best_val_r = val_r
+            best_epoch = epoch
+            patience_counter = 0
+            # Save best model
+            import orbax.checkpoint as ocp
+
+            ckpt_path = args.output_dir / "best_model" / "checkpoint"
+            ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+            ckpt_mgr = ocp.CheckpointManager(str(ckpt_path.parent))
+            ckpt_mgr.save(0, args=ocp.args.StandardSave(params))
+        else:
+            patience_counter += 1
+            if patience_counter >= args.early_stop_patience:
+                logger.info(
+                    "  Early stopping at epoch %d (best=%d, val_r=%.4f)"
+                    % (epoch, best_epoch, best_val_r)
+                )
+                break
+
+    result = {
+        "fold_id": args.fold_id,
+        "best_val_pearson": best_val_r,
+        "best_epoch": best_epoch,
+        "head_arch": "boda-flatten-512-512",
+        "n_train": len(train_labels),
+        "n_val": len(val_labels),
+    }
 
     # Save result
     result_path.write_text(json.dumps(result, indent=2, default=str))
