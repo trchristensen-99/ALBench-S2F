@@ -100,8 +100,17 @@ def main():
         dropout_rate=0.1,
     )
 
+    import os
+
+    weights_path = os.environ.get(
+        "ALPHAGENOME_WEIGHTS",
+        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+    )
     model = create_model_with_heads(
+        "all_folds",
         heads=[head_name],
+        checkpoint_path=weights_path,
+        use_encoder_output=True,
         detach_backbone=True,
     )
 
