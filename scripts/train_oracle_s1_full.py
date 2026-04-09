@@ -132,13 +132,12 @@ def main():
     optimizer = optax.adamw(learning_rate=args.lr, weight_decay=1e-6)
     opt_state = optimizer.init(model._params)
 
-    organism_index = jnp.zeros(args.batch_size, dtype=jnp.int32)
-
     @jax.jit
     def train_step(params, opt_state, emb_can, emb_rc, targets):
         def loss_fn(p):
-            pred_can = head_predict_fn(p, emb_can, organism_index[: len(targets)])
-            pred_rc = head_predict_fn(p, emb_rc, organism_index[: len(targets)])
+            org_idx = jnp.zeros(targets.shape[0], dtype=jnp.int32)
+            pred_can = head_predict_fn(p, emb_can, org_idx)
+            pred_rc = head_predict_fn(p, emb_rc, org_idx)
             preds = (pred_can + pred_rc) / 2.0
             return jnp.mean((preds - targets) ** 2)
 
@@ -149,8 +148,8 @@ def main():
 
     @jax.jit
     def predict_batch(params, emb_can, emb_rc):
-        pred_can = head_predict_fn(params, emb_can, organism_index[: emb_can.shape[0]])
-        pred_rc = head_predict_fn(params, emb_rc, organism_index[: emb_rc.shape[0]])
+        pred_can = head_predict_fn(params, emb_can, jnp.zeros(emb_can.shape[0], dtype=jnp.int32))
+        pred_rc = head_predict_fn(params, emb_rc, jnp.zeros(emb_rc.shape[0], dtype=jnp.int32))
         return (pred_can + pred_rc) / 2.0
 
     # Training
