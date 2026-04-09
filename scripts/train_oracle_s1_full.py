@@ -210,9 +210,9 @@ def main():
             # Save best model
             import orbax.checkpoint as ocp
 
-            ckpt_path = args.output_dir / "best_model" / "checkpoint"
-            ckpt_path.parent.mkdir(parents=True, exist_ok=True)
-            ckpt_mgr = ocp.CheckpointManager(str(ckpt_path.parent))
+            ckpt_dir = (args.output_dir / "best_model").resolve()
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            ckpt_mgr = ocp.CheckpointManager(str(ckpt_dir))
             ckpt_mgr.save(0, args=ocp.args.StandardSave(params))
         else:
             patience_counter += 1
