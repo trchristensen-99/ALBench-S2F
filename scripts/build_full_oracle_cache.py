@@ -77,18 +77,36 @@ def load_all_sequences():
 def encode_sequences(sequences, batch_size=128):
     """Encode sequences through frozen AlphaGenome encoder.
 
-    Delegates to _encode_sequences_for_ag from exp1_1_scaling.py which
-    handles flanking, padding, RC, and batched JAX inference.
+    Initializes the AG model, extracts the encoder function, then uses
+    _encode_sequences_for_ag for batched encoding with flanking/RC.
     """
-    from experiments.exp1_1_scaling import _encode_sequences_for_ag
+    from experiments.exp1_1_scaling import _encode_sequences_for_ag, _get_ag_model_and_encoder
+
+    logger.info("Initializing AlphaGenome encoder...")
+    ag = _get_ag_model_and_encoder("k562")
+    encoder_fn = ag["encoder_fn"]
+    logger.info("  Encoder ready.")
 
     logger.info("Encoding %d sequences through AG encoder..." % len(sequences))
     t0 = time.perf_counter()
 
-    canonical, rc = _encode_sequences_for_ag(
-        sequences=list(sequences),
-        batch_size=batch_size,
-    )
+    # _encode_sequences_for_ag returns (N, T, D) float16 array (canonical only)
+    # We need to call it twice: once for canonical, once for RC
+    # Actually, looking at the function, it only returns canonical embeddings.
+    # For the oracle training cache, we need both canonical and RC.
+    # Let's encode canonical and RC separately.
+
+    canonical = _encode_sequences_for_ag(list(sequences), "k562", encoder_fn, batch_size)
+    logger.info("  Canonical done: %s" % (canonical.shape,))
+
+    # For RC: reverse-complement the sequences and encode again
+    def _rc_seq(seq):
+        comp = {"A": "T", "T": "A", "C": "G", "G": "C", "N": "N"}
+        return "".join(comp.get(c, "N") for c in reversed(seq.upper()))
+
+    rc_sequences = [_rc_seq(s) for s in sequences]
+    rc = _encode_sequences_for_ag(rc_sequences, "k562", encoder_fn, batch_size)
+    logger.info("  RC done: %s" % (rc.shape,))
 
     elapsed = time.perf_counter() - t0
     logger.info(
