@@ -93,7 +93,7 @@ def main():
     head_name = "oracle_full_s1_fold%d" % args.fold_id
     register_s2f_head(
         head_name=head_name,
-        arch="boda-flatten",
+        arch="boda-flatten-512-512",
         task_mode="k562",
         num_tracks=1,
         hidden_dims=[512, 512],
