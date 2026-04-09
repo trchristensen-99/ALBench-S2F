@@ -179,11 +179,18 @@ def main():
         val_preds = []
         for start in range(0, len(val_labels), args.batch_size):
             end = min(start + args.batch_size, len(val_labels))
+            actual_n = end - start
             batch_can = jnp.array(val_can[start:end].astype(np.float32))
             batch_rc = jnp.array(val_rc[start:end].astype(np.float32))
             pred = predict_batch(params, batch_can, batch_rc)
-            val_preds.append(np.array(pred))
+            pred_np = np.array(pred).reshape(-1)[:actual_n]
+            val_preds.append(pred_np)
         val_preds = np.concatenate(val_preds)
+        # Ensure shapes match
+        assert len(val_preds) == len(val_labels), "Shape mismatch: val_preds=%d val_labels=%d" % (
+            len(val_preds),
+            len(val_labels),
+        )
 
         from scipy.stats import pearsonr
 
