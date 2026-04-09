@@ -94,8 +94,10 @@ def main():
     register_s2f_head(
         head_name=head_name,
         arch="boda-flatten",
+        task_mode="k562",
+        num_tracks=1,
         hidden_dims=[512, 512],
-        dropout=0.1,
+        dropout_rate=0.1,
     )
 
     model = create_model_with_heads(
