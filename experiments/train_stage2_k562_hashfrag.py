@@ -457,6 +457,43 @@ def main(cfg: DictConfig) -> None:
         train_subset = torch.utils.data.Subset(ds_all, train_idx.tolist())
         val_subset = torch.utils.data.Subset(ds_all, val_idx.tolist())
 
+    # ── Optional: add synthetic negatives ─────────────────────────────────────
+    neg_path = cfg.get("negatives_path", None)
+    if neg_path and Path(str(neg_path)).exists():
+        import csv as _csv
+
+        neg_fraction = float(cfg.get("neg_fraction", 0.05))
+        max_neg = int(len(train_subset) * neg_fraction)
+
+        neg_seqs, neg_labels = [], []
+        with open(str(neg_path)) as _f:
+            reader = _csv.DictReader(_f, delimiter="\t")
+            for row in reader:
+                neg_seqs.append(row["sequence"])
+                neg_labels.append(float(row["K562_log2FC"]))
+                if len(neg_seqs) >= max_neg:
+                    break
+
+        class _NegDataset(torch.utils.data.Dataset):
+            def __init__(self, sequences, labels):
+                self.sequences = sequences
+                self.labels = np.array(labels, dtype=np.float32)
+
+            def __len__(self):
+                return len(self.sequences)
+
+            def __getitem__(self, idx):
+                seq = self.sequences[idx]
+                ohe = np.zeros((200, 4), dtype=np.float32)
+                for i, c in enumerate(seq[:200].upper()):
+                    if c in _MAPPING:
+                        ohe[i, _MAPPING[c]] = 1.0
+                return ohe, self.labels[idx]
+
+        neg_ds = _NegDataset(neg_seqs, neg_labels)
+        train_subset = torch.utils.data.ConcatDataset([train_subset, neg_ds])
+        print(f"Added {len(neg_ds):,} synthetic negatives ({neg_fraction:.0%} of training)")
+
     N_train = len(train_subset)
     N_val = len(val_subset)
     print(
