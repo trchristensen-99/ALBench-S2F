@@ -180,36 +180,39 @@ def main():
     head_predict_fn = build_head_only_predict_fn(model, head_name)
 
     # Training functions
-    def make_optimizer(lr):
-        return optax.adamw(learning_rate=lr, weight_decay=1e-6)
+    def make_train_fns(lr):
+        """Create optimizer and jitted train functions (optimizer captured by closure)."""
+        optimizer = optax.adamw(learning_rate=lr, weight_decay=1e-6)
 
-    @jax.jit
-    def train_step(params, opt_state, optimizer, emb_can, emb_rc, targets):
-        def loss_fn(p):
-            org_idx = jnp.zeros(targets.shape[0], dtype=jnp.int32)
-            pred_can = head_predict_fn(p, emb_can, org_idx)
-            pred_rc = head_predict_fn(p, emb_rc, org_idx)
-            preds = (pred_can + pred_rc) / 2.0
-            return jnp.mean((preds - targets) ** 2)
+        @jax.jit
+        def _train_step(params, opt_state, emb_can, emb_rc, targets):
+            def loss_fn(p):
+                org_idx = jnp.zeros(targets.shape[0], dtype=jnp.int32)
+                pred_can = head_predict_fn(p, emb_can, org_idx)
+                pred_rc = head_predict_fn(p, emb_rc, org_idx)
+                preds = (pred_can + pred_rc) / 2.0
+                return jnp.mean((preds - targets) ** 2)
 
-        loss, grads = jax.value_and_grad(loss_fn)(params)
-        updates, new_opt_state = optimizer.update(grads, opt_state, params)
-        new_params = optax.apply_updates(params, updates)
-        return new_params, new_opt_state, loss
+            loss, grads = jax.value_and_grad(loss_fn)(params)
+            updates, new_opt_state = optimizer.update(grads, opt_state, params)
+            new_params = optax.apply_updates(params, updates)
+            return new_params, new_opt_state, loss
 
-    @jax.jit
-    def train_step_weighted(params, opt_state, optimizer, emb_can, emb_rc, targets, weights):
-        def loss_fn(p):
-            org_idx = jnp.zeros(targets.shape[0], dtype=jnp.int32)
-            pred_can = head_predict_fn(p, emb_can, org_idx)
-            pred_rc = head_predict_fn(p, emb_rc, org_idx)
-            preds = (pred_can + pred_rc) / 2.0
-            return jnp.mean(weights * (preds - targets) ** 2)
+        @jax.jit
+        def _train_step_weighted(params, opt_state, emb_can, emb_rc, targets, weights):
+            def loss_fn(p):
+                org_idx = jnp.zeros(targets.shape[0], dtype=jnp.int32)
+                pred_can = head_predict_fn(p, emb_can, org_idx)
+                pred_rc = head_predict_fn(p, emb_rc, org_idx)
+                preds = (pred_can + pred_rc) / 2.0
+                return jnp.mean(weights * (preds - targets) ** 2)
 
-        loss, grads = jax.value_and_grad(loss_fn)(params)
-        updates, new_opt_state = optimizer.update(grads, opt_state, params)
-        new_params = optax.apply_updates(params, updates)
-        return new_params, new_opt_state, loss
+            loss, grads = jax.value_and_grad(loss_fn)(params)
+            updates, new_opt_state = optimizer.update(grads, opt_state, params)
+            new_params = optax.apply_updates(params, updates)
+            return new_params, new_opt_state, loss
+
+        return optimizer, _train_step, _train_step_weighted
 
     @jax.jit
     def predict_batch(params, emb_can, emb_rc):
@@ -230,7 +233,16 @@ def main():
 
         return float(pearsonr(preds, val_labels)[0])
 
-    def train_epoch(params, opt_state, optimizer, t_can, t_rc, t_labels, t_weights=None):
+    def train_epoch(
+        params,
+        opt_state,
+        train_step_fn,
+        t_can,
+        t_rc,
+        t_labels,
+        train_step_w_fn=None,
+        t_weights=None,
+    ):
         rng_e = np.random.default_rng(args.seed + hash(str(params)[:20]) % 10000)
         epoch_perm = rng_e.permutation(len(t_labels))
         losses = []
@@ -240,15 +252,13 @@ def main():
             b_can = jnp.array(t_can[idx].astype(np.float32))
             b_rc = jnp.array(t_rc[idx].astype(np.float32))
             b_lab = jnp.array(t_labels[idx])
-            if t_weights is not None:
+            if t_weights is not None and train_step_w_fn is not None:
                 b_w = jnp.array(t_weights[idx])
-                params, opt_state, loss = train_step_weighted(
-                    params, opt_state, optimizer, b_can, b_rc, b_lab, b_w
+                params, opt_state, loss = train_step_w_fn(
+                    params, opt_state, b_can, b_rc, b_lab, b_w
                 )
             else:
-                params, opt_state, loss = train_step(
-                    params, opt_state, optimizer, b_can, b_rc, b_lab
-                )
+                params, opt_state, loss = train_step_fn(params, opt_state, b_can, b_rc, b_lab)
             losses.append(float(loss))
         return params, opt_state, np.mean(losses)
 
@@ -265,12 +275,12 @@ def main():
     if args.approach == "finetune":
         # Phase 1: Train on original data to convergence
         logger.info("=== FINETUNE Phase 1: Original data only ===")
-        optimizer = make_optimizer(args.lr)
+        optimizer, step_fn, step_w_fn = make_train_fns(args.lr)
         opt_state = optimizer.init(params)
 
         for epoch in range(args.epochs):
             params, opt_state, loss = train_epoch(
-                params, opt_state, optimizer, train_can, train_rc, train_labels
+                params, opt_state, step_fn, train_can, train_rc, train_labels
             )
             val_r = validate(params)
             if epoch % 5 == 0 or val_r > best_val_r:
@@ -304,14 +314,14 @@ def main():
         mixed_rc = np.concatenate([train_rc, neg_rc])
         mixed_labels = np.concatenate([train_labels, neg_labels])
 
-        optimizer2 = make_optimizer(args.lr * 0.1)
+        optimizer2, step_fn2, step_w_fn2 = make_train_fns(args.lr * 0.1)
         opt_state2 = optimizer2.init(params)
         patience_counter = 0
         p2_best_val_r = best_val_r
 
         for epoch in range(20):  # fewer epochs for fine-tuning
             params, opt_state2, loss = train_epoch(
-                params, opt_state2, optimizer2, mixed_can, mixed_rc, mixed_labels
+                params, opt_state2, step_fn2, mixed_can, mixed_rc, mixed_labels
             )
             val_r = validate(params)
             if epoch % 2 == 0 or val_r > p2_best_val_r:
@@ -341,12 +351,12 @@ def main():
         mixed_rc = np.concatenate([train_rc, neg_rc])
         mixed_labels = np.concatenate([train_labels, neg_labels])
 
-        optimizer = make_optimizer(args.lr)
+        optimizer, step_fn, step_w_fn = make_train_fns(args.lr)
         opt_state = optimizer.init(params)
 
         for epoch in range(args.epochs):
             params, opt_state, loss = train_epoch(
-                params, opt_state, optimizer, mixed_can, mixed_rc, mixed_labels
+                params, opt_state, step_fn, mixed_can, mixed_rc, mixed_labels
             )
             val_r = validate(params)
             if epoch % 5 == 0 or val_r > best_val_r:
@@ -383,12 +393,19 @@ def main():
             ]
         )
 
-        optimizer = make_optimizer(args.lr)
+        optimizer, step_fn, step_w_fn = make_train_fns(args.lr)
         opt_state = optimizer.init(params)
 
         for epoch in range(args.epochs):
             params, opt_state, loss = train_epoch(
-                params, opt_state, optimizer, mixed_can, mixed_rc, mixed_labels, weights
+                params,
+                opt_state,
+                step_fn,
+                mixed_can,
+                mixed_rc,
+                mixed_labels,
+                train_step_w_fn=step_w_fn,
+                t_weights=weights,
             )
             val_r = validate(params)
             if epoch % 5 == 0 or val_r > best_val_r:
@@ -415,7 +432,7 @@ def main():
 
     elif args.approach == "curriculum":
         # Gradual mixing: start with 0% negatives, increase to full
-        optimizer = make_optimizer(args.lr)
+        optimizer, step_fn, step_w_fn = make_train_fns(args.lr)
         opt_state = optimizer.init(params)
 
         for epoch in range(args.epochs):
@@ -431,7 +448,7 @@ def main():
                 epoch_can, epoch_rc, epoch_labels = train_can, train_rc, train_labels
 
             params, opt_state, loss = train_epoch(
-                params, opt_state, optimizer, epoch_can, epoch_rc, epoch_labels
+                params, opt_state, step_fn, epoch_can, epoch_rc, epoch_labels
             )
             val_r = validate(params)
             if epoch % 5 == 0 or val_r > best_val_r:
