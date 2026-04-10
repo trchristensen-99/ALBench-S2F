@@ -345,6 +345,14 @@ def main():
         best_val_r = max(best_val_r, p2_best_val_r)
         params = best_params
 
+        # Save checkpoint
+        import orbax.checkpoint as ocp
+
+        ckpt_dir = (args.output_dir / "best_model").resolve()
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+        ocp.CheckpointManager(str(ckpt_dir)).save(0, args=ocp.args.StandardSave(params))
+        logger.info("Saved finetune checkpoint to %s", ckpt_dir)
+
     elif args.approach == "label_shift":
         # Same as original but with shifted labels (mean=0)
         mixed_can = np.concatenate([train_can, neg_can])
