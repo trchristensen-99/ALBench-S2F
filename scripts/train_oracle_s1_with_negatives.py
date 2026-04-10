@@ -57,20 +57,11 @@ def load_negatives(neg_dir: Path, neg_type: str, max_n: int = 50000):
     return seqs, np.array(labels, dtype=np.float32)
 
 
-def encode_sequences_ag(seqs, batch_size=64):
+def encode_sequences_ag(seqs, batch_size=128):
     """Compute AG embeddings for sequences (canonical + RC)."""
-    from experiments.exp1_1_scaling import _encode_sequences_for_ag
+    from scripts.build_full_oracle_cache import encode_sequences
 
-    logger.info("Computing AG embeddings for %d sequences...", len(seqs))
-    canonical, rc = [], []
-    for i in range(0, len(seqs), batch_size):
-        batch = seqs[i : i + batch_size]
-        can_batch, rc_batch = _encode_sequences_for_ag(batch)
-        canonical.append(can_batch)
-        rc.append(rc_batch)
-        if (i // batch_size) % 50 == 0:
-            logger.info("  Encoded %d/%d", min(i + batch_size, len(seqs)), len(seqs))
-    return np.concatenate(canonical), np.concatenate(rc)
+    return encode_sequences(seqs, batch_size=batch_size)
 
 
 def main():
