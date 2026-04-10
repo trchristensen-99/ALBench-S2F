@@ -483,11 +483,16 @@ def main(cfg: DictConfig) -> None:
                 return len(self.sequences)
 
             def __getitem__(self, idx):
-                seq = self.sequences[idx]
-                ohe = np.zeros((200, 4), dtype=np.float32)
-                for i, c in enumerate(seq[:200].upper()):
+                seq = self.sequences[idx][:200].upper()
+                if len(seq) < 200:
+                    seq = seq + "N" * (200 - len(seq))
+                # Add MPRA flanks to match K562Dataset format (600bp total)
+                ohe = np.concatenate(
+                    [_FLANK_5_ENC, np.zeros((200, 4), dtype=np.float32), _FLANK_3_ENC]
+                )
+                for i, c in enumerate(seq):
                     if c in _MAPPING:
-                        ohe[i, _MAPPING[c]] = 1.0
+                        ohe[200 + i, _MAPPING[c]] = 1.0
                 return ohe, self.labels[idx]
 
         neg_ds = _NegDataset(neg_seqs, neg_labels)
