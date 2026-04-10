@@ -486,14 +486,13 @@ def main(cfg: DictConfig) -> None:
                 seq = self.sequences[idx][:200].upper()
                 if len(seq) < 200:
                     seq = seq + "N" * (200 - len(seq))
-                # Add MPRA flanks to match K562Dataset format (600bp total)
-                ohe = np.concatenate(
-                    [_FLANK_5_ENC, np.zeros((200, 4), dtype=np.float32), _FLANK_3_ENC]
-                )
+                # Return (5, 200) tensor matching K562Dataset format:
+                # channels 0-3 = ACGT one-hot, channel 4 = RC flag (0)
+                ohe = np.zeros((5, 200), dtype=np.float32)
                 for i, c in enumerate(seq):
                     if c in _MAPPING:
-                        ohe[200 + i, _MAPPING[c]] = 1.0
-                return ohe, self.labels[idx]
+                        ohe[_MAPPING[c], i] = 1.0
+                return torch.from_numpy(ohe), self.labels[idx]
 
         neg_ds = _NegDataset(neg_seqs, neg_labels)
         train_subset = torch.utils.data.ConcatDataset([train_subset, neg_ds])
