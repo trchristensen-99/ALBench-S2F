@@ -29,6 +29,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from scipy.stats import pearsonr
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -65,8 +66,14 @@ def predict_malinois(seqs, device):
     with torch.no_grad():
         for i in range(0, len(seqs), 256):
             batch = seqs[i : i + 256]
-            encoded = np.stack([pad_to_600bp(one_hot_encode(s)) for s in batch])
-            x = torch.from_numpy(encoded).float().to(device)
+            encoded = []
+            for s in batch:
+                ohe = one_hot_encode(s[:200])  # ensure exactly 200bp
+                if ohe.shape[1] < 200:
+                    pad = np.zeros((4, 200 - ohe.shape[1]), dtype=np.float32)
+                    ohe = np.concatenate([ohe, pad], axis=1)
+                encoded.append(pad_to_600bp(ohe))
+            x = torch.from_numpy(np.stack(encoded)).float().to(device)
             out = model(x)[:, 0]
             x_rc = x.flip(-1)[:, [3, 2, 1, 0], :]
             out_rc = model(x_rc)[:, 0]
@@ -174,8 +181,6 @@ def main():
             mal_alt = predict_malinois(alt_seqs, device)
             mal_delta = mal_alt - mal_ref
             if true_delta is not None:
-                from scipy.stats import pearsonr
-
                 r = float(pearsonr(mal_delta, true_delta)[0])
                 results["Malinois"]["snv_delta_r"] = r
                 results["Malinois"]["snv_delta_std_ratio"] = float(
