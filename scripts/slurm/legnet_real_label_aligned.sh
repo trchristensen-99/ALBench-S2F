@@ -24,6 +24,8 @@ module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 source scripts/slurm/setup_hpc_deps.sh
+export TORCHDYNAMO_DISABLE=1
+export TORCH_COMPILE_DISABLE=1
 
 OUT_BASE="outputs/exp0_aligned/k562/legnet_real_labels/genomic"
 
