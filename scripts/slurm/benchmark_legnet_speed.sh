@@ -22,6 +22,7 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 # Skip setup_hpc_deps.sh — LegNet only needs PyTorch (no AlphaGenome/JAX)
 
+export PYTHONUNBUFFERED=1
 echo "=== legnet_speed_benchmark node=${SLURMD_NODENAME} date=$(date) ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
