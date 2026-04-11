@@ -357,15 +357,39 @@ def main(cfg: DictConfig) -> None:
 
     # ── Load Stage 1 best checkpoint (head params only) ───────────────────────
     stage1_dir = Path(str(cfg.stage1_dir)).expanduser().resolve()
-    s1_ckpt_path = stage1_dir / "best_model" / "checkpoint"
-    if s1_ckpt_path.exists():
-        checkpointer = ocp.StandardCheckpointer()
-        s1_params, _ = checkpointer.restore(s1_ckpt_path)
-        model._params = jax.device_put(_merge(model._params, s1_params))
-        print(f"Loaded Stage 1 head checkpoint from {s1_ckpt_path}", flush=True)
-    else:
+    # Try multiple checkpoint path formats (orbax versioned and unversioned)
+    s1_ckpt_candidates = [
+        stage1_dir / "best_model" / "checkpoint",  # unversioned
+        stage1_dir / "best_model",  # CheckpointManager directory
+    ]
+    s1_loaded = False
+    for s1_ckpt_path in s1_ckpt_candidates:
+        if s1_ckpt_path.exists():
+            try:
+                # Try CheckpointManager first (handles versioned format: best_model/0/)
+                s1_mgr = ocp.CheckpointManager(str(s1_ckpt_path.resolve()))
+                s1_params = s1_mgr.restore(
+                    s1_mgr.latest_step(),
+                    args=ocp.args.StandardRestore(model._params),
+                )
+                model._params = jax.device_put(_merge(model._params, s1_params))
+                print(f"Loaded Stage 1 head checkpoint from {s1_ckpt_path}", flush=True)
+                s1_loaded = True
+                break
+            except Exception:
+                try:
+                    # Fallback: StandardCheckpointer for unversioned format
+                    checkpointer = ocp.StandardCheckpointer()
+                    s1_params, _ = checkpointer.restore(s1_ckpt_path)
+                    model._params = jax.device_put(_merge(model._params, s1_params))
+                    print(f"Loaded Stage 1 head checkpoint from {s1_ckpt_path}", flush=True)
+                    s1_loaded = True
+                    break
+                except Exception as e2:
+                    print(f"[WARN] Failed to load {s1_ckpt_path}: {e2}", flush=True)
+    if not s1_loaded:
         print(
-            f"[WARN] Stage 1 checkpoint not found at {s1_ckpt_path}; "
+            f"[WARN] Stage 1 checkpoint not found at {stage1_dir}/best_model; "
             "starting from random head initialisation.",
             flush=True,
         )
