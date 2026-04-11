@@ -134,8 +134,7 @@ class R3Cfg:
     compile_mode: Optional[str] = "max-autotune"
     compile_fullgraph: bool = False
     amp_dtype: str = "float16"
-    gpu_pinned: bool = False
-    channels_last: bool = False
+    gpu_pinned: bool = True
     fused_adamw: bool = False
     lr: float = 0.005
     epochs: int = 30
@@ -143,46 +142,50 @@ class R3Cfg:
     description: str = ""
 
 
-# These will be re-confirmed/adjusted after R1+R2 — defaults are best guesses
+# R1 winner: bs=2048 + fp16 + compile(max-autotune) + GPU pinned = 40.19s/epoch
+# R2 expected winner: bs=2048 + fp16 + fused AdamW + compile + GPU pinned (predicted ~38-39s)
+#
+# R3 validates quality at full training length (30 epochs, 3 seeds):
+#   Does bs=2048 converge to same val_r as bs=512 given same number of optimizer steps?
+#   Does fused AdamW maintain quality?
 R3_CONFIGS = [
-    # Production baseline (matches current legnet_student.py)
+    # Production baseline (matches current legnet_student.py exactly)
     R3Cfg(
         name="production_baseline",
         batch_size=512,
         compile_mode="max-autotune",
         amp_dtype="float16",
         gpu_pinned=False,
-        channels_last=False,
         fused_adamw=False,
         epochs=30,
         seeds=3,
-        description="Current production: fp16 + compile(max-autotune) + CPU loader",
+        description="Current production: fp16 + compile + CPU loader + bs=512",
     ),
-    # Best combined from R1+R2 (placeholder — adjust after seeing results)
+    # R2 expected winner: bs=2048 + fused AdamW + GPU pinned
     R3Cfg(
-        name="best_combined",
-        batch_size=512,
+        name="best_bs2048_fused",
+        batch_size=2048,
         compile_mode="max-autotune",
-        amp_dtype="bfloat16",
+        amp_dtype="float16",
         gpu_pinned=True,
-        channels_last=False,
         fused_adamw=True,
         epochs=30,
         seeds=3,
-        description="Best combined: bf16 + fused AdamW + compile + GPU pinned",
+        description="Best combined: fp16 + bs=2048 + fused AdamW + compile + GPU pinned",
     ),
-    # Best combined with channels_last (if R2 shows benefit)
+    # Verify: same total optimizer steps as baseline (bs=512 x 30ep = 17370 steps)
+    # bs=2048 needs only ~8 epochs to match same total steps
+    # But for fair quality comparison, run same number of epochs
     R3Cfg(
-        name="best_combined_cl",
-        batch_size=512,
+        name="bs2048_equalized_steps",
+        batch_size=2048,
         compile_mode="max-autotune",
-        amp_dtype="bfloat16",
+        amp_dtype="float16",
         gpu_pinned=True,
-        channels_last=True,
         fused_adamw=True,
         epochs=30,
         seeds=3,
-        description="Best combined + channels_last",
+        description="bs=2048 same epoch count — verify converges to same val_r",
     ),
 ]
 
@@ -192,15 +195,12 @@ R3_CONFIGS = [
 # ---------------------------------------------------------------------------
 
 
-def make_model(device, channels_last=False, seed=42):
+def make_model(device, seed=42):
     torch.manual_seed(seed)
-    m = LegNet(in_channels=4, task_mode="k562").to(device)
-    if channels_last:
-        m = m.to(memory_format=torch.channels_last)
-    return m
+    return LegNet(in_channels=4, task_mode="k562").to(device)
 
 
-def eval_model(model, x_val, y_val, batch_size, gpu_pinned, channels_last, device):
+def eval_model(model, x_val, y_val, batch_size, gpu_pinned, device):
     model.eval()
     all_preds = []
     n = x_val.shape[0]
@@ -209,8 +209,6 @@ def eval_model(model, x_val, y_val, batch_size, gpu_pinned, channels_last, devic
             xb = x_val[i : i + batch_size]
             if not gpu_pinned:
                 xb = xb.to(device)
-            if channels_last:
-                xb = xb.to(memory_format=torch.channels_last)
             all_preds.append(model(xb).cpu())
     preds = torch.cat(all_preds).numpy().reshape(-1)
     tgts = y_val.cpu().numpy().reshape(-1)
@@ -220,7 +218,7 @@ def eval_model(model, x_val, y_val, batch_size, gpu_pinned, channels_last, devic
 
 def run_one_seed(cfg: R3Cfg, x_train_cpu, y_train_cpu, x_val_cpu, y_val_cpu, device, seed):
     """Train for cfg.epochs and return (mean_epoch_time, best_val_r, final_val_r, epoch_times)."""
-    model = make_model(device, channels_last=cfg.channels_last, seed=seed)
+    model = make_model(device, seed=seed)
 
     if cfg.gpu_pinned:
         x_tr = x_train_cpu.to(device)
@@ -287,8 +285,6 @@ def run_one_seed(cfg: R3Cfg, x_train_cpu, y_train_cpu, x_val_cpu, y_val_cpu, dev
             if not cfg.gpu_pinned:
                 x = x.to(device, non_blocking=True)
                 y = y.to(device, non_blocking=True)
-            if cfg.channels_last:
-                x = x.to(memory_format=torch.channels_last)
 
             if use_amp:
                 with autocast("cuda", dtype=amp_dtype):
@@ -312,9 +308,7 @@ def run_one_seed(cfg: R3Cfg, x_train_cpu, y_train_cpu, x_val_cpu, y_val_cpu, dev
         t1 = time.perf_counter()
         epoch_times.append(t1 - t0)
 
-        val_r = eval_model(
-            model, x_vl, y_vl, cfg.batch_size, cfg.gpu_pinned, cfg.channels_last, device
-        )
+        val_r = eval_model(model, x_vl, y_vl, cfg.batch_size, cfg.gpu_pinned, device)
         val_rs.append(val_r)
         if val_r > best_val_r:
             best_val_r = val_r
@@ -343,10 +337,7 @@ def run_config(cfg: R3Cfg, x_train_cpu, y_train_cpu, x_val_cpu, y_val_cpu, devic
         f"  bs={cfg.batch_size}, compile={cfg.compile_mode}, "
         f"amp={cfg.amp_dtype}, epochs={cfg.epochs}, seeds={cfg.seeds}"
     )
-    print(
-        f"  gpu_pinned={cfg.gpu_pinned}, channels_last={cfg.channels_last}, "
-        f"fused_adamw={cfg.fused_adamw}"
-    )
+    print(f"  gpu_pinned={cfg.gpu_pinned}, fused_adamw={cfg.fused_adamw}")
 
     seed_results = []
     for seed in range(cfg.seeds):

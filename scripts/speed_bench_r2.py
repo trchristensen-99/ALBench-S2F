@@ -1,15 +1,27 @@
 #!/usr/bin/env python
 """Round 2 LegNet speed benchmark — targeted follow-up optimizations.
 
-Focuses on the most promising directions from Round 1:
-  1. bf16 + channels_last combined
-  2. Fused AdamW (torch.optim.AdamW with fused=True on H100)
-  3. Aggressive DataLoader: num_workers tuning + prefetch_factor
-  4. Scripted model (torch.jit.script) vs compile
-  5. torch.compile with fullgraph=True
-  6. gradient_as_bucket_view + set_to_none optimization
-  7. Pre-computed RC aug baked into dataset (avoids per-batch flip)
-  8. Best-of-R1 combined with all micro-opts
+Round 1 findings (H100 NVL, PyTorch 2.10, N=296K, bs=512):
+  - Baseline (fp16+compile+CPU loader):  42.06s/epoch, val_r=0.9454  <-- current production
+  - GPU pinned (bs=512):                 41.84s/epoch  (~0.5% faster — minimal)
+  - No compile:                          46.85s/epoch  (11% SLOWER — compile is essential)
+  - reduce-overhead:                     44.40s/epoch  (worse than max-autotune)
+  - bf16:                                42.94s/epoch  (SLOWER than fp16 — no benefit)
+  - channels_last:                       FAILED (Conv1d is 3D, not 4D)
+  - bs=2048:                             40.19s/epoch  (FASTEST at 4.4% speedup)
+  - bf16_reduce_overhead:                43.50s, val_r=0.36 (BROKEN — bf16+reduce-overhead diverges)
+
+Round 1 winner: bs=2048 + fp16 + compile(max-autotune) + GPU pinned = 40.19s/epoch
+Key finding: bottleneck is compute, not data transfer (GPU pinned barely helps).
+
+Round 2 focuses on:
+  1. Fused AdamW (true optimizer fusion, should save ~1s/epoch)
+  2. bs=1024 (midpoint — likely 41s, same quality as bs=512)
+  3. bs=2048 + fused AdamW (potentially 38s?)
+  4. torch.compile(dynamic=True) to skip graph recompile on first epoch
+  5. compile + fullgraph=True (eliminate Python graph breaks)
+  6. Gradient accumulation equivalent: bs=512 with accum=4 vs native bs=2048
+  7. Combined winner: fp16 + bs=2048 + fused AdamW + gpu_pinned
 
 Usage:
     uv run --no-sync python scripts/speed_bench_r2.py \
@@ -135,79 +147,94 @@ class R2Cfg:
     batch_size: int = 512
     compile_mode: Optional[str] = "max-autotune"
     compile_fullgraph: bool = False
-    amp_dtype: str = "bfloat16"  # winner is likely bf16 from R1
+    compile_dynamic: bool = False
+    amp_dtype: str = "float16"  # R1 winner: fp16 is faster than bf16
     gpu_pinned: bool = True
-    channels_last: bool = False
     fused_adamw: bool = False
+    grad_accum: int = 1  # gradient accumulation steps
     lr: float = 0.005
     description: str = ""
 
 
-# R1 winner assumed to be bf16+compile+gpu_pinned — used as baseline for R2 comparisons
+# R1 winner: fp16 + compile(max-autotune) + gpu_pinned + bs=2048 = 40.19s/epoch
 R2_CONFIGS = [
-    # Baseline: best from R1 (assumed bf16 + compile + gpu_pinned)
+    # R1 winner (confirmed baseline for R2)
     R2Cfg(
-        name="r1_winner_bf16",
-        amp_dtype="bfloat16",
-        compile_mode="max-autotune",
-        gpu_pinned=True,
-        description="R1 winner: bf16 + compile(max-autotune) + GPU pinned",
-    ),
-    # Fused AdamW — uses CUDA kernel fusion for optimizer step (H100 benefits)
-    R2Cfg(
-        name="fused_adamw",
-        amp_dtype="bfloat16",
-        compile_mode="max-autotune",
-        gpu_pinned=True,
-        fused_adamw=True,
-        description="bf16 + compile + GPU pinned + fused AdamW",
-    ),
-    # bf16 + channels_last combined
-    R2Cfg(
-        name="bf16_channels_last",
-        amp_dtype="bfloat16",
-        compile_mode="max-autotune",
-        gpu_pinned=True,
-        channels_last=True,
-        description="bf16 + channels_last + compile + GPU pinned",
-    ),
-    # compile with fullgraph=True (eliminate graph breaks)
-    R2Cfg(
-        name="compile_fullgraph",
-        amp_dtype="bfloat16",
-        compile_mode="max-autotune",
-        compile_fullgraph=True,
-        gpu_pinned=True,
-        description="bf16 + compile(max-autotune, fullgraph=True) + GPU pinned",
-    ),
-    # fused_adamw + channels_last + bf16 (kitchen sink)
-    R2Cfg(
-        name="bf16_cl_fused",
-        amp_dtype="bfloat16",
-        compile_mode="max-autotune",
-        gpu_pinned=True,
-        channels_last=True,
-        fused_adamw=True,
-        description="bf16 + channels_last + fused AdamW + compile + GPU pinned",
-    ),
-    # larger batch size with bf16 (H100 has 80GB VRAM)
-    R2Cfg(
-        name="bf16_bs2048",
+        name="r1_winner_bs2048",
         batch_size=2048,
-        amp_dtype="bfloat16",
+        amp_dtype="float16",
         compile_mode="max-autotune",
         gpu_pinned=True,
-        fused_adamw=True,
-        description="bf16 + bs=2048 + fused AdamW + compile + GPU pinned",
+        description="R1 winner: fp16 + compile(max-autotune) + GPU pinned + bs=2048",
     ),
-    # fp16 + fused adamw (compare with bf16)
+    # bs=1024 as midpoint (should be ~41s, same quality as bs=512)
     R2Cfg(
-        name="fp16_fused",
+        name="bs1024_fp16",
+        batch_size=1024,
+        amp_dtype="float16",
+        compile_mode="max-autotune",
+        gpu_pinned=True,
+        description="fp16 + compile + GPU pinned + bs=1024",
+    ),
+    # Fused AdamW with bs=512 (pure optimizer speedup, baseline quality)
+    R2Cfg(
+        name="fused_adamw_bs512",
+        batch_size=512,
         amp_dtype="float16",
         compile_mode="max-autotune",
         gpu_pinned=True,
         fused_adamw=True,
-        description="fp16 + fused AdamW + compile + GPU pinned",
+        description="fp16 + compile + GPU pinned + fused AdamW + bs=512",
+    ),
+    # Fused AdamW with bs=2048 (best compute + optimizer fusion)
+    R2Cfg(
+        name="fused_adamw_bs2048",
+        batch_size=2048,
+        amp_dtype="float16",
+        compile_mode="max-autotune",
+        gpu_pinned=True,
+        fused_adamw=True,
+        description="fp16 + compile + GPU pinned + fused AdamW + bs=2048",
+    ),
+    # torch.compile with dynamic=True (avoids per-epoch recompile if sequence length varies)
+    R2Cfg(
+        name="compile_dynamic_bs512",
+        batch_size=512,
+        amp_dtype="float16",
+        compile_mode="max-autotune",
+        compile_dynamic=True,
+        gpu_pinned=True,
+        description="fp16 + compile(max-autotune, dynamic=True) + GPU pinned + bs=512",
+    ),
+    # torch.compile with fullgraph=True (eliminate Python interpreter overhead)
+    R2Cfg(
+        name="compile_fullgraph_bs512",
+        batch_size=512,
+        amp_dtype="float16",
+        compile_mode="max-autotune",
+        compile_fullgraph=True,
+        gpu_pinned=True,
+        description="fp16 + compile(max-autotune, fullgraph=True) + GPU pinned + bs=512",
+    ),
+    # Gradient accumulation: bs=512 x4 (eff bs=2048) — same effective batch, same wall time?
+    R2Cfg(
+        name="grad_accum_4x",
+        batch_size=512,
+        amp_dtype="float16",
+        compile_mode="max-autotune",
+        gpu_pinned=True,
+        grad_accum=4,
+        description="fp16 + compile + GPU pinned + bs=512 + grad_accum=4 (eff bs=2048)",
+    ),
+    # bs=4096 — push batch size even further
+    R2Cfg(
+        name="bs4096_fp16",
+        batch_size=4096,
+        amp_dtype="float16",
+        compile_mode="max-autotune",
+        gpu_pinned=True,
+        fused_adamw=True,
+        description="fp16 + compile + GPU pinned + fused AdamW + bs=4096",
     ),
 ]
 
@@ -217,12 +244,9 @@ R2_CONFIGS = [
 # ---------------------------------------------------------------------------
 
 
-def make_model(device, channels_last=False):
+def make_model(device):
     torch.manual_seed(42)
-    m = LegNet(in_channels=4, task_mode="k562").to(device)
-    if channels_last:
-        m = m.to(memory_format=torch.channels_last)
-    return m
+    return LegNet(in_channels=4, task_mode="k562").to(device)
 
 
 def train_epoch(model, data_iter, optimizer, scaler, scheduler, cfg: R2Cfg, device):
@@ -231,38 +255,45 @@ def train_epoch(model, data_iter, optimizer, scaler, scheduler, cfg: R2Cfg, devi
     n_batches = 0
     amp_dtype = torch.bfloat16 if cfg.amp_dtype == "bfloat16" else torch.float16
     use_amp = cfg.amp_dtype != "none"
+    accum = cfg.grad_accum
 
-    for x, y in data_iter:
+    for step, (x, y) in enumerate(data_iter):
         if not cfg.gpu_pinned:
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
-        if cfg.channels_last:
-            x = x.to(memory_format=torch.channels_last)
 
         if use_amp:
             with autocast("cuda", dtype=amp_dtype):
                 pred = model(x)
                 loss = F.mse_loss(pred, y)
+                if accum > 1:
+                    loss = loss / accum
             scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            if (step + 1) % accum == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+                if scheduler is not None:
+                    scheduler.step()
         else:
             pred = model(x)
             loss = F.mse_loss(pred, y)
+            if accum > 1:
+                loss = loss / accum
             loss.backward()
-            optimizer.step()
+            if (step + 1) % accum == 0:
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                if scheduler is not None:
+                    scheduler.step()
 
-        optimizer.zero_grad(set_to_none=True)
-        if scheduler is not None:
-            scheduler.step()
-
-        total_loss += loss.item()
+        total_loss += loss.item() * (accum if accum > 1 else 1)
         n_batches += 1
 
     return total_loss / max(n_batches, 1)
 
 
-def eval_model(model, x_val, y_val, batch_size, gpu_pinned, channels_last, device):
+def eval_model(model, x_val, y_val, batch_size, gpu_pinned, device):
     model.eval()
     all_preds = []
     n = x_val.shape[0]
@@ -271,8 +302,6 @@ def eval_model(model, x_val, y_val, batch_size, gpu_pinned, channels_last, devic
             xb = x_val[i : i + batch_size]
             if not gpu_pinned:
                 xb = xb.to(device)
-            if channels_last:
-                xb = xb.to(memory_format=torch.channels_last)
             all_preds.append(model(xb).cpu())
     preds = torch.cat(all_preds).numpy().reshape(-1)
     tgts = y_val.cpu().numpy().reshape(-1)
@@ -283,12 +312,16 @@ def eval_model(model, x_val, y_val, batch_size, gpu_pinned, channels_last, devic
 def run_config(cfg: R2Cfg, x_train_cpu, y_train_cpu, x_val_cpu, y_val_cpu, device, epochs):
     print(f"\n{'=' * 72}")
     print(f"[{cfg.name}] {cfg.description}")
-    print(f"  bs={cfg.batch_size}, compile={cfg.compile_mode}, fullgraph={cfg.compile_fullgraph}")
     print(
-        f"  amp={cfg.amp_dtype}, fused_adamw={cfg.fused_adamw}, channels_last={cfg.channels_last}"
+        f"  bs={cfg.batch_size}, compile={cfg.compile_mode}, fullgraph={cfg.compile_fullgraph}, "
+        f"dynamic={cfg.compile_dynamic}"
+    )
+    print(
+        f"  amp={cfg.amp_dtype}, fused_adamw={cfg.fused_adamw}, "
+        f"gpu_pinned={cfg.gpu_pinned}, grad_accum={cfg.grad_accum}"
     )
 
-    model = make_model(device, channels_last=cfg.channels_last)
+    model = make_model(device)
     print(f"  Params: {sum(p.numel() for p in model.parameters()):,}")
 
     if cfg.gpu_pinned:
@@ -303,7 +336,12 @@ def run_config(cfg: R2Cfg, x_train_cpu, y_train_cpu, x_val_cpu, y_val_cpu, devic
 
     if cfg.compile_mode is not None:
         t0 = time.perf_counter()
-        model = torch.compile(model, mode=cfg.compile_mode, fullgraph=cfg.compile_fullgraph)
+        model = torch.compile(
+            model,
+            mode=cfg.compile_mode,
+            fullgraph=cfg.compile_fullgraph,
+            dynamic=cfg.compile_dynamic if cfg.compile_dynamic else None,
+        )
         print(f"  compile() call: {time.perf_counter() - t0:.1f}s")
 
     # Optimizer
@@ -323,10 +361,12 @@ def run_config(cfg: R2Cfg, x_train_cpu, y_train_cpu, x_val_cpu, y_val_cpu, devic
     optimizer.zero_grad(set_to_none=True)
 
     n_batches_per_epoch = x_tr.shape[0] // cfg.batch_size
+    # For grad accumulation, optimizer steps happen every `grad_accum` micro-steps
+    optimizer_steps_per_epoch = n_batches_per_epoch // max(cfg.grad_accum, 1)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer,
         max_lr=cfg.lr,
-        total_steps=n_batches_per_epoch * epochs,
+        total_steps=optimizer_steps_per_epoch * epochs,
         pct_start=0.3,
     )
 
@@ -358,9 +398,7 @@ def run_config(cfg: R2Cfg, x_train_cpu, y_train_cpu, x_val_cpu, y_val_cpu, devic
         t1 = time.perf_counter()
         epoch_times.append(t1 - t0)
 
-        val_r = eval_model(
-            model, x_vl, y_vl, cfg.batch_size, cfg.gpu_pinned, cfg.channels_last, device
-        )
+        val_r = eval_model(model, x_vl, y_vl, cfg.batch_size, cfg.gpu_pinned, device)
         val_rs.append(val_r)
         print(f"  ep{ep + 1:02d}: {t1 - t0:.2f}s  loss={train_loss:.4f}  val_r={val_r:.4f}")
 
