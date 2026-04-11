@@ -47,20 +47,9 @@ def load_k562_data(n_train: int, seed: int = 42):
         use_hashfrag=True,
     )
     all_seqs = list(ds.sequences)
-
-    # Use oracle pseudolabels if available, otherwise ground truth
-    oracle_path = REPO / "outputs" / "oracle_pseudolabels_k562_ag" / "train_oracle_labels.npz"
-    if oracle_path.exists():
-        oracle_data = np.load(str(oracle_path))
-        all_labels = oracle_data["oracle_mean"].astype(np.float32)
-        print(f"Using oracle pseudolabels ({len(all_labels)} labels)")
-    else:
-        all_labels = ds.labels.astype(np.float32)
-        print(f"Using ground truth labels ({len(all_labels)} labels)")
-
-    assert len(all_seqs) == len(all_labels), (
-        f"Mismatch: {len(all_seqs)} seqs vs {len(all_labels)} labels"
-    )
+    # Use ground truth labels (speed benchmark doesn't need oracle labels)
+    all_labels = ds.labels.astype(np.float32)
+    print(f"Loaded {len(all_seqs)} sequences with ground truth labels")
 
     # Subsample training set
     rng = np.random.RandomState(seed)
@@ -83,13 +72,7 @@ def load_k562_data(n_train: int, seed: int = 42):
         use_hashfrag=True,
     )
     val_seqs = list(val_ds.sequences)
-
-    val_oracle_path = REPO / "outputs" / "oracle_pseudolabels_k562_ag" / "val_oracle_labels.npz"
-    if val_oracle_path.exists():
-        val_oracle = np.load(str(val_oracle_path))
-        val_labels = val_oracle["oracle_mean"].astype(np.float32)
-    else:
-        val_labels = val_ds.labels.astype(np.float32)
+    val_labels = val_ds.labels.astype(np.float32)
 
     return train_seqs, train_labels, val_seqs, val_labels
 
