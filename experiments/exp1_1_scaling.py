@@ -1897,6 +1897,7 @@ def _train_student(
     s1_checkpoint: str | None = None,
     multitask_labels: dict[str, np.ndarray] | None = None,
     block_sizes: list[int] | None = None,
+    ks: int = 5,
 ) -> SequenceModel:
     """Train a student model and return it."""
     is_multitask = multitask_labels is not None and student_type in (
@@ -2018,6 +2019,7 @@ def _train_student(
             ensemble_size=ensemble_size,
             multitask=is_multitask,
             block_sizes=block_sizes,
+            ks=ks,
             train_config=LegNetTrainConfig(
                 batch_size=batch_size,
                 lr=lr,
@@ -2815,6 +2817,7 @@ def run_scaling_experiment(
                         s1_checkpoint=s1_checkpoint,
                         multitask_labels=multitask_train_labels,
                         block_sizes=hp.get("block_sizes"),
+                        ks=hp.get("ks", 5),
                     )
 
                     # Validation evaluation
