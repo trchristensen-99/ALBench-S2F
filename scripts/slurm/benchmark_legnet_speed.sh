@@ -20,7 +20,7 @@ set +u; source /etc/profile.d/modules.sh; set -u
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
-source scripts/slurm/setup_hpc_deps.sh
+# Skip setup_hpc_deps.sh — LegNet only needs PyTorch (no AlphaGenome/JAX)
 
 echo "=== legnet_speed_benchmark node=${SLURMD_NODENAME} date=$(date) ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
