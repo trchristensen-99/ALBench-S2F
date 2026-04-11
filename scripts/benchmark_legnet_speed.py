@@ -349,8 +349,8 @@ def train_epoch_benchmark(
         n_batches += 1
 
         if not cfg.skip_metrics:
-            all_preds.append(pred.detach())
-            all_tgts.append(y_batch.detach())
+            all_preds.append(pred.detach().clone())
+            all_tgts.append(y_batch.detach().clone())
 
     metrics = {"loss": total_loss / max(n_batches, 1)}
     if not cfg.skip_metrics and all_preds:
@@ -380,8 +380,8 @@ def eval_epoch(model: nn.Module, data_iter, device: torch.device, gpu_pinned: bo
             loss = F.mse_loss(pred, y_batch)
             total_loss += loss.item()
             n_batches += 1
-            all_preds.append(pred.cpu())
-            all_tgts.append(y_batch.cpu())
+            all_preds.append(pred.clone().cpu())
+            all_tgts.append(y_batch.clone().cpu())
 
     preds = torch.cat(all_preds).numpy().reshape(-1)
     tgts = torch.cat(all_tgts).numpy().reshape(-1)
