@@ -1,0 +1,13 @@
+{
+  "transform": "piecewise",
+  "slope": 1.296,
+  "intercept": 0.522,
+  "gosai_label_mean": -0.1586592,
+  "gosai_label_std": 0.35510400000000003,
+  "agarwal_shuf_mean": -0.5252,
+  "agarwal_shuf_std": 0.274,
+  "n_random": 50000,
+  "n_dinuc": 50000,
+  "n_gc": 50000,
+  "seed": 42
+}
