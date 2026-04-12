@@ -1,0 +1,8 @@
+{
+  "name": "ctrl_neg_tight",
+  "desc": "Tighter around ctrl_neg median",
+  "mean": 0.19,
+  "std": 0.3,
+  "n": 49224,
+  "seed": 42
+}

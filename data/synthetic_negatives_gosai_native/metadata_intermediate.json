@@ -1,0 +1,8 @@
+{
+  "name": "intermediate",
+  "desc": "Intermediate (ctrl_neg + CpG correction)",
+  "mean": 0.4,
+  "std": 0.45,
+  "n": 49224,
+  "seed": 42
+}

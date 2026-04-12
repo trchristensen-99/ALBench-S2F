@@ -1,0 +1,8 @@
+{
+  "name": "ctrl_neg",
+  "desc": "Gosai ctrl_neg distribution (genomic non-regulatory)",
+  "mean": 0.27,
+  "std": 0.49,
+  "n": 49224,
+  "seed": 42
+}

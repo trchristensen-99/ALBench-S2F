@@ -1,0 +1,8 @@
+{
+  "name": "zero",
+  "desc": "Zero-centered (biological null hypothesis)",
+  "mean": 0.0,
+  "std": 0.3,
+  "n": 49224,
+  "seed": 42
+}
