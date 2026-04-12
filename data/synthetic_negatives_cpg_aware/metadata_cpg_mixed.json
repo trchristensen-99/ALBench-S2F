@@ -1,0 +1,6 @@
+{
+  "name": "cpg_mixed",
+  "desc": "50/50 CpG-depleted + natural random",
+  "label_mean": 0.25,
+  "label_std": 0.35
+}

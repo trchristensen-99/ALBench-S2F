@@ -1,0 +1,6 @@
+{
+  "name": "high_cpg_only",
+  "desc": "High-CpG random only (0.04-0.08)",
+  "label_mean": 0.2,
+  "label_std": 0.3
+}

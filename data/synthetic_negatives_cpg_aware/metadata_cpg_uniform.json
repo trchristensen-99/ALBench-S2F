@@ -1,0 +1,6 @@
+{
+  "name": "cpg_uniform",
+  "desc": "CpG-varied random, uniform label +0.20",
+  "label_mean": 0.2,
+  "label_std": 0.3
+}

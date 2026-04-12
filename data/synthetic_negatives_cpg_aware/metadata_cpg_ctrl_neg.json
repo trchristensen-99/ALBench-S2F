@@ -1,0 +1,6 @@
+{
+  "name": "cpg_ctrl_neg",
+  "desc": "CpG-varied random, ctrl_neg label",
+  "label_mean": 0.27,
+  "label_std": 0.49
+}

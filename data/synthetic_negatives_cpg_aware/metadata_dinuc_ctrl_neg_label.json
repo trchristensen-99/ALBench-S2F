@@ -1,0 +1,6 @@
+{
+  "name": "dinuc_ctrl_neg_label",
+  "desc": "Dinuc-shuffled genomic, ctrl_neg label",
+  "label_mean": 0.27,
+  "label_std": 0.49
+}
