@@ -718,6 +718,64 @@ def main(cfg: DictConfig) -> None:
             flush=True,
         )
 
+    # ── Bias evaluation: random DNA, shuffled controls, intergenic sequences ──
+    print("\n[bias] Evaluating on control sequences …", flush=True)
+    bias_results: dict[str, dict[str, float]] = {}
+
+    # 1. Random 200bp DNA sequences (seed=42, N=500)
+    rng_bias = np.random.RandomState(42)
+    random_seqs: list[str] = []
+    _BASES = "ACGT"
+    for _ in range(500):
+        random_seqs.append("".join(_BASES[i] for i in rng_bias.randint(0, 4, size=200)))
+    random_preds = _predict_sequences(predict_step, model._params, model._state, random_seqs)
+    bias_results["random_dna"] = {
+        "mean": float(np.mean(random_preds)),
+        "std": float(np.std(random_preds)),
+        "pct_positive": float(np.mean(random_preds > 0) * 100),
+        "n": len(random_preds),
+    }
+
+    # 2-3. Agarwal shuffled and intergenic controls
+    controls_path = Path("data/agarwal_2025/k562_all_controls_200bp.tsv")
+    if controls_path.exists():
+        ctrl_df = pd.read_csv(controls_path, sep="\t")
+
+        for cat_name, cat_label in [
+            ("shuffled_negative", "shuffled"),
+            ("ernst_negative", "intergenic"),
+        ]:
+            cat_df = ctrl_df[ctrl_df["category"] == cat_name]
+            if len(cat_df) == 0:
+                continue
+            cat_seqs = cat_df["sequence"].tolist()
+            cat_preds = _predict_sequences(predict_step, model._params, model._state, cat_seqs)
+            bias_results[cat_label] = {
+                "mean": float(np.mean(cat_preds)),
+                "std": float(np.std(cat_preds)),
+                "pct_positive": float(np.mean(cat_preds > 0) * 100),
+                "n": len(cat_preds),
+            }
+    else:
+        print(f"[bias] Controls file not found: {controls_path}", flush=True)
+
+    # Save bias results
+    bias_json = output_dir / "bias_eval.json"
+    with open(bias_json, "w") as f:
+        json.dump(bias_results, f, indent=2)
+    print(f"[bias] Wrote {bias_json}", flush=True)
+
+    # Print summary
+    parts = []
+    for key in ["random_dna", "shuffled", "intergenic"]:
+        if key in bias_results:
+            m = bias_results[key]
+            parts.append(f"{key}_mean={m['mean']:+.2f}")
+    print(f"[bias] {' '.join(parts) if parts else 'no results'}", flush=True)
+
+    for key, m in bias_results.items():
+        wandb.log({f"bias/{key}/mean": m["mean"], f"bias/{key}/pct_positive": m["pct_positive"]})
+
     wandb.finish()
 
 

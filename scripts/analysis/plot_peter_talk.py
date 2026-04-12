@@ -164,7 +164,22 @@ def plot_strategy_panel(ax, data, metric_path, ylabel, title, strategies=None):
             zorder=zorder,
         )
         if stds.any():
-            ax.fill_between(sizes, means - stds, means + stds, alpha=0.1, color=color)
+            ax.fill_between(
+                sizes, means - stds, means + stds, alpha=0.15, color=color, zorder=zorder - 1
+            )
+            # Add visible error bars where CI is too narrow for fill_between
+            ax.errorbar(
+                sizes,
+                means,
+                yerr=stds,
+                fmt="none",
+                ecolor=color,
+                elinewidth=1.0,
+                capsize=3,
+                capthick=1.0,
+                alpha=0.6,
+                zorder=zorder,
+            )
 
     ax.set_xscale("log")
     ax.set_xlabel("N training sequences", fontsize=12)
