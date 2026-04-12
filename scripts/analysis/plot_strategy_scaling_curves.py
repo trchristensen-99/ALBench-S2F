@@ -312,6 +312,7 @@ def plot_category_scaling(
 def main():
     configs = {
         "k562": [
+            ("legnet_ag_s2", "LegNet (AG S2 Oracle)"),
             ("alphagenome_k562_s1_ag", "AG S1 (AG oracle)"),
             ("dream_rnn_dream_rnn", "DREAM-RNN (DREAM oracle)"),
             ("alphagenome_k562_s1_dream_rnn", "AG S1 (DREAM oracle)"),

@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
 """Generate presentation-quality figures for Peter's NYGC/MSKCC talks.
 
-Panel A: Exp0 scaling curves — performance vs training data size
-         Shows data regimes (small/medium/large) with annotations
-Panel B: Exp1.1 strategy comparison — which reservoir strategies beat random
-         Shows scaling behavior of different data generation strategies
+Panel A: Exp0 scaling curves — model architecture comparison at different data sizes
+Panel B: Exp1.1 strategy comparison — LegNet student with AG S2 oracle, key strategies
+Panel C: Strategy comparison OOD — same data but OOD metric
 
 Key messages:
 - Foundation models (AG) have flat scaling (pretrained knowledge dominates)
 - From-scratch models show steep scaling (data-hungry)
 - Strategic data selection can beat random at every scale
-- Identifies the data regimes where AL can have the most impact
+- Different strategies excel at different scales / metrics
 """
 
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
-from glob import glob
-
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -33,263 +31,288 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 def load_exp0_scaling():
     """Load Exp0 K562 scaling curve data (AG oracle, in_dist Pearson R)."""
-    sizes = [3197, 6395, 15987, 31974, 63949, 159871, 319742]
+    base = REPO / "outputs" / "exp0_oracle_scaling_v4" / "k562"
     models = {
-        "AG S1 (Probing)": ("alphagenome_k562_s1", "#80A0C7"),
-        "DREAM-CNN": ("dream_cnn", "#9B59B6"),
+        "AG S1 (Probing)": ("alphagenome_k562_s1", "#2980B9"),
         "LegNet": ("legnet", "#D4A017"),
+        "DREAM-CNN": ("dream_cnn", "#9B59B6"),
         "DREAM-RNN": ("dream_rnn", "#8B9DAF"),
     }
 
     data = {}
     for display_name, (model_name, color) in models.items():
-        means, stds = [], []
-        for n in sizes:
-            vals = []
-            for f in glob(
-                str(
-                    REPO
-                    / f"outputs/exp0_oracle_scaling_v4/k562/{model_name}/random/n{n}/hp*/seed*/result.json"
-                )
-            ):
-                d = json.load(open(f))
-                p = d.get("test_metrics", {}).get("in_dist", {}).get("pearson_r")
-                if p:
-                    vals.append(p)
-            if vals:
-                means.append(np.mean(vals))
-                stds.append(np.std(vals) if len(vals) > 1 else 0)
-            else:
-                means.append(np.nan)
-                stds.append(0)
-        data[display_name] = {
-            "sizes": sizes,
-            "means": np.array(means),
-            "stds": np.array(stds),
-            "color": color,
-        }
-    return data
-
-
-def load_strategy_comparison():
-    """Load Exp1.1 strategy comparison data.
-
-    Uses DREAM-RNN student with DREAM-RNN oracle (shows most variation).
-    Data is at exp1_1/k562/dream_rnn_dream_rnn/{strategy}/n*/hp*/seed*/result.json
-    """
-    base = REPO / "outputs" / "exp1_1" / "k562" / "dream_rnn_dream_rnn"
-
-    strat_map = [
-        ("random", "Random (Baseline)", "#E74C3C"),
-        ("genomic", "Genomic", "#2ECC71"),
-        ("dinuc_shuffle", "Dinuc. Shuffle", "#3498DB"),
-        ("evoaug_heavy", "EvoAug", "#9B59B6"),
-        ("recombination_uniform", "Recombination", "#E67E22"),
-        ("gc_matched", "GC-Matched", "#1ABC9C"),
-        ("motif_grammar", "Motif Grammar", "#F39C12"),
-    ]
-
-    # Find all available sizes
-    sizes_found = set()
-    for strat_dir, _, _ in strat_map:
-        for d in (base / strat_dir).glob("n*"):
+        results_by_n = defaultdict(lambda: defaultdict(list))
+        for rj in (base / model_name).rglob("result.json"):
             try:
-                sizes_found.add(int(d.name[1:]))
-            except ValueError:
-                pass
-    sizes = sorted(sizes_found)
-    if not sizes:
-        return {}, []
+                d = json.loads(rj.read_text())
+            except Exception:
+                continue
+            n = d.get("n_train", 0)
+            hp = json.dumps(d.get("hp_config", {}), sort_keys=True)
+            val_r = d.get("val_pearson_r", 0)
+            p = d.get("test_metrics", {}).get("in_dist", {}).get("pearson_r")
+            if p is not None:
+                results_by_n[n][hp].append((val_r, p))
 
-    strategies = {}
-    for strat_dir, display, color in strat_map:
-        means, stds, valid_sizes = [], [], []
-        for n in sizes:
-            vals = []
-            for f in glob(str(base / strat_dir / f"n{n}" / "hp*/seed*/result.json")):
-                d = json.load(open(f))
-                p = d.get("test_metrics", {}).get("in_dist", {}).get("pearson_r")
-                if p:
-                    vals.append(p)
-            if vals:
-                means.append(np.mean(vals))
-                stds.append(np.std(vals) if len(vals) > 1 else 0)
-                valid_sizes.append(n)
+        sizes, means, stds = [], [], []
+        for n in sorted(results_by_n):
+            hp_map = results_by_n[n]
+            best_hp = max(hp_map, key=lambda k: np.mean([v[0] for v in hp_map[k]]))
+            vals = [v[1] for v in hp_map[best_hp]]
+            sizes.append(n)
+            means.append(np.mean(vals))
+            stds.append(np.std(vals) if len(vals) > 1 else 0)
 
-        if valid_sizes:
-            strategies[display] = {
-                "sizes": valid_sizes,
+        if sizes:
+            data[display_name] = {
+                "sizes": sizes,
                 "means": np.array(means),
                 "stds": np.array(stds),
                 "color": color,
             }
+    return data
 
-    return strategies, sizes
+
+def load_strategy_data():
+    """Load LegNet + AG S2 strategy scaling data.
+
+    Returns dict: {strategy: {n: [pearson_r values for best HP]}}
+    """
+    base = REPO / "outputs" / "exp1_1" / "k562" / "legnet_ag_s2"
+    if not base.exists():
+        return {}
+
+    raw = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    for rj in base.rglob("result.json"):
+        try:
+            d = json.loads(rj.read_text())
+        except Exception:
+            continue
+        strategy = d.get("reservoir", str(rj.relative_to(base)).split("/")[0])
+        n = d.get("n_train", 0)
+        hp = json.dumps(d.get("hp_config", {}), sort_keys=True)
+        val_r = d.get("val_pearson_r", 0)
+        test = d.get("test_metrics", {})
+        raw[strategy][n][hp].append((val_r, test))
+
+    result = {}
+    for strategy in raw:
+        result[strategy] = {}
+        for n, hp_map in raw[strategy].items():
+            best_hp = max(hp_map, key=lambda k: np.mean([v[0] for v in hp_map[k]]))
+            result[strategy][n] = hp_map[best_hp]
+    return result
 
 
-def plot_talk_figure():
-    """Create the 2-panel talk figure."""
+# Strategy display config
+KEY_STRATEGIES = {
+    "random": ("Random", "#888888", "--", 2.5),
+    "genomic": ("Genomic", "#1f77b4", "-", 2.0),
+    "dinuc_shuffle": ("Dinuc. Shuffle", "#ff7f0e", "-", 1.5),
+    "prm_5pct": ("Mutagenesis 5%", "#e377c2", "-", 1.5),
+    "evoaug_structural": ("EvoAug Structural", "#2ca02c", "-", 1.5),
+    "evoaug_heavy": ("EvoAug Heavy", "#d62728", "-", 1.5),
+    "recombination_uniform": ("Recombination", "#9467bd", "-", 1.5),
+    "motif_grammar": ("Motif Grammar", "#8c564b", "-", 1.5),
+    "motif_planted": ("Motif Planted", "#17becf", "-", 1.5),
+}
+
+
+def extract_metric(data, strategy, metric_path):
+    """Extract metric values by strategy and training size."""
+    if strategy not in data:
+        return [], [], []
+    sizes = sorted(data[strategy].keys())
+    means, stds, valid_sizes = [], [], []
+    for n in sizes:
+        keys = metric_path.split(".")
+        vals = []
+        for _, test in data[strategy][n]:
+            v = test
+            for k in keys:
+                v = v.get(k, {}) if isinstance(v, dict) else None
+                if v is None:
+                    break
+            if v is not None:
+                vals.append(v)
+        if vals:
+            means.append(np.mean(vals))
+            stds.append(np.std(vals) if len(vals) > 1 else 0)
+            valid_sizes.append(n)
+    return valid_sizes, np.array(means), np.array(stds)
+
+
+def plot_strategy_panel(ax, data, metric_path, ylabel, title, strategies=None):
+    """Plot strategy scaling curves on a single axes."""
+    if strategies is None:
+        strategies = KEY_STRATEGIES
+
+    for strat, (label, color, ls, lw) in strategies.items():
+        sizes, means, stds = extract_metric(data, strat, metric_path)
+        if not sizes:
+            continue
+        zorder = 10 if strat == "random" else 1
+        ax.plot(
+            sizes,
+            means,
+            color=color,
+            label=label,
+            linewidth=lw,
+            linestyle=ls,
+            marker="o",
+            markersize=4,
+            zorder=zorder,
+        )
+        if stds.any():
+            ax.fill_between(sizes, means - stds, means + stds, alpha=0.1, color=color)
+
+    ax.set_xscale("log")
+    ax.set_xlabel("N training sequences", fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.legend(fontsize=8, loc="lower right", frameon=True, facecolor="white", edgecolor="gray")
+    ax.grid(alpha=0.3, zorder=0)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
+def plot_exp0_panel(ax, data):
+    """Plot Exp0 scaling curves."""
+    for name, d in data.items():
+        valid = ~np.isnan(d["means"])
+        sizes = np.array(d["sizes"])[valid]
+        means = d["means"][valid]
+        stds = d["stds"][valid]
+
+        ax.plot(
+            sizes,
+            means,
+            "o-",
+            color=d["color"],
+            label=name,
+            linewidth=2.2,
+            markersize=5,
+            zorder=5,
+        )
+        if stds.any():
+            ax.fill_between(sizes, means - stds, means + stds, alpha=0.12, color=d["color"])
+
+    ax.set_xscale("log")
+    ax.set_xlabel("N training sequences", fontsize=12)
+    ax.set_ylabel("In-Dist Pearson R", fontsize=12)
+    ax.set_title("A. Model Scaling (K562, AG S2 Oracle Labels)", fontsize=13, fontweight="bold")
+    ax.set_ylim(0.35, 1.0)
+    ax.legend(fontsize=10, loc="lower right", frameon=True, facecolor="white", edgecolor="gray")
+    ax.grid(alpha=0.3, zorder=0)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
+def main():
+    print("Loading data...")
+    exp0_data = load_exp0_scaling()
+    strategy_data = load_strategy_data()
+
+    print(f"  Exp0: {len(exp0_data)} models")
+    print(f"  Strategy: {len(strategy_data)} strategies")
+
+    # ── 2-panel: Exp0 + Strategy In-Dist ─────────────────────────────
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-
-    # ── Panel A: Exp0 Scaling Curves ──────────────────────────────────
-    data = load_exp0_scaling()
-
-    for name, d in data.items():
-        valid = ~np.isnan(d["means"])
-        sizes = np.array(d["sizes"])[valid]
-        means = d["means"][valid]
-        stds = d["stds"][valid]
-
-        ax1.plot(
-            sizes, means, "o-", color=d["color"], label=name, linewidth=2, markersize=6, zorder=5
-        )
-        if stds.any():
-            ax1.fill_between(sizes, means - stds, means + stds, alpha=0.15, color=d["color"])
-
-    # Annotate data regimes
-    ax1.axvspan(1000, 10000, alpha=0.05, color="red", zorder=0)
-    ax1.axvspan(10000, 100000, alpha=0.05, color="orange", zorder=0)
-    ax1.axvspan(100000, 400000, alpha=0.05, color="green", zorder=0)
-    ax1.text(5000, 0.52, "Small\ndata", ha="center", fontsize=9, color="#C0392B", fontweight="bold")
-    ax1.text(
-        35000, 0.52, "Medium\ndata", ha="center", fontsize=9, color="#E67E22", fontweight="bold"
+    plot_exp0_panel(ax1, exp0_data)
+    plot_strategy_panel(
+        ax2,
+        strategy_data,
+        "in_dist.pearson_r",
+        "In-Dist Pearson R",
+        "B. Strategy Comparison (LegNet, AG S2 Oracle)",
     )
-    ax1.text(
-        200000, 0.52, "Large\ndata", ha="center", fontsize=9, color="#27AE60", fontweight="bold"
-    )
-
-    ax1.set_xscale("log")
-    ax1.set_xlabel("N training sequences", fontsize=12)
-    ax1.set_ylabel("In-Distribution Pearson R", fontsize=12)
-    ax1.set_title("A. Data Scaling Behavior (K562, AG Oracle)", fontsize=13, fontweight="bold")
-    ax1.set_ylim(0.45, 1.0)
-    ax1.legend(fontsize=10, loc="lower right", frameon=True, facecolor="white", edgecolor="gray")
-    ax1.grid(alpha=0.3, zorder=0)
-    ax1.spines["top"].set_visible(False)
-    ax1.spines["right"].set_visible(False)
-
-    # ── Panel B: Strategy Comparison ──────────────────────────────────
-    strategies, all_sizes = load_strategy_comparison()
-
-    if strategies:
-        for name, d in strategies.items():
-            linestyle = "--" if name == "Random (Baseline)" else "-"
-            linewidth = 2.5 if name == "Random (Baseline)" else 1.8
-            ax2.plot(
-                d["sizes"],
-                d["means"],
-                "o" + linestyle,
-                color=d["color"],
-                label=name,
-                linewidth=linewidth,
-                markersize=5,
-                zorder=5,
-            )
-            if d["stds"].any():
-                ax2.fill_between(
-                    d["sizes"],
-                    d["means"] - d["stds"],
-                    d["means"] + d["stds"],
-                    alpha=0.1,
-                    color=d["color"],
-                )
-
-        ax2.set_xscale("log")
-        ax2.set_xlabel("N training sequences", fontsize=12)
-        ax2.set_ylabel("In-Distribution Pearson R", fontsize=12)
-        ax2.set_title(
-            "B. Reservoir Strategy Comparison (K562, DREAM-RNN)", fontsize=13, fontweight="bold"
-        )
-        ax2.legend(
-            fontsize=9, loc="lower right", frameon=True, facecolor="white", edgecolor="gray", ncol=1
-        )
-        ax2.grid(alpha=0.3, zorder=0)
-        ax2.spines["top"].set_visible(False)
-        ax2.spines["right"].set_visible(False)
-    else:
-        ax2.text(
-            0.5,
-            0.5,
-            "Strategy comparison data\nnot available in expected format",
-            ha="center",
-            va="center",
-            transform=ax2.transAxes,
-            fontsize=12,
-        )
-        ax2.set_title("B. Reservoir Strategy Comparison", fontsize=13, fontweight="bold")
-
     fig.tight_layout(w_pad=3)
-    fig.savefig(OUT / "scaling_and_strategy_2panel.png", dpi=300, bbox_inches="tight")
-    fig.savefig(OUT / "scaling_and_strategy_2panel.pdf", bbox_inches="tight")
+    fig.savefig(OUT / "talk_2panel_exp0_strategy.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_2panel_exp0_strategy.pdf", bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved: {OUT / 'scaling_and_strategy_2panel.png'}")
+    print(f"Saved: {OUT / 'talk_2panel_exp0_strategy.png'}")
 
-    # Also save Panel A alone (cleaner for single-slide use)
-    fig_a, ax_a = plt.subplots(figsize=(8, 6))
-    for name, d in data.items():
-        valid = ~np.isnan(d["means"])
-        sizes = np.array(d["sizes"])[valid]
-        means = d["means"][valid]
-        stds = d["stds"][valid]
-        ax_a.plot(
-            sizes, means, "o-", color=d["color"], label=name, linewidth=2.5, markersize=8, zorder=5
-        )
-        if stds.any():
-            ax_a.fill_between(sizes, means - stds, means + stds, alpha=0.15, color=d["color"])
-        # Add value labels at first and last point
-        if len(means) > 0:
-            ax_a.annotate(
-                f"{means[0]:.3f}",
-                (sizes[0], means[0]),
-                textcoords="offset points",
-                xytext=(-5, 8),
-                fontsize=8,
-                color=d["color"],
-                fontweight="bold",
-            )
-            ax_a.annotate(
-                f"{means[-1]:.3f}",
-                (sizes[-1], means[-1]),
-                textcoords="offset points",
-                xytext=(5, 8),
-                fontsize=8,
-                color=d["color"],
-                fontweight="bold",
-            )
+    # ── 2-panel: In-Dist + OOD Strategy ──────────────────────────────
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    plot_strategy_panel(
+        ax1,
+        strategy_data,
+        "in_dist.pearson_r",
+        "In-Dist Pearson R",
+        "A. Strategy Scaling — In-Distribution",
+    )
+    plot_strategy_panel(
+        ax2,
+        strategy_data,
+        "ood.pearson_r",
+        "OOD Pearson R",
+        "B. Strategy Scaling — Out-of-Distribution",
+    )
+    fig.tight_layout(w_pad=3)
+    fig.savefig(OUT / "talk_2panel_strategy_id_ood.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_2panel_strategy_id_ood.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {OUT / 'talk_2panel_strategy_id_ood.png'}")
 
-    ax_a.axvspan(1000, 10000, alpha=0.06, color="red", zorder=0)
-    ax_a.axvspan(10000, 100000, alpha=0.06, color="orange", zorder=0)
-    ax_a.axvspan(100000, 400000, alpha=0.06, color="green", zorder=0)
-    ax_a.text(
-        5000, 0.48, "Small data", ha="center", fontsize=10, color="#C0392B", fontweight="bold"
+    # ── Single panel: Exp0 alone ─────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(8, 6))
+    plot_exp0_panel(ax, exp0_data)
+    ax.set_title(
+        "K562 MPRA — Data Scaling Behavior\n(AG S2 Oracle Labels)", fontsize=14, fontweight="bold"
     )
-    ax_a.text(
-        35000, 0.48, "Medium data", ha="center", fontsize=10, color="#E67E22", fontweight="bold"
-    )
-    ax_a.text(
-        200000, 0.48, "Large data", ha="center", fontsize=10, color="#27AE60", fontweight="bold"
-    )
+    fig.tight_layout()
+    fig.savefig(OUT / "talk_exp0_scaling.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_exp0_scaling.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {OUT / 'talk_exp0_scaling.png'}")
 
-    ax_a.set_xscale("log")
-    ax_a.set_xlabel("N training sequences", fontsize=13)
-    ax_a.set_ylabel("In-Distribution Pearson R", fontsize=13)
-    ax_a.set_title(
-        "K562 MPRA — Data Scaling Behavior\n(Oracle-Labeled Training Data)",
-        fontsize=14,
-        fontweight="bold",
+    # ── Single panel: Strategy In-Dist ───────────────────────────────
+    fig, ax = plt.subplots(figsize=(10, 7))
+    plot_strategy_panel(
+        ax,
+        strategy_data,
+        "in_dist.pearson_r",
+        "In-Dist Pearson R",
+        "K562 — Reservoir Strategy Scaling (LegNet Student, AG S2 Oracle)",
     )
-    ax_a.set_ylim(0.42, 1.02)
-    ax_a.legend(fontsize=11, loc="lower right", frameon=True, facecolor="white", edgecolor="gray")
-    ax_a.grid(alpha=0.3, zorder=0)
-    ax_a.spines["top"].set_visible(False)
-    ax_a.spines["right"].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(OUT / "talk_strategy_indist.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_strategy_indist.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {OUT / 'talk_strategy_indist.png'}")
 
-    fig_a.tight_layout()
-    fig_a.savefig(OUT / "scaling_curves_single.png", dpi=300, bbox_inches="tight")
-    fig_a.savefig(OUT / "scaling_curves_single.pdf", bbox_inches="tight")
-    plt.close(fig_a)
-    print(f"Saved: {OUT / 'scaling_curves_single.png'}")
+    # ── Single panel: Strategy OOD ───────────────────────────────────
+    fig, ax = plt.subplots(figsize=(10, 7))
+    plot_strategy_panel(
+        ax,
+        strategy_data,
+        "ood.pearson_r",
+        "OOD Pearson R",
+        "K562 — Reservoir Strategy Scaling, OOD (LegNet Student, AG S2 Oracle)",
+    )
+    fig.tight_layout()
+    fig.savefig(OUT / "talk_strategy_ood.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_strategy_ood.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {OUT / 'talk_strategy_ood.png'}")
+
+    # ── Single panel: SNV ref+alt ────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(10, 7))
+    plot_strategy_panel(
+        ax,
+        strategy_data,
+        "snv_abs.pearson_r",
+        "SNV (ref+alt) Pearson R",
+        "K562 — Variant Effect Prediction (LegNet Student, AG S2 Oracle)",
+    )
+    fig.tight_layout()
+    fig.savefig(OUT / "talk_strategy_snv.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_strategy_snv.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {OUT / 'talk_strategy_snv.png'}")
+
+    print(f"\nAll figures in: {OUT}")
 
 
 if __name__ == "__main__":
-    plot_talk_figure()
+    main()
