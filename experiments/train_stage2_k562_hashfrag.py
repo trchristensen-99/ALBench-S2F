@@ -126,10 +126,23 @@ def collate_stage2(
                 full = np.roll(full, shift, axis=0)
         x[i] = full
         y[i] = float(label.numpy()) if hasattr(label, "numpy") else float(label)
+    # Compute CpG frequency from one-hot for debiasing modes
+    # CpG = C at position i AND G at position i+1 in the 200bp core (positions 200:400)
+    cpg_freq = np.zeros(bsz, dtype=np.float32)
+    core_start, core_end = 200, 400  # core region in 600bp
+    for i in range(bsz):
+        core = x[i, core_start:core_end, :]  # (200, 4) ACGT
+        c_pos = core[:, 1]  # C channel
+        g_pos = core[:, 2]  # G channel
+        # CpG = C[j]*G[j+1] for j in 0..198
+        cpg_count = np.sum(c_pos[:-1] * g_pos[1:])
+        cpg_freq[i] = cpg_count / 199.0
+
     return {
         "sequences": x,
         "targets": y,
         "organism_index": np.zeros(bsz, dtype=np.int32),
+        "cpg_freq": cpg_freq,
     }
 
 
@@ -563,6 +576,16 @@ def main(cfg: DictConfig) -> None:
         persistent_workers=n_workers > 0,
     )
 
+    # ── Debiasing configuration ─────────────────────────────────────────────────
+    debias_mode = str(cfg.get("debias_mode", "none"))
+    debias_lambda = float(cfg.get("debias_lambda", 0.1))
+    # Group DRO bins: 4 CpG bins × 2 activity bins = 8 groups
+    cpg_bin_edges = jnp.array([0.0, 0.005, 0.015, 0.03, 1.0])
+    activity_threshold = 0.5  # split active/inactive
+    n_groups = 8
+    if debias_mode != "none":
+        print(f"  Debiasing: mode={debias_mode}, lambda={debias_lambda}", flush=True)
+
     # ── JIT steps ──────────────────────────────────────────────────────────────
     @jax.jit
     def train_step(params, current_opt_state, batch):
@@ -577,7 +600,52 @@ def main(cfg: DictConfig) -> None:
                 requested_outputs=[unique_head_name],
             )[unique_head_name]
             pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
-            return jnp.mean((pred - batch["targets"]) ** 2)
+            mse = jnp.mean((pred - batch["targets"]) ** 2)
+
+            if debias_mode == "spectral":
+                # Spectral decoupling: L2 penalty on predictions
+                # Slows learning of "easy" features (CpG shortcut)
+                return mse + debias_lambda * jnp.mean(pred**2)
+
+            elif debias_mode == "group_dro":
+                # Group DRO: optimize worst-group loss
+                per_sample_loss = (pred - batch["targets"]) ** 2
+                cpg = batch["cpg_freq"]
+                targets = batch["targets"]
+
+                # Assign groups: CpG_bin (4) × activity_bin (2)
+                cpg_bin = jnp.digitize(cpg, cpg_bin_edges) - 1
+                cpg_bin = jnp.clip(cpg_bin, 0, 3)
+                act_bin = (targets > activity_threshold).astype(jnp.int32)
+                group_id = cpg_bin * 2 + act_bin
+
+                # Compute per-group mean loss, take max
+                group_losses = jnp.zeros(n_groups)
+                group_counts = jnp.zeros(n_groups)
+                for g in range(n_groups):
+                    mask = (group_id == g).astype(jnp.float32)
+                    count = jnp.sum(mask) + 1e-8
+                    group_losses = group_losses.at[g].set(jnp.sum(per_sample_loss * mask) / count)
+                    group_counts = group_counts.at[g].set(count)
+                # Soft max over group losses (temperature-scaled)
+                max_group_loss = jnp.max(group_losses)
+                dro_loss = (1 - debias_lambda) * mse + debias_lambda * max_group_loss
+                return dro_loss
+
+            elif debias_mode == "cpg_invariance":
+                # CpG invariance penalty: penalize correlation between
+                # prediction residuals and CpG frequency
+                cpg = batch["cpg_freq"]
+                resid = pred - batch["targets"]
+                cpg_centered = cpg - jnp.mean(cpg)
+                resid_centered = resid - jnp.mean(resid)
+                corr_num = jnp.sum(cpg_centered * resid_centered)
+                corr_den = jnp.sqrt(jnp.sum(cpg_centered**2) * jnp.sum(resid_centered**2) + 1e-8)
+                cpg_corr = corr_num / corr_den
+                return mse + debias_lambda * cpg_corr**2
+
+            else:
+                return mse
 
         loss, grads = jax.value_and_grad(loss_func)(params)
         updates, next_opt_state = optimizer.update(grads, current_opt_state, params)
