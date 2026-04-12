@@ -195,6 +195,33 @@ def report_stats(name: str, preds: np.ndarray):
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--configs-dir",
+        type=str,
+        default=None,
+        help="Directory containing config subdirs (each with fold_0/test_metrics.json)",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output JSON path",
+    )
+    args = parser.parse_args()
+
+    # Build configs list
+    configs = list(CONFIGS)
+    if args.configs_dir:
+        base = REPO / args.configs_dir
+        configs = []
+        for d in sorted(base.iterdir()):
+            fold_dir = d / "fold_0"
+            if fold_dir.exists() and (fold_dir / "test_metrics.json").exists():
+                configs.append((d.name, str(fold_dir.relative_to(REPO))))
+
     random_seqs, shuffled_seqs, intergenic_seqs = load_sequences()
 
     out_dir = REPO / "outputs" / "neg_sweep_random_eval"
@@ -202,7 +229,7 @@ def main():
 
     all_results = {}
 
-    for config_name, ckpt_dir in CONFIGS:
+    for config_name, ckpt_dir in configs:
         full_ckpt_dir = REPO / ckpt_dir
         print("\n" + "=" * 70)
         print("CONFIG: %s" % config_name)
@@ -268,7 +295,9 @@ def main():
         gc.collect()
 
     # Save all results
-    with open(out_dir / "neg_sweep_random_eval.json", "w") as f:
+    out_path = Path(args.output) if args.output else out_dir / "neg_sweep_random_eval.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
         json.dump(all_results, f, indent=2)
 
     # Summary table
@@ -303,8 +332,8 @@ def main():
                 r["intergenic"]["pct_positive"],
             )
         )
-    print("\nExpected: shuffled controls measured mean ~ -0.53 (Gosai/Agarwal)")
-    print("Saved: %s" % (out_dir / "neg_sweep_random_eval.json"))
+    print("\nExpected (Gosai scale): shuffled ≈ -0.16 to -0.25, random ≈ -0.16 to -0.25")
+    print("Saved: %s" % out_path)
 
 
 if __name__ == "__main__":
