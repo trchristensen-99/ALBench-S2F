@@ -153,7 +153,6 @@ def run_raytune(args):
         run_config=ray.train.RunConfig(
             name=f"legnet_{args.strategy}_n{args.size}_s{args.seed}",
             storage_path=storage_path,
-            verbose=1,
         ),
     )
 
