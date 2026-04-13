@@ -108,13 +108,27 @@ def run_raytune(args):
 
     # Workaround for Ray 2.54.1 verbosity bug
     os.environ["RAY_AIR_NEW_OUTPUT"] = "0"
+    # Ensure PYTHONPATH is set for worker processes
+    os.environ["PYTHONPATH"] = str(REPO) + ":" + os.environ.get("PYTHONPATH", "")
 
-    tmp_dir = tempfile.mkdtemp(prefix="raytune_")
     ray.init(
         num_cpus=args.cpus,
         num_gpus=1,
         log_to_driver=False,
-        runtime_env={"working_dir": tmp_dir},
+        runtime_env={
+            "working_dir": str(REPO),
+            "excludes": [
+                "data/",
+                "outputs/",
+                "external/",
+                "boda2-main/",
+                "results/",
+                "logs/",
+                "None/",
+                ".git/",
+            ],
+            "env_vars": {"PYTHONPATH": str(REPO)},
+        },
     )
 
     search_space = {
