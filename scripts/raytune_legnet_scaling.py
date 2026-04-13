@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """RayTune HP sweep for LegNet scaling curves.
 
-For each (strategy, training_size), runs a Bayesian HP search over:
+For each (strategy, training_size), runs Bayesian HP optimization over:
   - learning_rate: loguniform(1e-4, 1e-2)
   - batch_size: choice(256, 512, 1024, 2048)
   - weight_decay: loguniform(1e-6, 1e-3)
 
 Uses ASHA scheduler for early stopping of bad trials.
-Reports best config and test metrics.
+Uses Optuna search algorithm for Bayesian optimization.
 
 Usage:
     uv run --no-sync python scripts/raytune_legnet_scaling.py \
@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import torch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -32,17 +33,39 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def train_and_eval(config, strategy, n_train, seed, pool_base_dir, output_base):
-    """Train LegNet with given config and return val pearson."""
-    from scripts.generate_labeled_pools import load_pool_subset
+def load_pool_data(strategy, n_train, seed, repo_path):
+    """Load sequences and labels from pre-generated pool."""
+    pool_2m = Path(repo_path) / f"outputs/labeled_pools_2m/k562/ag_s2/{strategy}/pool.npz"
+    pool_618k = Path(repo_path) / f"outputs/labeled_pools/k562/ag_s2/{strategy}/pool.npz"
+    pool_path = pool_2m if pool_2m.exists() else pool_618k
 
-    # Load data from pool
-    pool_path = Path(pool_base_dir) / strategy / "pool.npz"
-    seqs, labels = load_pool_subset(pool_path, n_train, seed=seed)
+    data = np.load(pool_path, allow_pickle=True)
+    all_seqs = data["sequences"]
+    all_labels = data["labels"]
+    pool_size = len(all_seqs)
 
-    # Split into train/val (90/10)
+    if n_train > pool_size:
+        raise ValueError(f"n_train={n_train} > pool_size={pool_size}")
+
+    # Deterministic subset
     rng = np.random.default_rng(seed)
-    n_val = max(1000, int(0.1 * n_train))
+    perm = rng.permutation(pool_size)
+    idx = perm[:n_train]
+    return [str(all_seqs[i]) for i in idx], all_labels[idx].astype(np.float32)
+
+
+def train_legnet(config, strategy, n_train, seed, repo_path):
+    """Train LegNet with given HP config and report val pearson to Ray."""
+    import ray.train
+
+    from models.legnet_student import LegNetStudent
+
+    # Load data
+    seqs, labels = load_pool_data(strategy, n_train, seed, repo_path)
+
+    # Train/val split (90/10)
+    rng = np.random.default_rng(seed + 1000)
+    n_val = max(500, int(0.1 * len(seqs)))
     perm = rng.permutation(len(seqs))
     val_idx = perm[:n_val]
     train_idx = perm[n_val:]
@@ -52,14 +75,12 @@ def train_and_eval(config, strategy, n_train, seed, pool_base_dir, output_base):
     val_seqs = [seqs[i] for i in val_idx]
     val_labels = labels[val_idx]
 
-    # Train
-    from models.legnet_student import LegNetStudent
-
+    # Train LegNet
     model = LegNetStudent(ensemble_size=1)
     result = model.train(
-        train_seqs,
-        train_labels,
-        val_seqs=val_seqs,
+        sequences=train_seqs,
+        labels=train_labels,
+        val_sequences=val_seqs,
         val_labels=val_labels,
         learning_rate=config["lr"],
         batch_size=config["batch_size"],
@@ -69,9 +90,6 @@ def train_and_eval(config, strategy, n_train, seed, pool_base_dir, output_base):
         verbose=False,
     )
 
-    # Report to Ray
-    import ray.train
-
     ray.train.report({"val_pearson": result["best_val_pearson"]})
 
 
@@ -80,8 +98,29 @@ def run_raytune(args):
     import ray
     from ray import tune
     from ray.tune.schedulers import ASHAScheduler
+    from ray.tune.search.optuna import OptunaSearch
 
-    ray.init(num_cpus=args.cpus, num_gpus=1, log_to_driver=False)
+    # Initialize Ray with exclusions for large directories
+    ray.init(
+        num_cpus=args.cpus,
+        num_gpus=1,
+        log_to_driver=False,
+        runtime_env={
+            "working_dir": str(REPO),
+            "excludes": [
+                "data/",
+                "outputs/",
+                "external/",
+                ".git/",
+                "boda2-main/",
+                "results/",
+                "logs/",
+                "*.npz",
+                "*.tsv",
+                "*.tar.gz",
+            ],
+        },
+    )
 
     search_space = {
         "lr": tune.loguniform(1e-4, 1e-2),
@@ -90,27 +129,24 @@ def run_raytune(args):
     }
 
     scheduler = ASHAScheduler(
-        max_t=80,  # max epochs
+        max_t=80,
         grace_period=5,
         reduction_factor=3,
     )
 
-    # Determine pool dir
-    pool_2m = REPO / f"outputs/labeled_pools_2m/k562/ag_s2"
-    pool_618k = REPO / f"outputs/labeled_pools/k562/ag_s2"
-    pool_dir = str(pool_2m) if (pool_2m / args.strategy / "pool.npz").exists() else str(pool_618k)
+    # Optuna for Bayesian optimization
+    search_alg = OptunaSearch(metric="val_pearson", mode="max")
 
     trainable = tune.with_parameters(
-        train_and_eval,
+        train_legnet,
         strategy=args.strategy,
         n_train=args.size,
         seed=args.seed,
-        pool_base_dir=pool_dir,
-        output_base=str(REPO / "outputs"),
+        repo_path=str(REPO),
     )
+    trainable = tune.with_resources(trainable, {"gpu": 0.5})  # allow 2 trials per GPU
 
-    # Use GPU
-    trainable = tune.with_resources(trainable, {"gpu": 1})
+    storage_path = str(REPO / "outputs" / "raytune_results")
 
     tuner = tune.Tuner(
         trainable,
@@ -120,10 +156,11 @@ def run_raytune(args):
             mode="max",
             num_samples=args.n_trials,
             scheduler=scheduler,
+            search_alg=search_alg,
         ),
         run_config=ray.train.RunConfig(
             name=f"legnet_{args.strategy}_n{args.size}_s{args.seed}",
-            storage_path=str(REPO / "outputs" / "raytune_results"),
+            storage_path=storage_path,
         ),
     )
 
@@ -134,7 +171,7 @@ def run_raytune(args):
     print(f"  Config: {best.config}")
     print(f"  Val Pearson: {best.metrics['val_pearson']:.4f}")
 
-    # Save best config
+    # Save
     out_dir = REPO / "outputs" / "raytune_best" / args.strategy / f"n{args.size}"
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / f"best_config_seed{args.seed}.json", "w") as f:
