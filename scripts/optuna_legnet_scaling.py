@@ -57,26 +57,54 @@ def load_pool_data(strategy, n_train, seed):
     return [str(all_seqs[i]) for i in idx], all_labels[idx].astype(np.float32)
 
 
+def load_chr_split_val():
+    """Load the chr-split validation set (chr19,21,X) — same as grid uses."""
+    import pandas as pd
+
+    val_path = REPO / "data" / "k562" / "test_sets" / "test_in_dist_k562.tsv"
+    if not val_path.exists():
+        # Fallback: load from K562Dataset and filter to val chromosomes
+        df = pd.read_csv(
+            REPO / "data/k562/DATA-Table_S2__MPRA_dataset.txt", sep="\t", low_memory=False
+        )
+        val_chrs = {"chr19", "chr21", "chrX"}
+        val_df = df[df["chr"].isin(val_chrs)].dropna(subset=["sequence", "K562_log2FC"])
+        return val_df["sequence"].str[:200].tolist(), val_df["K562_log2FC"].values.astype(
+            np.float32
+        )
+    # Use the test_in_dist as a proxy (it's chr7,13 which is the actual test)
+    # For HP search, we want a val set that approximates test generalization
+    # Use chr19,21,X from the full dataset
+    df = pd.read_csv(REPO / "data/k562/DATA-Table_S2__MPRA_dataset.txt", sep="\t", low_memory=False)
+    val_chrs = {"chr19", "chr21", "chrX"}
+    val_df = df[df["chr"].isin(val_chrs)].dropna(subset=["sequence", "K562_log2FC"])
+    seqs = val_df["sequence"].str[:200].tolist()
+    labels = val_df["K562_log2FC"].values.astype(np.float32)
+    return seqs, labels
+
+
+# Cache the chr-split val set (loaded once, reused across trials)
+_CHR_VAL_CACHE = None
+
+
+def get_chr_val():
+    """Get cached chr-split val set."""
+    global _CHR_VAL_CACHE
+    if _CHR_VAL_CACHE is None:
+        _CHR_VAL_CACHE = load_chr_split_val()
+        logger.info(f"Loaded chr-split val set: {len(_CHR_VAL_CACHE[0])} sequences")
+    return _CHR_VAL_CACHE
+
+
 def train_and_evaluate(seqs, labels, lr, batch_size, weight_decay, seed):
-    """Train LegNet and return val pearson."""
-    from models.legnet_student import LegNetStudent
+    """Train LegNet and return val pearson on chr-split val set."""
+    from models.legnet_student import LegNetStudent, TrainConfig
 
-    # Train/val split
-    rng = np.random.default_rng(seed + 1000)
-    n_val = max(500, int(0.1 * len(seqs)))
-    perm = rng.permutation(len(seqs))
-    val_idx = perm[:n_val]
-    train_idx = perm[n_val:]
-
-    train_seqs = [seqs[i] for i in train_idx]
-    train_labels = labels[train_idx]
-    val_seqs = [seqs[i] for i in val_idx]
-    val_labels = labels[val_idx]
-
-    from models.legnet_student import TrainConfig
+    # Use chr-split val set (same as grid) for HP selection
+    val_seqs, val_labels = get_chr_val()
 
     # Cap batch_size to avoid empty batches at small N
-    effective_bs = min(batch_size, max(32, len(train_seqs) // 2))
+    effective_bs = min(batch_size, max(32, len(seqs) // 2))
     config = TrainConfig(
         lr=lr,
         batch_size=effective_bs,
@@ -86,12 +114,12 @@ def train_and_evaluate(seqs, labels, lr, batch_size, weight_decay, seed):
     )
     model = LegNetStudent(ensemble_size=1, train_config=config)
     model.fit(
-        sequences=train_seqs,
-        labels=train_labels,
+        sequences=seqs,
+        labels=labels,
         val_sequences=val_seqs,
         val_labels=val_labels,
     )
-    # Get val pearson from the model's prediction
+    # Evaluate on chr-split val set
     preds = model.predict(val_seqs)
     from scipy.stats import pearsonr
 
