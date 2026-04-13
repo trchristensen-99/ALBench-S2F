@@ -56,6 +56,10 @@ def load_pool_data(strategy, n_train, seed, repo_path):
 
 def train_legnet(config, strategy, n_train, seed, repo_path):
     """Train LegNet with given HP config and report val pearson to Ray."""
+    import sys
+
+    sys.path.insert(0, repo_path)
+
     import ray.train
 
     from models.legnet_student import LegNetStudent
@@ -100,26 +104,12 @@ def run_raytune(args):
     from ray.tune.schedulers import ASHAScheduler
     from ray.tune.search.optuna import OptunaSearch
 
-    # Initialize Ray with exclusions for large directories
+    # Initialize Ray — single-node, no packaging needed
+    os.environ["RAY_WORKING_DIR"] = str(REPO)
     ray.init(
         num_cpus=args.cpus,
         num_gpus=1,
         log_to_driver=False,
-        runtime_env={
-            "working_dir": str(REPO),
-            "excludes": [
-                "data/",
-                "outputs/",
-                "external/",
-                ".git/",
-                "boda2-main/",
-                "results/",
-                "logs/",
-                "*.npz",
-                "*.tsv",
-                "*.tar.gz",
-            ],
-        },
     )
 
     search_space = {
