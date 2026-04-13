@@ -81,12 +81,11 @@ def load_strategy_data():
     """
     raw = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
-    # Load from scaling directories.
-    # NOTE: exp1_1_2m_scaling used different HPs (lr=0.001) vs exp1_1 (lr=0.005),
-    # causing a discontinuity. Exclude until consistent HP data is available.
+    # Load from all scaling directories
     for base_path in [
         REPO / "outputs" / "exp1_1" / "k562" / "legnet_ag_s2",
-        # REPO / "outputs" / "exp1_1_2m_scaling" / "k562" / "legnet_ag_s2",  # different HPs
+        REPO / "outputs" / "exp1_1_hp_rerun" / "k562" / "legnet_ag_s2",
+        REPO / "outputs" / "exp1_1_2m_scaling" / "k562" / "legnet_ag_s2",
         REPO / "outputs" / "exp1_1_5m_scaling" / "k562" / "legnet_ag_s2",
     ]:
         if not base_path.exists():
