@@ -77,23 +77,29 @@ def load_strategy_data():
     """Load LegNet + AG S2 strategy scaling data.
 
     Returns dict: {strategy: {n: [pearson_r values for best HP]}}
+    Merges results from exp1_1 (1K-500K) and exp1_1_5m_scaling (5M).
     """
-    base = REPO / "outputs" / "exp1_1" / "k562" / "legnet_ag_s2"
-    if not base.exists():
-        return {}
-
     raw = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    for rj in base.rglob("result.json"):
-        try:
-            d = json.loads(rj.read_text())
-        except Exception:
+
+    # Load from all scaling directories
+    for base_path in [
+        REPO / "outputs" / "exp1_1" / "k562" / "legnet_ag_s2",
+        REPO / "outputs" / "exp1_1_2m_scaling" / "k562" / "legnet_ag_s2",
+        REPO / "outputs" / "exp1_1_5m_scaling" / "k562" / "legnet_ag_s2",
+    ]:
+        if not base_path.exists():
             continue
-        strategy = d.get("reservoir", str(rj.relative_to(base)).split("/")[0])
-        n = d.get("n_train", 0)
-        hp = json.dumps(d.get("hp_config", {}), sort_keys=True)
-        val_r = d.get("val_pearson_r", 0)
-        test = d.get("test_metrics", {})
-        raw[strategy][n][hp].append((val_r, test))
+        for rj in base_path.rglob("result.json"):
+            try:
+                d = json.loads(rj.read_text())
+            except Exception:
+                continue
+            strategy = d.get("reservoir", str(rj.relative_to(base_path)).split("/")[0])
+            n = d.get("n_train", 0)
+            hp = json.dumps(d.get("hp_config", {}), sort_keys=True)
+            val_r = d.get("val_pearson_r", 0)
+            test = d.get("test_metrics", {})
+            raw[strategy][n][hp].append((val_r, test))
 
     result = {}
     for strategy in raw:

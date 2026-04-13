@@ -115,25 +115,30 @@ def load_strategy_data(task: str, config_dir: str) -> dict:
     """Load results for all strategies under a student_oracle config.
 
     Returns: {strategy: {n_train: [(val_r, test_metrics)]}}
+    Merges results from exp1_1 and exp1_1_5m_scaling directories.
     """
-    base = EXP1_DIR / task / config_dir
-    if not base.exists():
-        return {}
-
     # Group by (strategy, n_train, hp_config)
     raw = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-    for rj in base.rglob("result.json"):
-        try:
-            d = json.loads(rj.read_text())
-        except Exception:
+
+    for base in [
+        EXP1_DIR / task / config_dir,
+        REPO / "outputs" / "exp1_1_2m_scaling" / task / config_dir,
+        REPO / "outputs" / "exp1_1_5m_scaling" / task / config_dir,
+    ]:
+        if not base.exists():
             continue
-        parts = str(rj.relative_to(base)).split("/")
-        strategy = parts[0]
-        n = d.get("n_train", 0)
-        hp = json.dumps(d.get("hp_config", {}), sort_keys=True)
-        val_r = d.get("val_pearson_r", 0)
-        test = d.get("test_metrics", {})
-        raw[strategy][n][hp].append((val_r, test))
+        for rj in base.rglob("result.json"):
+            try:
+                d = json.loads(rj.read_text())
+            except Exception:
+                continue
+            parts = str(rj.relative_to(base)).split("/")
+            strategy = parts[0]
+            n = d.get("n_train", 0)
+            hp = json.dumps(d.get("hp_config", {}), sort_keys=True)
+            val_r = d.get("val_pearson_r", 0)
+            test = d.get("test_metrics", {})
+            raw[strategy][n][hp].append((val_r, test))
 
     # For each (strategy, n_train), pick best HP by mean val_r
     result = {}
