@@ -123,13 +123,7 @@ def run_raytune(args):
         "weight_decay": tune.loguniform(1e-6, 1e-3),
     }
 
-    scheduler = ASHAScheduler(
-        max_t=80,
-        grace_period=5,
-        reduction_factor=3,
-    )
-
-    # Optuna for Bayesian optimization
+    # Optuna for Bayesian optimization (no ASHA — simpler, avoids checkpoint issues)
     search_alg = OptunaSearch(metric="val_pearson", mode="max")
 
     trainable = tune.with_parameters(
@@ -139,7 +133,7 @@ def run_raytune(args):
         seed=args.seed,
         repo_path=str(REPO),
     )
-    trainable = tune.with_resources(trainable, {"gpu": 0.5})  # allow 2 trials per GPU
+    trainable = tune.with_resources(trainable, {"gpu": 0.5})
 
     storage_path = str(REPO / "outputs" / "raytune_results")
 
@@ -150,12 +144,12 @@ def run_raytune(args):
             metric="val_pearson",
             mode="max",
             num_samples=args.n_trials,
-            scheduler=scheduler,
             search_alg=search_alg,
         ),
         run_config=ray.train.RunConfig(
             name=f"legnet_{args.strategy}_n{args.size}_s{args.seed}",
             storage_path=storage_path,
+            checkpoint_config=ray.train.CheckpointConfig(checkpoint_at_end=False),
         ),
     )
 
