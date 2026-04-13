@@ -81,10 +81,12 @@ def load_strategy_data():
     """
     raw = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
-    # Load from all scaling directories
+    # Load from scaling directories.
+    # NOTE: exp1_1_2m_scaling used different HPs (lr=0.001) vs exp1_1 (lr=0.005),
+    # causing a discontinuity. Exclude until consistent HP data is available.
     for base_path in [
         REPO / "outputs" / "exp1_1" / "k562" / "legnet_ag_s2",
-        REPO / "outputs" / "exp1_1_2m_scaling" / "k562" / "legnet_ag_s2",
+        # REPO / "outputs" / "exp1_1_2m_scaling" / "k562" / "legnet_ag_s2",  # different HPs
         REPO / "outputs" / "exp1_1_5m_scaling" / "k562" / "legnet_ag_s2",
     ]:
         if not base_path.exists():
@@ -102,10 +104,27 @@ def load_strategy_data():
             raw[strategy][n][hp].append((val_r, test))
 
     result = {}
+    # Use consistent HP selection: prefer the HP with the most seeds,
+    # breaking ties by mean val_r. This avoids mixing different HP configs
+    # across sizes (e.g., lr=0.005 at 500K vs lr=0.001 at 1M).
+    # For a fair scaling curve, we want the SAME HP across all sizes.
+    # Find the globally most common HP config across all sizes.
+    hp_counts: dict[str, int] = defaultdict(int)
+    for strategy in raw:
+        for n, hp_map in raw[strategy].items():
+            for hp, vals in hp_map.items():
+                hp_counts[hp] += len(vals)
+    # The dominant HP (used at most sizes) is likely the transferred one
+    dominant_hp = max(hp_counts, key=hp_counts.get) if hp_counts else None
+
     for strategy in raw:
         result[strategy] = {}
         for n, hp_map in raw[strategy].items():
-            best_hp = max(hp_map, key=lambda k: np.mean([v[0] for v in hp_map[k]]))
+            # Prefer the dominant HP if it exists at this size; else best by val_r
+            if dominant_hp and dominant_hp in hp_map and len(hp_map[dominant_hp]) >= 1:
+                best_hp = dominant_hp
+            else:
+                best_hp = max(hp_map, key=lambda k: np.mean([v[0] for v in hp_map[k]]))
             result[strategy][n] = hp_map[best_hp]
     return result
 
@@ -158,6 +177,10 @@ def plot_strategy_panel(ax, data, metric_path, ylabel, title, strategies=None):
         if not sizes:
             continue
         zorder = 10 if strat == "random" else 1
+
+        # Use 95% CI: ±1.96*std (or ±2.48*std for n=3 t-distribution)
+        ci95 = 1.96 * stds
+
         ax.plot(
             sizes,
             means,
@@ -166,24 +189,28 @@ def plot_strategy_panel(ax, data, metric_path, ylabel, title, strategies=None):
             linewidth=lw,
             linestyle=ls,
             marker="o",
-            markersize=4,
+            markersize=5,
             zorder=zorder,
         )
         if stds.any():
             ax.fill_between(
-                sizes, means - stds, means + stds, alpha=0.15, color=color, zorder=zorder - 1
+                sizes,
+                means - ci95,
+                means + ci95,
+                alpha=0.18,
+                color=color,
+                zorder=zorder - 1,
             )
-            # Add visible error bars where CI is too narrow for fill_between
             ax.errorbar(
                 sizes,
                 means,
-                yerr=stds,
+                yerr=ci95,
                 fmt="none",
                 ecolor=color,
-                elinewidth=1.0,
-                capsize=3,
-                capthick=1.0,
-                alpha=0.6,
+                elinewidth=1.2,
+                capsize=4,
+                capthick=1.2,
+                alpha=0.7,
                 zorder=zorder,
             )
 
@@ -331,6 +358,21 @@ def main():
     fig.savefig(OUT / "talk_strategy_snv.pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {OUT / 'talk_strategy_snv.png'}")
+
+    # ── Single panel: SNV delta (allelic effect) ────────────────────
+    fig, ax = plt.subplots(figsize=(10, 7))
+    plot_strategy_panel(
+        ax,
+        strategy_data,
+        "snv_delta.pearson_r",
+        "SNV Delta (alt−ref) Pearson R",
+        "K562 — Allelic Effect Prediction (LegNet Student, AG S2 Oracle)",
+    )
+    fig.tight_layout()
+    fig.savefig(OUT / "talk_strategy_snv_delta.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_strategy_snv_delta.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {OUT / 'talk_strategy_snv_delta.png'}")
 
     print(f"\nAll figures in: {OUT}")
 
