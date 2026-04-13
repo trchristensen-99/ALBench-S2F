@@ -160,14 +160,13 @@ def main():
             rng.shuffle(s)
             shuffled_seqs.append("".join(s))
 
-        # Predict with each replacement
-        @jax.jit
-        def predict(params, state, seq_ohe):
+        # Predict with each replacement (no jit — AG returns custom dict)
+        def predict(seq_ohe):
             """Predict with AG model."""
             return model._predict(
-                params,
-                state,
-                seq_ohe[None, ...],  # (1, 16384, 4)
+                model._params,
+                model._state,
+                jnp.array(seq_ohe)[None, ...],  # (1, 16384, 4)
                 jnp.zeros(1, dtype=jnp.int32),
                 negative_strand_mask=jnp.zeros(1, dtype=bool),
                 strand_reindexing=None,
@@ -175,7 +174,7 @@ def main():
             )
 
         # Get baseline prediction
-        real_pred = predict(model._params, model._state, jnp.array(real_ohe))
+        real_pred = predict(real_ohe)
         # Extract a representative output track (e.g., first track, center bin)
         # AG outputs multiple tracks; we want to see if expression changes
         real_tracks = {k: np.array(v).squeeze() for k, v in real_pred.items()}
@@ -194,7 +193,7 @@ def main():
                     genomic_seq[:enh_offset_start] + rep_seq + genomic_seq[enh_offset_end:]
                 )
                 mod_ohe = encode(modified_seq)
-                mod_pred = predict(model._params, model._state, jnp.array(mod_ohe))
+                mod_pred = predict(mod_ohe)
 
                 # Compare center bin predictions
                 for track_name in list(real_tracks.keys())[:3]:
