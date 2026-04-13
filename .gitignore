@@ -20,3 +20,4 @@ results/
 *.tar.gz
 external/
 boda2.tar.gz
+data/neg_aug_breakthrough/breakthrough_500k.tsv
