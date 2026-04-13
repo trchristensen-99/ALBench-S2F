@@ -73,20 +73,28 @@ def train_and_evaluate(seqs, labels, lr, batch_size, weight_decay, seed):
     val_seqs = [seqs[i] for i in val_idx]
     val_labels = labels[val_idx]
 
-    model = LegNetStudent(ensemble_size=1)
-    result = model.train(
+    from models.legnet_student import TrainConfig
+
+    config = TrainConfig(
+        lr=lr,
+        batch_size=batch_size,
+        weight_decay=weight_decay,
+        epochs=80,
+        early_stopping_patience=10,
+    )
+    model = LegNetStudent(ensemble_size=1, train_config=config)
+    model.fit(
         sequences=train_seqs,
         labels=train_labels,
         val_sequences=val_seqs,
         val_labels=val_labels,
-        learning_rate=lr,
-        batch_size=batch_size,
-        weight_decay=weight_decay,
-        epochs=80,
-        early_stop_patience=10,
-        verbose=False,
     )
-    return result["best_val_pearson"]
+    # Get val pearson from the model's prediction
+    preds = model.predict(val_seqs)
+    from scipy.stats import pearsonr
+
+    val_r, _ = pearsonr(val_labels, preds)
+    return float(val_r)
 
 
 def run_optuna_search(args):
