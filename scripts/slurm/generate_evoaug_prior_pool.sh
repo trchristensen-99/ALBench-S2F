@@ -28,6 +28,7 @@ uv run --no-sync python scripts/generate_labeled_pools.py \
     --reservoir evoaug_prior \
     --pool-size 2000000 \
     --task k562 \
-    --output-dir outputs/labeled_pools_2m/k562/ag_s2
+    --output-base outputs/labeled_pools_2m \
+    --chr-split
 
 echo "=== DONE — $(date) ==="
