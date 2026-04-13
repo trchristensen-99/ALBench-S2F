@@ -134,9 +134,9 @@ def run_raytune(args):
     )
 
     search_space = {
-        "lr": tune.loguniform(1e-4, 1e-2),
-        "batch_size": tune.choice([256, 512, 1024, 2048]),
-        "weight_decay": tune.loguniform(1e-6, 1e-3),
+        "lr": tune.loguniform(5e-5, 5e-2),  # wider: includes very low and high LR
+        "batch_size": tune.choice([128, 256, 512, 1024, 2048, 4096]),  # includes 128 and 4096
+        "weight_decay": tune.loguniform(1e-7, 1e-2),  # wider range
     }
 
     # Optuna for Bayesian optimization (no ASHA — simpler, avoids checkpoint issues)
