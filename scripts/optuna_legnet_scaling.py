@@ -67,7 +67,7 @@ def load_chr_split_val():
         df = pd.read_csv(
             REPO / "data/k562/DATA-Table_S2__MPRA_dataset.txt", sep="\t", low_memory=False
         )
-        val_chrs = {"chr19", "chr21", "chrX"}
+        val_chrs = {19, 21, "X", "chr19", "chr21", "chrX"}
         val_df = df[df["chr"].isin(val_chrs)].dropna(subset=["sequence", "K562_log2FC"])
         return val_df["sequence"].str[:200].tolist(), val_df["K562_log2FC"].values.astype(
             np.float32
@@ -76,7 +76,7 @@ def load_chr_split_val():
     # For HP search, we want a val set that approximates test generalization
     # Use chr19,21,X from the full dataset
     df = pd.read_csv(REPO / "data/k562/DATA-Table_S2__MPRA_dataset.txt", sep="\t", low_memory=False)
-    val_chrs = {"chr19", "chr21", "chrX"}
+    val_chrs = {19, 21, "X", "chr19", "chr21", "chrX"}
     val_df = df[df["chr"].isin(val_chrs)].dropna(subset=["sequence", "K562_log2FC"])
     seqs = val_df["sequence"].str[:200].tolist()
     labels = val_df["K562_log2FC"].values.astype(np.float32)
