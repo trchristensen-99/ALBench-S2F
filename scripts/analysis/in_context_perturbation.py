@@ -160,18 +160,11 @@ def main():
             rng.shuffle(s)
             shuffled_seqs.append("".join(s))
 
-        # Predict with each replacement (no jit — AG returns custom dict)
+        # Predict using the public API (handles standard AG output tracks)
         def predict(seq_ohe):
-            """Predict with AG model."""
-            return model._predict(
-                model._params,
-                model._state,
-                jnp.array(seq_ohe)[None, ...],  # (1, 16384, 4)
-                jnp.zeros(1, dtype=jnp.int32),
-                negative_strand_mask=jnp.zeros(1, dtype=bool),
-                strand_reindexing=None,
-                requested_outputs=None,  # all outputs
-            )
+            """Predict with AG model using public predict() method."""
+            seq_arr = jnp.array(seq_ohe)[None, ...]  # (1, 16384, 4)
+            return model.predict(seq_arr, jnp.zeros(1, dtype=jnp.int32))
 
         # Get baseline prediction
         real_pred = predict(real_ohe)
