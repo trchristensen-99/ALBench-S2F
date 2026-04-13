@@ -99,17 +99,19 @@ def train_legnet(config, strategy, n_train, seed, repo_path):
 
 def run_raytune(args):
     """Run RayTune HP search for one (strategy, size) combo."""
+    import tempfile
+
     import ray
     from ray import tune
     from ray.tune.schedulers import ASHAScheduler
     from ray.tune.search.optuna import OptunaSearch
 
-    # Initialize Ray — single-node, no packaging needed
-    os.environ["RAY_WORKING_DIR"] = str(REPO)
+    tmp_dir = tempfile.mkdtemp(prefix="raytune_")
     ray.init(
         num_cpus=args.cpus,
         num_gpus=1,
         log_to_driver=False,
+        runtime_env={"working_dir": tmp_dir},
     )
 
     search_space = {
