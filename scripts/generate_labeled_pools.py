@@ -72,6 +72,7 @@ ALL_RESERVOIRS = [
     "recombination_2pt",
     "evoaug_structural",
     "evoaug_heavy",
+    "evoaug_prior",
     "motif_density_2",
     "motif_density_3",
     "motif_density_5",
@@ -122,6 +123,7 @@ _NEEDS_POOL = {
     "recombination_2pt",
     "evoaug_structural",
     "evoaug_heavy",
+    "evoaug_prior",
     "activity_stratified",
     "activity_stratified_oracle",
     "motif_density_2",
@@ -206,6 +208,7 @@ def _generate_sequences(
         "recombination_2pt",
         "evoaug_structural",
         "evoaug_heavy",
+        "evoaug_prior",
     ):
         seqs, _ = res.generate(n, base_sequences=pool_seqs, task=task)
     elif reservoir_name == "activity_stratified":

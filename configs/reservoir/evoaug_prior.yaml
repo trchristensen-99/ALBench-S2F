@@ -1,0 +1,33 @@
+# EvoAug with Peter Koo's exact specifications (April 2026):
+#
+# "insertions, deletions (pad the ends with random) around 30 nt big on average,
+#  mutations you want maybe 5%, translocations at about 100bp window (about half
+#  of it gets cut). You want every sequence to have at least one of these
+#  perturbations uniformly, and at most 2 or 3."
+#
+# Translation to parameters:
+#   - max_indel_size: 30 (insertions/deletions ~30nt on average)
+#   - point_mutation_rate: 0.05 (5% mutations)
+#   - max_translocation_size: 50 (100bp window, half gets cut = 50bp blocks swapped)
+#   - min_events: 1, max_events: 3 (1-3 perturbations per sequence)
+#   - Equal probability for insertions, deletions, translocations
+#   - Inversions and tandem dups included at lower probability
+#
+_target_: albench.reservoir.evoaug_structural.EvoAugStructuralSampler
+seed: ${seed}
+# Equal probability for the three main perturbation types Peter specified
+p_deletion: 0.33
+p_insertion: 0.33
+p_inversion: 0.15
+p_translocation: 0.33
+p_tandem_dup: 0.10
+p_point_mutation: 0.30
+# Size parameters matching Peter's specs
+max_indel_size: 30          # "around 30 nt big on average"
+max_inversion_size: 40
+max_translocation_size: 50  # "100bp window, half gets cut" = 50bp blocks
+max_dup_size: 20
+point_mutation_rate: 0.05   # "mutations you want maybe 5%"
+# Event count matching Peter's specs
+min_events: 1               # "at least one"
+max_events: 3               # "at most 2 or 3"
