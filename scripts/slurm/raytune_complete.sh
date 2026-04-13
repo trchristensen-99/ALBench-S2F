@@ -2,7 +2,7 @@
 # Complete RayTune HP sweep: 6 strategies × 6 sizes = 36 jobs.
 # After HP search, runs 3 replicates with best HP.
 #
-# Strategies: random, genomic, prm_1pct, prm_20pct, motif_grammar, evoaug_heavy
+# Strategies: random, genomic, prm_1pct, prm_20pct, motif_grammar, evoaug_prior
 # Sizes: 1000, 2000, 5000, 10000, 20000, 50000
 #
 # Array: strat_idx * 6 + size_idx = 0-35
@@ -26,7 +26,7 @@ source scripts/slurm/setup_hpc_deps.sh
 
 T=$SLURM_ARRAY_TASK_ID
 
-STRATS=("random" "genomic" "prm_1pct" "prm_20pct" "motif_grammar" "evoaug_heavy")
+STRATS=("random" "genomic" "prm_1pct" "prm_20pct" "motif_grammar" "evoaug_prior")
 SIZES=(1000 2000 5000 10000 20000 50000)
 
 STRAT_IDX=$((T / 6))
