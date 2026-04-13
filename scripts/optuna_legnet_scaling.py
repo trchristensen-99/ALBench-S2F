@@ -75,9 +75,11 @@ def train_and_evaluate(seqs, labels, lr, batch_size, weight_decay, seed):
 
     from models.legnet_student import TrainConfig
 
+    # Cap batch_size to avoid empty batches at small N
+    effective_bs = min(batch_size, max(32, len(train_seqs) // 2))
     config = TrainConfig(
         lr=lr,
-        batch_size=batch_size,
+        batch_size=effective_bs,
         weight_decay=weight_decay,
         epochs=80,
         early_stopping_patience=10,
