@@ -137,27 +137,26 @@ def run_raytune(args):
 
     storage_path = str(REPO / "outputs" / "raytune_results")
 
-    tuner = tune.Tuner(
+    # Use tune.run (stable API) instead of Tuner (has Ray 2.54 deprecation issues)
+    analysis = tune.run(
         trainable,
-        param_space=search_space,
-        tune_config=tune.TuneConfig(
-            metric="val_pearson",
-            mode="max",
-            num_samples=args.n_trials,
-            search_alg=search_alg,
-        ),
-        run_config=ray.train.RunConfig(
-            name=f"legnet_{args.strategy}_n{args.size}_s{args.seed}",
-            storage_path=storage_path,
-        ),
+        config=search_space,
+        metric="val_pearson",
+        mode="max",
+        num_samples=args.n_trials,
+        search_alg=search_alg,
+        name=f"legnet_{args.strategy}_n{args.size}_s{args.seed}",
+        storage_path=storage_path,
+        checkpoint_at_end=False,
+        raise_on_failed_trial=False,
     )
 
-    results = tuner.fit()
-    best = results.get_best_result("val_pearson", "max")
+    best_config = analysis.best_config
+    best_result = analysis.best_result
 
     print(f"\n=== Best config for {args.strategy} n={args.size} ===")
-    print(f"  Config: {best.config}")
-    print(f"  Val Pearson: {best.metrics['val_pearson']:.4f}")
+    print(f"  Config: {best_config}")
+    print(f"  Val Pearson: {best_result.get('val_pearson', 'N/A')}")
 
     # Save
     out_dir = REPO / "outputs" / "raytune_best" / args.strategy / f"n{args.size}"
@@ -165,8 +164,8 @@ def run_raytune(args):
     with open(out_dir / f"best_config_seed{args.seed}.json", "w") as f:
         json.dump(
             {
-                "config": best.config,
-                "val_pearson": best.metrics["val_pearson"],
+                "config": best_config,
+                "val_pearson": best_result.get("val_pearson"),
                 "strategy": args.strategy,
                 "n_train": args.size,
                 "seed": args.seed,
