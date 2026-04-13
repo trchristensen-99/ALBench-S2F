@@ -106,6 +106,9 @@ def run_raytune(args):
     from ray.tune.schedulers import ASHAScheduler
     from ray.tune.search.optuna import OptunaSearch
 
+    # Workaround for Ray 2.54.1 verbosity bug
+    os.environ["RAY_AIR_NEW_OUTPUT"] = "0"
+
     tmp_dir = tempfile.mkdtemp(prefix="raytune_")
     ray.init(
         num_cpus=args.cpus,
