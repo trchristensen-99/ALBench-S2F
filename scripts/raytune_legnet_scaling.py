@@ -56,9 +56,11 @@ def load_pool_data(strategy, n_train, seed, repo_path):
 
 def train_legnet(config, strategy, n_train, seed, repo_path):
     """Train LegNet with given HP config and report val pearson to Ray."""
+    import os
     import sys
 
     sys.path.insert(0, repo_path)
+    os.environ["TORCHDYNAMO_DISABLE"] = "1"  # Skip torch.compile (saves ~30s/trial)
 
     import ray.train
 
@@ -197,7 +199,7 @@ def main():
     parser.add_argument("--strategy", type=str, required=True)
     parser.add_argument("--size", type=int, required=True)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--n-trials", type=int, default=20)
+    parser.add_argument("--n-trials", type=int, default=10)
     parser.add_argument("--cpus", type=int, default=8)
     args = parser.parse_args()
 
