@@ -204,7 +204,7 @@ def run_optuna_search(args):
     pool_618k = REPO / "outputs/labeled_pools/k562/ag_s2"
     pool_dir = str(pool_2m) if (pool_2m / args.strategy / "pool.npz").exists() else str(pool_618k)
 
-    out_dir = str(REPO / "outputs" / "exp1_1_optuna_final" / "k562" / "legnet_ag_s2")
+    out_dir = str(REPO / "outputs" / f"exp1_1_optuna_t{args.n_trials}" / "k562" / "legnet_ag_s2")
 
     for rep_seed in [42, 1042, 2042]:
         result_path = (
