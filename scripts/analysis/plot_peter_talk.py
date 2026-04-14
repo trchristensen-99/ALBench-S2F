@@ -85,6 +85,8 @@ def load_strategy_data():
     for base_path in [
         REPO / "outputs" / "exp1_1" / "k562" / "legnet_ag_s2",
         REPO / "outputs" / "exp1_1_hp_rerun" / "k562" / "legnet_ag_s2",
+        REPO / "outputs" / "exp1_1_optuna_t20" / "k562" / "legnet_ag_s2",
+        REPO / "outputs" / "exp1_1_ensemble_hp" / "k562" / "legnet_ag_s2",
         REPO / "outputs" / "exp1_1_2m_scaling" / "k562" / "legnet_ag_s2",
         REPO / "outputs" / "exp1_1_5m_scaling" / "k562" / "legnet_ag_s2",
     ]:
@@ -128,17 +130,24 @@ def load_strategy_data():
     return result
 
 
-# Strategy display config
+# Strategy display config — Peter's 6 key strategies
 KEY_STRATEGIES = {
     "random": ("Random", "#888888", "--", 2.5),
     "genomic": ("Genomic", "#1f77b4", "-", 2.0),
+    "prm_1pct": ("PRM 1%", "#d62728", "-", 2.0),
+    "prm_20pct": ("PRM 20%", "#8c564b", "-", 2.0),
+    "motif_grammar": ("Motif Grammar", "#2ca02c", "-", 2.0),
+    "evoaug_heavy": ("EvoAug", "#9467bd", "-", 2.0),
+}
+
+# Extended set for supplemental plots
+EXTENDED_STRATEGIES = {
+    **KEY_STRATEGIES,
     "dinuc_shuffle": ("Dinuc. Shuffle", "#ff7f0e", "-", 1.5),
-    "prm_5pct": ("Mutagenesis 5%", "#e377c2", "-", 1.5),
-    "evoaug_structural": ("EvoAug Structural", "#2ca02c", "-", 1.5),
-    "evoaug_heavy": ("EvoAug Heavy", "#d62728", "-", 1.5),
-    "recombination_uniform": ("Recombination", "#9467bd", "-", 1.5),
-    "motif_grammar": ("Motif Grammar", "#8c564b", "-", 1.5),
-    "motif_planted": ("Motif Planted", "#17becf", "-", 1.5),
+    "prm_5pct": ("PRM 5%", "#e377c2", "-", 1.5),
+    "evoaug_structural": ("EvoAug Structural", "#98df8a", "-", 1.5),
+    "recombination_uniform": ("Recombination", "#17becf", "-", 1.5),
+    "motif_planted": ("Motif Planted", "#c49c94", "-", 1.5),
 }
 
 
@@ -219,6 +228,82 @@ def plot_strategy_panel(ax, data, metric_path, ylabel, title, strategies=None):
     ax.set_title(title, fontsize=13, fontweight="bold")
     ax.legend(fontsize=8, loc="lower right", frameon=True, facecolor="white", edgecolor="gray")
     ax.grid(alpha=0.3, zorder=0)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
+def plot_loglog_panel(ax, data, metric_path, ylabel, title, strategies=None):
+    """Plot log-log scaling law: log(1 - Pearson R) vs log(N).
+
+    Fits power law: (1 - R) ~ N^(-alpha) for each strategy.
+    Shows fitted exponents in the legend.
+    """
+    if strategies is None:
+        strategies = KEY_STRATEGIES
+
+    for strat, (label, color, ls, lw) in strategies.items():
+        sizes, means, stds = extract_metric(data, strat, metric_path)
+        if len(sizes) < 2:
+            continue
+
+        # Convert to loss = 1 - R (clip to positive)
+        loss = np.clip(1.0 - means, 1e-6, None)
+        sizes_arr = np.array(sizes, dtype=float)
+
+        # Compute CIs in log space (geometric) to avoid asymmetric bars
+        if stds.any():
+            loss_hi = np.clip(1.0 - (means - 1.96 * stds), 1e-6, None)
+            loss_lo = np.clip(1.0 - (means + 1.96 * stds), 1e-6, None)
+        else:
+            loss_hi = loss_lo = loss
+
+        # Fit power law: log(loss) = -alpha * log(N) + log(a)
+        # Only fit on points where loss > 0.01 (meaningful range)
+        fit_mask = loss > 0.01
+        if fit_mask.sum() >= 2:
+            log_n = np.log10(sizes_arr[fit_mask])
+            log_loss = np.log10(loss[fit_mask])
+            coeffs = np.polyfit(log_n, log_loss, 1)
+            alpha = -coeffs[0]
+            fit_label = f"{label} (α={alpha:.2f})"
+        else:
+            fit_label = label
+
+        zorder = 10 if strat == "random" else 1
+        ax.plot(
+            sizes_arr,
+            loss,
+            color=color,
+            label=fit_label,
+            linewidth=lw,
+            linestyle=ls,
+            marker="o",
+            markersize=5,
+            zorder=zorder,
+        )
+        if stds.any():
+            ax.fill_between(
+                sizes_arr,
+                loss_lo,
+                loss_hi,
+                alpha=0.18,
+                color=color,
+                zorder=zorder - 1,
+            )
+
+        # Plot power law fit line
+        if fit_mask.sum() >= 2:
+            fit_x = np.logspace(np.log10(sizes_arr.min()), np.log10(sizes_arr.max()), 50)
+            fit_y = 10 ** np.polyval(coeffs, np.log10(fit_x))
+            ax.plot(fit_x, fit_y, color=color, linestyle=":", linewidth=1.0, alpha=0.5)
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("N training sequences", fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.legend(fontsize=8, loc="upper right", frameon=True, facecolor="white", edgecolor="gray")
+    ax.grid(alpha=0.3, which="both", zorder=0)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -372,6 +457,58 @@ def main():
     fig.savefig(OUT / "talk_strategy_snv_delta.pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {OUT / 'talk_strategy_snv_delta.png'}")
+
+    # ── Log-log power law: In-Dist ─────────────────────────────────
+    fig, ax = plt.subplots(figsize=(10, 7))
+    plot_loglog_panel(
+        ax,
+        strategy_data,
+        "in_dist.pearson_r",
+        "1 − Pearson R (loss)",
+        "K562 — Scaling Law, In-Distribution (log-log)",
+    )
+    fig.tight_layout()
+    fig.savefig(OUT / "talk_loglog_indist.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_loglog_indist.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {OUT / 'talk_loglog_indist.png'}")
+
+    # ── Log-log power law: OOD ──────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(10, 7))
+    plot_loglog_panel(
+        ax,
+        strategy_data,
+        "ood.pearson_r",
+        "1 − Pearson R (loss)",
+        "K562 — Scaling Law, Out-of-Distribution (log-log)",
+    )
+    fig.tight_layout()
+    fig.savefig(OUT / "talk_loglog_ood.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_loglog_ood.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {OUT / 'talk_loglog_ood.png'}")
+
+    # ── 2-panel: linear + log-log In-Dist ───────────────────────────
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    plot_strategy_panel(
+        ax1,
+        strategy_data,
+        "in_dist.pearson_r",
+        "In-Dist Pearson R",
+        "A. Strategy Scaling — In-Distribution",
+    )
+    plot_loglog_panel(
+        ax2,
+        strategy_data,
+        "in_dist.pearson_r",
+        "1 − Pearson R (loss)",
+        "B. Scaling Law (log-log)",
+    )
+    fig.tight_layout(w_pad=3)
+    fig.savefig(OUT / "talk_2panel_linear_loglog.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "talk_2panel_linear_loglog.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {OUT / 'talk_2panel_linear_loglog.png'}")
 
     print(f"\nAll figures in: {OUT}")
 
