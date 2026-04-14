@@ -148,6 +148,34 @@ def run_optuna_search(args):
     study = optuna.create_study(
         direction="maximize", sampler=optuna.samplers.TPESampler(seed=args.seed)
     )
+
+    # Warm-start: enqueue best HPs from neighboring sizes and known-good configs
+    warm_start_configs = [
+        {"lr": 0.001, "batch_size": 512, "weight_decay": 1e-5},
+        {"lr": 0.005, "batch_size": 1024, "weight_decay": 1e-5},
+        {"lr": 0.002, "batch_size": 256, "weight_decay": 0.004},
+        {"lr": 0.003, "batch_size": 512, "weight_decay": 1e-6},
+    ]
+    # Also try to load best config from neighboring sizes
+    for neighbor_n in [args.size // 2, args.size * 2]:
+        neighbor_path = (
+            REPO
+            / "outputs"
+            / "optuna_best"
+            / args.strategy
+            / f"n{neighbor_n}"
+            / f"best_config_seed{args.seed}.json"
+        )
+        if neighbor_path.exists():
+            try:
+                nc = json.loads(neighbor_path.read_text())["config"]
+                warm_start_configs.append(nc)
+            except Exception:
+                pass
+
+    for wc in warm_start_configs:
+        study.enqueue_trial(wc)
+
     study.optimize(objective, n_trials=args.n_trials)
 
     best = study.best_trial
