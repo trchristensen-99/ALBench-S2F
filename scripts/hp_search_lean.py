@@ -398,12 +398,164 @@ def experiment_ensemble_lean(strategy, n_train):
     return results
 
 
+def experiment_pruning(strategy, n_train):
+    """Test Optuna pruning: kill bad trials early, let good ones train fully.
+
+    Compares:
+    a) Standard 20-trial (80ep, patience=10) — baseline
+    b) MedianPruner 30-trial (80ep, prune after epoch 5) — more trials, bad ones killed
+    c) HyperbandPruner 30-trial — multi-fidelity, automatic bracket scheduling
+    d) MedianPruner 50-trial (80ep, prune after epoch 5) — even more trials
+
+    Pruning lets us run MORE trials in the same wall time by killing losers early.
+    """
+    import optuna
+
+    from scripts.optuna_legnet_scaling import get_chr_val, load_pool_data
+
+    _ = get_chr_val()
+    val_seqs, val_labels = get_chr_val()
+
+    def make_pruning_objective(seqs, labels, seed, trial_ref):
+        """Create objective that reports intermediate vals for pruning."""
+        from scipy.stats import pearsonr
+
+        from models.legnet_student import LegNetStudent, TrainConfig
+
+        def objective(trial):
+            lr = trial.suggest_float("lr", 5e-5, 5e-2, log=True)
+            bs = trial.suggest_categorical("batch_size", [128, 256, 512, 1024, 2048, 4096])
+            wd = trial.suggest_float("weight_decay", 1e-7, 1e-2, log=True)
+
+            effective_bs = min(bs, max(32, len(seqs) // 2))
+            config = TrainConfig(
+                lr=lr,
+                batch_size=effective_bs,
+                weight_decay=wd,
+                epochs=80,
+                early_stopping_patience=10,
+            )
+            model = LegNetStudent(ensemble_size=1, train_config=config)
+
+            def epoch_cb(epoch, val_metrics):
+                val_r = val_metrics.get("pearson_r", 0)
+                trial.report(val_r, epoch)
+                if trial.should_prune():
+                    raise optuna.TrialPruned()
+                return False
+
+            try:
+                model.fit(
+                    sequences=seqs,
+                    labels=labels,
+                    val_sequences=val_seqs,
+                    val_labels=val_labels,
+                    epoch_callback=epoch_cb,
+                )
+                preds = model.predict(val_seqs)
+                val_r, _ = pearsonr(val_labels, preds)
+                return float(val_r)
+            except optuna.TrialPruned:
+                raise
+
+        return objective
+
+    configs = {
+        "standard_20": {"n_trials": 20, "pruner": None},
+        "median_30": {
+            "n_trials": 30,
+            "pruner": lambda: optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=5),
+        },
+        "hyperband_30": {
+            "n_trials": 30,
+            "pruner": lambda: optuna.pruners.HyperbandPruner(
+                min_resource=5, max_resource=80, reduction_factor=3
+            ),
+        },
+        "median_50": {
+            "n_trials": 50,
+            "pruner": lambda: optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=5),
+        },
+    }
+
+    results = {}
+    for config_name, cfg in configs.items():
+        logger.info(f"--- {config_name} ---")
+        iters = []
+        for seed in ITER_SEEDS:
+            seqs, labels = load_pool_data(strategy, n_train, seed)
+            sampler = optuna.samplers.TPESampler(seed=seed)
+            pruner = cfg["pruner"]() if cfg["pruner"] else optuna.pruners.NopPruner()
+
+            study = optuna.create_study(direction="maximize", sampler=sampler, pruner=pruner)
+            for wc in WARM_CONFIGS:
+                study.enqueue_trial(wc)
+
+            if cfg["pruner"] is not None:
+                obj = make_pruning_objective(seqs, labels, seed, None)
+            else:
+                # Standard objective (no pruning callbacks)
+                from scripts.optuna_legnet_scaling import get_chr_val as _gcv
+
+                _gcv()
+
+                def obj(trial, _seqs=seqs, _labels=labels, _seed=seed):
+                    lr = trial.suggest_float("lr", 5e-5, 5e-2, log=True)
+                    bs = trial.suggest_categorical("batch_size", [128, 256, 512, 1024, 2048, 4096])
+                    wd = trial.suggest_float("weight_decay", 1e-7, 1e-2, log=True)
+                    return train_eval(_seqs, _labels, lr, bs, wd, _seed)
+
+            t0 = time.time()
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+            study.optimize(obj, n_trials=cfg["n_trials"])
+            wall_time = time.time() - t0
+
+            best = study.best_trial
+            n_pruned = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
+            n_complete = len(
+                [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+            )
+
+            iters.append(
+                {
+                    "best_val": float(best.value),
+                    "best_params": best.params,
+                    "wall_time_sec": wall_time,
+                    "n_complete": n_complete,
+                    "n_pruned": n_pruned,
+                }
+            )
+            logger.info(
+                f"  seed={seed}: val={best.value:.4f} "
+                f"time={wall_time:.0f}s pruned={n_pruned}/{cfg['n_trials']}"
+            )
+
+        vals = [r["best_val"] for r in iters]
+        times = [r["wall_time_sec"] for r in iters]
+        results[config_name] = {
+            "config": config_name,
+            "n_trials": cfg["n_trials"],
+            "has_pruner": cfg["pruner"] is not None,
+            "val_mean": float(np.mean(vals)),
+            "val_std": float(np.std(vals)),
+            "mean_wall_time": float(np.mean(times)),
+            "mean_pruned": float(np.mean([r["n_pruned"] for r in iters])),
+            "per_seed": iters,
+        }
+        logger.info(
+            f"  {config_name}: val={np.mean(vals):.4f}+/-{np.std(vals):.4f} "
+            f"time={np.mean(times):.0f}s"
+        )
+
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--experiment",
         required=True,
-        choices=["trial_extension", "sampler_alt", "cost_proxy", "ensemble_lean"],
+        choices=["trial_extension", "sampler_alt", "cost_proxy", "ensemble_lean", "pruning"],
     )
     parser.add_argument("--strategy", required=True, choices=["random", "genomic", "motif_grammar"])
     parser.add_argument("--size", type=int, required=True)
@@ -431,6 +583,8 @@ def main():
         results = experiment_cost_proxy(args.strategy, args.size)
     elif args.experiment == "ensemble_lean":
         results = experiment_ensemble_lean(args.strategy, args.size)
+    elif args.experiment == "pruning":
+        results = experiment_pruning(args.strategy, args.size)
 
     with open(out_file, "w") as f:
         json.dump(

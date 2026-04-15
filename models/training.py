@@ -211,6 +211,7 @@ def train_model_optimized(
     shift_aug: bool = False,
     max_shift: int = 15,
     multitask: bool = False,
+    epoch_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Train a model with validation, checkpointing, and optimizations.
@@ -416,6 +417,13 @@ def train_model_optimized(
                 print(f"  → Saved best model (val {metric_for_best}: {best_metric:.4f})")
         else:
             patience_counter += 1
+
+        # Epoch callback (e.g., for Optuna pruning)
+        if epoch_callback is not None:
+            should_stop = epoch_callback(epoch, val_metrics)
+            if should_stop:
+                print(f"\nCallback requested stop after {epoch + 1} epochs")
+                break
 
         # Early stopping
         if early_stopping_patience is not None and patience_counter >= early_stopping_patience:
