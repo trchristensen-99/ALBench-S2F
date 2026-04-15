@@ -161,6 +161,7 @@ class LegNetStudent(SequenceModel):
         labels: np.ndarray,
         val_sequences: list[str] | None = None,
         val_labels: np.ndarray | None = None,
+        epoch_callback=None,
     ) -> None:
         """Train all ensemble members.
 
@@ -241,4 +242,5 @@ class LegNetStudent(SequenceModel):
                 shift_aug=self.train_config.shift_aug,
                 max_shift=self.train_config.max_shift,
                 multitask=self.multitask,
+                epoch_callback=epoch_callback,
             )
