@@ -38,7 +38,7 @@ source scripts/slurm/setup_hpc_deps.sh
 
 T=$SLURM_ARRAY_TASK_ID
 
-EXPERIMENTS=("trial_extension" "sampler_alt" "cost_proxy" "ensemble_lean")
+EXPERIMENTS=("trial_extension" "sampler_alt" "cost_proxy" "ensemble_lean" "pruning")
 STRATS=("random" "genomic" "motif_grammar")
 SIZES=(50000 100000)
 
