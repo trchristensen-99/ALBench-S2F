@@ -32,7 +32,7 @@ OUT = REPO / "results" / "poster_stowers"
 OUT.mkdir(parents=True, exist_ok=True)
 
 
-def load_model_data(model_name, max_n=300000):
+def load_model_data(model_name, max_n=500000):
     """Load scaling data for a specific model."""
     base = REPO / "outputs" / "exp0_oracle_scaling_v4" / "k562" / model_name
     results_by_n = defaultdict(lambda: defaultdict(list))
