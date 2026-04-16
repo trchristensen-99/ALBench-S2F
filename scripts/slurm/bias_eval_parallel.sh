@@ -95,18 +95,21 @@ model = create_model_with_heads(
 )
 reinit_head_params(model, head_name, num_tokens=5, dim=1536, rng=42)
 
-# Load fine-tuned weights
-best_path = model_dir / "best_model"
-if best_path.exists():
+# Load fine-tuned weights (same path as training script)
+best_ckpt = model_dir / "best_model" / "checkpoint"
+if best_ckpt.exists():
     import orbax.checkpoint as ocp
     checkpointer = ocp.StandardCheckpointer()
     try:
-        restored = checkpointer.restore(str(best_path))
-        model._params = restored.get("params", model._params)
-        print(f"Loaded fine-tuned weights from {best_path}")
+        loaded_params, _ = checkpointer.restore(str(best_ckpt))
+        model._params = jax.device_put(loaded_params)
+        print(f"Loaded fine-tuned weights from {best_ckpt}")
     except Exception as e:
         print(f"WARNING: could not load checkpoint: {e}")
         print("Using base model weights")
+else:
+    print(f"WARNING: no checkpoint at {best_ckpt}")
+    print("Using base model weights — results will be uninformative")
 
 @jax.jit
 def predict_step(params, state, sequences):
