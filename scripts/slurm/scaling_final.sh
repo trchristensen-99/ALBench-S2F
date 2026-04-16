@@ -94,9 +94,16 @@ _ = get_chr_val()
 
 print(f"Loaded {len(seqs)} sequences (seed={seed})")
 
+# Cap batch_size search space: need at least 32 steps/epoch
+max_bs = min(4096, n_train // 32)
+valid_bs = [b for b in [128, 256, 512, 1024, 2048, 4096] if b <= max_bs]
+if not valid_bs:
+    valid_bs = [128]
+print(f"BS search space: {valid_bs} (max_bs={max_bs} for n={n_train})")
+
 def objective(trial):
     lr = trial.suggest_float("lr", 5e-5, 5e-2, log=True)
-    bs = trial.suggest_categorical("batch_size", [128, 256, 512, 1024, 2048, 4096])
+    bs = trial.suggest_categorical("batch_size", valid_bs)
     wd = trial.suggest_float("weight_decay", 1e-7, 1e-2, log=True)
     return train_and_evaluate(seqs, labels, lr, bs, wd, seed)
 
