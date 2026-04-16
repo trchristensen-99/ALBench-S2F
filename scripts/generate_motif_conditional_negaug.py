@@ -103,12 +103,10 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
 
-    # Gosai ctrl_neg mean is +0.27 in EPISOMAL scale
-    # Training data (Agarwal) is in lentiMPRA scale
-    # Transform: Gosai = 2.13 * Agarwal + 0.86
-    # So: Agarwal = (0.27 - 0.86) / 2.13 = -0.277
-    RANDOM_DNA_MEAN_AGARWAL = -0.28  # Random DNA activity in Agarwal scale
-    RANDOM_DNA_STD_AGARWAL = 0.40  # Approximate std in Agarwal scale
+    # Training data is Gosai et al. (episomal MPRA), NOT Agarwal (lentiMPRA)
+    # Gosai ctrl_neg mean = +0.27 in episomal scale — this IS our training scale
+    RANDOM_DNA_MEAN = 0.27  # Gosai ctrl_neg mean (episomal, same scale as training)
+    RANDOM_DNA_STD = 0.50  # Approximate std from ctrl_neg distribution
 
     all_seqs, all_labels, all_cats = [], [], []
 
@@ -117,8 +115,8 @@ def main():
     for cpg_freq in [0.0, 0.02, 0.04, 0.06, 0.08, 0.10]:
         for _ in range(args.n_random // 6):
             seq = gen_cpg_controlled(200, cpg_freq, rng)
-            # Label drawn from inactive distribution (Agarwal scale)
-            label = rng.normal(RANDOM_DNA_MEAN_AGARWAL, RANDOM_DNA_STD_AGARWAL)
+            # Label drawn from inactive distribution (Gosai episomal scale)
+            label = rng.normal(RANDOM_DNA_MEAN, RANDOM_DNA_STD)
             all_seqs.append(seq)
             all_labels.append(float(label))
             all_cats.append(f"random_cpg{cpg_freq:.2f}")
@@ -130,9 +128,9 @@ def main():
         cpg_freq = rng.uniform(0.03, 0.10)
         seq = gen_cpg_controlled(200, cpg_freq, rng)
         seq = plant_motifs(seq, K562_MOTIFS, rng, n_motifs=rng.integers(1, 4))
-        # Moderate activity label in Agarwal scale (~median of active elements)
-        # Agarwal active mean ~1.2, but synthetic motifs won't be as strong
-        label = rng.normal(0.8, 0.6)  # Moderate activity in Agarwal scale
+        # Moderate activity label in Gosai episomal scale
+        # Gosai active elements ~2-4 log2FC, synthetic motifs weaker
+        label = rng.normal(1.5, 0.8)  # Moderate activity in Gosai scale
         all_seqs.append(seq)
         all_labels.append(float(label))
         all_cats.append("motif_high_cpg")
