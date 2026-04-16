@@ -42,9 +42,15 @@ def collect_from_files():
     ):
         d = json.loads(f.read_text())
         tm = d["test_metrics"]
-        for k_src, k_dst in [("in_dist", "id"), ("ood", "ood"), ("snv_delta", "snv_delta")]:
-            if k_src in tm:
-                vals[k_dst].append(tm[k_src]["pearson_r"])
+        for k_srcs, k_dst in [
+            (["in_dist", "in_distribution"], "id"),
+            (["ood"], "ood"),
+            (["snv_delta"], "snv_delta"),
+        ]:
+            for k_src in k_srcs:
+                if k_src in tm:
+                    vals[k_dst].append(tm[k_src]["pearson_r"])
+                    break
     if vals["id"]:
         models["AG S1\n(Probing)"] = {k: (np.mean(v), np.std(v)) for k, v in vals.items()}
 
