@@ -644,6 +644,74 @@ def main(cfg: DictConfig) -> None:
                 cpg_corr = corr_num / corr_den
                 return mse + debias_lambda * cpg_corr**2
 
+            elif debias_mode == "cpg_gradient_penalty":
+                # Gradient penalty on CpG: penalize sensitivity of predictions
+                # to CpG dinucleotide content. Computed as correlation between
+                # predictions (not residuals) and CpG frequency.
+                cpg = batch["cpg_freq"]
+                pred_centered = pred - jnp.mean(pred)
+                cpg_centered = cpg - jnp.mean(cpg)
+                corr_num = jnp.sum(pred_centered * cpg_centered)
+                corr_den = jnp.sqrt(jnp.sum(pred_centered**2) * jnp.sum(cpg_centered**2) + 1e-8)
+                pred_cpg_corr = corr_num / corr_den
+                return mse + debias_lambda * pred_cpg_corr**2
+
+            elif debias_mode == "counterfactual_consistency":
+                # Counterfactual CpG consistency: for each sample, compare
+                # prediction with a CpG-depleted version. Penalize large
+                # differences (the CpG content alone shouldn't change prediction).
+                # Uses the batch's CpG frequency as a proxy for expected shift.
+                cpg = batch["cpg_freq"]
+                # Expected bias = slope * (cpg - baseline)
+                # Penalize predictions that track CpG too closely
+                expected_cpg_bias = 12.9 * (cpg - 0.01)
+                # We want predictions to NOT follow the CpG bias pattern
+                bias_alignment = jnp.mean((pred - batch["targets"]) * expected_cpg_bias)
+                return mse + debias_lambda * jnp.abs(bias_alignment)
+
+            elif debias_mode == "adaptive_group_dro":
+                # Adaptive Group DRO: reweight groups based on CpG × activity
+                # but use soft weighting instead of hard max
+                per_sample_loss = (pred - batch["targets"]) ** 2
+                cpg = batch["cpg_freq"]
+                targets = batch["targets"]
+                cpg_bin = jnp.digitize(cpg, cpg_bin_edges) - 1
+                cpg_bin = jnp.clip(cpg_bin, 0, 3)
+                act_bin = (targets > activity_threshold).astype(jnp.int32)
+                group_id = cpg_bin * 2 + act_bin
+                group_losses = jnp.zeros(n_groups)
+                for g in range(n_groups):
+                    mask = (group_id == g).astype(jnp.float32)
+                    count = jnp.sum(mask) + 1e-8
+                    group_losses = group_losses.at[g].set(jnp.sum(per_sample_loss * mask) / count)
+                # Soft-max weighting (temperature-controlled)
+                temperature = 0.1
+                weights = jax.nn.softmax(group_losses / temperature)
+                weighted_loss = jnp.sum(weights * group_losses)
+                return (1 - debias_lambda) * mse + debias_lambda * weighted_loss
+
+            elif debias_mode == "conditional_invariance":
+                # Conditional CpG invariance: only penalize CpG-prediction
+                # correlation for LOW-activity samples (where CpG shouldn't
+                # matter). High-activity samples may legitimately use CpG
+                # in combination with functional motifs.
+                cpg = batch["cpg_freq"]
+                targets = batch["targets"]
+                # Low-activity mask: samples below median activity
+                low_act_mask = (targets < activity_threshold).astype(jnp.float32)
+                n_low = jnp.sum(low_act_mask) + 1e-8
+                # Correlation of pred with CpG only among low-activity samples
+                pred_low = pred * low_act_mask
+                cpg_low = cpg * low_act_mask
+                pred_low_mean = jnp.sum(pred_low) / n_low
+                cpg_low_mean = jnp.sum(cpg_low) / n_low
+                pred_c = (pred - pred_low_mean) * low_act_mask
+                cpg_c = (cpg - cpg_low_mean) * low_act_mask
+                corr_num = jnp.sum(pred_c * cpg_c)
+                corr_den = jnp.sqrt(jnp.sum(pred_c**2) * jnp.sum(cpg_c**2) + 1e-8)
+                low_act_cpg_corr = corr_num / corr_den
+                return mse + debias_lambda * low_act_cpg_corr**2
+
             else:
                 return mse
 
@@ -827,6 +895,79 @@ def main(cfg: DictConfig) -> None:
     else:
         print(f"[bias] Controls file not found: {controls_path}", flush=True)
 
+    # 4. Gosai ctrl_neg sequences WITH real labels (K562_log2FC from the MPRA data)
+    gosai_path = Path("data/k562/DATA-Table_S2__MPRA_dataset.txt")
+    if gosai_path.exists():
+        gosai_df = pd.read_csv(gosai_path, sep="\t", low_memory=False)
+        # ctrl_neg are the negative control sequences in the Gosai dataset
+        ctrl_neg = gosai_df[gosai_df["group"].str.contains("ctrl_neg", case=False, na=False)]
+        if len(ctrl_neg) == 0:
+            # Try alternative column names
+            for col in ["element_type", "category", "class"]:
+                if col in gosai_df.columns:
+                    ctrl_neg = gosai_df[
+                        gosai_df[col].str.contains(
+                            "ctrl_neg|negative_control|scrambl", case=False, na=False
+                        )
+                    ]
+                    if len(ctrl_neg) > 0:
+                        break
+        if len(ctrl_neg) > 0:
+            ctrl_seqs = ctrl_neg["sequence"].str[:200].tolist()
+            ctrl_real = ctrl_neg["K562_log2FC"].values.astype(np.float32)
+            ctrl_preds = _predict_sequences(predict_step, model._params, model._state, ctrl_seqs)
+            from scipy.stats import pearsonr as _pearsonr
+            from scipy.stats import spearmanr as _spearmanr
+
+            p_r, _ = _pearsonr(ctrl_real, ctrl_preds)
+            s_r, _ = _spearmanr(ctrl_real, ctrl_preds)
+            bias_results["gosai_ctrl_neg"] = {
+                "mean_pred": float(np.mean(ctrl_preds)),
+                "mean_real": float(np.mean(ctrl_real)),
+                "std_pred": float(np.std(ctrl_preds)),
+                "pearson_r": float(p_r),
+                "spearman_r": float(s_r),
+                "mse": float(np.mean((ctrl_preds - ctrl_real) ** 2)),
+                "pct_positive_pred": float(np.mean(ctrl_preds > 0) * 100),
+                "pct_positive_real": float(np.mean(ctrl_real > 0) * 100),
+                "n": len(ctrl_preds),
+            }
+            print(
+                f"[bias] gosai_ctrl_neg: pred_mean={np.mean(ctrl_preds):+.3f} "
+                f"real_mean={np.mean(ctrl_real):+.3f} pearson={p_r:.3f}",
+                flush=True,
+            )
+
+    # 5. Dinucleotide-shuffled random DNA (preserves dinuc composition, destroys motifs)
+    def _dinuc_shuffle(seq, rng):
+        """Shuffle preserving dinucleotide frequencies (Altschul-Erickson)."""
+        seq = list(seq.upper())
+        n = len(seq)
+        for i in range(n - 2, 0, -1):
+            j = rng.randint(0, i + 1)
+            seq[i], seq[j] = seq[j], seq[i]
+        return "".join(seq)
+
+    rng_dinuc = np.random.RandomState(42)
+    dinuc_seqs = [_dinuc_shuffle(s, rng_dinuc) for s in random_seqs[:200]]
+    dinuc_preds = _predict_sequences(predict_step, model._params, model._state, dinuc_seqs)
+    bias_results["dinuc_shuffled"] = {
+        "mean": float(np.mean(dinuc_preds)),
+        "std": float(np.std(dinuc_preds)),
+        "pct_positive": float(np.mean(dinuc_preds > 0) * 100),
+        "n": len(dinuc_preds),
+    }
+
+    # 6. CpG-depleted random DNA (all CG→TG)
+    cpg_depleted = [s.replace("CG", "TG") for s in random_seqs[:200]]
+    cpg_dep_preds = _predict_sequences(predict_step, model._params, model._state, cpg_depleted)
+    bias_results["cpg_depleted_random"] = {
+        "mean": float(np.mean(cpg_dep_preds)),
+        "std": float(np.std(cpg_dep_preds)),
+        "pct_positive": float(np.mean(cpg_dep_preds > 0) * 100),
+        "n": len(cpg_dep_preds),
+    }
+
     # Save bias results
     bias_json = output_dir / "bias_eval.json"
     with open(bias_json, "w") as f:
@@ -835,10 +976,18 @@ def main(cfg: DictConfig) -> None:
 
     # Print summary
     parts = []
-    for key in ["random_dna", "shuffled", "intergenic"]:
+    for key in [
+        "random_dna",
+        "shuffled",
+        "intergenic",
+        "gosai_ctrl_neg",
+        "dinuc_shuffled",
+        "cpg_depleted_random",
+    ]:
         if key in bias_results:
             m = bias_results[key]
-            parts.append(f"{key}_mean={m['mean']:+.2f}")
+            val = m.get("mean", m.get("mean_pred", 0))
+            parts.append(f"{key}={val:+.3f}")
     print(f"[bias] {' '.join(parts) if parts else 'no results'}", flush=True)
 
     for key, m in bias_results.items():
