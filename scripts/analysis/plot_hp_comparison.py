@@ -142,7 +142,7 @@ def main():
     ax1.set_xticks(x)
     ax1.set_xticklabels([METHOD_LABELS.get(m, m) for m in method_order], fontsize=8, ha="center")
     ax1.set_ylabel("Cross-Validated Val Pearson R", fontsize=11)
-    ax1.set_title("A. HP Search Performance (50K)", fontsize=12, fontweight="bold")
+    ax1.set_title("A. Optuna HP Search for LegNet (N=50K)", fontsize=12, fontweight="bold")
     ax1.grid(axis="y", alpha=0.3, zorder=0)
     ax1.spines["top"].set_visible(False)
     ax1.spines["right"].set_visible(False)
@@ -180,7 +180,7 @@ def main():
     ax2.set_xticks(x)
     ax2.set_xticklabels([METHOD_LABELS.get(m, m) for m in method_order], fontsize=8, ha="center")
     ax2.set_ylabel("Standard Deviation", fontsize=11)
-    ax2.set_title("B. HP Search Consistency (50K)", fontsize=12, fontweight="bold")
+    ax2.set_title("B. LegNet HP Consistency Across Seeds", fontsize=12, fontweight="bold")
     ax2.legend(fontsize=9, loc="upper right", frameon=True)
     ax2.grid(axis="y", alpha=0.3, zorder=0)
     ax2.spines["top"].set_visible(False)
@@ -212,7 +212,9 @@ def main():
     ax.set_xlabel("Cross-Eval Std (lower = more consistent)", fontsize=11)
     ax.set_ylabel("Cross-Validated Performance", fontsize=11)
     ax.set_title(
-        "HP Search Methods: Performance vs Consistency (50K)", fontsize=12, fontweight="bold"
+        "Optuna HP Search for LegNet: Performance vs Consistency (N=50K)",
+        fontsize=12,
+        fontweight="bold",
     )
     ax.grid(alpha=0.3, zorder=0)
     ax.spines["top"].set_visible(False)
