@@ -80,11 +80,19 @@ head_name = tm.get("head_name", "alphagenome_k562_head_hashfrag_boda_flatten_512
 
 print(f"Loading model with head: {head_name}")
 from alphagenome_ft import create_model_with_heads
+from models.alphagenome_heads import register_s2f_head, reinit_head_params
+
+# Register the custom head (same as training script)
+arch = tm.get("head_arch", "boda-flatten-512-512")
+register_s2f_head(head_name=head_name, arch=arch, task_mode="human", num_tracks=1)
+
 model = create_model_with_heads(
     "all_folds", heads=[head_name],
     checkpoint_path=os.environ["ALPHAGENOME_WEIGHTS"],
-    use_encoder_output=False,
+    use_encoder_output=True,
+    detach_backbone=False,
 )
+reinit_head_params(model, head_name, num_tokens=5, dim=1536, rng=42)
 
 # Load fine-tuned weights
 best_path = model_dir / "best_model"
