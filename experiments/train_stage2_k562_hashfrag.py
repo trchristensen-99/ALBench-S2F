@@ -855,8 +855,40 @@ def main(cfg: DictConfig) -> None:
         )
 
     # ── Bias evaluation: random DNA, shuffled controls, intergenic sequences ──
+    # Wrapped in try/except to ensure bias_eval runs even if checkpoint async errors occur
     print("\n[bias] Evaluating on control sequences …", flush=True)
     bias_results: dict[str, dict[str, float]] = {}
+    try:
+        _run_bias_eval(predict_step, model, output_dir, bias_results)
+    except Exception as e:
+        print(f"[bias] WARNING: bias eval error: {e}", flush=True)
+
+    # Save bias results regardless
+    bias_json = output_dir / "bias_eval.json"
+    with open(bias_json, "w") as f:
+        json.dump(bias_results, f, indent=2)
+    print(f"[bias] Wrote {bias_json}", flush=True)
+
+    for key in [
+        "random_dna",
+        "shuffled",
+        "intergenic",
+        "gosai_ctrl_neg",
+        "dinuc_shuffled",
+        "cpg_depleted_random",
+    ]:
+        if key in bias_results:
+            m = bias_results[key]
+            val = m.get("mean", m.get("mean_pred", 0))
+            parts_str = f"{key}={val:+.3f}"
+            print(f"[bias] {parts_str}", flush=True)
+            wandb.log({f"bias/{key}/mean": val})
+
+    wandb.finish()
+
+
+def _run_bias_eval(predict_step, model, output_dir, bias_results):
+    """Run all bias evaluations. Separated so we can catch errors."""
 
     # 1. Random 200bp DNA sequences (seed=42, N=500)
     rng_bias = np.random.RandomState(42)
@@ -967,33 +999,6 @@ def main(cfg: DictConfig) -> None:
         "pct_positive": float(np.mean(cpg_dep_preds > 0) * 100),
         "n": len(cpg_dep_preds),
     }
-
-    # Save bias results
-    bias_json = output_dir / "bias_eval.json"
-    with open(bias_json, "w") as f:
-        json.dump(bias_results, f, indent=2)
-    print(f"[bias] Wrote {bias_json}", flush=True)
-
-    # Print summary
-    parts = []
-    for key in [
-        "random_dna",
-        "shuffled",
-        "intergenic",
-        "gosai_ctrl_neg",
-        "dinuc_shuffled",
-        "cpg_depleted_random",
-    ]:
-        if key in bias_results:
-            m = bias_results[key]
-            val = m.get("mean", m.get("mean_pred", 0))
-            parts.append(f"{key}={val:+.3f}")
-    print(f"[bias] {' '.join(parts) if parts else 'no results'}", flush=True)
-
-    for key, m in bias_results.items():
-        wandb.log({f"bias/{key}/mean": m["mean"], f"bias/{key}/pct_positive": m["pct_positive"]})
-
-    wandb.finish()
 
 
 if __name__ == "__main__":
