@@ -48,6 +48,8 @@ def load_exp0_scaling():
             except Exception:
                 continue
             n = d.get("n_train", 0)
+            if n > 300000:
+                continue  # Exclude 320K runs (different batch, inconsistent)
             hp = json.dumps(d.get("hp_config", {}), sort_keys=True)
             val_r = d.get("val_pearson_r", 0)
             p = d.get("test_metrics", {}).get("in_dist", {}).get("pearson_r")
