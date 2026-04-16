@@ -80,7 +80,8 @@ head_name = tm.get("head_name", "alphagenome_k562_head_hashfrag_boda_flatten_512
 
 print(f"Loading model with head: {head_name}")
 from alphagenome_ft import create_model_with_heads
-from models.alphagenome_heads import register_s2f_head, reinit_head_params
+from models.alphagenome_heads import register_s2f_head
+from models.embedding_cache import reinit_head_params
 
 # Register the custom head (same as training script)
 arch = tm.get("head_arch", "boda-flatten-512-512")
