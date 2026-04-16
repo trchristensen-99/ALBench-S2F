@@ -70,7 +70,7 @@ def plant_motifs(seq, motifs, rng, n_motifs=2):
     for _ in range(n_motifs):
         motif_name = rng.choice(motif_names)
         motif = motifs[motif_name].replace("N", rng.choice(list("ACGT")))
-        pos = rng.randint(0, len(seq) - len(motif))
+        pos = rng.integers(0, len(seq) - len(motif))
         for j, base in enumerate(motif):
             seq[pos + j] = base
     return "".join(seq)
