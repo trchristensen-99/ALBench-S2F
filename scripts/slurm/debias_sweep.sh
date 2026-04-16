@@ -102,22 +102,22 @@ OUT="outputs/debias_sweep/${NAME}/fold_0"
 
 echo "=== Debias: ${NAME} (mode=${DEBIAS} lambda=${LAMBDA}) — $(date) ==="
 
-# Build command
+# Build command — use + prefix for keys not in base config (Hydra strict mode)
 CMD="uv run --no-sync python experiments/train_stage2_k562_hashfrag.py"
+CMD+=" --config-name stage2_k562_full_train"
 CMD+=" variant=s2c"
 CMD+=" encoder_lr=1e-4"
 CMD+=" head_lr=1e-3"
 CMD+=" epochs=15"
-CMD+=" batch_size=128"
-CMD+=" use_dedicated_val=true"
+CMD+=" +batch_size=128"
 CMD+=" output_dir=outputs/debias_sweep/${NAME}"
-CMD+=" fold_id=0"
-CMD+=" debias_mode=${DEBIAS}"
-CMD+=" debias_lambda=${LAMBDA}"
+CMD+=" +fold_id=0"
+CMD+=" +debias_mode=${DEBIAS}"
+CMD+=" +debias_lambda=${LAMBDA}"
 
 if [ "${NEG_PATH}" != "none" ]; then
-    CMD+=" negatives_path=${NEG_PATH}"
-    CMD+=" neg_fraction=${NEG_FRAC}"
+    CMD+=" +negatives_path=${NEG_PATH}"
+    CMD+=" +neg_fraction=${NEG_FRAC}"
 fi
 
 eval $CMD
