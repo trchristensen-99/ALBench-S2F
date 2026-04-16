@@ -96,7 +96,7 @@ model = create_model_with_heads(
 reinit_head_params(model, head_name, num_tokens=5, dim=1536, rng=42)
 
 # Load fine-tuned weights (same path as training script)
-best_ckpt = model_dir / "best_model" / "checkpoint"
+best_ckpt = (model_dir / "best_model" / "checkpoint").resolve()
 if best_ckpt.exists():
     import orbax.checkpoint as ocp
     checkpointer = ocp.StandardCheckpointer()
