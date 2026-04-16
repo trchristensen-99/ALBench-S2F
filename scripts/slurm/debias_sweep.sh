@@ -109,15 +109,15 @@ CMD+=" variant=s2c"
 CMD+=" encoder_lr=1e-4"
 CMD+=" head_lr=1e-3"
 CMD+=" epochs=15"
-CMD+=" +batch_size=128"
+CMD+=" ++batch_size=128"
 CMD+=" output_dir=outputs/debias_sweep/${NAME}"
-CMD+=" +fold_id=0"
-CMD+=" +debias_mode=${DEBIAS}"
-CMD+=" +debias_lambda=${LAMBDA}"
+CMD+=" ++fold_id=0"
+CMD+=" ++debias_mode=${DEBIAS}"
+CMD+=" ++debias_lambda=${LAMBDA}"
 
 if [ "${NEG_PATH}" != "none" ]; then
-    CMD+=" +negatives_path=${NEG_PATH}"
-    CMD+=" +neg_fraction=${NEG_FRAC}"
+    CMD+=" ++negatives_path=${NEG_PATH}"
+    CMD+=" ++neg_fraction=${NEG_FRAC}"
 fi
 
 eval $CMD
