@@ -135,8 +135,8 @@ def plot_debiasing_summary(debias_data):
             groups["Loss-based"].append(d)
 
     LABELS = {
-        "counterfactual_l03": "Counterfactual",
-        "spectral_l05": "Spectral λ=0.5",
+        "counterfactual_l03": "Baseline S2",
+        "spectral_l05": "Spectral Decoupling",
         "cpg_gradient_penalty_l05": "CpG Grad. Penalty",
         "negaug_random_only_5pct": "Random Neg-Aug",
         "combo_spectral05_motif2pct": "Spectral+Motif",
@@ -175,9 +175,17 @@ def plot_debiasing_summary(debias_data):
         )
         for d in entries:
             label = LABELS.get(d["name"], d["name"])
-            # Offset labels to avoid overlap: push up for high OOD, down for low
-            y_off = 6 if d["ood_r"] > 0.6 else -10
-            x_off = 6
+            # Custom offsets per point to avoid overlap
+            offsets = {
+                "counterfactual_l03": (6, 8),  # top-right (highest OOD)
+                "spectral_l05": (6, -12),  # below to avoid overlap with counterfactual
+                "cpg_gradient_penalty_l05": (6, 8),  # above
+                "negaug_random_only_5pct": (6, -10),
+                "combo_spectral05_motif2pct": (6, 8),
+                "combo_spectral10_random1pct": (-80, 8),  # left to avoid edge
+                "combo_spectral05_random5pct": (6, -10),
+            }
+            x_off, y_off = offsets.get(d["name"], (6, 6))
             ax.annotate(
                 label,
                 (d["rand_dna"], d["ood_r"]),
@@ -194,14 +202,14 @@ def plot_debiasing_summary(debias_data):
     ax.axvline(x=0.27, color="#27ae60", linestyle=":", alpha=0.6, linewidth=1.5)
 
     # Annotations for reference lines
-    ax.text(0.76, 0.44, "Baseline\nRandom DNA", fontsize=7, color="gray", alpha=0.7, rotation=90)
-    ax.text(0.28, 0.44, "Target", fontsize=7, color="#27ae60", alpha=0.8, rotation=90)
+    ax.text(0.66, 0.44, "Baseline\nRandom DNA", fontsize=7, color="gray", alpha=0.7, rotation=90)
+    ax.text(0.19, 0.44, "Target", fontsize=7, color="#27ae60", alpha=0.8, rotation=90)
     ax.text(0.95, 0.748, "Baseline OOD", fontsize=7, color="gray", alpha=0.7, ha="right")
 
     ax.set_xlabel("Random DNA Prediction (lower = less biased)", fontsize=11)
     ax.set_ylabel("OOD Pearson R (higher = better)", fontsize=11)
     ax.set_title("Oracle Debiasing Approaches", fontsize=12, fontweight="bold")
-    ax.legend(fontsize=8, loc="lower right", frameon=True, facecolor="white", edgecolor="gray")
+    ax.legend(fontsize=8, loc=(0.6, 0.02), frameon=True, facecolor="white", edgecolor="gray")
     ax.grid(alpha=0.2, zorder=0)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
