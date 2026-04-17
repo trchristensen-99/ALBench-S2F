@@ -162,19 +162,34 @@ def plot_debiasing_summary(debias_data):
             zorder=4,
         )
 
-    # Reference lines
-    ax.axhline(y=0.745, color="gray", linestyle="--", alpha=0.4, linewidth=1)
-    ax.axvline(x=0.75, color="gray", linestyle=":", alpha=0.4, linewidth=1)
-    ax.axvline(x=0.27, color="#27ae60", linestyle=":", alpha=0.5, linewidth=1.5)
-
-    # Compact annotations inside plot bounds
-    ax.text(
-        0.72, 0.43, "Baseline\nbias", fontsize=7, color="gray", alpha=0.7, ha="right", rotation=90
+    # Reference lines — add to legend instead of text annotations
+    ax.axhline(
+        y=0.745,
+        color="#D4A017",
+        linestyle="--",
+        alpha=0.6,
+        linewidth=1.2,
+        label="Baseline OOD",
     )
-    ax.text(0.29, 0.43, "Target", fontsize=7, color="#27ae60", alpha=0.8, rotation=90)
+    ax.axvline(
+        x=0.75,
+        color="#795548",
+        linestyle="-.",
+        alpha=0.5,
+        linewidth=1.2,
+        label="Baseline random DNA pred.",
+    )
+    ax.axvline(
+        x=0.27,
+        color="#27ae60",
+        linestyle=":",
+        alpha=0.6,
+        linewidth=1.5,
+        label="Target random DNA pred.",
+    )
 
-    ax.set_xlim(0.05, 0.85)
-    ax.set_ylim(0.40, 0.82)
+    ax.set_xlim(0, 1.0)
+    ax.set_ylim(0, 1.0)
     ax.set_xlabel("Random DNA Prediction (lower = less biased)", fontsize=11)
     ax.set_ylabel("OOD Pearson R (higher = better)", fontsize=11)
     ax.set_title("Oracle Debiasing Approaches", fontsize=12, fontweight="bold")
