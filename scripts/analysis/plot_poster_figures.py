@@ -109,23 +109,17 @@ def plot_debiasing_summary(debias_data):
     """Panel 5: Debiasing — representative subset, clear labels, legend bottom-right."""
     fig, ax = plt.subplots(figsize=(7, 5))
 
-    # Select representative configs (best of each category + key comparisons)
+    # Select ~7 representative configs: Pareto frontier + key comparisons
     KEEP = {
-        # Best loss-based
-        "spectral_l05",  # best bias reduction + OOD preserved
-        "spectral_l01",  # lighter version
-        "counterfactual_l03",  # best OOD
-        "cpg_invariance_l05",  # best OOD + good CpG-depleted
-        "cpg_gradient_penalty_l05",  # strongest bias reduction (loss-based)
-        # Best neg-aug
-        "negaug_random_only_5pct",  # closest to target
-        "negaug_motif_full_5pct",  # motif-conditional approach
-        # Best combined
-        "combo_spectral05_motif2pct",  # best combined
-        "combo_spectral03_random3pct",  # moderate combined
+        "counterfactual_l03",  # best OOD (loss-based)
+        "spectral_l05",  # best bias/OOD tradeoff (loss-based)
+        "cpg_gradient_penalty_l05",  # strongest loss-based bias reduction
+        "negaug_random_only_5pct",  # best neg-aug
+        "combo_spectral05_motif2pct",  # best combined (highest OOD)
+        "combo_spectral10_random1pct",  # best combined (lowest random DNA)
+        "combo_spectral05_random5pct",  # combined with lowest random DNA
     }
 
-    # Categorize and filter
     groups = {"Loss-based": [], "Neg-aug": [], "Combined": []}
     for d in debias_data:
         if d["rand_dna"] is None or d["name"] not in KEEP:
@@ -137,17 +131,14 @@ def plot_debiasing_summary(debias_data):
         else:
             groups["Loss-based"].append(d)
 
-    # Short display names
     LABELS = {
-        "spectral_l05": "Spectral λ=0.5",
-        "spectral_l01": "Spectral λ=0.1",
         "counterfactual_l03": "Counterfactual",
-        "cpg_invariance_l05": "CpG Invariance",
+        "spectral_l05": "Spectral λ=0.5",
         "cpg_gradient_penalty_l05": "CpG Grad. Penalty",
-        "negaug_random_only_5pct": "Random Neg-Aug 5%",
-        "negaug_motif_full_5pct": "Motif Neg-Aug 5%",
-        "combo_spectral05_motif2pct": "Spectral + Motif 2%",
-        "combo_spectral03_random3pct": "Spectral + Random 3%",
+        "negaug_random_only_5pct": "Random Neg-Aug",
+        "combo_spectral05_motif2pct": "Spectral+Motif",
+        "combo_spectral10_random1pct": "Spectral+Rand (light)",
+        "combo_spectral05_random5pct": "Spectral+Rand (heavy)",
     }
 
     style = {
