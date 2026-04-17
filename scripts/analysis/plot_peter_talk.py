@@ -101,6 +101,8 @@ def load_strategy_data():
                 continue
             strategy = d.get("reservoir", str(rj.relative_to(base_path)).split("/")[0])
             n = d.get("n_train", 0)
+            if n > 500000:
+                continue  # Exclude >500K (different training protocol, causes discontinuity)
             hp = json.dumps(d.get("hp_config", {}), sort_keys=True)
             val_r = d.get("val_pearson_r", 0)
             test = d.get("test_metrics", {})

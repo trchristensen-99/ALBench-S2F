@@ -107,7 +107,7 @@ def load_debias_data():
 
 def plot_debiasing_summary(debias_data):
     """Panel 5: Debiasing approaches — random DNA vs OOD tradeoff."""
-    fig, ax = plt.subplots(figsize=(10, 6.5))
+    fig, ax = plt.subplots(figsize=(8, 5.5))
 
     # Categorize approaches
     loss_based = []
@@ -148,14 +148,15 @@ def plot_debiasing_summary(debias_data):
             short = d["name"].replace("combo_", "").replace("negaug_", "")
             short = short.replace("_l0", " λ=0.").replace("_l1", " λ=1.")
             short = short.replace("pct", "%").replace("_", " ")
-            if len(short) > 20:
-                short = short[:18] + ".."
+            if len(short) > 18:
+                short = short[:16] + ".."
             ax.annotate(
                 short,
                 (d["rand_dna"], d["ood_r"]),
-                fontsize=6,
-                xytext=(4, -3),
+                fontsize=5.5,
+                xytext=(5, -2),
                 textcoords="offset points",
+                alpha=0.8,
             )
 
     # Reference lines
