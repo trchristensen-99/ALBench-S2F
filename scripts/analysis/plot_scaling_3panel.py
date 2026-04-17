@@ -82,11 +82,28 @@ def extract_metric(data, metric_path):
             v = tm
             for k in keys:
                 if isinstance(v, dict):
-                    # Handle in_dist vs in_distribution
-                    if k == "in_dist" and k not in v and "in_distribution" in v:
-                        v = v["in_distribution"]
+                    # Handle key variants:
+                    # in_dist_real -> in_dist -> in_distribution
+                    # ood_real -> ood
+                    # snv_delta_real -> snv_delta
+                    if k not in v:
+                        # Try fallbacks
+                        fallbacks = {
+                            "in_dist_real": ["in_dist", "in_distribution"],
+                            "ood_real": ["ood"],
+                            "snv_delta_real": ["snv_delta"],
+                            "in_dist": ["in_distribution"],
+                        }
+                        found = False
+                        for fb in fallbacks.get(k, []):
+                            if fb in v:
+                                v = v[fb]
+                                found = True
+                                break
+                        if not found:
+                            v = v.get(k, {})
                     else:
-                        v = v.get(k, {})
+                        v = v[k]
                 else:
                     v = None
                     break
@@ -139,6 +156,8 @@ def main():
         print(f"  {name}: {len(model_data[name])} sizes")
 
     # 3-panel figure
+    # Use in_dist (oracle correlation) for consistency with scaling laws
+    # Models trained on real labels only have in_dist (which IS real correlation)
     metrics = [
         ("in_dist.pearson_r", "In-Distribution Pearson R", "A"),
         ("ood.pearson_r", "OOD (Designed CREs) Pearson R", "B"),
@@ -196,6 +215,62 @@ def main():
     fig.savefig(OUT / "panel2_scaling_3panel.pdf", bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: panel2_scaling_3panel.png")
+
+    # 6-panel version: Pearson R (top) + MSE (bottom) — oracle metrics
+    metrics_6 = [
+        ("in_dist.pearson_r", "In-Dist Pearson R", "A"),
+        ("ood.pearson_r", "OOD Pearson R", "B"),
+        ("snv_delta.pearson_r", "SNV Δ Pearson R", "C"),
+        ("in_dist.mse", "In-Dist MSE", "D"),
+        ("ood.mse", "OOD MSE", "E"),
+        ("snv_delta.mse", "SNV Δ MSE", "F"),
+    ]
+
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+
+    for ax, (metric_path, ylabel, panel_label) in zip(axes.flat, metrics_6):
+        is_mse = "mse" in metric_path
+        for name, cfg in curves.items():
+            data = model_data[name]
+            sizes, means, stds = extract_metric(data, metric_path)
+            if not sizes:
+                continue
+            ax.plot(
+                sizes,
+                means,
+                color=cfg["color"],
+                label=name,
+                linewidth=cfg["lw"],
+                linestyle=cfg["ls"],
+                marker=cfg["marker"],
+                markersize=4,
+                zorder=5,
+            )
+
+        ax.set_xscale("log")
+        if is_mse:
+            ax.set_yscale("log")
+        else:
+            ax.set_ylim(0, 1.0)
+        ax.set_xlabel("N Training Sequences", fontsize=10)
+        ax.set_ylabel(ylabel, fontsize=10)
+        ax.set_title(f"{panel_label}. {ylabel}", fontsize=11, fontweight="bold")
+        ax.legend(fontsize=7, loc="best", frameon=True, facecolor="white")
+        ax.grid(alpha=0.3, zorder=0)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    fig.suptitle(
+        "Data Scaling: Pearson R and MSE (K562 MPRA, Real Labels)",
+        fontsize=14,
+        fontweight="bold",
+        y=1.01,
+    )
+    fig.tight_layout()
+    fig.savefig(OUT / "panel2_scaling_6panel.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "panel2_scaling_6panel.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: panel2_scaling_6panel.png")
 
     # Also make the original Exp0 plot capped at 500K
     from scripts.analysis.plot_peter_talk import load_exp0_scaling, plot_exp0_panel
