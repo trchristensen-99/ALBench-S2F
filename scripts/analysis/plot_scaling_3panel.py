@@ -32,6 +32,9 @@ OUT = REPO / "results" / "poster_stowers"
 OUT.mkdir(parents=True, exist_ok=True)
 
 
+TARGET_SIZES = {3197, 6395, 15987, 31974, 63949, 159871, 296382}
+
+
 def load_model_data(model_name, max_n=500000):
     """Load scaling data for a specific model."""
     # Support both exp0 paths and direct output paths
@@ -49,6 +52,13 @@ def load_model_data(model_name, max_n=500000):
         n = d.get("n_train", 0)
         if n > max_n:
             continue
+        # Snap to nearest target size (handles 319742 -> 296382)
+        if n not in TARGET_SIZES:
+            closest = min(TARGET_SIZES, key=lambda t: abs(t - n))
+            if abs(n - closest) / closest < 0.1:  # within 10%
+                n = closest
+            else:
+                continue
         hp = json.dumps(d.get("hp_config", {}), sort_keys=True)
         val_r = d.get("val_pearson_r", 0)
         tm = d.get("test_metrics", {})
