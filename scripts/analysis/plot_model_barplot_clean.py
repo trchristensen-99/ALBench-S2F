@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Clean model comparison bar plot for poster.
+"""Clean model comparison bar plot: LegNet, DREAM-RNN, Enformer, AG S2.
 
-Uses definitive K562 chr7/13 test split results only.
-All values verified from actual result files.
+All metrics are against real MPRA labels (using _real variants where available).
+K562 chr7/13 test split.
 
 Models:
-  - AG S2 (Fine-tuned): best oracle, trained on full dataset
-  - AG S1 (Probing): frozen encoder, trained head (5-fold mean)
-  - Enformer S2: fine-tuned enformer
-  - Malinois: pretrained CNN (Gosai et al.)
-  - LegNet: trained on real labels, full dataset
-  - DREAM-RNN: trained on real labels, full dataset
+  - AG S2 (All Folds): 5-fold probing head mean
+  - AG S2 (Fold 1): single fine-tuned fold
+  - Enformer S2: fine-tuned
+  - DREAM-RNN: full dataset
+  - LegNet: real labels, full dataset
 
 Metrics: Reference (in-dist), SNV Effect (delta), OOD (designed CREs)
 """
@@ -31,67 +30,69 @@ OUT = REPO / "results" / "poster_stowers"
 OUT.mkdir(parents=True, exist_ok=True)
 
 
-def collect_from_files():
-    """Collect verified metrics from actual result files."""
+def get_real_metric(tm, base_key):
+    """Get real MPRA metric, preferring _real variant."""
+    for k in [base_key + "_real", base_key, "in_distribution"]:
+        if k in tm and "pearson_r" in tm[k]:
+            return tm[k]["pearson_r"]
+    return 0
+
+
+def main():
     models = {}
 
-    # AG S1 Probing (5-fold mean)
+    # AG S2 all-folds (5-fold probing head)
     vals = {"id": [], "ood": [], "snv_delta": []}
     for f in sorted(
         (REPO / "outputs" / "ag_hashfrag_oracle_cached").glob("oracle_*/test_metrics.json")
     ):
         d = json.loads(f.read_text())
         tm = d["test_metrics"]
-        for k_srcs, k_dst in [
-            (["in_dist", "in_distribution"], "id"),
-            (["ood"], "ood"),
-            (["snv_delta"], "snv_delta"),
-        ]:
-            for k_src in k_srcs:
-                if k_src in tm:
-                    vals[k_dst].append(tm[k_src]["pearson_r"])
-                    break
+        vals["id"].append(get_real_metric(tm, "in_dist"))
+        vals["ood"].append(get_real_metric(tm, "ood"))
+        vals["snv_delta"].append(get_real_metric(tm, "snv_delta"))
     if vals["id"]:
-        models["AG S1\n(Probing)"] = {k: (np.mean(v), np.std(v)) for k, v in vals.items()}
+        models["AG S2\n(All Folds)"] = {k: (np.mean(v), np.std(v)) for k, v in vals.items()}
 
-    # AG S2 Fine-tuned (best config from neg_sweep)
+    # AG S2 fold-1
     f = REPO / "outputs" / "oracle_neg_sweep" / "r1d_i2neg_d1" / "test_metrics.json"
     if f.exists():
         d = json.loads(f.read_text())
         tm = d["test_metrics"]
-        models["AG S2\n(Fine-tuned)"] = {
-            "id": (tm["in_distribution"]["pearson_r"], 0),
-            "ood": (tm["ood"]["pearson_r"], 0),
-            "snv_delta": (tm["snv_delta"]["pearson_r"], 0),
+        models["AG S2\n(Fold 1)"] = {
+            "id": (get_real_metric(tm, "in_dist"), 0),
+            "ood": (get_real_metric(tm, "ood"), 0),
+            "snv_delta": (get_real_metric(tm, "snv_delta"), 0),
         }
 
     # Enformer S2
     for f in sorted((REPO / "outputs").glob("enformer_k562_stage2_final_v2/*/result.json")):
         d = json.loads(f.read_text())
         tm = d.get("test_metrics", {})
-        idr = tm.get("in_dist", tm.get("in_distribution", {})).get("pearson_r", 0)
+        idr = get_real_metric(tm, "in_dist")
         if idr > 0.85:
             models["Enformer\nS2"] = {
                 "id": (idr, 0),
-                "ood": (tm.get("ood", {}).get("pearson_r", 0), 0),
-                "snv_delta": (tm.get("snv_delta", {}).get("pearson_r", 0), 0),
+                "ood": (get_real_metric(tm, "ood"), 0),
+                "snv_delta": (get_real_metric(tm, "snv_delta"), 0),
             }
             break
 
-    # Malinois (pretrained, different format)
-    f = REPO / "outputs" / "malinois_eval_boda2_tutorial" / "result.json"
-    if f.exists():
+    # DREAM-RNN (full dataset, _real metrics)
+    vals = {"id": [], "ood": [], "snv_delta": []}
+    for f in (REPO / "outputs" / "exp0_oracle_scaling_v4" / "k562" / "dream_rnn" / "genomic").rglob(
+        "result.json"
+    ):
         d = json.loads(f.read_text())
-        # Malinois only has chrom_test (combined in-dist)
-        ct = d.get("chrom_test", {})
-        if ct:
-            models["Malinois\n(Pretrained)"] = {
-                "id": (ct.get("pearson_r", 0), 0),
-                "ood": (0, 0),  # Not available in this eval
-                "snv_delta": (0, 0),
-            }
+        if d.get("n_train", 0) >= 280000:
+            tm = d["test_metrics"]
+            vals["id"].append(get_real_metric(tm, "in_dist"))
+            vals["ood"].append(get_real_metric(tm, "ood"))
+            vals["snv_delta"].append(get_real_metric(tm, "snv_delta"))
+    if vals["id"]:
+        models["DREAM-\nRNN"] = {k: (np.mean(v), np.std(v)) for k, v in vals.items()}
 
-    # LegNet (real labels, full dataset, genomic reservoir)
+    # LegNet (real labels, full dataset)
     vals = {"id": [], "ood": [], "snv_delta": []}
     for f in (REPO / "outputs" / "exp0_oracle_scaling_v4" / "k562" / "legnet_ground_truth").rglob(
         "result.json"
@@ -99,17 +100,11 @@ def collect_from_files():
         d = json.loads(f.read_text())
         if d.get("n_train", 0) >= 300000:
             tm = d["test_metrics"]
-            for k_src, k_dst in [("in_dist", "id"), ("ood", "ood"), ("snv_delta", "snv_delta")]:
-                if k_src in tm:
-                    vals[k_dst].append(tm[k_src]["pearson_r"])
+            vals["id"].append(get_real_metric(tm, "in_dist"))
+            vals["ood"].append(get_real_metric(tm, "ood"))
+            vals["snv_delta"].append(get_real_metric(tm, "snv_delta"))
     if vals["id"]:
-        models["LegNet\n(Real Labels)"] = {k: (np.mean(v), np.std(v)) for k, v in vals.items()}
-
-    return models
-
-
-def main():
-    models = collect_from_files()
+        models["LegNet"] = {k: (np.mean(v), np.std(v)) for k, v in vals.items()}
 
     if not models:
         print("No model data found — run on HPC")
@@ -119,7 +114,9 @@ def main():
     for name, metrics in models.items():
         short = name.replace("\n", " ")
         print(
-            f"  {short}: id={metrics['id'][0]:.4f} ood={metrics['ood'][0]:.4f} snv_d={metrics['snv_delta'][0]:.4f}"
+            f"  {short}: id={metrics['id'][0]:.4f}"
+            f" ood={metrics['ood'][0]:.4f}"
+            f" snv_d={metrics['snv_delta'][0]:.4f}"
         )
 
     # Plot
@@ -131,20 +128,20 @@ def main():
     metric_order = ["id", "snv_delta", "ood"]
 
     model_order = [
-        "AG S2\n(Fine-tuned)",
-        "AG S1\n(Probing)",
+        "AG S2\n(All Folds)",
+        "AG S2\n(Fold 1)",
         "Enformer\nS2",
-        "Malinois\n(Pretrained)",
-        "LegNet\n(Real Labels)",
+        "DREAM-\nRNN",
+        "LegNet",
     ]
     model_order = [m for m in model_order if m in models]
 
     colors = {
-        "AG S2\n(Fine-tuned)": "#1B5E20",
-        "AG S1\n(Probing)": "#4CAF50",
+        "AG S2\n(All Folds)": "#1B5E20",
+        "AG S2\n(Fold 1)": "#4CAF50",
         "Enformer\nS2": "#1565C0",
-        "Malinois\n(Pretrained)": "#7B1FA2",
-        "LegNet\n(Real Labels)": "#E8602C",
+        "DREAM-\nRNN": "#7B1FA2",
+        "LegNet": "#E8602C",
     }
 
     n_models = len(model_order)
@@ -174,7 +171,6 @@ def main():
             edgecolor="white",
             linewidth=0.5,
         )
-        # Value labels
         for bar, val in zip(bars, means):
             if val > 0.05:
                 ax.text(
@@ -189,7 +185,7 @@ def main():
 
     ax.set_xticks(x)
     ax.set_xticklabels([metric_labels[m] for m in metric_order], fontsize=11)
-    ax.set_ylabel("Pearson R", fontsize=12)
+    ax.set_ylabel("Pearson R (vs Real MPRA Labels)", fontsize=12)
     ax.set_title(
         "K562 MPRA Model Comparison (Gosai et al., Chr 7/13 Test)",
         fontsize=13,
