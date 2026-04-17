@@ -34,7 +34,11 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 def load_model_data(model_name, max_n=500000):
     """Load scaling data for a specific model."""
-    base = REPO / "outputs" / "exp0_oracle_scaling_v4" / "k562" / model_name
+    # Support both exp0 paths and direct output paths
+    if "/" in model_name:
+        base = REPO / "outputs" / model_name
+    else:
+        base = REPO / "outputs" / "exp0_oracle_scaling_v4" / "k562" / model_name
     results_by_n = defaultdict(lambda: defaultdict(list))
 
     for rj in base.rglob("result.json"):
@@ -67,10 +71,16 @@ def extract_metric(data, metric_path):
         for tm in data[n]:
             v = tm
             for k in keys:
-                v = v.get(k, {}) if isinstance(v, dict) else None
-                if v is None:
+                if isinstance(v, dict):
+                    # Handle in_dist vs in_distribution
+                    if k == "in_dist" and k not in v and "in_distribution" in v:
+                        v = v["in_distribution"]
+                    else:
+                        v = v.get(k, {})
+                else:
+                    v = None
                     break
-            if v is not None:
+            if v is not None and not isinstance(v, dict):
                 vals.append(v)
         if vals:
             sizes.append(n)
@@ -104,7 +114,7 @@ def main():
             "marker": "o",
         },
         "LegNet (oracle labels)": {
-            "model": "legnet_oracle_ag_s2",
+            "model": "exp0_legnet_ag_s2_redo/k562/legnet_ag_s2",
             "color": "#D4A017",
             "ls": "--",
             "lw": 1.8,
@@ -125,7 +135,7 @@ def main():
         ("snv_delta.pearson_r", "SNV Effect (Δ) Pearson R", "C"),
     ]
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=False)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=True)
 
     for ax, (metric_path, ylabel, panel_label) in zip(axes, metrics):
         for name, cfg in curves.items():
@@ -156,8 +166,9 @@ def main():
                 )
 
         ax.set_xscale("log")
+        ax.set_ylim(0, 1.0)
         ax.set_xlabel("N Training Sequences", fontsize=11)
-        ax.set_ylabel(ylabel, fontsize=11)
+        ax.set_ylabel(ylabel if panel_label == "A" else "", fontsize=11)
         ax.set_title(f"{panel_label}. {ylabel}", fontsize=12, fontweight="bold")
         ax.legend(fontsize=8, loc="lower right", frameon=True, facecolor="white")
         ax.grid(alpha=0.3, zorder=0)
