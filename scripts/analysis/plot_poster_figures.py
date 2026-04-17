@@ -41,6 +41,8 @@ def load_scaling_data():
     seen = set()
 
     for pattern in [
+        "outputs/exp1_1_definitive/k562/legnet_ag_s2/*/n*/rep*/result.json",
+        "outputs/exp1_1_definitive/k562/legnet_ag_s2/*/n*/hp*/seed*/result.json",
         "outputs/exp1_1_final/k562/legnet_ag_s2/*/n*/rep*/result.json",
         "outputs/exp1_1_final/k562/legnet_ag_s2/*/n*/hp*/seed*/result.json",
     ]:

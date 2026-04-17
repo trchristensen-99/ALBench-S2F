@@ -106,6 +106,18 @@ def main():
     if vals["id"]:
         models["LegNet"] = {k: (np.mean(v), np.std(v)) for k, v in vals.items()}
 
+    # Malinois (pretrained CNN from Gosai et al.)
+    f = REPO / "outputs" / "malinois_eval_boda2_tutorial" / "result.json"
+    if f.exists():
+        d = json.loads(f.read_text())
+        ct = d.get("chrom_test", {})
+        if ct:
+            models["Malinois"] = {
+                "id": (ct.get("pearson_r", 0), 0),
+                "ood": (0, 0),
+                "snv_delta": (0, 0),
+            }
+
     if not models:
         print("No model data found — run on HPC")
         return
@@ -125,11 +137,12 @@ def main():
         "snv_delta": "SNV Effect\n(Delta)",
         "ood": "Designed CREs\n(OOD)",
     }
-    metric_order = ["id", "snv_delta", "ood"]
+    metric_order = ["id", "ood"]
 
     model_order = [
         "AG S2\n(All Folds)",
         "AG S2\n(Fold 1)",
+        "Malinois",
         "Enformer\nS2",
         "DREAM-\nRNN",
         "LegNet",
@@ -139,6 +152,7 @@ def main():
     colors = {
         "AG S2\n(All Folds)": "#1B5E20",
         "AG S2\n(Fold 1)": "#4CAF50",
+        "Malinois": "#6A1B9A",
         "Enformer\nS2": "#1565C0",
         "DREAM-\nRNN": "#7B1FA2",
         "LegNet": "#E8602C",
