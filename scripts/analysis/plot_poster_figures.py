@@ -65,8 +65,9 @@ def load_scaling_data():
             tm = d.get("test_metrics", {})
             idr = tm.get("in_dist", {}).get("pearson_r")
             ood = tm.get("ood", {}).get("pearson_r")
+            snv_d = tm.get("snv_delta", {}).get("pearson_r")
             if idr is not None:
-                results[strat][n].append({"id": idr, "ood": ood})
+                results[strat][n].append({"id": idr, "ood": ood, "snv_d": snv_d})
 
     return results
 
@@ -384,7 +385,85 @@ def main():
         # Panel 8: Log-log
         plot_loglog(scaling_data)
 
+        # Combined 3-panel: ID + OOD + SNV delta
+        plot_scaling_3panel(scaling_data)
+
     print(f"\nAll figures in: {OUT}")
+
+
+def plot_scaling_3panel(data):
+    """3-panel scaling: ID, OOD, SNV delta side by side."""
+    metrics = [
+        ("id", "In-Dist Pearson R", "A"),
+        ("ood", "OOD Pearson R", "B"),
+        ("snv_d", "SNV Effect (Δ) Pearson R", "C"),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
+
+    for ax, (metric, ylabel, panel_label) in zip(axes, metrics):
+        for strat, (label, color, ls, lw) in KEY_STRATEGIES.items():
+            if strat not in data:
+                continue
+            sizes = sorted(data[strat].keys())
+            means, stds, valid_sizes = [], [], []
+            for n in sizes:
+                vals = [r[metric] for r in data[strat][n] if r.get(metric) is not None]
+                if vals:
+                    means.append(np.mean(vals))
+                    stds.append(np.std(vals) if len(vals) > 1 else 0)
+                    valid_sizes.append(n)
+
+            if not valid_sizes:
+                continue
+
+            means_arr = np.array(means)
+            stds_arr = np.array(stds)
+            ci95 = 1.96 * stds_arr
+            zorder = 10 if strat == "random" else 1
+
+            ax.plot(
+                valid_sizes,
+                means_arr,
+                color=color,
+                label=label,
+                linewidth=lw,
+                linestyle=ls,
+                marker="o",
+                markersize=4,
+                zorder=zorder,
+            )
+            if stds_arr.any():
+                ax.fill_between(
+                    valid_sizes,
+                    means_arr - ci95,
+                    means_arr + ci95,
+                    alpha=0.15,
+                    color=color,
+                    zorder=zorder - 1,
+                )
+
+        ax.set_xscale("log")
+        ax.set_ylim(0, 1.0)
+        ax.set_xlabel("N Training Sequences", fontsize=11)
+        ax.set_ylabel(ylabel if panel_label == "A" else "", fontsize=11)
+        ax.set_title(f"{panel_label}. {ylabel}", fontsize=12, fontweight="bold")
+        ax.legend(fontsize=7, loc="lower right", frameon=True, facecolor="white")
+        ax.grid(alpha=0.3, zorder=0)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    fig.suptitle(
+        "LegNet Scaling by Reservoir Strategy (K562, AG S2 Oracle)",
+        fontsize=14,
+        fontweight="bold",
+        y=1.02,
+    )
+    fig.tight_layout()
+    fig.savefig(OUT / "panel7_scaling_3panel.png", dpi=300, bbox_inches="tight")
+    fig.savefig(OUT / "panel7_scaling_3panel.pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: panel7_scaling_3panel.png")
 
 
 if __name__ == "__main__":
