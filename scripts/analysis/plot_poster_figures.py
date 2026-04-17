@@ -109,107 +109,76 @@ def load_debias_data():
 
 
 def plot_debiasing_summary(debias_data):
-    """Panel 5: Debiasing — representative subset, clear labels, legend bottom-right."""
-    fig, ax = plt.subplots(figsize=(7, 5))
+    """Panel 5: 4 points — baseline + best of each strategy. Legend only, no labels."""
+    fig, ax = plt.subplots(figsize=(6, 5))
 
-    # Select ~7 representative configs: Pareto frontier + key comparisons
-    KEEP = {
-        "counterfactual_l03",  # best OOD (loss-based)
-        "spectral_l05",  # best bias/OOD tradeoff (loss-based)
-        "cpg_gradient_penalty_l05",  # strongest loss-based bias reduction
-        "negaug_random_only_5pct",  # best neg-aug
-        "combo_spectral05_motif2pct",  # best combined (highest OOD)
-        "combo_spectral10_random1pct",  # best combined (lowest random DNA)
-        "combo_spectral05_random5pct",  # combined with lowest random DNA
-    }
-
-    groups = {"Loss-based": [], "Neg-aug": [], "Combined": []}
+    # Find best per category (highest OOD)
+    best = {}
     for d in debias_data:
-        if d["rand_dna"] is None or d["name"] not in KEEP:
+        if d["rand_dna"] is None:
             continue
-        if "combo" in d["name"]:
-            groups["Combined"].append(d)
-        elif "negaug" in d["name"]:
-            groups["Neg-aug"].append(d)
-        else:
-            groups["Loss-based"].append(d)
+        cat = "Combined" if "combo" in d["name"] else "Neg-aug" if "negaug" in d["name"] else "Loss"
+        if cat not in best or d["ood_r"] > best[cat]["ood_r"]:
+            best[cat] = d
 
-    LABELS = {
-        "counterfactual_l03": "Baseline S2",
-        "spectral_l05": "Spectral Decoupling",
-        "cpg_gradient_penalty_l05": "CpG Grad. Penalty",
-        "negaug_random_only_5pct": "Random Neg-Aug",
-        "combo_spectral05_motif2pct": "Spectral+Motif",
-        "combo_spectral10_random1pct": "Spectral+Rand (light)",
-        "combo_spectral05_random5pct": "Spectral+Rand (heavy)",
-    }
+    # Baseline point (no debiasing)
+    ax.scatter(
+        [0.75],
+        [0.745],
+        c="#888888",
+        marker="X",
+        s=120,
+        label="Baseline (no debiasing)",
+        edgecolors="black",
+        linewidths=0.5,
+        zorder=4,
+    )
 
-    style = {
-        "Loss-based": ("#3498db", "o", 90),
-        "Neg-aug": ("#e74c3c", "s", 90),
-        "Combined": ("#2ecc71", "D", 80),
-    }
-
-    # Pre-compute label positions to avoid overlap
-    all_points = []
-    for cat, entries in groups.items():
-        for d in entries:
-            all_points.append((d["rand_dna"], d["ood_r"], d["name"], cat))
-
-    for cat, entries in groups.items():
-        if not entries:
+    # Best of each category
+    points = [
+        ("Loss", "Loss regularization", "#3498db", "o", "spectral_l01"),
+        ("Neg-aug", "Negative augmentation", "#e74c3c", "s", None),
+        ("Combined", "Combined", "#2ecc71", "D", None),
+    ]
+    for cat, label, color, marker, override in points:
+        if override:
+            # Use specific config instead of auto-best
+            for d in debias_data:
+                if d["name"] == override and d["rand_dna"] is not None:
+                    best[cat] = d
+                    break
+        if cat not in best:
             continue
-        color, marker, size = style[cat]
-        xs = [d["rand_dna"] for d in entries]
-        ys = [d["ood_r"] for d in entries]
+        d = best[cat]
         ax.scatter(
-            xs,
-            ys,
+            [d["rand_dna"]],
+            [d["ood_r"]],
             c=color,
             marker=marker,
-            s=size,
-            label=cat,
+            s=120,
+            label=label,
             edgecolors="black",
             linewidths=0.5,
-            zorder=3,
+            zorder=4,
         )
-        for d in entries:
-            label = LABELS.get(d["name"], d["name"])
-            # Custom offsets per point to avoid overlap
-            offsets = {
-                "counterfactual_l03": (6, 8),  # top-right (highest OOD)
-                "spectral_l05": (6, -12),  # below to avoid overlap with counterfactual
-                "cpg_gradient_penalty_l05": (6, 8),  # above
-                "negaug_random_only_5pct": (6, -10),
-                "combo_spectral05_motif2pct": (6, 8),
-                "combo_spectral10_random1pct": (-80, 8),  # left to avoid edge
-                "combo_spectral05_random5pct": (6, -10),
-            }
-            x_off, y_off = offsets.get(d["name"], (6, 6))
-            ax.annotate(
-                label,
-                (d["rand_dna"], d["ood_r"]),
-                fontsize=7,
-                fontweight="bold" if d["ood_r"] > 0.76 else "normal",
-                xytext=(x_off, y_off),
-                textcoords="offset points",
-                arrowprops=dict(arrowstyle="-", color="gray", alpha=0.4, lw=0.5),
-            )
 
     # Reference lines
-    ax.axhline(y=0.745, color="gray", linestyle="--", alpha=0.5, linewidth=1)
-    ax.axvline(x=0.75, color="gray", linestyle=":", alpha=0.5, linewidth=1)
-    ax.axvline(x=0.27, color="#27ae60", linestyle=":", alpha=0.6, linewidth=1.5)
+    ax.axhline(y=0.745, color="gray", linestyle="--", alpha=0.4, linewidth=1)
+    ax.axvline(x=0.75, color="gray", linestyle=":", alpha=0.4, linewidth=1)
+    ax.axvline(x=0.27, color="#27ae60", linestyle=":", alpha=0.5, linewidth=1.5)
 
-    # Annotations for reference lines
-    ax.text(0.66, 0.44, "Baseline\nRandom DNA", fontsize=7, color="gray", alpha=0.7, rotation=90)
-    ax.text(0.19, 0.44, "Target", fontsize=7, color="#27ae60", alpha=0.8, rotation=90)
-    ax.text(0.95, 0.748, "Baseline OOD", fontsize=7, color="gray", alpha=0.7, ha="right")
+    # Compact annotations inside plot bounds
+    ax.text(
+        0.72, 0.43, "Baseline\nbias", fontsize=7, color="gray", alpha=0.7, ha="right", rotation=90
+    )
+    ax.text(0.29, 0.43, "Target", fontsize=7, color="#27ae60", alpha=0.8, rotation=90)
 
+    ax.set_xlim(0.05, 0.85)
+    ax.set_ylim(0.40, 0.82)
     ax.set_xlabel("Random DNA Prediction (lower = less biased)", fontsize=11)
     ax.set_ylabel("OOD Pearson R (higher = better)", fontsize=11)
     ax.set_title("Oracle Debiasing Approaches", fontsize=12, fontweight="bold")
-    ax.legend(fontsize=8, loc=(0.6, 0.02), frameon=True, facecolor="white", edgecolor="gray")
+    ax.legend(fontsize=8, loc="lower right", frameon=True, facecolor="white", edgecolor="gray")
     ax.grid(alpha=0.2, zorder=0)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
