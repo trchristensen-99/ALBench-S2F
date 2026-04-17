@@ -106,71 +106,109 @@ def load_debias_data():
 
 
 def plot_debiasing_summary(debias_data):
-    """Panel 5: Debiasing approaches — random DNA vs OOD tradeoff."""
-    fig, ax = plt.subplots(figsize=(8, 5.5))
+    """Panel 5: Debiasing — representative subset, clear labels, legend bottom-right."""
+    fig, ax = plt.subplots(figsize=(7, 5))
 
-    # Categorize approaches
-    loss_based = []
-    negaug = []
-    combined = []
+    # Select representative configs (best of each category + key comparisons)
+    KEEP = {
+        # Best loss-based
+        "spectral_l05",  # best bias reduction + OOD preserved
+        "spectral_l01",  # lighter version
+        "counterfactual_l03",  # best OOD
+        "cpg_invariance_l05",  # best OOD + good CpG-depleted
+        "cpg_gradient_penalty_l05",  # strongest bias reduction (loss-based)
+        # Best neg-aug
+        "negaug_random_only_5pct",  # closest to target
+        "negaug_motif_full_5pct",  # motif-conditional approach
+        # Best combined
+        "combo_spectral05_motif2pct",  # best combined
+        "combo_spectral03_random3pct",  # moderate combined
+    }
+
+    # Categorize and filter
+    groups = {"Loss-based": [], "Neg-aug": [], "Combined": []}
     for d in debias_data:
-        if d["rand_dna"] is None:
+        if d["rand_dna"] is None or d["name"] not in KEEP:
             continue
         if "combo" in d["name"]:
-            combined.append(d)
+            groups["Combined"].append(d)
         elif "negaug" in d["name"]:
-            negaug.append(d)
+            groups["Neg-aug"].append(d)
         else:
-            loss_based.append(d)
+            groups["Loss-based"].append(d)
 
-    # Plot each category
-    for group, label, color, marker in [
-        (loss_based, "Loss-based", "#3498db", "o"),
-        (negaug, "Neg-aug data", "#e74c3c", "s"),
-        (combined, "Combined", "#2ecc71", "D"),
-    ]:
-        if not group:
+    # Short display names
+    LABELS = {
+        "spectral_l05": "Spectral λ=0.5",
+        "spectral_l01": "Spectral λ=0.1",
+        "counterfactual_l03": "Counterfactual",
+        "cpg_invariance_l05": "CpG Invariance",
+        "cpg_gradient_penalty_l05": "CpG Grad. Penalty",
+        "negaug_random_only_5pct": "Random Neg-Aug 5%",
+        "negaug_motif_full_5pct": "Motif Neg-Aug 5%",
+        "combo_spectral05_motif2pct": "Spectral + Motif 2%",
+        "combo_spectral03_random3pct": "Spectral + Random 3%",
+    }
+
+    style = {
+        "Loss-based": ("#3498db", "o", 90),
+        "Neg-aug": ("#e74c3c", "s", 90),
+        "Combined": ("#2ecc71", "D", 80),
+    }
+
+    # Pre-compute label positions to avoid overlap
+    all_points = []
+    for cat, entries in groups.items():
+        for d in entries:
+            all_points.append((d["rand_dna"], d["ood_r"], d["name"], cat))
+
+    for cat, entries in groups.items():
+        if not entries:
             continue
-        xs = [d["rand_dna"] for d in group]
-        ys = [d["ood_r"] for d in group]
+        color, marker, size = style[cat]
+        xs = [d["rand_dna"] for d in entries]
+        ys = [d["ood_r"] for d in entries]
         ax.scatter(
             xs,
             ys,
             c=color,
             marker=marker,
-            s=80,
-            label=label,
+            s=size,
+            label=cat,
             edgecolors="black",
             linewidths=0.5,
             zorder=3,
         )
-        for d in group:
-            short = d["name"].replace("combo_", "").replace("negaug_", "")
-            short = short.replace("_l0", " λ=0.").replace("_l1", " λ=1.")
-            short = short.replace("pct", "%").replace("_", " ")
-            if len(short) > 18:
-                short = short[:16] + ".."
+        for d in entries:
+            label = LABELS.get(d["name"], d["name"])
+            # Offset labels to avoid overlap: push up for high OOD, down for low
+            y_off = 6 if d["ood_r"] > 0.6 else -10
+            x_off = 6
             ax.annotate(
-                short,
+                label,
                 (d["rand_dna"], d["ood_r"]),
-                fontsize=5.5,
-                xytext=(5, -2),
+                fontsize=7,
+                fontweight="bold" if d["ood_r"] > 0.76 else "normal",
+                xytext=(x_off, y_off),
                 textcoords="offset points",
-                alpha=0.8,
+                arrowprops=dict(arrowstyle="-", color="gray", alpha=0.4, lw=0.5),
             )
 
     # Reference lines
-    ax.axhline(y=0.745, color="gray", linestyle="--", alpha=0.5, label="Baseline OOD")
-    ax.axvline(x=0.75, color="gray", linestyle=":", alpha=0.5, label="Baseline Random DNA")
-    ax.axvline(x=0.27, color="green", linestyle=":", alpha=0.5, label="Target Random DNA")
+    ax.axhline(y=0.745, color="gray", linestyle="--", alpha=0.5, linewidth=1)
+    ax.axvline(x=0.75, color="gray", linestyle=":", alpha=0.5, linewidth=1)
+    ax.axvline(x=0.27, color="#27ae60", linestyle=":", alpha=0.6, linewidth=1.5)
 
-    ax.set_xlabel("Random DNA Mean Prediction (lower = less biased)", fontsize=12)
-    ax.set_ylabel("OOD Pearson R (higher = better)", fontsize=12)
-    ax.set_title(
-        "Oracle Debiasing: Random DNA Bias vs OOD Performance", fontsize=13, fontweight="bold"
-    )
-    ax.legend(fontsize=9, loc="upper right")
-    ax.grid(alpha=0.3, zorder=0)
+    # Annotations for reference lines
+    ax.text(0.76, 0.44, "Baseline\nRandom DNA", fontsize=7, color="gray", alpha=0.7, rotation=90)
+    ax.text(0.28, 0.44, "Target", fontsize=7, color="#27ae60", alpha=0.8, rotation=90)
+    ax.text(0.95, 0.748, "Baseline OOD", fontsize=7, color="gray", alpha=0.7, ha="right")
+
+    ax.set_xlabel("Random DNA Prediction (lower = less biased)", fontsize=11)
+    ax.set_ylabel("OOD Pearson R (higher = better)", fontsize=11)
+    ax.set_title("Oracle Debiasing Approaches", fontsize=12, fontweight="bold")
+    ax.legend(fontsize=8, loc="lower right", frameon=True, facecolor="white", edgecolor="gray")
+    ax.grid(alpha=0.2, zorder=0)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
