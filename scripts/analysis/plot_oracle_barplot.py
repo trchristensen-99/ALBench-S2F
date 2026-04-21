@@ -35,9 +35,9 @@ def main():
             vals["snv_delta"].append(tm["snv_delta"]["pearson_r"])
 
     metrics = {
-        "In-Distribution\n(Chr 7/13 Holdout)": ("id", "#2980B9"),
-        "SNV Effect (Δ)\n(Variant Pairs)": ("snv_delta", "#8E44AD"),
-        "Designed CREs\n(OOD)": ("ood", "#E74C3C"),
+        "Genomic Sequences\n(Chr 7/13 Holdout)": ("id", "#2980B9"),
+        "SNV Effects\n(Genomic − SNV Seq.)": ("snv_delta", "#8E44AD"),
+        "High-Activity\nDesigned Sequences": ("ood", "#E74C3C"),
     }
 
     fig, ax = plt.subplots(figsize=(7, 5))

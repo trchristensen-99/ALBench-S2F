@@ -388,7 +388,7 @@ def plot_scaling_3panel(data):
     metrics = [
         ("id", "Genomic Sequences", "A"),
         ("ood", "High-Activity Designed Sequences", "B"),
-        ("snv_d", "SNV Effect (ref − alt)", "C"),
+        ("snv_d", "SNV Effects (Genomic − SNV Sequence)", "C"),
     ]
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
