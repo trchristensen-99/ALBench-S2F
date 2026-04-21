@@ -34,6 +34,6 @@ uv run --no-sync python scripts/generate_labeled_pools.py \
     --oracle ag_s2 \
     --reservoir evoaug_prior \
     --pool-size 5000000 \
-    --output-dir "${OUT_DIR}"
+    --output-base "outputs/labeled_pools_5m"
 
 echo "=== DONE — $(date) ==="
