@@ -386,9 +386,9 @@ def main():
 def plot_scaling_3panel(data):
     """3-panel scaling: ID, OOD, SNV delta side by side."""
     metrics = [
-        ("id", "In-Dist Pearson R", "A"),
-        ("ood", "OOD Pearson R", "B"),
-        ("snv_d", "SNV Effect (Δ) Pearson R", "C"),
+        ("id", "Genomic Sequences", "A"),
+        ("ood", "High-Activity Designed Sequences", "B"),
+        ("snv_d", "SNV Effect (ref − alt)", "C"),
     ]
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
@@ -418,7 +418,7 @@ def plot_scaling_3panel(data):
                 valid_sizes,
                 means_arr,
                 color=color,
-                label=label,
+                label=label if panel_label == "A" else "",
                 linewidth=lw,
                 linestyle=ls,
                 marker="o",
@@ -438,9 +438,10 @@ def plot_scaling_3panel(data):
         ax.set_xscale("log")
         ax.set_ylim(0, 1.0)
         ax.set_xlabel("N Training Sequences", fontsize=11)
-        ax.set_ylabel(ylabel if panel_label == "A" else "", fontsize=11)
+        ax.set_ylabel("Pearson R" if panel_label == "A" else "", fontsize=11)
         ax.set_title(f"{panel_label}. {ylabel}", fontsize=12, fontweight="bold")
-        ax.legend(fontsize=7, loc="lower right", frameon=True, facecolor="white")
+        if panel_label == "A":
+            ax.legend(fontsize=7, loc="lower right", frameon=True, facecolor="white")
         ax.grid(alpha=0.3, zorder=0)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)

@@ -159,9 +159,9 @@ def main():
     # Use in_dist (oracle correlation) for consistency with scaling laws
     # Models trained on real labels only have in_dist (which IS real correlation)
     metrics = [
-        ("in_dist.pearson_r", "In-Distribution Pearson R", "A"),
-        ("ood.pearson_r", "OOD (Designed CREs) Pearson R", "B"),
-        ("snv_delta.pearson_r", "SNV Effect (Δ) Pearson R", "C"),
+        ("in_dist.pearson_r", "Genomic Sequences", "A"),
+        ("ood.pearson_r", "High-Activity Designed Sequences", "B"),
+        ("snv_delta.pearson_r", "SNV Effect (ref − alt)", "C"),
     ]
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=True)
@@ -178,7 +178,7 @@ def main():
                 sizes,
                 means,
                 color=cfg["color"],
-                label=name,
+                label=name if panel_label == "A" else "",
                 linewidth=cfg["lw"],
                 linestyle=cfg["ls"],
                 marker=cfg["marker"],
@@ -197,9 +197,10 @@ def main():
         ax.set_xscale("log")
         ax.set_ylim(0, 1.0)
         ax.set_xlabel("N Training Sequences", fontsize=11)
-        ax.set_ylabel(ylabel if panel_label == "A" else "", fontsize=11)
+        ax.set_ylabel("Pearson R" if panel_label == "A" else "", fontsize=11)
         ax.set_title(f"{panel_label}. {ylabel}", fontsize=12, fontweight="bold")
-        ax.legend(fontsize=8, loc="lower right", frameon=True, facecolor="white")
+        if panel_label == "A":
+            ax.legend(fontsize=8, loc="lower right", frameon=True, facecolor="white")
         ax.grid(alpha=0.3, zorder=0)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -218,12 +219,12 @@ def main():
 
     # 6-panel version: Pearson R (top) + MSE (bottom) — oracle metrics
     metrics_6 = [
-        ("in_dist.pearson_r", "In-Dist Pearson R", "A"),
-        ("ood.pearson_r", "OOD Pearson R", "B"),
-        ("snv_delta.pearson_r", "SNV Δ Pearson R", "C"),
-        ("in_dist.mse", "In-Dist MSE", "D"),
-        ("ood.mse", "OOD MSE", "E"),
-        ("snv_delta.mse", "SNV Δ MSE", "F"),
+        ("in_dist.pearson_r", "Genomic Sequences (R)", "A"),
+        ("ood.pearson_r", "Designed Sequences (R)", "B"),
+        ("snv_delta.pearson_r", "SNV Effect (R)", "C"),
+        ("in_dist.mse", "Genomic Sequences (MSE)", "D"),
+        ("ood.mse", "Designed Sequences (MSE)", "E"),
+        ("snv_delta.mse", "SNV Effect (MSE)", "F"),
     ]
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
