@@ -36,7 +36,7 @@ def main():
 
     metrics = {
         "Genomic Sequences\n(Chr 7/13 Holdout)": ("id", "#2980B9"),
-        "SNV Effects\n(Genomic − SNV Seq.)": ("snv_delta", "#8E44AD"),
+        "SNV Effect\n(Genomic Seq. − SNV Seq.)": ("snv_delta", "#8E44AD"),
         "High-Activity\nDesigned Sequences": ("ood", "#E74C3C"),
     }
 
