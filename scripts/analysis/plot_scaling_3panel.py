@@ -161,7 +161,7 @@ def main():
     metrics = [
         ("in_dist.pearson_r", "Genomic Sequences", "A"),
         ("ood.pearson_r", "High-Activity Designed Sequences", "B"),
-        ("snv_delta.pearson_r", "SNV Effects (Genomic − SNV Sequence)", "C"),
+        ("snv_delta.pearson_r", "SNV Effect (Genomic Sequence − SNV Sequence)", "C"),
     ]
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=True)
