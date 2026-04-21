@@ -133,9 +133,9 @@ def main():
 
     # Plot
     metric_labels = {
-        "id": "Reference\n(In-Dist)",
-        "snv_delta": "SNV Effect\n(Delta)",
-        "ood": "Designed CREs\n(OOD)",
+        "id": "Genomic\nSequences",
+        "snv_delta": "SNV Effects\n(Genomic − SNV)",
+        "ood": "High-Activity\nDesigned Seqs.",
     }
     metric_order = ["id", "ood"]
 
