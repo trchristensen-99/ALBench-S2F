@@ -24,16 +24,15 @@ def main():
     ):
         d = json.loads(f.read_text())
         tm = d["test_metrics"]
-        for k_src, k_dst in [
-            ("in_distribution", "id"),
-            ("in_dist", "id"),
-            ("ood", "ood"),
-            ("snv_delta", "snv_delta"),
-        ]:
-            if k_src in tm and k_dst not in [
-                k for k, v in vals.items() if len(v) == len(vals["id"])
-            ]:
-                vals[k_dst].append(tm[k_src]["pearson_r"])
+        # Get in-dist (try both key names)
+        for k in ["in_distribution", "in_dist"]:
+            if k in tm:
+                vals["id"].append(tm[k]["pearson_r"])
+                break
+        if "ood" in tm:
+            vals["ood"].append(tm["ood"]["pearson_r"])
+        if "snv_delta" in tm:
+            vals["snv_delta"].append(tm["snv_delta"]["pearson_r"])
 
     metrics = {
         "In-Distribution\n(Chr 7/13 Holdout)": ("id", "#2980B9"),
