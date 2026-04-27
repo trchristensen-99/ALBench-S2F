@@ -203,6 +203,7 @@ class LegNet(nn.Module):
         inner_dim_calculation: str = "out",
         task_mode: str = "k562",
         multitask: bool = False,
+        dropout: float = 0.0,
     ):
         super().__init__()
         if block_sizes is None:
@@ -211,6 +212,7 @@ class LegNet(nn.Module):
         self.block_sizes = block_sizes
         self.task_mode = task_mode
         self.multitask = multitask
+        self.dropout = dropout
         if task_mode == "yeast":
             self.final_ch = 18
         elif multitask:
@@ -226,10 +228,10 @@ class LegNet(nn.Module):
             activation=activation,
         )
 
-        # Main body: ResidualConcat(EffBlock) + LocalBlock per stage
+        # Main body: ResidualConcat(EffBlock) + LocalBlock + optional Dropout per stage
         blocks = []
         for prev_sz, sz in zip(block_sizes[:-1], block_sizes[1:]):
-            block = nn.Sequential(
+            layers: list[nn.Module] = [
                 ResidualConcat(
                     EffBlock(
                         in_ch=prev_sz,
@@ -247,8 +249,10 @@ class LegNet(nn.Module):
                     ks=ks,
                     activation=activation,
                 ),
-            )
-            blocks.append(block)
+            ]
+            if dropout > 0:
+                layers.append(nn.Dropout1d(dropout))
+            blocks.append(nn.Sequential(*layers))
         self.main = nn.Sequential(*blocks)
 
         # Output mapping

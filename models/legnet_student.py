@@ -62,6 +62,7 @@ class LegNetStudent(SequenceModel):
         block_sizes: list[int] | None = None,
         ks: int = 5,
         multitask: bool = False,
+        dropout: float = 0.0,
     ) -> None:
         self.in_channels = in_channels
         self.sequence_length = sequence_length
@@ -78,6 +79,7 @@ class LegNetStudent(SequenceModel):
                 ks=ks,
                 task_mode=task_mode,
                 multitask=multitask,
+                dropout=dropout,
             ).to(self.device)
             for _ in range(ensemble_size)
         ]
