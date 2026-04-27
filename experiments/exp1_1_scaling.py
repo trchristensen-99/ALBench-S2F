@@ -1898,6 +1898,9 @@ def _train_student(
     multitask_labels: dict[str, np.ndarray] | None = None,
     block_sizes: list[int] | None = None,
     ks: int = 5,
+    dropout: float = 0.0,
+    pct_start: float = 0.3,
+    weight_decay: float | None = None,
 ) -> SequenceModel:
     """Train a student model and return it."""
     is_multitask = multitask_labels is not None and student_type in (
@@ -2012,6 +2015,17 @@ def _train_student(
 
         torch.manual_seed(seed)
 
+        _tc_kwargs: dict = dict(
+            batch_size=batch_size,
+            lr=lr,
+            epochs=epochs,
+            early_stopping_patience=early_stopping_patience,
+            shift_aug=shift_aug,
+            max_shift=max_shift,
+            pct_start=pct_start,
+        )
+        if weight_decay is not None:
+            _tc_kwargs["weight_decay"] = weight_decay
         student = LegNetStudent(
             in_channels=4,  # LegNet uses 4-channel one-hot (no RC flag)
             sequence_length=cfg["sequence_length"],
@@ -2020,14 +2034,8 @@ def _train_student(
             multitask=is_multitask,
             block_sizes=block_sizes,
             ks=ks,
-            train_config=LegNetTrainConfig(
-                batch_size=batch_size,
-                lr=lr,
-                epochs=epochs,
-                early_stopping_patience=early_stopping_patience,
-                shift_aug=shift_aug,
-                max_shift=max_shift,
-            ),
+            dropout=dropout,
+            train_config=LegNetTrainConfig(**_tc_kwargs),
         )
         student.fit(sequences, fit_labels, val_sequences=val_sequences, val_labels=fit_val_labels)
         return student
@@ -2124,6 +2132,9 @@ def run_scaling_experiment(
     multitask: bool = False,
     pool_base_dir: str | None = None,
     arch_sweep: bool = False,
+    dropout: float = 0.0,
+    pct_start: float = 0.3,
+    weight_decay_override: float | None = None,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -2818,6 +2829,9 @@ def run_scaling_experiment(
                         multitask_labels=multitask_train_labels,
                         block_sizes=hp.get("block_sizes"),
                         ks=hp.get("ks", 5),
+                        dropout=dropout,
+                        pct_start=pct_start,
+                        weight_decay=weight_decay_override,
                     )
 
                     # Validation evaluation
@@ -3007,6 +3021,24 @@ def main():
         help="Early stopping patience (epochs without improvement). Default: None (no early stop)",
     )
     parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.0,
+        help="Dropout rate applied after each LegNet stage (Dropout1d). Default: 0.0 (off).",
+    )
+    parser.add_argument(
+        "--pct-start",
+        type=float,
+        default=0.3,
+        help="Fraction of OneCycleLR spent increasing LR (warmup). Default: 0.3.",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=None,
+        help="Override weight decay for AdamW. Default: use model default (0.01).",
+    )
+    parser.add_argument(
         "--transfer-hp-from",
         type=int,
         default=None,
@@ -3172,6 +3204,9 @@ def main():
             multitask=args.multitask,
             pool_base_dir=args.pool_base_dir,
             arch_sweep=args.arch_sweep,
+            dropout=args.dropout,
+            pct_start=args.pct_start,
+            weight_decay_override=args.weight_decay,
         )
         all_results.extend(results)
 
