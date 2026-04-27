@@ -2135,6 +2135,8 @@ def run_scaling_experiment(
     dropout: float = 0.0,
     pct_start: float = 0.3,
     weight_decay_override: float | None = None,
+    block_sizes_override: list[int] | None = None,
+    ks_override: int = 5,
 ) -> list[RunResult]:
     """Run one reservoir scaling experiment."""
     from evaluation.exp1_eval import evaluate_on_exp1_test_panel, evaluate_predictions
@@ -2827,8 +2829,8 @@ def run_scaling_experiment(
                         max_shift=max_shift,
                         s1_checkpoint=s1_checkpoint,
                         multitask_labels=multitask_train_labels,
-                        block_sizes=hp.get("block_sizes"),
-                        ks=hp.get("ks", 5),
+                        block_sizes=block_sizes_override or hp.get("block_sizes"),
+                        ks=ks_override if ks_override != 5 else hp.get("ks", 5),
                         dropout=dropout,
                         pct_start=pct_start,
                         weight_decay=weight_decay_override,
@@ -3090,6 +3092,19 @@ def main():
         help="Duplicate training sequences with label >= cutoff (boda2 class balancing).",
     )
     parser.add_argument(
+        "--block-sizes",
+        type=str,
+        default=None,
+        help="Comma-separated LegNet block sizes (e.g. '256,256,128,128,64,64,32,32'). "
+        "Controls depth (list length) and width (values). Default: LegNet default.",
+    )
+    parser.add_argument(
+        "--ks",
+        type=int,
+        default=5,
+        help="LegNet kernel size (default: 5).",
+    )
+    parser.add_argument(
         "--shift-aug",
         action="store_true",
         help="Enable random shift augmentation during training.",
@@ -3207,6 +3222,10 @@ def main():
             dropout=args.dropout,
             pct_start=args.pct_start,
             weight_decay_override=args.weight_decay,
+            block_sizes_override=[int(x) for x in args.block_sizes.split(",")]
+            if args.block_sizes
+            else None,
+            ks_override=args.ks,
         )
         all_results.extend(results)
 
