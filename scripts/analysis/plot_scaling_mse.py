@@ -158,6 +158,13 @@ _METRIC_LABELS = {
 }
 
 
+def _clip_for_log(arr: np.ndarray, floor: float) -> np.ndarray:
+    """Replace values <= 0 with `floor` so they fit on a log axis."""
+    out = arr.astype(float, copy=True)
+    out[out <= 0] = floor
+    return out
+
+
 def make_exp0(out_path: Path, metric: str = "mse"):
     ylabel, metric_short = _METRIC_LABELS[metric]
     print(f"Loading Exp 0 (AG vs LegNet) result.json files [{metric}]…")
@@ -165,6 +172,7 @@ def make_exp0(out_path: Path, metric: str = "mse"):
     for name, d in model_data.items():
         print(f"  {name}: sizes={sorted(d.keys())}")
 
+    LOG_PEARSON_FLOOR = 0.05
     panels = [
         ("in_dist", "A. Genomic Sequences"),
         ("ood", "B. High-Activity Designed Sequences"),
@@ -176,6 +184,10 @@ def make_exp0(out_path: Path, metric: str = "mse"):
             sizes, means, lows, highs = extract_metric(model_data[name], ts_key, metric)
             if not len(sizes):
                 continue
+            if metric == "pearson_r":
+                means = _clip_for_log(means, LOG_PEARSON_FLOOR)
+                lows = _clip_for_log(lows, LOG_PEARSON_FLOOR)
+                highs = _clip_for_log(highs, LOG_PEARSON_FLOOR)
             ax.plot(
                 sizes,
                 means,
@@ -191,6 +203,8 @@ def make_exp0(out_path: Path, metric: str = "mse"):
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("N Training Sequences")
+        if metric == "pearson_r":
+            ax.set_ylim(LOG_PEARSON_FLOOR, 1.0)
         if "A." in title:
             ax.set_ylabel(ylabel)
             ax.legend(fontsize=12, loc="upper right" if metric == "mse" else "lower right")
@@ -219,15 +233,28 @@ def make_exp0(out_path: Path, metric: str = "mse"):
 
 
 # ── Exp 1: Strategy scaling ─────────────────────────────────────────────
-# Use the consistent-HP "definitive" runs from scripts/slurm/scaling_definitive.sh
-# (size-calibrated learning rate / batch size, no per-run HP search). These
-# are the runs the Stowers poster used. Each (strategy, n) has 3 replicates
-# with random seeds, saved at ``{strategy}/n{N}/rep{REP_IDX}/result.json``.
+# Match the Stowers poster data sources exactly. The poster combined three
+# trees with deduplication by (strategy, n, seed):
 #
-# The older outputs/exp1_1/ tree contains a per-run HP search instead, which
-# is what produced the misleading-looking gaps for motif_grammar and
-# evoaug_heavy at 200k+ — those points exist in the definitive tree.
-EXP1_DIR = REPO / "outputs" / "exp1_1_definitive"
+#   - exp1_1_definitive: consistent-HP main runs (Stowers main set)
+#   - exp1_1_final: extra reps at small N where definitive had only 3
+#   - exp1_1_new_oracle: the 200k genomic point (newer-oracle re-runs)
+#
+# We also drop runs that failed to converge (val_pearson_r < 0.2). At small
+# N (≤2k), LegNet with the consistent lr=5e-4 occasionally diverges and
+# produces near-random predictions — those runs pollute IQR bands.
+EXP1_GLOBS = [
+    "outputs/exp1_1_definitive/k562/legnet_ag_s2/*/n*/rep*/result.json",
+    "outputs/exp1_1_definitive/k562/legnet_ag_s2/*/n*/hp*/seed*/result.json",
+    "outputs/exp1_1_final/k562/legnet_ag_s2/*/n*/rep*/result.json",
+    "outputs/exp1_1_final/k562/legnet_ag_s2/*/n*/hp*/seed*/result.json",
+    "outputs/exp1_1_new_oracle/k562/legnet_ag_s2/*/n*/rep*/result.json",
+    "outputs/exp1_1_new_oracle/k562/legnet_ag_s2/*/n*/hp*/seed*/result.json",
+]
+
+# Drop runs whose val_pearson_r is below this — these are training failures
+# that produce near-random predictions and pollute IQR bands at small N.
+VAL_PEARSON_FAILURE_THRESHOLD = 0.2
 
 EXP1_STRATS = {
     "random": ("Random", "#888888", "--", 2.5),
@@ -239,32 +266,48 @@ EXP1_STRATS = {
 }
 
 
-def load_exp1(task: str = "k562", student_oracle: str = "legnet_ag_s2", max_n: int = 500_000):
-    """Walk the definitive (consistent-HP) exp1_1 results. Layout:
-    ``outputs/exp1_1_definitive/{task}/{student_oracle}/{strategy}/n{N}/rep{i}/result.json``.
-
-    All runs share size-calibrated HP (one LR/batch-size pair per training
-    size, identical across strategies), so cross-strategy comparisons are
-    apples-to-apples — no per-run HP search variance."""
+def load_exp1(max_n: int = 500_000):
+    """Combine result.json files from definitive + final + new_oracle trees,
+    dedupe by (strategy, n, seed), and drop runs with val_pearson_r below
+    VAL_PEARSON_FAILURE_THRESHOLD (training failures)."""
     by_strat = defaultdict(lambda: defaultdict(list))
-    base = EXP1_DIR / task / student_oracle
-    if not base.is_dir():
-        return {}
-    for rj in base.rglob("result.json"):
-        try:
-            d = json.loads(rj.read_text())
-        except Exception:
-            continue
-        rel = rj.relative_to(base)
-        strategy = rel.parts[0]
-        n = d.get("n_train", 0)
-        if n > max_n:
-            continue
-        by_strat[strategy][n].append(d.get("test_metrics", {}))
+    seen = set()
+    n_dropped = 0
+    for pattern in EXP1_GLOBS:
+        for f in REPO.glob(pattern):
+            try:
+                d = json.loads(f.read_text())
+            except Exception:
+                continue
+            n = d.get("n_train", 0)
+            if n == 0 or n > max_n:
+                continue
+            # Strategy from path
+            strategy = ""
+            parts = f.parts
+            for s in EXP1_STRATS:
+                if s in parts:
+                    strategy = s
+                    break
+            if not strategy:
+                continue
+            seed = d.get("seed", str(f))
+            key = (strategy, n, seed)
+            if key in seen:
+                continue
+            # Drop training failures
+            val = d.get("val_pearson_r")
+            if val is not None and val < VAL_PEARSON_FAILURE_THRESHOLD:
+                n_dropped += 1
+                continue
+            seen.add(key)
+            by_strat[strategy][n].append(d.get("test_metrics", {}))
+    if n_dropped:
+        print(f"  filtered {n_dropped} runs with val_pearson_r < {VAL_PEARSON_FAILURE_THRESHOLD}")
     return by_strat
 
 
-def make_exp1(out_path: Path, metric: str = "mse"):
+def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 1000):
     ylabel, metric_short = _METRIC_LABELS[metric]
     print(f"Loading Exp 1 (strategy scaling) result.json files [{metric}]…")
     raw = load_exp1()
@@ -275,6 +318,9 @@ def make_exp1(out_path: Path, metric: str = "mse"):
         n_seeds = sum(len(v) for v in ns.values())
         print(f"  {strat}: {len(ns)} sizes, {n_seeds} result.jsons")
 
+    # For log-Pearson, floor at the smallest legitimate value seen so the
+    # axis stays bounded above 0 without dropping curves that dip near 0.
+    LOG_PEARSON_FLOOR = 0.05
     panels = [
         ("in_dist", "A. Genomic Sequences"),
         ("ood", "B. High-Activity Designed Sequences"),
@@ -288,6 +334,15 @@ def make_exp1(out_path: Path, metric: str = "mse"):
             sizes, means, lows, highs = extract_metric(raw[strat], ts_key, metric)
             if not len(sizes):
                 continue
+            mask = sizes >= min_n
+            sizes, means, lows, highs = sizes[mask], means[mask], lows[mask], highs[mask]
+            if not len(sizes):
+                continue
+            if metric == "pearson_r":
+                # Clip to non-negative for log axis
+                means = _clip_for_log(means, LOG_PEARSON_FLOOR)
+                lows = _clip_for_log(lows, LOG_PEARSON_FLOOR)
+                highs = _clip_for_log(highs, LOG_PEARSON_FLOOR)
             ax.plot(
                 sizes,
                 means,
@@ -303,6 +358,8 @@ def make_exp1(out_path: Path, metric: str = "mse"):
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("N Training Sequences")
+        if metric == "pearson_r":
+            ax.set_ylim(LOG_PEARSON_FLOOR, 1.0)
         if "A." in title:
             ax.set_ylabel(ylabel)
             ax.legend(fontsize=12, loc="upper right" if metric == "mse" else "lower right")
@@ -317,10 +374,11 @@ def make_exp1(out_path: Path, metric: str = "mse"):
     fig.suptitle(
         f"Strategy Scaling — {metric_short}: LegNet (K562, AG-S2 Oracle Labels)\n"
         "shaded band = IQR-style across seeds (3 seeds: avg-of-2 lowest…avg-of-2 highest; "
-        "≥4 seeds: 25th–75th percentile)",
-        fontsize=12,
+        "≥4 seeds: 25th–75th percentile)\n"
+        f"runs filtered if val_pearson_r < {VAL_PEARSON_FAILURE_THRESHOLD} (training failures)",
+        fontsize=11,
         fontweight="bold",
-        y=1.02,
+        y=1.04,
     )
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
