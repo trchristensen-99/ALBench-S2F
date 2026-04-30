@@ -172,7 +172,12 @@ def make_exp0(out_path: Path, metric: str = "mse"):
     for name, d in model_data.items():
         print(f"  {name}: sizes={sorted(d.keys())}")
 
-    LOG_PEARSON_FLOOR = 0.05
+    # Floor for log-Pearson is below the noise floor for n~1k Pearson estimates;
+    # individual seeds can dip below 0 on hard panels (OOD at small N) and the
+    # mean is sometimes legitimately ~0.02. We drop *points* whose mean ≤ 0
+    # (no signal) and clip the IQR band edges at this floor so the band is
+    # bounded on a log axis without inflating the central tendency.
+    LOG_PEARSON_FLOOR = 0.001
     panels = [
         ("in_dist", "A. Genomic Sequences"),
         ("ood", "B. High-Activity Designed Sequences"),
@@ -185,7 +190,12 @@ def make_exp0(out_path: Path, metric: str = "mse"):
             if not len(sizes):
                 continue
             if metric == "pearson_r":
-                means = _clip_for_log(means, LOG_PEARSON_FLOOR)
+                # Drop points where the mean is non-positive (no correlation
+                # to plot on a log axis). Clip band edges to floor.
+                mask = means > 0
+                sizes, means, lows, highs = sizes[mask], means[mask], lows[mask], highs[mask]
+                if not len(sizes):
+                    continue
                 lows = _clip_for_log(lows, LOG_PEARSON_FLOOR)
                 highs = _clip_for_log(highs, LOG_PEARSON_FLOOR)
             ax.plot(
@@ -318,9 +328,9 @@ def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 5000):
         n_seeds = sum(len(v) for v in ns.values())
         print(f"  {strat}: {len(ns)} sizes, {n_seeds} result.jsons")
 
-    # For log-Pearson, floor at the smallest legitimate value seen so the
-    # axis stays bounded above 0 without dropping curves that dip near 0.
-    LOG_PEARSON_FLOOR = 0.05
+    # See note in make_exp0: drop points where mean Pearson ≤ 0; clip IQR
+    # band edges at the floor so the band stays bounded on a log axis.
+    LOG_PEARSON_FLOOR = 0.001
     panels = [
         ("in_dist", "A. Genomic Sequences"),
         ("ood", "B. High-Activity Designed Sequences"),
@@ -339,8 +349,17 @@ def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 5000):
             if not len(sizes):
                 continue
             if metric == "pearson_r":
-                # Clip to non-negative for log axis
-                means = _clip_for_log(means, LOG_PEARSON_FLOOR)
+                # Drop points where the mean is non-positive (no correlation
+                # to plot on a log axis). Clip band edges to floor.
+                mask2 = means > 0
+                sizes, means, lows, highs = (
+                    sizes[mask2],
+                    means[mask2],
+                    lows[mask2],
+                    highs[mask2],
+                )
+                if not len(sizes):
+                    continue
                 lows = _clip_for_log(lows, LOG_PEARSON_FLOOR)
                 highs = _clip_for_log(highs, LOG_PEARSON_FLOOR)
             ax.plot(
