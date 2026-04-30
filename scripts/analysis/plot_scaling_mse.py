@@ -41,7 +41,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
-EXP0_TARGET_SIZES = {3197, 6395, 15987, 31974, 63949, 159871, 296382}
+EXP0_TARGET_SIZES = {6395, 15987, 31974, 63949, 159871, 296382}
 
 
 # ── Robust error-band helper ─────────────────────────────────────────────
