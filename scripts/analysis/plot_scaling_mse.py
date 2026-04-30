@@ -214,7 +214,7 @@ def make_exp0(out_path: Path, metric: str = "mse"):
         ax.set_yscale("log")
         ax.set_xlabel("N Training Sequences")
         if metric == "pearson_r":
-            ax.set_ylim(LOG_PEARSON_FLOOR, 1.0)
+            ax.set_ylim(0.01, 1.0)
         if "A." in title:
             ax.set_ylabel(ylabel)
             ax.legend(fontsize=12, loc="upper right" if metric == "mse" else "lower right")
@@ -378,7 +378,7 @@ def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 5000):
         ax.set_yscale("log")
         ax.set_xlabel("N Training Sequences")
         if metric == "pearson_r":
-            ax.set_ylim(LOG_PEARSON_FLOOR, 1.0)
+            ax.set_ylim(0.01, 1.0)
         if "A." in title:
             ax.set_ylabel(ylabel)
             ax.legend(fontsize=12, loc="upper right" if metric == "mse" else "lower right")
