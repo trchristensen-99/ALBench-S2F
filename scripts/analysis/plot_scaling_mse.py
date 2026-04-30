@@ -123,13 +123,22 @@ def load_exp0_model(model_name: str, max_n: int = 500_000):
     return out
 
 
+_MIN_PANEL_PEARSON_FOR_MSE = 0.05
+
+
 def extract_metric(data, ts_key: str, metric: str = "mse"):
     """Pull ``metric`` from ``data[n][i][<test_set_alias>]`` and aggregate.
 
     Returns (sizes, means, low_band, high_band) as numpy arrays. The
     test-set keys vary across older/newer runs (``in_dist`` vs
     ``in_distribution``, optional ``_real`` suffix when both leaked + real
-    metrics are saved)."""
+    metrics are saved).
+
+    For MSE on panels where the model has no predictive signal (Pearson
+    ≈ 0), MSE is meaningless — it just reflects how close the constant
+    "mean prediction" lands to E[y_true]. We drop *individual reps* whose
+    panel-specific Pearson is below ``_MIN_PANEL_PEARSON_FOR_MSE`` so a
+    near-zero-correlation rep can't masquerade as low MSE."""
     aliases = {
         "in_dist": ["in_dist", "in_distribution", "in_dist_real"],
         "ood": ["ood", "ood_real"],
@@ -140,9 +149,18 @@ def extract_metric(data, ts_key: str, metric: str = "mse"):
         vals = []
         for tm in data[n]:
             for alias in aliases:
-                if alias in tm and isinstance(tm[alias], dict) and metric in tm[alias]:
-                    vals.append(tm[alias][metric])
+                if not (alias in tm and isinstance(tm[alias], dict)):
+                    continue
+                if metric not in tm[alias]:
                     break
+                # For MSE, require the panel's Pearson to be > threshold.
+                # This drops "no-signal" reps where MSE is uninformative.
+                if metric == "mse":
+                    p = tm[alias].get("pearson_r")
+                    if p is None or p < _MIN_PANEL_PEARSON_FOR_MSE:
+                        break
+                vals.append(tm[alias][metric])
+                break
         if vals:
             lo, hi = robust_band(vals)
             sizes.append(n)
