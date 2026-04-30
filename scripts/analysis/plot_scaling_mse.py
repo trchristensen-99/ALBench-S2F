@@ -307,7 +307,7 @@ def load_exp1(max_n: int = 500_000):
     return by_strat
 
 
-def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 1000):
+def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 5000):
     ylabel, metric_short = _METRIC_LABELS[metric]
     print(f"Loading Exp 1 (strategy scaling) result.json files [{metric}]…")
     raw = load_exp1()
