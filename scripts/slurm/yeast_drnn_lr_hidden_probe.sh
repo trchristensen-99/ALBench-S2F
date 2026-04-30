@@ -60,7 +60,7 @@ uv run --no-sync python experiments/exp0_yeast_scaling.py \
     weight_decay=0.01 \
     use_reverse_complement=true \
     early_stopping_patience=10 \
-    metric_for_best=val_pearson_r \
+    metric_for_best=pearson_r \
     use_amp=true \
     use_compile=false \
     pct_start=0.1 \
