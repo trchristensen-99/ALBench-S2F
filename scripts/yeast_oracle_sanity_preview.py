@@ -66,12 +66,15 @@ def _predict_dcnn(model, sequences, device, batch_size=512):
 def _build_drnn(ckpt_path: Path, seq_len: int, device):
     from models.dream_rnn import DREAMRNN
 
+    # The kfold_v3 ensemble was trained with cnn_filters=256 (not the
+    # default 160). Confirmed via outputs/oracle_dream_rnn_yeast_kfold_v3/
+    # fold_0/seed_42/config.json.
     model = DREAMRNN(
         input_channels=6,
         sequence_length=seq_len,
         task_mode="yeast",
         hidden_dim=320,
-        cnn_filters=160,
+        cnn_filters=256,
         dropout_cnn=0.2,
         dropout_lstm=0.3,
     ).to(device)
