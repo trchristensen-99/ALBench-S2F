@@ -48,6 +48,7 @@ TIME="${PREFLIGHT_TIME:-$DEFAULT_TIME}"
 EPOCHS="${PREFLIGHT_EPOCHS:-80}"
 AUG="${PREFLIGHT_AUG:-rev_complement}"
 SWEEP="${PREFLIGHT_SWEEP:-}"
+LABEL_SOURCE="${PREFLIGHT_LABEL_SOURCE:-ag_oracle}"
 
 OUT="${PREFLIGHT_OUT:-results/preflight/${ARCH}/d${D_TRAIN}/seed${SEED}}"
 
@@ -91,6 +92,7 @@ uv run --no-sync python scripts/preflight/run_single.py \\
     --seed ${SEED} \\
     --epochs ${EPOCHS} \\
     --augmentations ${AUG} \\
+    --label_source ${LABEL_SOURCE} \\
     --output_dir ${OUT} \\
     ${SWEEP_FLAG} \\
     --hp${EXTRA_HPS}
