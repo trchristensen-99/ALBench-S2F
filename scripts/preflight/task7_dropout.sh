@@ -26,9 +26,9 @@ declare -A ARCH_DROPOUT_KEY=(
     [dream_attn]=core_dropout
 )
 declare -A ARCH_DROPOUT_VALUES=(
-    [legnet]="0.0 0.1 0.2"
-    [dream_rnn]="0.15 0.30 0.50"
-    [dream_attn]="0.05 0.10 0.20"
+    [legnet]="0.0 0.1 0.2"           # default 0.0; degenerate at 0.5x — use {0, +0.1, +0.2}
+    [dream_rnn]="0.15 0.30 0.60"     # default 0.30: 0.5x=0.15, 2x=0.60
+    [dream_attn]="0.05 0.10 0.20"    # default 0.10: 0.5x=0.05, 2x=0.20
 )
 
 DECISIONS=results/preflight/pre_flight_decisions.yaml
