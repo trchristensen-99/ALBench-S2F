@@ -125,6 +125,31 @@ def main():
         true_label_alt=snv_alt_lbl,
     )
 
+    # Determinism checksums on the relabeled splits — per the pre-flight
+    # checklist's "verify checksum on relabeled test sets before any
+    # training". Hash the float32 ensemble means + the underlying sequences
+    # so any silent regeneration drift is caught at run-config-load time.
+    import hashlib
+
+    def _checksum(seqs: list[str], preds: np.ndarray) -> str:
+        h = hashlib.sha256()
+        for s in seqs:
+            h.update(s.encode())
+        h.update(preds.astype(np.float32).tobytes())
+        return h.hexdigest()[:16]
+
+    checksums = {
+        "train": _checksum(train["sequence"].astype(str).tolist(), train_mean),
+        "val": _checksum(val["sequence"].astype(str).tolist(), val_mean),
+        "test": _checksum(test["sequence"].astype(str).tolist(), test_mean),
+        "snv_ref": _checksum(snv["ref_sequence"].astype(str).tolist(), snv_ref_mean)
+        if "ref_sequence" in snv.columns
+        else "n/a",
+        "snv_alt": _checksum(snv["alt_sequence"].astype(str).tolist(), snv_alt_mean)
+        if "alt_sequence" in snv.columns
+        else "n/a",
+    }
+
     summary = {
         "n_folds": int(n_folds),
         "n_train": int(len(train)),
@@ -146,6 +171,7 @@ def main():
             "snv_ref": snv_ref_per_fold_r,
             "snv_alt": snv_alt_per_fold_r,
         },
+        "checksums_sha256_truncated": checksums,
     }
     (cache / "summary.json").write_text(json.dumps(summary, indent=2))
     print(f"\nSaved aggregated cache to {cache}")
