@@ -124,6 +124,7 @@ def _build_predict_step(fold_id: int, batch_size: int):
             state,
             sequences,
             jnp.zeros(len(sequences), dtype=jnp.int32),
+            requested_outputs=[head_name],
             negative_strand_mask=jnp.zeros(len(sequences), dtype=bool),
             strand_reindexing=None,
         )[head_name]
