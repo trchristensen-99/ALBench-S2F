@@ -8,29 +8,31 @@
 #   1. Method runs without errors
 #   2. Jaccard distance to random selection > 0.3 (selecting different sequences)
 #
-# This is a sanity check, not a comparative evaluation. Failures are
-# documented in pre_flight_decisions.yaml as "acquisition_sanity_flagged".
+# Runs on CPU only (acquire_one_cycle.py uses k-mer features and reservoir
+# samplers — no GPU needed). 9 methods × 2 seeds = 18 jobs, each ~1 min, on
+# the cpu_fill queue (low priority but free).
 
 set -euo pipefail
 
 D_INIT=600000
 D_ACQUIRED=4000
 SEEDS=(42 123)
+REPO_ROOT=/grid/wsbs/home_norepl/christen/ALBench-S2F
 
-# Method list — these match what's already implemented in
-# experiments/exp1_2_acquisition.py and the existing reservoirs.
-# Subset that should run on the new ref+alt+boda2 cache.
-METHODS=(uncertainty_ensemble uncertainty_mc_dropout diversity_kmeans diversity_max_distance prm_5 prm_20 motif_grammar gc_matched dinuc_shuffle)
-
-# This task uses an existing acquisition driver (not run_single.py). Wire to
-# experiments/exp1_2_acquisition.py with appropriate flags. Each run is
-# small (just acquisition + Jaccard check, no training), so fast queue is fine.
-# TIME limit: 2h is plenty for an acquisition cycle without training.
+# Methods supported by scripts/preflight/acquire_one_cycle.py.
+# Reservoir-based: prm_5, prm_20, motif_grammar, gc_matched, dinuc_shuffle
+# Model-based proxies (k-mer): uncertainty_ensemble, uncertainty_mc_dropout,
+#   diversity_kmeans, diversity_max_distance
+METHODS=(
+    uncertainty_ensemble uncertainty_mc_dropout
+    diversity_kmeans diversity_max_distance
+    prm_5 prm_20 motif_grammar gc_matched dinuc_shuffle
+)
 
 n_submitted=0
 for method in "${METHODS[@]}"; do
     for seed in "${SEEDS[@]}"; do
-        out="results/preflight/task8_acquisition_sanity/${method}/seed${seed}"
+        out="${REPO_ROOT}/results/preflight/task8_acquisition_sanity/${method}/seed${seed}"
         if [ -f "${out}/jaccard.json" ]; then continue; fi
         jname="pf8_${method}_s${seed}"
         if /cm/shared/apps/slurm/current/bin/squeue -u christen --noheader -o '%j' \
@@ -39,30 +41,24 @@ for method in "${METHODS[@]}"; do
         cat > "$sbatch_script" <<EOF
 #!/bin/bash
 #SBATCH --job-name=${jname}
-#SBATCH --output=logs/%x-%j.out
-#SBATCH --error=logs/%x-%j.err
-#SBATCH --partition=gpuq
-#SBATCH --qos=fast
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
-#SBATCH --time=02:00:00
-#SBATCH --mem=64G
+#SBATCH --output=${REPO_ROOT}/logs/%x-%j.out
+#SBATCH --error=${REPO_ROOT}/logs/%x-%j.err
+#SBATCH --partition=cpuq
+#SBATCH --qos=cpu_fill
+#SBATCH --cpus-per-task=4
+#SBATCH --time=00:30:00
+#SBATCH --mem=32G
 set -euo pipefail
 set +u; source /etc/profile.d/modules.sh; set -u
 module load EB5
-cd /grid/wsbs/home_norepl/christen/ALBench-S2F || exit 1
+cd ${REPO_ROOT} || exit 1
 export PYTHONPATH="\$PWD"
-source scripts/slurm/setup_hpc_deps.sh
-
-# Run one acquisition cycle from the new K562 ref+alt cache.
-# Saves selected sequence indices to ${out}/selected_idx.npy and a Jaccard
-# distance to a random baseline at ${out}/jaccard.json.
 mkdir -p ${out}
-uv run --no-sync python scripts/preflight/acquire_one_cycle.py \
-    --method ${method} \
-    --d_init ${D_INIT} \
-    --d_acquired ${D_ACQUIRED} \
-    --seed ${seed} \
+uv run --no-sync python scripts/preflight/acquire_one_cycle.py \\
+    --method ${method} \\
+    --d_init ${D_INIT} \\
+    --d_acquired ${D_ACQUIRED} \\
+    --seed ${seed} \\
     --output_dir ${out}
 EOF
         /cm/shared/apps/slurm/current/bin/sbatch "$sbatch_script" || true
@@ -72,5 +68,5 @@ EOF
 done
 
 echo "=== Task 8: submitted ${n_submitted} acquisition sanity runs ==="
-echo "(NOTE: scripts/preflight/acquire_one_cycle.py is a placeholder —"
-echo " write it after Tasks 3-4 lock so it can use the right student/HPs)"
+echo "Each run takes ~1 min on CPU. Total wall time ~5-10 min depending on cpu_fill queue."
+echo "After all complete, run: scripts/preflight/analyze_task8_acquisition.py"
