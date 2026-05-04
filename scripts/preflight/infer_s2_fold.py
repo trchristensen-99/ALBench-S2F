@@ -64,16 +64,22 @@ def _seq_str_to_600bp(seq_str: str) -> np.ndarray:
     return np.concatenate([_FLANK_5_ENC, core, _FLANK_3_ENC], axis=0)
 
 
-def _predict_strings(predict_step_fn, params, state, seqs_str, batch_size=256):
-    """Run RC-averaged inference. Pre-encodes ALL sequences up front so the
-    per-batch loop only does the JAX forward + tiny slicing — matches the
-    production ``generate_stage2_pseudolabels_single_fold.py`` pattern.
+def _predict_strings(
+    predict_step_fn,
+    params,
+    state,
+    seqs_str,
+    batch_size=256,
+    rc_average: bool = False,
+):
+    """Pre-encode all seqs, then run inference. RC averaging is OFF by
+    default for this preflight cache regeneration (~2× speedup vs the
+    fwd+rev double-pass): AG-S2 was trained with RC augmentation so the
+    head's single-strand prediction is approximately RC-equivariant, and
+    the downstream students apply their own RC augmentation. Pseudolabel
+    quality penalty is small.
 
-    The earlier per-batch ``[_seq_str_to_600bp(s) for s in chunk]`` Python
-    loop was a ~6 sec CPU bottleneck on top of the GPU's ~6 sec forward,
-    doubling wall time per batch. Pre-encoding moves all string→one-hot
-    conversion outside the loop. For 617k sequences this is ~6 GB of
-    fp32 memory (well within the 200GB-per-node SLURM allocation).
+    Set ``rc_average=True`` to fall back to fwd+rev averaging if needed.
     """
     if not seqs_str:
         return np.array([], dtype=np.float32)
@@ -81,29 +87,44 @@ def _predict_strings(predict_step_fn, params, state, seqs_str, batch_size=256):
     print(f"    Pre-encoding {n:,} sequences to one-hot …", flush=True)
     t0 = time.time()
     x_fwd = np.stack([_seq_str_to_600bp(s) for s in seqs_str])
-    x_rev = x_fwd[:, ::-1, ::-1]
+    if rc_average:
+        x_rev = x_fwd[:, ::-1, ::-1]
     print(f"    Pre-encoding done in {time.time() - t0:.1f}s.", flush=True)
-    preds_fwd, preds_rev = [], []
+    preds_fwd: list[np.ndarray] = []
+    preds_rev: list[np.ndarray] = []
+    t_loop = time.time()
     for i in range(0, n, batch_size):
         end = min(i + batch_size, n)
         actual = end - i
         if actual < batch_size:
             pad = batch_size - actual
             b_fwd = np.concatenate([x_fwd[i:end], np.zeros((pad, 600, 4), dtype=np.float32)])
-            b_rev = np.concatenate([x_rev[i:end], np.zeros((pad, 600, 4), dtype=np.float32)])
         else:
             b_fwd = x_fwd[i:end]
-            b_rev = x_rev[i:end]
         preds_fwd.append(
             np.array(predict_step_fn(params, state, jnp.array(b_fwd))).reshape(-1)[:actual]
         )
-        preds_rev.append(
-            np.array(predict_step_fn(params, state, jnp.array(b_rev))).reshape(-1)[:actual]
-        )
-        if (i // batch_size) % 50 == 0:
+        if rc_average:
+            if actual < batch_size:
+                b_rev = np.concatenate([x_rev[i:end], np.zeros((pad, 600, 4), dtype=np.float32)])
+            else:
+                b_rev = x_rev[i:end]
+            preds_rev.append(
+                np.array(predict_step_fn(params, state, jnp.array(b_rev))).reshape(-1)[:actual]
+            )
+        if (i // batch_size) % 25 == 0:
             done_pct = 100.0 * (i + actual) / n
-            print(f"    {i + actual:,}/{n:,} ({done_pct:.1f}%)", flush=True)
-    return (np.concatenate(preds_fwd) + np.concatenate(preds_rev)) / 2.0
+            elapsed = time.time() - t_loop
+            rate_bps = (i // batch_size + 1) / max(0.001, elapsed)
+            eta_s = (n - i - actual) / max(1, batch_size) / max(0.001, rate_bps)
+            print(
+                f"    {i + actual:,}/{n:,} ({done_pct:.1f}%) "
+                f"rate={rate_bps:.2f} batches/s  eta={eta_s / 60:.1f}min",
+                flush=True,
+            )
+    if rc_average:
+        return (np.concatenate(preds_fwd) + np.concatenate(preds_rev)) / 2.0
+    return np.concatenate(preds_fwd)
 
 
 def _safe_corr(y, p):
