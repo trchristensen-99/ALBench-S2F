@@ -53,7 +53,7 @@ class DREAMCNNStudent(SequenceModel):
 
     def __init__(
         self,
-        in_channels: int = 4,
+        in_channels: int | None = None,
         sequence_length: int = 200,
         task_mode: str = "k562",
         ensemble_size: int = 3,
@@ -65,6 +65,12 @@ class DREAMCNNStudent(SequenceModel):
         dropout: float = 0.2,
         multitask: bool = False,
     ) -> None:
+        # Default channel layout matches the DREAM Challenge / Prix-Fixe spec:
+        #   yeast → 6 channels (4 nt + RC orientation + singleton flag)
+        #   k562  → 5 channels (4 nt + RC orientation)
+        # Pass in_channels=4 explicitly to keep the legacy 4-channel input.
+        if in_channels is None:
+            in_channels = 6 if task_mode == "yeast" else 5
         self.in_channels = in_channels
         self.sequence_length = sequence_length
         self.task_mode = task_mode
@@ -72,6 +78,14 @@ class DREAMCNNStudent(SequenceModel):
         self.multitask = multitask
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.train_config = train_config or TrainConfig()
+
+        # Determine which extra channels to encode beyond the 4 nt channels
+        if in_channels == 6:
+            self._extra_channels: tuple[str, ...] = ("rc", "singleton")
+        elif in_channels == 5:
+            self._extra_channels = ("rc",)
+        else:
+            self._extra_channels = ()
 
         self.models = [
             DREAMCNN(
@@ -86,8 +100,15 @@ class DREAMCNNStudent(SequenceModel):
             for _ in range(ensemble_size)
         ]
 
-    def _encode_sequences(self, sequences: Sequence[str]) -> torch.Tensor:
-        """Encode sequence strings to (N, 4, L) tensor."""
+    def _encode_sequences(
+        self, sequences: Sequence[str], labels: np.ndarray | None = None
+    ) -> torch.Tensor:
+        """Encode sequence strings to (N, in_channels, L) tensor.
+
+        For ``in_channels >= 6`` the singleton channel is filled from
+        ``labels`` (label is_singleton ⇔ label is integer-valued). At
+        inference time pass ``labels=None`` and the singleton channel is
+        held at 0 (matches the DREAM-Challenge inference convention)."""
         target_len = self.sequence_length
         standardized: list[str] = []
         for seq in sequences:
@@ -99,7 +120,15 @@ class DREAMCNNStudent(SequenceModel):
                 start = (len(seq) - target_len) // 2
                 seq = seq[start : start + target_len]
             standardized.append(seq)
-        arr = one_hot_encode_batch(standardized, seq_len=target_len)
+        is_singleton = None
+        if "singleton" in self._extra_channels and labels is not None:
+            is_singleton = [(float(label_value) % 1.0 == 0.0) for label_value in labels]
+        arr = one_hot_encode_batch(
+            standardized,
+            seq_len=target_len,
+            extra_channels=self._extra_channels,
+            is_singleton=is_singleton,
+        )
         return torch.from_numpy(arr)
 
     def _predict_member(self, model: DREAMCNN, x: torch.Tensor) -> np.ndarray:
@@ -172,11 +201,15 @@ class DREAMCNNStudent(SequenceModel):
         stopping and best-model selection. Otherwise a 10% random split of
         the training data is used.
         """
-        x = self._encode_sequences(sequences)
+        # Pass labels into the encoder so the singleton channel (yeast) is
+        # set per-sample at training time. At inference (predict/uncertainty/
+        # embed) labels=None, so the singleton channel is held at 0 — matching
+        # the DREAM-Challenge inference convention.
+        x = self._encode_sequences(sequences, labels=labels)
         y = torch.from_numpy(labels.astype(np.float32))
 
         if val_sequences is not None and val_labels is not None:
-            x_val = self._encode_sequences(val_sequences)
+            x_val = self._encode_sequences(val_sequences, labels=val_labels)
             y_val = torch.from_numpy(val_labels.astype(np.float32))
         else:
             # Internal 10% split

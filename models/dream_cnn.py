@@ -268,14 +268,54 @@ class DREAMCNN(nn.Module):
 _NUC_TO_IDX = {"A": 0, "C": 1, "G": 2, "T": 3}
 
 
-def one_hot_encode_batch(sequences: list[str], seq_len: int | None = None) -> np.ndarray:
-    """One-hot encode DNA sequences to (N, 4, L) float32 array."""
+def one_hot_encode_batch(
+    sequences: list[str],
+    seq_len: int | None = None,
+    extra_channels: tuple[str, ...] = (),
+    is_singleton: list[bool] | None = None,
+) -> np.ndarray:
+    """One-hot encode DNA sequences to (N, C, L) float32 array.
+
+    Args:
+        sequences: list of DNA strings.
+        seq_len: target length; sequences are taken as-is (caller pads/truncates).
+        extra_channels: tuple of extra channel names to append after the 4
+            nucleotide channels. Supported values:
+              - ``"rc"``       — orientation flag (0 = forward, 1 = reverse).
+                Always 0 here (caller flips channels for RC views).
+              - ``"singleton"``— singleton flag (1 if the corresponding label
+                is integer-valued; 0 otherwise). Pass per-sample values via
+                ``is_singleton``; defaults to all-zeros (inference-time).
+        is_singleton: optional per-sample bool flags for the ``singleton``
+            channel. Ignored if ``"singleton"`` not in ``extra_channels``.
+
+    Channel layout matches the DREAM-Challenge / Prix-Fixe yeast input
+    spec when ``extra_channels=("rc", "singleton")``: shape (N, 6, L).
+    For human (K562/HepG2/SknSh) the spec uses ``("rc",)`` only:
+    shape (N, 5, L).
+    """
     if seq_len is None:
         seq_len = max(len(s) for s in sequences)
-    out = np.zeros((len(sequences), 4, seq_len), dtype=np.float32)
+    n_extra = len(extra_channels)
+    out = np.zeros((len(sequences), 4 + n_extra, seq_len), dtype=np.float32)
     for i, seq in enumerate(sequences):
         for j, nuc in enumerate(seq[:seq_len]):
             idx = _NUC_TO_IDX.get(nuc.upper())
             if idx is not None:
                 out[i, idx, j] = 1.0
+    # Fill extra channels (held constant along the L axis)
+    for k, ch in enumerate(extra_channels):
+        chan = 4 + k
+        if ch == "rc":
+            # Forward orientation: leave at 0. Caller flips channels + sets
+            # this channel to 1 for an RC view.
+            pass
+        elif ch == "singleton":
+            if is_singleton is None:
+                continue
+            for i, flag in enumerate(is_singleton):
+                if flag:
+                    out[i, chan, :] = 1.0
+        else:
+            raise ValueError(f"Unknown extra channel '{ch}'")
     return out
