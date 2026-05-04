@@ -1,0 +1,32 @@
+# DREAM-ATTN (UnlockDNA, DREAM 2022) — published-default HP center.
+# Wider LR grid since priors are weaker for this architecture; smaller BS
+# range since attention is memory-heavy.
+
+name: dream_attn
+in_channels: 5                # K562 spec: 4 nt + RC orientation channel
+sequence_length: 200
+task_mode: k562
+multitask: false
+
+# Optimizer / LR / BS center
+lr: 3e-4                      # DREAM-ATTN peak LR (lower than CNN/RNN)
+batch_size: 512
+weight_decay: 0.01
+
+schedule: onecycle
+warmup_pct: 0.1               # 5–10% per spec; use 10%
+
+# Architecture parameters (UnlockDNA conformer core block)
+embedding_dim: 256
+num_blocks: 4
+kernel_size: 15
+num_heads: 4
+first_block_dropout: 0.1
+core_dropout: 0.1
+head_dropout: 0.1
+
+# Sweep grids — wider LR, includes BS=128 due to memory cost
+lr_grid: [1e-4, 3e-4, 1e-3, 3e-3, 1e-2]
+bs_grid: [128, 256, 512]      # add 128 for full LR×BS sweep at D_max
+parameterization_scales: [0.5, 1.0, 2.0]   # 0.5x, 1x, 2x heads/dim (jointly scaled)
+dropout_grid: [0.05, 0.1, 0.2]              # 0.5x, 1x, 2x core_dropout

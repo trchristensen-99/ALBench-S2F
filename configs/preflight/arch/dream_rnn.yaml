@@ -1,0 +1,27 @@
+# DREAM-RNN (BHI, DREAM 2022 2nd place) — published-default HP center.
+
+name: dream_rnn
+in_channels: 5                # K562 spec: 4 nt + RC orientation channel
+sequence_length: 200
+task_mode: k562
+multitask: false
+
+# Optimizer / LR / BS center
+lr: 1e-3                      # DREAM-RNN peak LR
+batch_size: 1024
+weight_decay: 0.01
+
+schedule: onecycle
+warmup_pct: 0.1
+
+# Architecture parameters (BHI Prix Fixe core block)
+hidden_dim: 320
+cnn_filters: 160
+dropout_cnn: 0.2
+dropout_lstm: 0.3
+
+# Sweep grids
+lr_grid: [3e-4, 6e-4, 1e-3, 3e-3, 1e-2]
+bs_grid: [256, 512, 1024]
+parameterization_scales: [0.5, 1.0, 2.0]   # 0.5x, 1x, 2x hidden_dim
+dropout_grid: [0.1, 0.3, 0.5]               # 0.5x, 1x, 2x of dropout_lstm
