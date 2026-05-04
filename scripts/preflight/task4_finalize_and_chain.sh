@@ -1,0 +1,45 @@
+#!/bin/bash
+# Task 4 auto-chain: poll for Task 4's 3 epoch-budget runs to complete,
+# run analyze_task4 (locks epoch_budget per arch), then submit Tasks 5,
+# 6, 7 in parallel.
+#
+# Submitted by task3_finalize_and_chain.sh (or run manually). Polls then
+# fires Tasks 5/6/7 — these are parallelizable per the checklist.
+
+set -euo pipefail
+
+REPO=/grid/wsbs/home_norepl/christen/ALBench-S2F
+cd "$REPO"
+
+EXPECTED=3   # 1 run per arch at 240 epochs
+TASK4_RESULTS="$REPO/results/preflight/task4_epoch_budget"
+POLL_SLEEP=600     # 10 min between checks (each run is multi-hour)
+MAX_HOURS=72
+MAX_TRIES=$((MAX_HOURS * 3600 / POLL_SLEEP))
+
+echo "=== Task 4 finalize: polling for $EXPECTED result.json files ==="
+n=0
+for ((try=0; try<MAX_TRIES; try++)); do
+    n=$(find "$TASK4_RESULTS" -name 'result.json' 2>/dev/null | wc -l)
+    echo "  poll $try: $n result.json files"
+    if [ "$n" -ge "$EXPECTED" ]; then
+        echo "  threshold met; proceeding"
+        break
+    fi
+    sleep "$POLL_SLEEP"
+done
+if [ "$n" -lt "$EXPECTED" ]; then
+    echo "TIMEOUT: only $n files after ${MAX_HOURS}h. Aborting auto-chain."
+    exit 1
+fi
+
+echo "=== Running analyze_task4_epoch_budget ==="
+uv run --no-sync python scripts/preflight/analyze_task4_epoch_budget.py
+
+echo "=== Submitting Tasks 5 / 6 / 7 in parallel ==="
+bash scripts/preflight/task5_augmentations.sh
+bash scripts/preflight/task6_parameterization.sh
+bash scripts/preflight/task7_dropout.sh
+
+echo "=== Task 4 chain complete. Tasks 5/6/7 submitted. ==="
+echo "After Tasks 5+7 land, submit task9_d_min_confirm.sh (locked HPs)."
