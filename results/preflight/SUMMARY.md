@@ -21,7 +21,22 @@ Each task appends a brief summary of what ran, decisions made, anomalies.
   (small N → fast, large N → slow_nice), accepts arbitrary `k=v` HP overrides.
 - Initialized `results/preflight/pre_flight_decisions.yaml` skeleton.
 
-## Task 2 — D_min provisional (pending)
+## Task 2 — D_min provisional — DONE (36/36 results, 2026-05-04)
+- All 36 cells (3 archs × 4 D ∈ {500,1000,2000,4000} × 3 seeds) passed
+  the val_R² > 0.1 threshold at every D tested.
+- **D_min_provisional = 500** (smallest D with all-arch all-seed pass).
+- 2 LegNet cells flagged for tight epoch budget (best epoch in final 10%):
+  - legnet d=500 seed=123  best_epoch=79/80
+  - legnet d=1000 seed=42  best_epoch=78/80
+  These surface as a Task 4 input — LegNet may need >80 epoch budget
+  for the smaller-D regime.
+- Per-(arch,D) min val_R² approximations (typical Var(y_val)=1.5):
+  - D=500:  dream_attn +0.419, dream_rnn +0.419, legnet +0.388
+  - D=1000: same dream_*; legnet +0.400
+  - D=2000: same dream_*; legnet +0.414
+  - D=4000: same dream_*; legnet +0.416
+- Output: `results/preflight/d_min_provisional.csv` (36 rows).
+
 ## Task 3 — Joint LR × BS sweep (pending)
 ## Task 4 — Epoch budget calibration (pending)
 ## Task 5 — Augmentation tests (pending)
