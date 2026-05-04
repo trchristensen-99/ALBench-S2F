@@ -98,12 +98,23 @@ def _safe_corr(y, p):
 
 
 def _build_predict_step(fold_id: int, batch_size: int):
-    """Construct AG model + load fold-k checkpoint + JIT-compile predict_step."""
-    head_name = f"k562_pseudolabel_fold_{fold_id}"
+    """Construct AG model + load fold-k checkpoint + JIT-compile predict_step.
+
+    The head name MUST match what was used to train the S2 ckpts —
+    ``alphagenome_k562_head_hashfrag_boda_flatten_512_512_v4`` — same
+    across all 10 folds. The folds differ only in which trained
+    checkpoint is loaded (per-fold weights), not in head structure.
+    Verified against ``outputs/stage2_k562_oracle/fold_0/best_model/config.json``
+    on 2026-05-04.
+    """
+    base_head_name = "alphagenome_k562_head_hashfrag"
+    head_arch = "boda-flatten-512-512"
+    arch_slug = head_arch.replace("-", "_")
+    head_name = f"{base_head_name}_{arch_slug}_v4"
     register_s2f_head(
         head_name=head_name,
-        arch="boda-flatten-512-512",
-        task_mode="k562",
+        arch=head_arch,
+        task_mode="human",
         num_tracks=1,
         dropout_rate=0.1,
     )
