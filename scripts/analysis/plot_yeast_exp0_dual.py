@@ -44,14 +44,16 @@ def robust_band(vals: list[float]) -> tuple[float, float]:
     return float(np.percentile(vals, 25)), float(np.percentile(vals, 75))
 
 
-def _aggregate_real() -> dict[str, dict[int, dict[str, list[float]]]]:
+def _aggregate_real(
+    output_root: str = "exp0_yeast_real_scaling",
+) -> dict[str, dict[int, dict[str, list[float]]]]:
     """Walk real-arm results. Returns {panel_key: {n: {metric: [vals]}}}."""
     out: dict[str, dict[int, dict[str, list[float]]]] = {
         "in_dist": defaultdict(lambda: {"pearson": [], "mse": []}),
         "ood": defaultdict(lambda: {"pearson": [], "mse": []}),
         "snv": defaultdict(lambda: {"pearson": [], "mse": []}),
     }
-    for f in (REPO / "outputs" / "exp0_yeast_real_scaling").rglob("result.json"):
+    for f in (REPO / "outputs" / output_root).rglob("result.json"):
         d = json.loads(f.read_text())
         n = d.get("n_samples", 0)
         if n == 0:
@@ -68,10 +70,12 @@ def _aggregate_real() -> dict[str, dict[int, dict[str, list[float]]]]:
     return out
 
 
-def _aggregate_oracle() -> dict[int, dict[str, list[float]]]:
+def _aggregate_oracle(
+    output_root: str = "exp0_yeast_oracle_scaling",
+) -> dict[int, dict[str, list[float]]]:
     """Walk oracle-arm results. Returns {n: {metric: [vals]}}."""
     out: dict[int, dict[str, list[float]]] = defaultdict(lambda: {"pearson": [], "mse": []})
-    for f in (REPO / "outputs" / "exp0_yeast_oracle_scaling").rglob("result.json"):
+    for f in (REPO / "outputs" / output_root).rglob("result.json"):
         d = json.loads(f.read_text())
         n = d.get("n_samples", 0)
         if n == 0:
@@ -107,8 +111,10 @@ def _clip(arr: np.ndarray, floor: float) -> np.ndarray:
 
 
 def make_panel(metric: str, out_path: Path):
-    real = _aggregate_real()
-    oracle = _aggregate_oracle()
+    real_drnn = _aggregate_real("exp0_yeast_real_scaling")
+    oracle_drnn = _aggregate_oracle("exp0_yeast_oracle_scaling")
+    real_legnet = _aggregate_real("exp0_yeast_legnet_real")
+    oracle_legnet = _aggregate_oracle("exp0_yeast_legnet_oracle")
 
     panels = [
         ("in_dist", "A. In-distribution (random subset)"),
@@ -119,42 +125,49 @@ def make_panel(metric: str, out_path: Path):
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=True)
     LOG_PEARSON_FLOOR = 0.01
 
-    for ax, (panel_key, title) in zip(axes, panels):
-        # Real arm (DRNN, real labels)
-        s_r, m_r, lo_r, hi_r = _curve(real[panel_key], metric)
-        if len(s_r):
-            if metric == "pearson":
-                m_r, lo_r, hi_r = (_clip(a, LOG_PEARSON_FLOOR) for a in (m_r, lo_r, hi_r))
-            ax.plot(
-                s_r,
-                m_r,
-                color="#D4A017",
-                lw=2.5,
-                marker="o",
-                ms=5,
-                label="Real labels (DREAM→MAUDE)" if panel_key == "in_dist" else None,
-            )
-            if (hi_r - lo_r).any():
-                ax.fill_between(s_r, lo_r, hi_r, alpha=0.18, color="#D4A017")
+    # (data, color, marker, linestyle, label, panel_filter)
+    real_curves = [
+        (real_drnn, "#D4A017", "o", "-", "DRNN — real labels (DREAM→MAUDE)", None),
+        (real_legnet, "#7B5C12", "^", "-", "LegNet — real labels (DREAM→MAUDE)", None),
+    ]
+    oracle_curves = [
+        (oracle_drnn, "#2980B9", "s", "--", "DRNN — ensemble pseudolabels", "in_dist"),
+        (oracle_legnet, "#1F4F73", "D", "--", "LegNet — ensemble pseudolabels", "in_dist"),
+    ]
 
-        # Oracle arm only has the in_dist panel
+    for ax, (panel_key, title) in zip(axes, panels):
+        for data_dict, color, marker, ls, label, panel_filter in real_curves:
+            if panel_filter is not None and panel_filter != panel_key:
+                continue
+            s, m, lo, hi = _curve(data_dict[panel_key], metric)
+            if not len(s):
+                continue
+            if metric == "pearson":
+                m, lo, hi = (_clip(a, LOG_PEARSON_FLOOR) for a in (m, lo, hi))
+            ax.plot(
+                s,
+                m,
+                color=color,
+                lw=2.2,
+                marker=marker,
+                ms=5,
+                ls=ls,
+                label=label if panel_key == "in_dist" else None,
+            )
+            if (hi - lo).any():
+                ax.fill_between(s, lo, hi, alpha=0.15, color=color)
+
+        # Oracle arm: only in_dist panel
         if panel_key == "in_dist":
-            s_o, m_o, lo_o, hi_o = _curve(oracle, metric)
-            if len(s_o):
+            for data_dict, color, marker, ls, label, _ in oracle_curves:
+                s, m, lo, hi = _curve(data_dict, metric)
+                if not len(s):
+                    continue
                 if metric == "pearson":
-                    m_o, lo_o, hi_o = (_clip(a, LOG_PEARSON_FLOOR) for a in (m_o, lo_o, hi_o))
-                ax.plot(
-                    s_o,
-                    m_o,
-                    color="#2980B9",
-                    lw=2.5,
-                    marker="s",
-                    ms=5,
-                    ls="--",
-                    label="Ensemble pseudolabels (5 DRNN + 5 DCNN)",
-                )
-                if (hi_o - lo_o).any():
-                    ax.fill_between(s_o, lo_o, hi_o, alpha=0.18, color="#2980B9")
+                    m, lo, hi = (_clip(a, LOG_PEARSON_FLOOR) for a in (m, lo, hi))
+                ax.plot(s, m, color=color, lw=2.2, marker=marker, ms=5, ls=ls, label=label)
+                if (hi - lo).any():
+                    ax.fill_between(s, lo, hi, alpha=0.15, color=color)
 
         ax.set_xscale("log")
         ax.set_yscale("log")
