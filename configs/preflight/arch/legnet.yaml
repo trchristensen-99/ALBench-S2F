@@ -1,0 +1,32 @@
+# LegNet (autosome.org, DREAM 2022 1st place) — published-default HP center.
+# Sweep grids in pre-flight task descriptions; this file is the *center*.
+
+name: legnet
+in_channels: 4
+sequence_length: 200          # K562 lentiMPRA length
+task_mode: k562
+multitask: false
+
+# Optimizer / LR / BS center
+lr: 5e-3                      # LegNet peak LR
+batch_size: 1024
+weight_decay: 0.1
+
+# OneCycleLR schedule
+schedule: onecycle
+warmup_pct: 0.1
+
+# Architecture parameters
+block_sizes: [256, 256, 128, 128, 64, 64, 32, 32]
+ks: 5
+dropout: 0.0                  # LegNet default
+resize_factor: 4
+filter_per_group: 2
+se_reduction: 4
+inner_dim_calculation: out
+
+# Sweep grids (used by configs/preflight/sweep/<name>.yaml)
+lr_grid: [1e-3, 3e-3, 5e-3, 1e-2, 3e-2]
+bs_grid: [256, 512, 1024]
+parameterization_scales: [0.5, 1.0, 2.0]   # 0.5x, 1x, 2x channel widths
+dropout_grid: [0.0, 0.1, 0.2]               # 0.5x = 0 (no decrease), default = 0, 2x interpreted as moderate

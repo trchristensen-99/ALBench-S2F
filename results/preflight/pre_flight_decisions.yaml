@@ -1,0 +1,66 @@
+# ALBench-S2F pre-flight decisions
+# IMMUTABLE once locked. Any post-lock change requires explicit re-justification
+# in the sign-off section below.
+#
+# Status fields per locked HP:
+#   value      — the locked value
+#   locked_by  — task ID that locked it (e.g., task=3 LR×BS sweep)
+#   evidence   — pointer to results/preflight/<csv> + W&B sweep ID
+#   notes      — free text
+
+schema_version: 1
+
+# ── Architecture-specific HPs (Tasks 3, 4, 6, 7) ────────────────────────
+learning_rate:
+  legnet:     {value: null, locked_by: null, evidence: null, notes: null}
+  dream_rnn:  {value: null, locked_by: null, evidence: null, notes: null}
+  dream_attn: {value: null, locked_by: null, evidence: null, notes: null}
+
+batch_size:
+  legnet:     {value: null, locked_by: null, evidence: null, notes: null}
+  dream_rnn:  {value: null, locked_by: null, evidence: null, notes: null}
+  dream_attn: {value: null, locked_by: null, evidence: null, notes: null}
+
+epoch_budget:
+  legnet:     {value: null, locked_by: null, evidence: null, notes: null}
+  dream_rnn:  {value: null, locked_by: null, evidence: null, notes: null}
+  dream_attn: {value: null, locked_by: null, evidence: null, notes: null}
+
+architecture_size:
+  legnet:     {value: published_default, locked_by: null, evidence: null, notes: null}
+  dream_rnn:  {value: published_default, locked_by: null, evidence: null, notes: null}
+  dream_attn: {value: published_default, locked_by: null, evidence: null, notes: null}
+
+dropout:
+  legnet:     {value: null, locked_by: null, evidence: null, notes: null}
+  dream_rnn:  {value: null, locked_by: null, evidence: null, notes: null}
+  dream_attn: {value: null, locked_by: null, evidence: null, notes: null}
+
+# ── Augmentations (Task 5) ──────────────────────────────────────────────
+augmentations_locked_on: []           # filled by Task 5
+augmentations_to_ablate_at_d_max: []  # filled by Task 5
+
+# ── Data-budget endpoints (Tasks 2, 9) ──────────────────────────────────
+d_min:
+  provisional: null   # from Task 2 (published-default HPs)
+  confirmed: null     # from Task 9 (locked HPs)
+  locked_by: null
+  evidence: null
+d_max: 600000
+d_grid: []            # filled before main sweep
+d_init_values: [0, 600000]
+
+# ── Acquisition methods (Task 8) ────────────────────────────────────────
+methods_at_d_init_0: []        # model-agnostic methods
+methods_at_d_init_600k: []     # full method list incl. trained-model-based
+acquisition_sanity_flagged: [] # any method that failed Jaccard / runtime checks
+
+# ── Sign-off ────────────────────────────────────────────────────────────
+signoff:
+  date: null                  # YYYY-MM-DD
+  model_commits:              # git SHAs of model implementations
+    legnet: null
+    dream_rnn: null
+    dream_attn: null
+  deviations_from_plan: []    # bulleted notes on anything that diverged
+  reviewer: null

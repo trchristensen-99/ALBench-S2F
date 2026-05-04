@@ -1,0 +1,53 @@
+# Pre-flight base config — common settings for all sweeps.
+# Compose with: configs/preflight/arch/{legnet,dream_rnn,dream_attn}.yaml
+# and optionally configs/preflight/sweep/{d_min,lr_bs,epoch_budget,...}.yaml.
+
+defaults:
+  - _self_
+  - arch: legnet  # default; override at launch
+
+# ── Data & oracle ────────────────────────────────────────────────────────
+task: k562
+oracle: ag                  # AlphaGenome pseudolabels for K562
+sampling_method: random     # default; change for acquisition-method sweeps
+data_dir: data/k562
+oracle_pseudolabel_dir: outputs/oracle_pseudolabels_k562_ag
+embedding_cache_dir: null   # not used for student training; AG cached only
+
+# ── Training endpoints ────────────────────────────────────────────────────
+d_train: 600000             # one of {500, 1000, 2000, 4000, 600000} for pre-flight
+d_max: 600000
+
+# ── Common HPs (architecture-specific overrides via arch/<name>.yaml) ────
+optimizer: adamw
+weight_decay: 0.1           # LegNet default; arch configs override
+schedule: onecycle
+warmup_pct: 0.1
+augmentations: rev_complement   # one of {none, rev_complement, rc_shift, rc_shift_evoaug}
+
+# ── Run hygiene ──────────────────────────────────────────────────────────
+seed: 42
+epochs: 80
+patience: 999               # disable early stopping during pre-flight; we use fixed budgets
+checkpoint_every_best: true
+report_min_val_in_final_pct: 0.1   # post-hoc flag if min val loss occurs in final 10% of epochs
+output_dir: results/preflight/${arch.name}/d${d_train}/seed${seed}
+log_every_n_steps: 50
+save_test_predictions: false
+gpu: 0
+num_workers: 4
+pin_memory: true
+use_amp: true
+use_compile: false
+
+# ── Wandb tagging schema (per pre-flight spec) ───────────────────────────
+wandb:
+  project: trchristensen-99/albench-s2f
+  mode: offline
+  tags:
+    - phase=preflight
+    - arch=${arch.name}
+    - seed=${seed}
+    - d_train=${d_train}
+  sweep_name: null            # filled by sweep launchers
+  notes: null
