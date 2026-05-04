@@ -65,25 +65,40 @@ def _seq_str_to_600bp(seq_str: str) -> np.ndarray:
 
 
 def _predict_strings(predict_step_fn, params, state, seqs_str, batch_size=256):
+    """Run RC-averaged inference. Pre-encodes ALL sequences up front so the
+    per-batch loop only does the JAX forward + tiny slicing — matches the
+    production ``generate_stage2_pseudolabels_single_fold.py`` pattern.
+
+    The earlier per-batch ``[_seq_str_to_600bp(s) for s in chunk]`` Python
+    loop was a ~6 sec CPU bottleneck on top of the GPU's ~6 sec forward,
+    doubling wall time per batch. Pre-encoding moves all string→one-hot
+    conversion outside the loop. For 617k sequences this is ~6 GB of
+    fp32 memory (well within the 200GB-per-node SLURM allocation).
+    """
     if not seqs_str:
         return np.array([], dtype=np.float32)
     n = len(seqs_str)
+    print(f"    Pre-encoding {n:,} sequences to one-hot …", flush=True)
+    t0 = time.time()
+    x_fwd = np.stack([_seq_str_to_600bp(s) for s in seqs_str])
+    x_rev = x_fwd[:, ::-1, ::-1]
+    print(f"    Pre-encoding done in {time.time() - t0:.1f}s.", flush=True)
     preds_fwd, preds_rev = [], []
     for i in range(0, n, batch_size):
         end = min(i + batch_size, n)
-        chunk = seqs_str[i:end]
-        actual = len(chunk)
-        x_fwd = np.stack([_seq_str_to_600bp(s) for s in chunk])
-        x_rev = x_fwd[:, ::-1, ::-1]
+        actual = end - i
         if actual < batch_size:
             pad = batch_size - actual
-            x_fwd = np.concatenate([x_fwd, np.zeros((pad, 600, 4), dtype=np.float32)])
-            x_rev = np.concatenate([x_rev, np.zeros((pad, 600, 4), dtype=np.float32)])
+            b_fwd = np.concatenate([x_fwd[i:end], np.zeros((pad, 600, 4), dtype=np.float32)])
+            b_rev = np.concatenate([x_rev[i:end], np.zeros((pad, 600, 4), dtype=np.float32)])
+        else:
+            b_fwd = x_fwd[i:end]
+            b_rev = x_rev[i:end]
         preds_fwd.append(
-            np.array(predict_step_fn(params, state, jnp.array(x_fwd))).reshape(-1)[:actual]
+            np.array(predict_step_fn(params, state, jnp.array(b_fwd))).reshape(-1)[:actual]
         )
         preds_rev.append(
-            np.array(predict_step_fn(params, state, jnp.array(x_rev))).reshape(-1)[:actual]
+            np.array(predict_step_fn(params, state, jnp.array(b_rev))).reshape(-1)[:actual]
         )
         if (i // batch_size) % 50 == 0:
             done_pct = 100.0 * (i + actual) / n
