@@ -22,6 +22,11 @@ set -euo pipefail
 # at D=600k are ~80–150; small-D shouldn't need more than 80 to reveal trend.
 EPOCHS=80
 
+# Rotate the three archs across the three QOS tiers so we don't hit the
+# per-queue MaxSubmitJobsPerUser limit.
+declare -A ARCH_QOS=( [legnet]=fast [dream_rnn]=default [dream_attn]=slow_nice )
+declare -A ARCH_TIME=( [legnet]=04:00:00 [dream_rnn]=12:00:00 [dream_attn]=24:00:00 )
+
 ARCHS=(legnet dream_rnn dream_attn)
 DS=(500 1000 2000 4000)
 SEEDS=(42 123 7)
@@ -44,8 +49,8 @@ for arch in "${ARCHS[@]}"; do
                 echo "  [skip] ${arch} d=${d} seed=${seed} — result exists"
                 continue
             fi
-            PREFLIGHT_QOS=fast \
-            PREFLIGHT_TIME=04:00:00 \
+            PREFLIGHT_QOS="${ARCH_QOS[$arch]}" \
+            PREFLIGHT_TIME="${ARCH_TIME[$arch]}" \
             PREFLIGHT_EPOCHS=${EPOCHS} \
             PREFLIGHT_OUT=${out} \
             PREFLIGHT_SWEEP=${SWEEP} \
