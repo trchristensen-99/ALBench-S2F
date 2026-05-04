@@ -115,11 +115,8 @@ def run_fraction(
         # YeastDataset returns 6-channel encoding (4 nt + RC + singleton);
         # match that here so the input shapes line up. Pilot spec for
         # yeast = 6-channel, so this is also the spec-compliant choice.
-        model = LegNet(
-            in_channels=6,
-            sequence_length=seq_len,
-            task_mode="yeast",
-        ).to(device)
+        # LegNet is fully-conv with adaptive pooling — no sequence_length arg.
+        model = LegNet(in_channels=6, task_mode="yeast").to(device)
     else:
         raise ValueError(f"Unsupported student: {student!r}")
 
