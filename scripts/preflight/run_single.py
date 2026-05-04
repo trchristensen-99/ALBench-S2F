@@ -164,32 +164,43 @@ def build_model(arch: str, hp: dict[str, Any], device: torch.device) -> torch.nn
 def load_data(d_train: int, seed: int, in_channels: int, seq_len: int = 200):
     """Sample d_train from K562 train pool with AG oracle pseudolabels.
 
-    Val / test pulled from the AG oracle pseudolabel cache so all splits
-    share the same label-generating distribution.
+    Sequences come from ``K562Dataset`` (default hashFrag splits); labels
+    come from the cached AG-oracle pseudolabel npz files, row-aligned to
+    those datasets. Train uses out-of-fold oracle predictions
+    (``oof_oracle``); val/test use the full-ensemble mean
+    (``oracle_mean``).
     """
-    cache = REPO / "outputs" / "oracle_pseudolabels_k562_ag"
-    train = np.load(cache / "train_oracle_labels.npz", allow_pickle=True)
-    val = np.load(cache / "val_oracle_labels.npz", allow_pickle=True)
-    test = np.load(cache / "test_in_dist_oracle_labels.npz", allow_pickle=True)
+    from data.k562 import K562Dataset
 
-    # Train: sample d_train sequences with the run's seed
-    train_seqs = train["sequences"]
-    train_labels = train["labels"].astype(np.float32)
-    n_pool = len(train_seqs)
+    cache = REPO / "outputs" / "oracle_pseudolabels_k562_ag"
+
+    ds_train = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train")
+    ds_val = K562Dataset(data_path=str(REPO / "data" / "k562"), split="val")
+    ds_test = K562Dataset(data_path=str(REPO / "data" / "k562"), split="test")
+
+    train_npz = np.load(cache / "train_oracle_labels.npz", allow_pickle=True)
+    val_npz = np.load(cache / "val_oracle_labels.npz", allow_pickle=True)
+    test_npz = np.load(cache / "test_in_dist_oracle_labels.npz", allow_pickle=True)
+
+    n_pool = len(ds_train.sequences)
+    if len(train_npz["oof_oracle"]) != n_pool:
+        raise RuntimeError(
+            f"npz/dataset misalignment: train labels {len(train_npz['oof_oracle'])} vs "
+            f"sequences {n_pool}"
+        )
     if d_train > n_pool:
         raise ValueError(f"d_train={d_train} > train pool size {n_pool}")
+
     rng = np.random.default_rng(seed)
     idx = rng.choice(n_pool, size=d_train, replace=False)
-    train_seqs = [str(train_seqs[i]) for i in idx]
-    train_labels = train_labels[idx]
+    train_seqs = [str(ds_train.sequences[i]) for i in idx]
+    train_labels = train_npz["oof_oracle"][idx].astype(np.float32)
 
-    # Val / test
-    val_seqs = [str(s) for s in val["sequences"]]
-    val_labels = val["labels"].astype(np.float32)
-    test_seqs = [str(s) for s in test["sequences"]]
-    test_labels = test["labels"].astype(np.float32)
+    val_seqs = [str(s) for s in ds_val.sequences]
+    val_labels = val_npz["oracle_mean"].astype(np.float32)
+    test_seqs = [str(s) for s in ds_test.sequences]
+    test_labels = test_npz["oracle_mean"].astype(np.float32)
 
-    # One-hot encode
     Xtr = one_hot(train_seqs, seq_len, in_channels)
     Xva = one_hot(val_seqs, seq_len, in_channels)
     Xte = one_hot(test_seqs, seq_len, in_channels)
