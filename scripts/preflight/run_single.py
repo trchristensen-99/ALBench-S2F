@@ -201,44 +201,64 @@ def load_data(
         test_seqs = [str(s) for s in ds_test.sequences]
         test_labels = ds_test.labels.astype(np.float32)
     elif label_source == "ag_oracle":
-        # Build sequence → label lookup from the cached AG-oracle npz files.
-        # We use chromosome-split datasets (the same config the cache was
-        # generated against — 316k train rows vs npz 319,742, ~99% overlap),
-        # and look up labels by SEQUENCE so any minor misalignment doesn't
-        # poison row indexing.
-        cache = REPO / "outputs" / "oracle_pseudolabels_k562_ag"
-        seq2label: dict[str, float] = {}
-        npz = np.load(cache / "train_oracle_labels.npz", allow_pickle=True)
-        n = min(len(ds_train.sequences), len(npz["oof_oracle"]))
-        for i in range(n):
-            seq2label[str(ds_train.sequences[i]).upper()] = float(npz["oof_oracle"][i])
-        for split_name, split_ds, npz_name, key in [
-            ("val", ds_val, "val_oracle_labels.npz", "oracle_mean"),
-            ("test", ds_test, "test_in_dist_oracle_labels.npz", "oracle_mean"),
-        ]:
-            split_npz = np.load(cache / npz_name, allow_pickle=True)
-            n = min(len(split_ds.sequences), len(split_npz[key]))
+        # Prefer the new ref+alt+boda2 AG-S2 cache if available (parquet pool +
+        # row-aligned npz labels). Falls back to the legacy
+        # outputs/oracle_pseudolabels_k562_ag cache via sequence-keyed lookup.
+        new_cache = REPO / "outputs" / "oracle_pseudolabels_k562_ag_s2_refalt"
+        if (new_cache / "train_oracle_labels.npz").exists():
+            import pandas as pd
+
+            pool = new_cache / "pool"
+            train_df = pd.read_parquet(pool / "train.parquet")
+            val_df = pd.read_parquet(pool / "val.parquet")
+            test_df = pd.read_parquet(pool / "test.parquet")
+            train_npz = np.load(new_cache / "train_oracle_labels.npz")
+            val_npz = np.load(new_cache / "val_oracle_labels.npz")
+            test_npz = np.load(new_cache / "test_oracle_labels.npz")
+            train_pool_seqs = [str(s) for s in train_df["sequence"]]
+            train_pool_lbl = train_npz["oof_oracle"].astype(np.float32)
+            val_seqs = [str(s) for s in val_df["sequence"]]
+            val_labels = val_npz["oracle_mean"].astype(np.float32)
+            test_seqs = [str(s) for s in test_df["sequence"]]
+            test_labels = test_npz["oracle_mean"].astype(np.float32)
+            print(
+                f"  AG-S2 ref+alt cache:   train {len(train_pool_seqs):,}  "
+                f"val {len(val_seqs):,}  test {len(test_seqs):,}"
+            )
+        else:
+            # Legacy fallback (sequence-keyed lookup against older cache)
+            cache = REPO / "outputs" / "oracle_pseudolabels_k562_ag"
+            seq2label: dict[str, float] = {}
+            npz = np.load(cache / "train_oracle_labels.npz", allow_pickle=True)
+            n = min(len(ds_train.sequences), len(npz["oof_oracle"]))
             for i in range(n):
-                seq2label[str(split_ds.sequences[i]).upper()] = float(split_npz[key][i])
+                seq2label[str(ds_train.sequences[i]).upper()] = float(npz["oof_oracle"][i])
+            for split_name, split_ds, npz_name, key in [
+                ("val", ds_val, "val_oracle_labels.npz", "oracle_mean"),
+                ("test", ds_test, "test_in_dist_oracle_labels.npz", "oracle_mean"),
+            ]:
+                split_npz = np.load(cache / npz_name, allow_pickle=True)
+                n = min(len(split_ds.sequences), len(split_npz[key]))
+                for i in range(n):
+                    seq2label[str(split_ds.sequences[i]).upper()] = float(split_npz[key][i])
 
-        # Filter each split to sequences with cached pseudolabels
-        def _filter(seqs, _real_lbl):
-            keep_seqs, keep_lbl = [], []
-            for s in seqs:
-                u = str(s).upper()
-                if u in seq2label:
-                    keep_seqs.append(str(s))
-                    keep_lbl.append(seq2label[u])
-            return keep_seqs, np.array(keep_lbl, dtype=np.float32)
+            def _filter(seqs, _real_lbl):
+                keep_seqs, keep_lbl = [], []
+                for s in seqs:
+                    u = str(s).upper()
+                    if u in seq2label:
+                        keep_seqs.append(str(s))
+                        keep_lbl.append(seq2label[u])
+                return keep_seqs, np.array(keep_lbl, dtype=np.float32)
 
-        train_pool_seqs, train_pool_lbl = _filter(ds_train.sequences, ds_train.labels)
-        val_seqs, val_labels = _filter(ds_val.sequences, ds_val.labels)
-        test_seqs, test_labels = _filter(ds_test.sequences, ds_test.labels)
-        print(
-            f"  AG-oracle cache match: train {len(train_pool_seqs):,}/{len(ds_train.sequences):,}  "
-            f"val {len(val_seqs):,}/{len(ds_val.sequences):,}  "
-            f"test {len(test_seqs):,}/{len(ds_test.sequences):,}"
-        )
+            train_pool_seqs, train_pool_lbl = _filter(ds_train.sequences, ds_train.labels)
+            val_seqs, val_labels = _filter(ds_val.sequences, ds_val.labels)
+            test_seqs, test_labels = _filter(ds_test.sequences, ds_test.labels)
+            print(
+                f"  legacy AG cache match: train {len(train_pool_seqs):,}/{len(ds_train.sequences):,}  "
+                f"val {len(val_seqs):,}/{len(ds_val.sequences):,}  "
+                f"test {len(test_seqs):,}/{len(ds_test.sequences):,}"
+            )
     else:
         raise ValueError(f"unknown label_source {label_source!r}")
 
