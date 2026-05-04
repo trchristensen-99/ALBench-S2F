@@ -37,14 +37,35 @@ Each task appends a brief summary of what ran, decisions made, anomalies.
   - D=4000: same dream_*; legnet +0.416
 - Output: `results/preflight/d_min_provisional.csv` (36 rows).
 
-## Task 3 — Joint LR × BS sweep (pending)
-## Task 4 — Epoch budget calibration (pending)
-## Task 5 — Augmentation tests (pending)
-## Task 6 — Parameterization sensitivity (pending)
-## Task 7 — Dropout sensitivity (pending)
-## Task 8 — Acquisition method sanity (pending)
-## Task 9 — D_min confirmation (pending)
-## Task 10 — Sign-off / pre_flight_decisions.yaml lock (pending)
+## Task 3 — Joint LR × BS sweep (pending; cache regen finishing)
+## Task 4 — Epoch budget calibration (script + analyzer ready, gated on Task 3)
+## Task 5 — Augmentation tests (script ready, gated on Task 4 lock)
+## Task 6 — Parameterization sensitivity (script ready, gated on Task 4 lock)
+## Task 7 — Dropout sensitivity (script ready, gated on Task 4 lock)
+
+## Task 8 — Acquisition method sanity — DONE (2026-05-04)
+- 18/18 runs (9 methods × 2 seeds) on cpu_fill, ~30 sec each.
+- **All 9 methods PASS**: Jaccard distance vs random in [0.9954, 0.9977]
+  — well above the 0.3 sanity threshold.
+- Methods covered:
+  - Reservoir-based: prm_5, prm_20, motif_grammar, gc_matched, dinuc_shuffle
+  - Model-based proxies (k-mer): uncertainty_ensemble, uncertainty_mc_dropout,
+    diversity_kmeans, diversity_max_distance
+- `acquisition_sanity_flagged` in YAML: empty list.
+- Output: `results/preflight/task8_summary.csv` + `figures/task8_jaccard.png`.
+
+## Task 9 — D_min confirmation (script + analyzer ready, gated on Tasks 3+4+5+7)
+## Task 10 — Sign-off / pre_flight_decisions.yaml lock (validator + lock helper ready)
+
+## Auto-chain orchestration
+- `task3_finalize_and_chain.sh`: polls Task 3 D_max results, locks LR/BS,
+  fires Task 3 verify + Task 4. Submitted as job `2037659` with
+  `afterany:pf_task3_launcher` dependency — fires once cache regen +
+  Task 3 launcher complete.
+- `task4_finalize_and_chain.sh`: polls Task 4 results, locks epoch
+  budget, fires Tasks 5/6/7 in parallel. Submitted automatically by
+  task3_finalize.
+- After Tasks 5+7 land, manually fire `task9_d_min_confirm.sh`.
 
 ## Aux — Expanded eval-set panel (parallel work, no HP dependence)
 - Created `scripts/preflight/generate_eval_sets.py` — sequence-only
