@@ -29,6 +29,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from data.yeast import YeastDataset
 from models.dream_rnn import create_dream_rnn
+from models.legnet import LegNet
 from models.loss_utils import YeastKLLoss
 from models.training import train_model_optimized
 from models.training_base import create_optimizer_and_scheduler
@@ -99,15 +100,28 @@ def run_fraction(
         pin_memory=bool(CONFIG["pin_memory"]),
     )
 
-    model = create_dream_rnn(
-        input_channels=6,
-        sequence_length=seq_len,
-        task_mode="yeast",
-        hidden_dim=int(CONFIG["hidden_dim"]),
-        cnn_filters=int(CONFIG["cnn_filters"]),
-        dropout_cnn=float(CONFIG["dropout_cnn"]),
-        dropout_lstm=float(CONFIG["dropout_lstm"]),
-    ).to(device)
+    student = str(CONFIG.get("student", "dream_rnn")).lower()
+    if student == "dream_rnn":
+        model = create_dream_rnn(
+            input_channels=6,
+            sequence_length=seq_len,
+            task_mode="yeast",
+            hidden_dim=int(CONFIG["hidden_dim"]),
+            cnn_filters=int(CONFIG["cnn_filters"]),
+            dropout_cnn=float(CONFIG["dropout_cnn"]),
+            dropout_lstm=float(CONFIG["dropout_lstm"]),
+        ).to(device)
+    elif student == "legnet":
+        # YeastDataset returns 6-channel encoding (4 nt + RC + singleton);
+        # match that here so the input shapes line up. Pilot spec for
+        # yeast = 6-channel, so this is also the spec-compliant choice.
+        model = LegNet(
+            in_channels=6,
+            sequence_length=seq_len,
+            task_mode="yeast",
+        ).to(device)
+    else:
+        raise ValueError(f"Unsupported student: {student!r}")
 
     criterion = YeastKLLoss(reduction="batchmean")
     optimizer, scheduler = create_optimizer_and_scheduler(
