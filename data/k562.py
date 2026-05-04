@@ -48,6 +48,14 @@ class K562Dataset(SequenceDataset):
     SEQUENCE_LENGTH = 200  # Target sequence length (as per paper)
     NUM_CHANNELS = 5  # ACGT + reverse complement flag
 
+    # Canonical MPRA adapter constants from alphagenome_FT_MPRA/oracle.py.
+    # When include_adapters=True, sequences are stored as
+    # LEFT_ADAPTER + payload + RIGHT_ADAPTER. Shift augmentation uses
+    # max_shift = min(len(LEFT_ADAPTER), len(RIGHT_ADAPTER)) so payload
+    # bases never cross the input window boundary.
+    LEFT_ADAPTER = "AGGACCGGATCAACT"  # 15bp
+    RIGHT_ADAPTER = "CATTGCGTGAACCGA"  # 15bp
+
     def __init__(
         self,
         data_path: str,
@@ -62,6 +70,7 @@ class K562Dataset(SequenceDataset):
         label_column: str = "K562_log2FC",
         include_alt_alleles: bool = False,
         duplication_cutoff: Optional[float] = None,
+        include_adapters: bool = False,
     ):
         """
         Initialize K562 dataset.
@@ -81,6 +90,14 @@ class K562Dataset(SequenceDataset):
             duplication_cutoff: If set, duplicate training sequences whose label >= cutoff.
                 Follows the boda2 approach to balance the dataset toward high-activity CREs.
                 Only applied when split=="train". Default 0.5 is typical.
+            include_adapters: If True, prepend ``LEFT_ADAPTER`` and append
+                ``RIGHT_ADAPTER`` to every payload, producing sequences of
+                length ``SEQUENCE_LENGTH + len(LEFT_ADAPTER) + len(RIGHT_ADAPTER)``
+                (= 230bp with the canonical 15bp adapters). Required when
+                training with shift augmentation: shift moves a sliding
+                window over the adapter-padded sequence so payload bases
+                never cross the boundary, and adapter context is exposed
+                on whichever side the window slides toward.
         """
         self.subset_size = subset_size
         self.use_hashfrag = use_hashfrag
@@ -90,6 +107,7 @@ class K562Dataset(SequenceDataset):
         self.label_column = label_column
         self.include_alt_alleles = include_alt_alleles
         self.duplication_cutoff = duplication_cutoff
+        self.include_adapters = include_adapters
         super().__init__(data_path, split, transform, target_transform)
 
     def load_data(self) -> None:
@@ -144,6 +162,15 @@ class K562Dataset(SequenceDataset):
         # Standardize sequences to 200bp
         self.sequences = self._standardize_to_200bp(self.sequences)
 
+        # Optionally prepend / append the canonical MPRA adapters so shift
+        # augmentation has real context to slide into. This must happen
+        # AFTER standardization so we always concatenate against a 200bp
+        # payload and the resulting length is deterministic.
+        if self.include_adapters:
+            self.sequences = np.array(
+                [self.LEFT_ADAPTER + str(s) + self.RIGHT_ADAPTER for s in self.sequences]
+            )
+
         # Duplicate high-activity sequences (boda2-style balancing)
         if self.duplication_cutoff is not None and self.split == "train":
             high_mask = self.labels >= self.duplication_cutoff
@@ -168,7 +195,12 @@ class K562Dataset(SequenceDataset):
                 f"Downsampled to {self.subset_size:,} sequences (random sampling, no replacement)"
             )
 
-        self.sequence_length = self.SEQUENCE_LENGTH
+        if self.include_adapters:
+            self.sequence_length = (
+                self.SEQUENCE_LENGTH + len(self.LEFT_ADAPTER) + len(self.RIGHT_ADAPTER)
+            )
+        else:
+            self.sequence_length = self.SEQUENCE_LENGTH
 
         logger.info(f"Loaded {len(self.sequences)} sequences for {self.split} split")
         if len(self.labels) > 0:

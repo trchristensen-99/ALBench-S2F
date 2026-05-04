@@ -89,10 +89,45 @@ def set_seed(seed: int) -> None:
 # ── One-hot encoding (4 nt + optional RC orientation channel) ────────────
 _NUC_TO_IDX = {"A": 0, "C": 1, "G": 2, "T": 3}
 
+# Canonical MPRA adapter constants from alphagenome_FT_MPRA/oracle.py.
+# Used by shift augmentation to provide real flanking context that the
+# sliding-window crop can reveal — without these, the existing torch.roll
+# would wrap payload tail to head, which is biologically meaningless.
+LEFT_ADAPTER = "AGGACCGGATCAACT"  # 15 bp
+RIGHT_ADAPTER = "CATTGCGTGAACCGA"  # 15 bp
 
-def one_hot(sequences: list[str], seq_len: int, in_channels: int) -> np.ndarray:
+
+def one_hot(
+    sequences: list[str],
+    seq_len: int,
+    in_channels: int,
+    pad_with_adapters: bool = False,
+) -> np.ndarray:
+    """One-hot encode sequences.
+
+    Args:
+        sequences: input payload sequences (any length; will be center-
+            padded with N or center-truncated to ``seq_len``).
+        seq_len: target output length per sample. When
+            ``pad_with_adapters=True`` this is the *payload* length only;
+            the actual output tensor is ``seq_len + len(LEFT_ADAPTER) +
+            len(RIGHT_ADAPTER)`` wide.
+        in_channels: 4 for ACGT-only, 5 for ACGT + RC flag (channel 4 = 0
+            for forward strand).
+        pad_with_adapters: if True, prepend ``LEFT_ADAPTER`` and append
+            ``RIGHT_ADAPTER`` one-hots to each payload one-hot. The output
+            shape is ``(N, in_channels, seq_len + L + R)``.
+    """
     n = len(sequences)
-    out = np.zeros((n, in_channels, seq_len), dtype=np.float32)
+    L = len(LEFT_ADAPTER) if pad_with_adapters else 0
+    R = len(RIGHT_ADAPTER) if pad_with_adapters else 0
+    full_len = seq_len + L + R
+    out = np.zeros((n, in_channels, full_len), dtype=np.float32)
+    if pad_with_adapters:
+        for j, nuc in enumerate(LEFT_ADAPTER):
+            out[:, _NUC_TO_IDX[nuc], j] = 1.0
+        for j, nuc in enumerate(RIGHT_ADAPTER):
+            out[:, _NUC_TO_IDX[nuc], L + seq_len + j] = 1.0
     for i, seq in enumerate(sequences):
         seq = seq.upper()
         if len(seq) < seq_len:
@@ -104,8 +139,7 @@ def one_hot(sequences: list[str], seq_len: int, in_channels: int) -> np.ndarray:
         for j, nuc in enumerate(seq[:seq_len]):
             idx = _NUC_TO_IDX.get(nuc)
             if idx is not None:
-                out[i, idx, j] = 1.0
-    # Channel 4 (when in_channels >= 5): RC orientation flag, fwd=0
+                out[i, idx, L + j] = 1.0
     return out
 
 
@@ -116,6 +150,42 @@ def _rc_flip(x: torch.Tensor) -> torch.Tensor:
     if out.shape[1] >= 5:
         out[:, 4] = 1.0 - out[:, 4]  # toggle RC indicator if present
     return out
+
+
+def _shift_window_crop(
+    x: torch.Tensor, payload_len: int, max_shift: int, training: bool
+) -> torch.Tensor:
+    """Sliding-window crop of an adapter-padded one-hot batch.
+
+    Args:
+        x: (B, C, L) where ``L = payload_len + 2 * max_shift``. Layout is
+            ``[left_adapter (max_shift), payload (payload_len),
+            right_adapter (max_shift)]``.
+        payload_len: number of bp the model expects to see at its input.
+        max_shift: half-width of the shift window. Must satisfy
+            ``max_shift <= min(len(LEFT_ADAPTER), len(RIGHT_ADAPTER))``;
+            this is enforced by the caller in ``train()``.
+        training: if False, return the deterministic center crop (the
+            canonical payload window, same as if no aug were applied).
+            If True, 50% of samples get a random offset in
+            ``[0, 2 * max_shift]`` and 50% stay at center.
+
+    Returns: (B, C, payload_len) — what the model actually consumes.
+    """
+    B, C, L = x.shape
+    expected = payload_len + 2 * max_shift
+    if L != expected:
+        raise ValueError(
+            f"_shift_window_crop expected L={expected} (payload_len + 2*max_shift); got {L}"
+        )
+    if not training or max_shift == 0:
+        return x[:, :, max_shift : max_shift + payload_len]
+    rand_offsets = torch.randint(0, 2 * max_shift + 1, (B,), device=x.device)
+    use_aug = torch.rand(B, device=x.device) > 0.5
+    offsets = torch.where(use_aug, rand_offsets, torch.full_like(rand_offsets, max_shift))
+    idx = offsets[:, None] + torch.arange(payload_len, device=x.device)[None, :]
+    idx = idx[:, None, :].expand(B, C, payload_len)
+    return x.gather(2, idx)
 
 
 # ── Build models ─────────────────────────────────────────────────────────
@@ -167,6 +237,7 @@ def load_data(
     in_channels: int,
     seq_len: int = 200,
     label_source: str = "ag_oracle",
+    pad_with_adapters: bool = False,
 ):
     """Sample d_train from K562 train pool, with chosen label source.
 
@@ -270,20 +341,33 @@ def load_data(
     train_seqs = [train_pool_seqs[i] for i in idx]
     train_labels = train_pool_lbl[idx]
 
-    Xtr = one_hot(train_seqs, seq_len, in_channels)
-    Xva = one_hot(val_seqs, seq_len, in_channels)
-    Xte = one_hot(test_seqs, seq_len, in_channels)
+    Xtr = one_hot(train_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
+    Xva = one_hot(val_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
+    Xte = one_hot(test_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
     return (Xtr, train_labels), (Xva, val_labels), (Xte, test_labels)
 
 
 # ── Training loop with best-val checkpointing ────────────────────────────
-def _eval_loss(model, loader, device, augment_rc: bool) -> tuple[float, np.ndarray]:
+def _eval_loss(
+    model,
+    loader,
+    device,
+    augment_rc: bool,
+    payload_len: int = 200,
+    max_shift: int = 0,
+) -> tuple[float, np.ndarray]:
+    """Evaluate. If max_shift>0, inputs are adapter-padded — apply the
+    deterministic center crop so the model sees the canonical payload
+    window. RC is applied AFTER the crop, so the RC view aligns to the
+    same canonical window."""
     model.eval()
     preds, targets = [], []
     with torch.no_grad():
         for xb, yb in loader:
             xb = xb.to(device, non_blocking=True)
             yb = yb.to(device, non_blocking=True)
+            if max_shift > 0:
+                xb = _shift_window_crop(xb, payload_len, max_shift, training=False)
             yhat = model(xb).reshape(-1)
             if augment_rc:
                 yhat_rc = model(_rc_flip(xb)).reshape(-1)
@@ -299,13 +383,22 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
     set_seed(args.seed)
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
+    # Augmentation policy. RC is a per-sample channel flip; shift is a
+    # sliding-window crop over an adapter-padded one-hot tensor with
+    # max_shift = min(len(LEFT_ADAPTER), len(RIGHT_ADAPTER)).
+    augment_rc = args.augmentations in ("rev_complement", "rc_shift", "rc_shift_evoaug")
+    use_shift = args.augmentations in ("rc_shift", "rc_shift_evoaug")
+    payload_len = hp.get("sequence_length", 200)
+    max_shift = min(len(LEFT_ADAPTER), len(RIGHT_ADAPTER)) if use_shift else 0
+
     # Data
     (Xtr, ytr), (Xva, yva), (Xte, yte) = load_data(
         args.d_train,
         args.seed,
         in_channels=hp["in_channels"],
-        seq_len=hp.get("sequence_length", 200),
+        seq_len=payload_len,
         label_source=args.label_source,
+        pad_with_adapters=use_shift,
     )
     Xtr_t = torch.from_numpy(Xtr).float()
     ytr_t = torch.from_numpy(ytr).float()
@@ -361,7 +454,6 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
         anneal_strategy="cos",
     )
 
-    augment_rc = args.augmentations in ("rev_complement", "rc_shift", "rc_shift_evoaug")
     criterion = torch.nn.MSELoss()
     scaler = torch.amp.GradScaler("cuda", enabled=args.use_amp)
 
@@ -382,6 +474,11 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
             xb = xb.to(device, non_blocking=True)
             yb = yb.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
+            if use_shift:
+                # Sliding-window crop on the adapter-padded input. Returns
+                # the canonical payload_len window with random sub-bp
+                # offset on 50% of samples (±max_shift bp).
+                xb = _shift_window_crop(xb, payload_len, max_shift, training=True)
             if augment_rc and torch.rand(1).item() < 0.5:
                 xb = _rc_flip(xb)
             with torch.amp.autocast("cuda", enabled=args.use_amp):
@@ -395,8 +492,22 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
             n_batches += 1
         train_loss = epoch_loss / max(1, n_batches)
 
-        val_loss, _ = _eval_loss(model, val_loader, device, augment_rc=augment_rc)
-        test_loss, _ = _eval_loss(model, test_loader, device, augment_rc=augment_rc)
+        val_loss, _ = _eval_loss(
+            model,
+            val_loader,
+            device,
+            augment_rc=augment_rc,
+            payload_len=payload_len,
+            max_shift=max_shift,
+        )
+        test_loss, _ = _eval_loss(
+            model,
+            test_loader,
+            device,
+            augment_rc=augment_rc,
+            payload_len=payload_len,
+            max_shift=max_shift,
+        )
 
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)

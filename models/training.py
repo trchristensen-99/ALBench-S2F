@@ -15,11 +15,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import wandb
 from torch.amp import GradScaler, autocast
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+import wandb
 
 from .loss_utils import YeastKLLoss
 from .training_base import compute_metrics, evaluate
@@ -34,19 +35,50 @@ def _reverse_complement_batch(sequences: torch.Tensor) -> torch.Tensor:
     return x_rc_swapped
 
 
-def _shift_augment_batch(sequences: torch.Tensor, max_shift: int) -> torch.Tensor:
-    """Apply random shift augmentation to 50% of batch samples."""
-    mask = torch.rand(sequences.shape[0], device=sequences.device) > 0.5
-    if mask.any():
-        shifts = torch.randint(
-            -max_shift, max_shift + 1, (int(mask.sum()),), device=sequences.device
+def _shift_augment_batch(
+    sequences: torch.Tensor, max_shift: int, payload_len: Optional[int] = None
+) -> torch.Tensor:
+    """Random shift augmentation via sliding-window crop.
+
+    Sequences MUST be adapter-padded before calling this function — i.e.
+    the input width is ``payload_len + 2 * max_shift`` and is structured
+    as ``[left_adapter (max_shift), payload (payload_len),
+    right_adapter (max_shift)]``. The output is ``payload_len`` wide so
+    the model sees a constant input length, and 50% of samples get a
+    random offset in ``[-max_shift, +max_shift]``; payload bases never
+    cross the boundary and adapter context slides into view.
+
+    The previous implementation used ``torch.roll`` on bare payloads,
+    which wrapped 5'-end bases to the 3'-end (biologically meaningless).
+    See ``alphagenome_FT_MPRA/oracle.py`` for the canonical adapter
+    constants this is designed to work with.
+
+    Args:
+        sequences: (B, C, L) one-hot batch with ``L = payload_len + 2 *
+            max_shift``.
+        max_shift: half-width of the shift window. Caller must enforce
+            ``max_shift <= min(left_adapter_len, right_adapter_len)``.
+        payload_len: width of the cropped output. If None, inferred as
+            ``L - 2 * max_shift``.
+    """
+    if max_shift <= 0:
+        return sequences
+    B, C, L = sequences.shape
+    if payload_len is None:
+        payload_len = L - 2 * max_shift
+    expected = payload_len + 2 * max_shift
+    if L != expected:
+        raise ValueError(
+            "_shift_augment_batch expects adapter-padded input of width "
+            f"payload_len + 2*max_shift = {expected}; got L={L}. "
+            "Set include_adapters=True on the dataset before enabling shift aug."
         )
-        shifted = sequences.clone()
-        for idx, s in zip(torch.where(mask)[0], shifts):
-            if s != 0:
-                shifted[idx] = torch.roll(sequences[idx], int(s.item()), dims=-1)
-        return shifted
-    return sequences
+    rand_offsets = torch.randint(0, 2 * max_shift + 1, (B,), device=sequences.device)
+    use_aug = torch.rand(B, device=sequences.device) > 0.5
+    offsets = torch.where(use_aug, rand_offsets, torch.full_like(rand_offsets, max_shift))
+    idx = offsets[:, None] + torch.arange(payload_len, device=sequences.device)[None, :]
+    idx = idx[:, None, :].expand(B, C, payload_len)
+    return sequences.gather(2, idx)
 
 
 def train_epoch_optimized(
