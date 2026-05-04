@@ -296,13 +296,17 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
 
     from torch.utils.data import DataLoader, TensorDataset
 
+    # drop_last=False so very small D (e.g. D=500 with bs=1024) still
+    # trains on the available partial batch — the D_min sweep needs to
+    # see *some* gradient update at every D, otherwise the val-R² check
+    # is trivially failed.
     train_loader = DataLoader(
         TensorDataset(Xtr_t, ytr_t),
         batch_size=hp["batch_size"],
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=True,
-        drop_last=True,
+        drop_last=False,
     )
     val_loader = DataLoader(
         TensorDataset(Xva_t, yva_t),
