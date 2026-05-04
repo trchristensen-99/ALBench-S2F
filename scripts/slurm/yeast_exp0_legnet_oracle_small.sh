@@ -4,10 +4,10 @@
 #SBATCH --output=logs/%x-%A-%a.out
 #SBATCH --error=logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
-#SBATCH --qos=fast
+#SBATCH --qos=default
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
-#SBATCH --time=04:00:00
+#SBATCH --time=12:00:00
 #SBATCH --mem=64G
 #SBATCH --array=0-11
 
