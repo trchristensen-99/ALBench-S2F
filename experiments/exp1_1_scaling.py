@@ -1782,7 +1782,17 @@ def _train_ag_s2_student(
         return rc
 
     def _shift_onehot_batch(x, max_shift):
-        """Random circular shift of one-hot batch (B, L, 4), 50% probability."""
+        """Random circular shift of one-hot batch (B, L, 4), 50% probability.
+
+        Safe here because ``_encode_one`` already pads each 200bp payload
+        with 200bp of MPRA upstream + 200bp downstream flanking context
+        (total L=600), so ``jnp.roll`` at ``max_shift=15`` wraps real
+        flanking content rather than payload bases. For bare-payload
+        training pipelines (e.g. the pre-flight students in
+        ``scripts/preflight/run_single.py``), this would be wrong — see
+        ``models/training.py::_shift_augment_batch`` for the
+        adapter-aware sliding-window crop variant.
+        """
         if max_shift <= 0:
             return x
         shift = np.random.randint(-max_shift, max_shift + 1)

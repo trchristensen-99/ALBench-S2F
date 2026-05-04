@@ -40,6 +40,27 @@ dropout:
 augmentations_locked_on: []           # filled by Task 5
 augmentations_to_ablate_at_d_max: []  # filled by Task 5
 
+# Augmentation implementation contract (locked separately from the policy
+# decision in Task 5; this is a correctness invariant, not an HP).
+augmentation_contract:
+  shift:
+    requires_adapter_padding: true
+    left_adapter:  AGGACCGGATCAACT  # 15 bp; from alphagenome_FT_MPRA/oracle.py
+    right_adapter: CATTGCGTGAACCGA  # 15 bp
+    max_shift: 15                   # = min(len(left_adapter), len(right_adapter))
+    method: sliding_window_crop      # NOT torch.roll on bare payloads
+    notes: |
+      Shift augmentation operates on adapter-padded inputs (230bp =
+      15 + 200 + 15) and emits 200bp via a sliding-window crop with
+      per-sample random offset in [0, 30] (50% prob) or center (50%).
+      The previous torch.roll implementation on bare 200bp payloads
+      wrapped 5'-end bases to the 3'-end, which is biologically
+      meaningless; that path was fixed and pinned by
+      ``tests/test_shift_aug_adapters.py`` on 2026-05-04.
+  reverse_complement:
+    method: per_sample_channel_flip
+    notes: 50% probability per sample; toggles channel 4 (RC indicator).
+
 # ── Data-budget endpoints (Tasks 2, 9) ──────────────────────────────────
 d_min:
   provisional: null   # from Task 2 (published-default HPs)
