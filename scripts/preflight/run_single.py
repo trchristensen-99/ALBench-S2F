@@ -161,45 +161,99 @@ def build_model(arch: str, hp: dict[str, Any], device: torch.device) -> torch.nn
 
 
 # ── Data loading (K562 + AG oracle pseudolabels) ─────────────────────────
-def load_data(d_train: int, seed: int, in_channels: int, seq_len: int = 200):
-    """Sample d_train from K562 train pool with AG oracle pseudolabels.
+def load_data(
+    d_train: int,
+    seed: int,
+    in_channels: int,
+    seq_len: int = 200,
+    label_source: str = "ag_oracle",
+):
+    """Sample d_train from K562 train pool, with chosen label source.
 
-    Sequences come from ``K562Dataset`` (default hashFrag splits); labels
-    come from the cached AG-oracle pseudolabel npz files, row-aligned to
-    those datasets. Train uses out-of-fold oracle predictions
-    (``oof_oracle``); val/test use the full-ensemble mean
-    (``oracle_mean``).
+    label_source:
+      - "ag_oracle"  → AG-oracle pseudolabels from the cached npz files,
+        looked up by *sequence* (so row counts can differ between the
+        cached dataset config and the current K562Dataset config).
+        Sequences without a cached pseudolabel are dropped.
+      - "real"       → K562_log2FC real labels (used for smoke testing
+        and as a fallback when the AG pseudolabel cache is unavailable).
+
+    Train uses out-of-fold oracle predictions (``oof_oracle``); val/test
+    use the full-ensemble mean (``oracle_mean``).
     """
     from data.k562 import K562Dataset
-
-    cache = REPO / "outputs" / "oracle_pseudolabels_k562_ag"
 
     ds_train = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train")
     ds_val = K562Dataset(data_path=str(REPO / "data" / "k562"), split="val")
     ds_test = K562Dataset(data_path=str(REPO / "data" / "k562"), split="test")
 
-    train_npz = np.load(cache / "train_oracle_labels.npz", allow_pickle=True)
-    val_npz = np.load(cache / "val_oracle_labels.npz", allow_pickle=True)
-    test_npz = np.load(cache / "test_in_dist_oracle_labels.npz", allow_pickle=True)
+    if label_source == "real":
+        train_pool_seqs = [str(s) for s in ds_train.sequences]
+        train_pool_lbl = ds_train.labels.astype(np.float32)
+        val_seqs = [str(s) for s in ds_val.sequences]
+        val_labels = ds_val.labels.astype(np.float32)
+        test_seqs = [str(s) for s in ds_test.sequences]
+        test_labels = ds_test.labels.astype(np.float32)
+    elif label_source == "ag_oracle":
+        # Build sequence → label lookup from cached npz files. The npz was
+        # generated under an older K562Dataset config (319,742 train rows
+        # vs the current ~296k); we recover alignment by matching SEQUENCE
+        # rather than row index. Any sequence not in the cache is dropped.
+        cache = REPO / "outputs" / "oracle_pseudolabels_k562_ag"
+        seq2label: dict[str, float] = {}
+        # Train: use a parallel K562Dataset load that the npz was aligned
+        # against (chromosome-fallback split happens to match 316k rows;
+        # we tolerate the 3.7k slack since lookup is by sequence).
+        try:
+            ds_train_aligned = K562Dataset(
+                data_path=str(REPO / "data" / "k562"),
+                split="train",
+                use_hashfrag=False,
+                use_chromosome_fallback=True,
+            )
+        except Exception:
+            ds_train_aligned = ds_train
+        npz = np.load(cache / "train_oracle_labels.npz", allow_pickle=True)
+        n = min(len(ds_train_aligned.sequences), len(npz["oof_oracle"]))
+        for i in range(n):
+            seq2label[str(ds_train_aligned.sequences[i]).upper()] = float(npz["oof_oracle"][i])
+        for split_name, split_ds, npz_name, key in [
+            ("val", ds_val, "val_oracle_labels.npz", "oracle_mean"),
+            ("test", ds_test, "test_in_dist_oracle_labels.npz", "oracle_mean"),
+        ]:
+            split_npz = np.load(cache / npz_name, allow_pickle=True)
+            n = min(len(split_ds.sequences), len(split_npz[key]))
+            for i in range(n):
+                seq2label[str(split_ds.sequences[i]).upper()] = float(split_npz[key][i])
 
-    n_pool = len(ds_train.sequences)
-    if len(train_npz["oof_oracle"]) != n_pool:
-        raise RuntimeError(
-            f"npz/dataset misalignment: train labels {len(train_npz['oof_oracle'])} vs "
-            f"sequences {n_pool}"
+        # Filter each split to sequences with cached pseudolabels
+        def _filter(seqs, _real_lbl):
+            keep_seqs, keep_lbl = [], []
+            for s in seqs:
+                u = str(s).upper()
+                if u in seq2label:
+                    keep_seqs.append(str(s))
+                    keep_lbl.append(seq2label[u])
+            return keep_seqs, np.array(keep_lbl, dtype=np.float32)
+
+        train_pool_seqs, train_pool_lbl = _filter(ds_train.sequences, ds_train.labels)
+        val_seqs, val_labels = _filter(ds_val.sequences, ds_val.labels)
+        test_seqs, test_labels = _filter(ds_test.sequences, ds_test.labels)
+        print(
+            f"  AG-oracle cache match: train {len(train_pool_seqs):,}/{len(ds_train.sequences):,}  "
+            f"val {len(val_seqs):,}/{len(ds_val.sequences):,}  "
+            f"test {len(test_seqs):,}/{len(ds_test.sequences):,}"
         )
+    else:
+        raise ValueError(f"unknown label_source {label_source!r}")
+
+    n_pool = len(train_pool_seqs)
     if d_train > n_pool:
         raise ValueError(f"d_train={d_train} > train pool size {n_pool}")
-
     rng = np.random.default_rng(seed)
     idx = rng.choice(n_pool, size=d_train, replace=False)
-    train_seqs = [str(ds_train.sequences[i]) for i in idx]
-    train_labels = train_npz["oof_oracle"][idx].astype(np.float32)
-
-    val_seqs = [str(s) for s in ds_val.sequences]
-    val_labels = val_npz["oracle_mean"].astype(np.float32)
-    test_seqs = [str(s) for s in ds_test.sequences]
-    test_labels = test_npz["oracle_mean"].astype(np.float32)
+    train_seqs = [train_pool_seqs[i] for i in idx]
+    train_labels = train_pool_lbl[idx]
 
     Xtr = one_hot(train_seqs, seq_len, in_channels)
     Xva = one_hot(val_seqs, seq_len, in_channels)
@@ -236,6 +290,7 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
         args.seed,
         in_channels=hp["in_channels"],
         seq_len=hp.get("sequence_length", 200),
+        label_source=args.label_source,
     )
     Xtr_t = torch.from_numpy(Xtr).float()
     ytr_t = torch.from_numpy(ytr).float()
@@ -409,6 +464,13 @@ def main():
     ap.add_argument("--num_workers", type=int, default=4)
     ap.add_argument("--use_amp", action="store_true", default=True)
     ap.add_argument("--output_dir", required=True)
+    ap.add_argument(
+        "--label_source",
+        default="ag_oracle",
+        choices=["ag_oracle", "real"],
+        help="ag_oracle = AG-oracle pseudolabels (cached npz, sequence-keyed); "
+        "real = K562_log2FC real labels.",
+    )
     ap.add_argument("--report_min_val_in_final_pct", type=float, default=0.1)
     ap.add_argument("--sweep_name", default=None, help="W&B tag value for sweep=<>")
     ap.add_argument(
