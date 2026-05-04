@@ -30,3 +30,17 @@ Each task appends a brief summary of what ran, decisions made, anomalies.
 ## Task 8 — Acquisition method sanity (pending)
 ## Task 9 — D_min confirmation (pending)
 ## Task 10 — Sign-off / pre_flight_decisions.yaml lock (pending)
+
+## Aux — Expanded eval-set panel (parallel work, no HP dependence)
+- Created `scripts/preflight/generate_eval_sets.py` — sequence-only
+  generator for the expanded distribution-shift panel (no retraining
+  required; sequences will be scored against main-sweep checkpoints in
+  week 6/22).
+- Output: `outputs/eval_sets_expanded/` with 13 parquets:
+  `prm_{1,5,10,20}pct`, `dinuc_shuffle`, `evoaug_{light,medium,heavy}`,
+  `gc_q{1..4}_of_4`, `random_uniform`.
+- Local sanity-checked on chr7,13 fallback (seed=42): all PRM rates hit
+  target within 1e-4, dinuc shuffle preserves dinuc counts, GC quartiles
+  monotonic.
+- HPC submission: `bash scripts/preflight/generate_eval_sets.sh` once
+  the new ref+alt pool builder writes `pool/test.parquet`.
