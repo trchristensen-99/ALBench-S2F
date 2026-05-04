@@ -57,15 +57,32 @@ Each task appends a brief summary of what ran, decisions made, anomalies.
 ## Task 9 — D_min confirmation (script + analyzer ready, gated on Tasks 3+4+5+7)
 ## Task 10 — Sign-off / pre_flight_decisions.yaml lock (validator + lock helper ready)
 
-## Auto-chain orchestration
-- `task3_finalize_and_chain.sh`: polls Task 3 D_max results, locks LR/BS,
-  fires Task 3 verify + Task 4. Submitted as job `2037659` with
-  `afterany:pf_task3_launcher` dependency — fires once cache regen +
-  Task 3 launcher complete.
-- `task4_finalize_and_chain.sh`: polls Task 4 results, locks epoch
-  budget, fires Tasks 5/6/7 in parallel. Submitted automatically by
-  task3_finalize.
-- After Tasks 5+7 land, manually fire `task9_d_min_confirm.sh`.
+## Auto-chain orchestration (complete through Task 9)
+- `task3_finalize_and_chain.sh`: polls Task 3 D_max results, runs
+  `analyze_hp_flatness` + `lock_task3_decisions`, fires Task 3 verify +
+  Task 4 + the Task 4 watcher. Submitted as `2037659` with
+  `afterany:pf_task3_launcher`.
+- `task4_finalize_and_chain.sh`: polls Task 4, runs
+  `analyze_task4_epoch_budget` (locks epoch budget), fires Tasks 5/6/7
+  in parallel + the Task 5/6/7 watcher.
+- `task5_6_7_finalize_and_chain.sh`: polls Tasks 5+6+7, runs the three
+  analyzers (`analyze_task5_augmentations`, `analyze_task6_parameterization`,
+  `analyze_task7_dropout`) + diagnostic plots, fires Task 9 + the
+  Task 9 watcher.
+- `task9_finalize_and_chain.sh`: polls Task 9, runs
+  `analyze_task9_d_min_confirm` (writes `d_min.confirmed`), runs
+  `task10_finalize.py --dry-run` for the validation report.
+- **Final manual step**: `uv run --no-sync python
+  scripts/preflight/task10_finalize.py --reviewer NAME` to sign off and
+  mark the YAML immutable.
+
+## Post-pre-flight pre-staged
+- `launch_main_sweep.sh`: builds the Exp 1.1 main scaling-law sweep
+  (3 archs × N_methods × |d_grid| × N_seeds at D_init={0, 600000})
+  using locked HPs from the YAML. Refuses without sign-off. Use
+  `--execute` to submit (default is plan-only).
+- `score_eval_sets.py`: scores a single `best.pt` against the 13-parquet
+  expanded eval-set panel. Use after main-sweep ckpts land.
 
 ## Aux — Expanded eval-set panel (parallel work, no HP dependence)
 - Created `scripts/preflight/generate_eval_sets.py` — sequence-only
