@@ -302,6 +302,31 @@ class LegNet(nn.Module):
         h = F.adaptive_avg_pool1d(h, 1).squeeze(2)
         return h
 
+    # --- Checkpoint helpers (matches SequenceModel.save/load_checkpoint) ---
+    def save_checkpoint(self, path: str, **kwargs) -> None:
+        from pathlib import Path
+
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "model_state_dict": self.state_dict(),
+                "model_info": {
+                    "model_type": "LegNet",
+                    "block_sizes": self.block_sizes,
+                    "task_mode": self.task_mode,
+                    "multitask": self.multitask,
+                    "dropout": self.dropout,
+                },
+                **kwargs,
+            },
+            path,
+        )
+
+    def load_checkpoint(self, path: str, strict: bool = True) -> dict:
+        ckpt = torch.load(path, map_location="cpu")
+        self.load_state_dict(ckpt["model_state_dict"], strict=strict)
+        return ckpt
+
 
 # ---------------------------------------------------------------------------
 # One-hot encoding utility
