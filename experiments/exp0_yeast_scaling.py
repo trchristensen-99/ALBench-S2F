@@ -88,7 +88,8 @@ def run_fraction(
             dropout_lstm=float(CONFIG["dropout_lstm"]),
         ).to(device)
     elif student == "legnet":
-        model = LegNet(in_channels=6, sequence_length=seq_len, task_mode="yeast").to(device)
+        # LegNet is fully-conv with adaptive pooling — no sequence_length arg.
+        model = LegNet(in_channels=6, task_mode="yeast").to(device)
     else:
         raise ValueError(f"Unsupported student: {student!r}")
 
