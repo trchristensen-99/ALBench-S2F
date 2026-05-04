@@ -70,16 +70,13 @@ def _predict_strings(
     state,
     seqs_str,
     batch_size=256,
-    rc_average: bool = False,
+    rc_average: bool = True,
 ):
-    """Pre-encode all seqs, then run inference. RC averaging is OFF by
-    default for this preflight cache regeneration (~2× speedup vs the
-    fwd+rev double-pass): AG-S2 was trained with RC augmentation so the
-    head's single-strand prediction is approximately RC-equivariant, and
-    the downstream students apply their own RC augmentation. Pseudolabel
-    quality penalty is small.
-
-    Set ``rc_average=True`` to fall back to fwd+rev averaging if needed.
+    """Pre-encode all seqs, then run inference. RC averaging is ON by
+    default — matches the production pseudolabel pipeline's quality
+    target. AG-S2 was trained with RC augmentation; the cost of the
+    fwd+rev double-pass is acceptable when the per-batch GPU rate is
+    quick (~0.7 sec/batch on H100 with XLA autotuning enabled).
     """
     if not seqs_str:
         return np.array([], dtype=np.float32)
