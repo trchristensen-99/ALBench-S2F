@@ -41,5 +41,23 @@ bash scripts/preflight/task5_augmentations.sh
 bash scripts/preflight/task6_parameterization.sh
 bash scripts/preflight/task7_dropout.sh
 
-echo "=== Task 4 chain complete. Tasks 5/6/7 submitted. ==="
-echo "After Tasks 5+7 land, submit task9_d_min_confirm.sh (locked HPs)."
+echo "=== Submitting Tasks 5/6/7 finalize watcher (auto-fires Task 9 + analyzers) ==="
+T567_FIN=$(/cm/shared/apps/slurm/current/bin/sbatch --parsable <<'EOF'
+#!/bin/bash
+#SBATCH --job-name=pf_task567_finalize
+#SBATCH --output=/grid/wsbs/home_norepl/christen/ALBench-S2F/logs/%x-%j.out
+#SBATCH --error=/grid/wsbs/home_norepl/christen/ALBench-S2F/logs/%x-%j.err
+#SBATCH --partition=cpuq
+#SBATCH --qos=cpuq_base
+#SBATCH --cpus-per-task=2
+#SBATCH --time=24:00:00
+#SBATCH --mem=8G
+set -euo pipefail
+cd /grid/wsbs/home_norepl/christen/ALBench-S2F
+bash scripts/preflight/task5_6_7_finalize_and_chain.sh
+EOF
+)
+echo "  task567_finalize submitted as $T567_FIN"
+
+echo "=== Pre-flight chain set up through Task 9 + Task 10 dry-run validation. ==="
+echo "Manual final step: uv run --no-sync python scripts/preflight/task10_finalize.py --reviewer NAME"
