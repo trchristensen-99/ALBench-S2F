@@ -170,22 +170,28 @@ def load_data(
 ):
     """Sample d_train from K562 train pool, with chosen label source.
 
+    Splits are **chromosome-based** (not hashFrag) per pre-flight spec:
+    train = autosomes minus held-out, val = chr19/21/X (per existing
+    project convention), test = held-out chromosomes. This matches what
+    existing AG-oracle pseudolabel npz files were generated against
+    (~316k train rows on chromosome split vs ~296k on hashFrag), so the
+    sequence-keyed lookup recovers nearly full alignment.
+
     label_source:
       - "ag_oracle"  → AG-oracle pseudolabels from the cached npz files,
-        looked up by *sequence* (so row counts can differ between the
-        cached dataset config and the current K562Dataset config).
-        Sequences without a cached pseudolabel are dropped.
-      - "real"       → K562_log2FC real labels (used for smoke testing
-        and as a fallback when the AG pseudolabel cache is unavailable).
+        looked up by *sequence*. Sequences without a cached pseudolabel
+        are dropped.
+      - "real"       → K562_log2FC real labels.
 
     Train uses out-of-fold oracle predictions (``oof_oracle``); val/test
     use the full-ensemble mean (``oracle_mean``).
     """
     from data.k562 import K562Dataset
 
-    ds_train = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train")
-    ds_val = K562Dataset(data_path=str(REPO / "data" / "k562"), split="val")
-    ds_test = K562Dataset(data_path=str(REPO / "data" / "k562"), split="test")
+    _kw = dict(use_hashfrag=False, use_chromosome_fallback=True)
+    ds_train = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train", **_kw)
+    ds_val = K562Dataset(data_path=str(REPO / "data" / "k562"), split="val", **_kw)
+    ds_test = K562Dataset(data_path=str(REPO / "data" / "k562"), split="test", **_kw)
 
     if label_source == "real":
         train_pool_seqs = [str(s) for s in ds_train.sequences]
@@ -195,28 +201,17 @@ def load_data(
         test_seqs = [str(s) for s in ds_test.sequences]
         test_labels = ds_test.labels.astype(np.float32)
     elif label_source == "ag_oracle":
-        # Build sequence → label lookup from cached npz files. The npz was
-        # generated under an older K562Dataset config (319,742 train rows
-        # vs the current ~296k); we recover alignment by matching SEQUENCE
-        # rather than row index. Any sequence not in the cache is dropped.
+        # Build sequence → label lookup from the cached AG-oracle npz files.
+        # We use chromosome-split datasets (the same config the cache was
+        # generated against — 316k train rows vs npz 319,742, ~99% overlap),
+        # and look up labels by SEQUENCE so any minor misalignment doesn't
+        # poison row indexing.
         cache = REPO / "outputs" / "oracle_pseudolabels_k562_ag"
         seq2label: dict[str, float] = {}
-        # Train: use a parallel K562Dataset load that the npz was aligned
-        # against (chromosome-fallback split happens to match 316k rows;
-        # we tolerate the 3.7k slack since lookup is by sequence).
-        try:
-            ds_train_aligned = K562Dataset(
-                data_path=str(REPO / "data" / "k562"),
-                split="train",
-                use_hashfrag=False,
-                use_chromosome_fallback=True,
-            )
-        except Exception:
-            ds_train_aligned = ds_train
         npz = np.load(cache / "train_oracle_labels.npz", allow_pickle=True)
-        n = min(len(ds_train_aligned.sequences), len(npz["oof_oracle"]))
+        n = min(len(ds_train.sequences), len(npz["oof_oracle"]))
         for i in range(n):
-            seq2label[str(ds_train_aligned.sequences[i]).upper()] = float(npz["oof_oracle"][i])
+            seq2label[str(ds_train.sequences[i]).upper()] = float(npz["oof_oracle"][i])
         for split_name, split_ds, npz_name, key in [
             ("val", ds_val, "val_oracle_labels.npz", "oracle_mean"),
             ("test", ds_test, "test_in_dist_oracle_labels.npz", "oracle_mean"),
