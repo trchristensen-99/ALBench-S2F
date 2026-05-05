@@ -37,8 +37,35 @@ Each task appends a brief summary of what ran, decisions made, anomalies.
   - D=4000: same dream_*; legnet +0.416
 - Output: `results/preflight/d_min_provisional.csv` (36 rows).
 
-## Task 3 — Joint LR × BS sweep (pending; cache regen finishing)
-## Task 4 — Epoch budget calibration (script + analyzer ready, gated on Task 3)
+## Task 3 — Joint LR × BS sweep — DONE (45/45, 2026-05-04→05)
+
+Locked optima from `lock_task3_decisions.py`:
+
+| Arch | LR | BS | val_MSE | flatness 1st-ring | interpretation |
+|---|---|---|---|---|---|
+| LegNet | 1e-3 | 512 | 0.3126 | 0.060 | moderate ✓ |
+| DREAM-RNN | 3e-3 | 256 | 0.1768 | 0.162 | sharp ⚠ |
+| DREAM-ATTN | 3e-4 | 128 | 0.2431 | **4.500** | very sharp ⚠⚠ |
+
+**Comparison to published priors:**
+- LegNet: locked LR is 5× lower than published 5e-3; BS 2× lower than 1024. DREAM challenge tuned at ~6M yeast seqs; we're at 600k K562 with smoother oracle pseudolabels.
+- DREAM-RNN: locked LR is 3× higher than published 1e-3; BS 4× lower than 1024.
+- DREAM-ATTN: locked LR matches published 3e-4; BS 4× lower than 512.
+- All three arch families found smaller batch sizes than published — consistent with smoother labels + 10× less data.
+
+**HP flatness flags:**
+- DREAM-RNN borderline-sharp (1st-ring 0.16 just over 0.15 threshold).
+- **DREAM-ATTN very sharp (1st-ring 4.5)** — the optimum's immediate LR-grid neighbors have val_MSE ~4× higher. Attention is brittle to HP choice on this dataset. Per the pre-reg's "what to do if something fails": this is a Task 3 D_min verification flag (in flight on `fast` queue, 16 runs).
+
+## Task 3 verify @ D_min — RUNNING (16 runs on fast queue)
+- Tests whether (LR*, BS*) at D=600k still wins at D=500. Required by pre-reg.
+- DREAM-ATTN with 1st-ring 4.5 is the highest-risk arch for scale-coupling.
+- `analyze_task3_verify.py` will report PASS/FAIL per arch (within 1 grid step) and exit code 2 if scale-coupling detected.
+
+## Task 4 — Epoch budget calibration — RUNNING (3 long runs on slow_nice)
+- One run per arch, 240 epochs at D=600k. Each ~12-14h.
+- analyze_task4_epoch_budget applies plateau detection + 1.5× rule.
+
 ## Task 5 — Augmentation tests (script ready, gated on Task 4 lock)
 ## Task 6 — Parameterization sensitivity (script ready, gated on Task 4 lock)
 ## Task 7 — Dropout sensitivity (script ready, gated on Task 4 lock)
