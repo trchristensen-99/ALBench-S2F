@@ -11,7 +11,7 @@ set -euo pipefail
 REPO=/grid/wsbs/home_norepl/christen/ALBench-S2F
 cd "$REPO"
 
-EXPECTED=3   # 1 run per arch at 240 epochs
+EXPECTED=6   # 3 archs × 2 seeds (42, 123) at 240 epochs
 TASK4_RESULTS="$REPO/results/preflight/task4_epoch_budget"
 POLL_SLEEP=600     # 10 min between checks (each run is multi-hour)
 MAX_HOURS=72

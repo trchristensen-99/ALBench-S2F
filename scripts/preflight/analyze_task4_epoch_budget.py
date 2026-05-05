@@ -28,6 +28,7 @@ import json
 import math
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 REPO = Path(__file__).resolve().parents[2]
@@ -78,38 +79,60 @@ def main():
         if not arch_dir.is_dir():
             continue
         arch = arch_dir.name
-        # Pick the seed42 run as canonical (matches the submission script)
-        run_dir = arch_dir / "seed42"
-        history_path = run_dir / "history.json"
-        result_path = run_dir / "result.json"
-        if not history_path.exists() or not result_path.exists():
-            print(f"  [{arch}] missing history/result — skip")
+        # Average plateau detection across all available seeds. If only
+        # one seed completed, fall back to it. Skipping if none available.
+        seed_dirs = sorted([d for d in arch_dir.iterdir() if d.is_dir() and d.name.startswith("seed")])
+        plateaus = []
+        n_epochs_per_seed = []
+        for run_dir in seed_dirs:
+            hp = run_dir / "history.json"
+            rp = run_dir / "result.json"
+            if not hp.exists() or not rp.exists():
+                continue
+            history = json.loads(hp.read_text())
+            val_loss = history.get("val_loss") or []
+            if not val_loss:
+                continue
+            p = _find_plateau_epoch(val_loss)
+            plateaus.append(p)
+            n_epochs_per_seed.append(len(val_loss))
+        if not plateaus:
+            print(f"  [{arch}] no usable runs — skip")
             continue
-        history = json.loads(history_path.read_text())
-        result = json.loads(result_path.read_text())
-        val_loss = history.get("val_loss") or []
-        if not val_loss:
-            print(f"  [{arch}] empty val_loss — skip")
-            continue
-        plateau = _find_plateau_epoch(val_loss)
-        if plateau < 0:
-            locked_budget = result.get("epochs", 240)
-            note = "plateau NOT reached within 240 epochs — locking at full budget; reconsider main sweep cost"
+        # Use median plateau across seeds (robust to noisy single-seed estimates)
+        valid_plateaus = [p for p in plateaus if p >= 0]
+        if not valid_plateaus:
+            # No seed reached plateau within the 240-epoch budget
+            locked_budget = max(n_epochs_per_seed)
+            median_plateau = -1
+            note = (
+                f"plateau NOT reached in any of {len(plateaus)} seeds "
+                f"within 240 epochs — locking at full budget; reconsider main sweep cost"
+            )
         else:
-            locked_budget = max(1, math.ceil(BUDGET_MULTIPLIER * (plateau + 1)))
-            note = f"plateau at epoch {plateau + 1}/{result.get('epochs', 240)}; locked at 1.5×"
+            median_plateau = int(np.median(valid_plateaus))
+            locked_budget = max(1, math.ceil(BUDGET_MULTIPLIER * (median_plateau + 1)))
+            note = (
+                f"median plateau across {len(valid_plateaus)} seed(s) at epoch "
+                f"{median_plateau + 1}; locked at 1.5×"
+            )
         print(
-            f"  [{arch}] plateau_epoch={plateau + 1 if plateau >= 0 else 'NONE'}  locked={locked_budget}  ({note})"
+            f"  [{arch}] n_seeds={len(plateaus)}  per-seed plateaus={[p + 1 if p >= 0 else 'NONE' for p in plateaus]}  "
+            f"locked={locked_budget}  ({note})"
         )
+        # Take seed42 as evidence path (canonical) if present
+        result_path = arch_dir / "seed42" / "result.json"
+        if not result_path.exists():
+            result_path = sorted(arch_dir.rglob("result.json"))[0]
         rows.append(
             {
                 "arch": arch,
-                "n_epochs_trained": len(val_loss),
-                "plateau_epoch": plateau + 1 if plateau >= 0 else None,
+                "n_seeds": len(plateaus),
+                "n_epochs_trained": max(n_epochs_per_seed),
+                "median_plateau_epoch": median_plateau + 1 if median_plateau >= 0 else None,
+                "per_seed_plateaus": [p + 1 if p >= 0 else None for p in plateaus],
                 "locked_budget": locked_budget,
                 "note": note,
-                "min_val_loss": min(val_loss),
-                "min_val_epoch": int(val_loss.index(min(val_loss))) + 1,
             }
         )
         locks[arch] = {
@@ -125,11 +148,11 @@ def main():
             fh,
             fieldnames=[
                 "arch",
+                "n_seeds",
                 "n_epochs_trained",
-                "plateau_epoch",
+                "median_plateau_epoch",
+                "per_seed_plateaus",
                 "locked_budget",
-                "min_val_loss",
-                "min_val_epoch",
                 "note",
             ],
         )
