@@ -96,13 +96,12 @@ for arch in legnet dream_rnn dream_attn; do
     for size_label in ${ARCH_SIZE_KEYS[$arch]}; do
         size_overrides=${SIZES[$size_label]}
         for d in $D_MIN $D_MAX; do
-            if [ "$d" = "$D_MIN" ]; then
-                t=${ARCH_TIME_DMIN[$arch]}
-                d_qos=fast
-            else
-                t=${ARCH_TIME_DMAX[$arch]}
-                d_qos=$qos
-            fi
+            # D_min runs are tiny (~30 min); D_max runs are full-length.
+            # Both go to the arch's primary qos so we don't contend with
+            # whatever else is using fast queue. slow_nice has plenty of
+            # slots and a 24h time limit handles either D.
+            t=${ARCH_TIME_DMAX[$arch]}
+            d_qos=$qos
             for seed in "${SEEDS[@]}"; do
                 out="results/preflight/task6_parameterization/${arch}/size_${size_label}/d${d}/seed${seed}"
                 if [ -f "${out}/result.json" ]; then continue; fi
