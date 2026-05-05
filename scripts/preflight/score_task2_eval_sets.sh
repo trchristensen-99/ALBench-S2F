@@ -25,12 +25,12 @@ cat > /tmp/_pf_task2_score.sh <<EOF
 #SBATCH --output=$REPO/logs/%x-%A-%a.out
 #SBATCH --error=$REPO/logs/%x-%A-%a.err
 #SBATCH --partition=gpuq
-#SBATCH --qos=fast
+#SBATCH --qos=slow_nice
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
-#SBATCH --time=00:20:00
+#SBATCH --time=00:30:00
 #SBATCH --mem=32G
-#SBATCH --array=0-$((N - 1))%4
+#SBATCH --array=0-$((N - 1))%2
 set -euo pipefail
 set +u; source /etc/profile.d/modules.sh; set -u
 module load EB5
