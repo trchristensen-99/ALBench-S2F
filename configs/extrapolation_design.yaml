@@ -1,0 +1,75 @@
+# Scaling-law extrapolation extension design.
+#
+# After the main sweep at d_grid up to 600k completes, this defines the
+# extension protocol for testing whether γ_k extrapolates beyond the
+# real-genomic-pool cap. All extension D points use reservoir-generated
+# synthetic sequences (since random sampling from the genomic pool caps
+# at ~617k under our chromosome split + boda2 filters).
+
+# Training points used to FIT γ_k (per non-random method).
+# 8 points spanning 3.4 decades — enough fitting headroom to predict
+# a power law accurately.
+fitting_d_grid:
+  - 500
+  - 2000
+  - 7000
+  - 25000
+  - 90000
+  - 300000
+  - 600000
+  - 1200000
+
+# Held-out points for EXTRAPOLATION TEST. We train models at these D
+# values too (so MSE is measurable) but DON'T use them when fitting γ_k.
+# The extrapolation error = |fitted_MSE - measured_MSE| at these points.
+extrapolation_test_d:
+  - 2400000
+  - 4800000
+
+# Architecture coverage for the extension.
+# - All 3 archs at fitting points (matches main sweep design)
+# - LegNet only at extrapolation_test_d (cheapest arch + cleanest flatness)
+# - 1 seed at extrapolation points (verification, not estimation)
+fitting_archs: [legnet, dream_rnn, dream_attn]
+fitting_seeds: [42, 123, 7]
+extrapolation_archs: [legnet]
+extrapolation_seeds: [42]
+
+# Methods covered. Random is excluded from the extension since real
+# genomic pool caps at ~617k. The non-random methods extrapolate via
+# reservoir generation.
+extension_methods:
+  - prm_5pct
+  - prm_20pct
+  - dinuc_shuffle
+  - gc_matched
+  - motif_grammar
+  - evoaug_heavy
+  - evoaug_structural
+
+# Compute estimate (for budget planning):
+#   - oracle inference on 4.8M synthetic seqs × 7 methods × 10 folds
+#     ≈ 6h × 10 × 7 = 420 GPU-hours; runs in parallel array, ~24h wall on 20 GPUs
+#   - LegNet training:
+#     - fitting points: 7 methods × 1 new D (1.2M) × 3 archs × 3 seeds = 63 cells
+#       at ~8h each = ~500 GPU-hours; ~25h wall on 20 GPUs
+#     - extrap points: 7 methods × 2 D × 1 arch × 1 seed = 14 cells
+#       at avg ~20h each = ~280 GPU-hours; ~14h wall on 20 GPUs
+#   - Total: ~1200 GPU-hours, ~3 days wall
+
+# Acceptance criterion for the extrapolation test:
+#   For each (method, arch=legnet) cell:
+#     err_2.4M = |fitted_log_MSE(2.4M) - measured_log_MSE(2.4M)|
+#     err_4.8M = |fitted_log_MSE(4.8M) - measured_log_MSE(4.8M)|
+#   Pass if both errors < 0.10 (10% in log-MSE space).
+#   Fail-with-warning if 0.10 < err < 0.25 — power law still useful but flag.
+#   Fail if err > 0.25 — power-law form may be wrong; need higher-order fit.
+acceptance_thresholds:
+  good: 0.10
+  warn: 0.25
+
+# IMPORTANT: at D > 600k, all sequences are reservoir-generated. The data
+# distribution shifts vs the genomic pool. We're testing whether the γ_k
+# *fitting form* extrapolates, not whether absolute MSE values do.
+# γ_random ≡ 1 by definition; for extension, γ_random isn't measurable
+# beyond 600k (no real pool that big), so random is excluded.
