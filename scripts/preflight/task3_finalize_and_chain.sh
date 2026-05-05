@@ -27,9 +27,12 @@ MAX_HOURS=48
 MAX_TRIES=$((MAX_HOURS * 3600 / POLL_SLEEP))
 
 echo "=== Task 3 finalize: polling for $EXPECTED_MIN+ result.json files ==="
+mkdir -p "$TASK3_RESULTS"
 n=0
 for ((try=0; try<MAX_TRIES; try++)); do
-    n=$(find "$TASK3_RESULTS" -name 'result.json' 2>/dev/null | wc -l)
+    # find can exit 1 if dir is missing or empty; tolerate that explicitly
+    # because directory is created lazily by the first Task 3 result write.
+    n=$(find "$TASK3_RESULTS" -name 'result.json' 2>/dev/null | wc -l || echo 0)
     echo "  poll $try: $n result.json files"
     if [ "$n" -ge "$EXPECTED_MIN" ]; then
         echo "  threshold met; proceeding"

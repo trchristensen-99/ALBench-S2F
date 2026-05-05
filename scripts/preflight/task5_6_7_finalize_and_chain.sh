@@ -27,10 +27,13 @@ MAX_HOURS=72
 MAX_TRIES=$((MAX_HOURS * 3600 / POLL_SLEEP))
 
 echo "=== Tasks 5/6/7 finalize: polling for $((EXPECTED_5 + EXPECTED_6 + EXPECTED_7)) result.json files ==="
+mkdir -p "$REPO/results/preflight/task5_augmentations"
+mkdir -p "$REPO/results/preflight/task6_parameterization"
+mkdir -p "$REPO/results/preflight/task7_dropout"
 for ((try=0; try<MAX_TRIES; try++)); do
-    n5=$(find "$REPO/results/preflight/task5_augmentations" -name 'result.json' 2>/dev/null | wc -l)
-    n6=$(find "$REPO/results/preflight/task6_parameterization" -name 'result.json' 2>/dev/null | wc -l)
-    n7=$(find "$REPO/results/preflight/task7_dropout" -name 'result.json' 2>/dev/null | wc -l)
+    n5=$(find "$REPO/results/preflight/task5_augmentations" -name 'result.json' 2>/dev/null | wc -l || echo 0)
+    n6=$(find "$REPO/results/preflight/task6_parameterization" -name 'result.json' 2>/dev/null | wc -l || echo 0)
+    n7=$(find "$REPO/results/preflight/task7_dropout" -name 'result.json' 2>/dev/null | wc -l || echo 0)
     echo "  poll $try: task5=$n5/$EXPECTED_5  task6=$n6/$EXPECTED_6  task7=$n7/$EXPECTED_7"
     if [ "$n5" -ge "$EXPECTED_5" ] && [ "$n6" -ge "$EXPECTED_6" ] && [ "$n7" -ge "$EXPECTED_7" ]; then
         echo "  thresholds met; proceeding"
