@@ -35,7 +35,11 @@ if [ "$n" -lt "$EXPECTED" ]; then
 fi
 
 echo "=== Running analyze_task4_epoch_budget ==="
-uv run --no-sync python scripts/preflight/analyze_task4_epoch_budget.py
+# Use --force because the chain may have been pre-launched with
+# epoch_budget set provisionally to the published default (80) so that
+# Tasks 5/6/7 could run in parallel with Task 4. Task 4's plateau
+# detection is the authoritative lock and overwrites the placeholder.
+uv run --no-sync python scripts/preflight/analyze_task4_epoch_budget.py --force
 
 echo "=== Submitting Tasks 5 / 6 / 7 in parallel ==="
 bash scripts/preflight/task5_augmentations.sh

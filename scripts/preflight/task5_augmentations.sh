@@ -46,10 +46,14 @@ for arch in legnet dream_rnn dream_attn; do
     LR=$(get_locked $arch learning_rate)
     BS=$(get_locked $arch batch_size)
     EPOCHS=$(get_locked $arch epoch_budget)
-    [ "$LR" = "NULL" ] || [ "$BS" = "NULL" ] || [ "$EPOCHS" = "NULL" ] && {
-        echo "  ERROR: locked HPs missing for $arch (lr=$LR bs=$BS epochs=$EPOCHS); skipping"
+    if [ "$LR" = "NULL" ] || [ "$BS" = "NULL" ]; then
+        echo "  ERROR: locked LR/BS missing for $arch (lr=$LR bs=$BS); skipping"
         continue
-    }
+    fi
+    if [ "$EPOCHS" = "NULL" ]; then
+        EPOCHS=80
+        echo "  [$arch] epoch_budget not yet locked — using published default 80 (provisional)"
+    fi
     for aug in "${AUGS[@]}"; do
         for seed in "${SEEDS[@]}"; do
             out="results/preflight/task5_augmentations/${arch}/${aug}/seed${seed}"
