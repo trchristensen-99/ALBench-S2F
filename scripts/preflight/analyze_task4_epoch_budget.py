@@ -153,6 +153,35 @@ def main():
     for arch, lock_dict in locks.items():
         decisions["epoch_budget"][arch] = lock_dict
 
+    # ── Budget sanity check ───────────────────────────────────────────────
+    # If one arch's budget is more than 2× another, that's a strong signal
+    # something's off — either a HP issue (the locked LR/BS for the slow
+    # arch is wrong), a data-quality issue at that arch, or a genuine
+    # architecture-level convergence gap that needs a per-arch budget that
+    # blows out the main-sweep compute cost. Flag for human review.
+    BUDGET_RATIO_THRESHOLD = 2.0
+    budget_values = {arch: lock["value"] for arch, lock in locks.items()}
+    if len(budget_values) >= 2:
+        max_b = max(budget_values.values())
+        min_b = min(budget_values.values())
+        ratio = max_b / max(1, min_b)
+        if ratio > BUDGET_RATIO_THRESHOLD:
+            arch_max = next(a for a, v in budget_values.items() if v == max_b)
+            arch_min = next(a for a, v in budget_values.items() if v == min_b)
+            warning = (
+                f"BUDGET SANITY FLAG: max/min budget ratio = {ratio:.2f} "
+                f"({arch_max}={max_b} vs {arch_min}={min_b}). "
+                f"Threshold is {BUDGET_RATIO_THRESHOLD}×. "
+                "Consider whether this reflects a genuine arch difference or a HP/data issue. "
+                "Main sweep compute will scale linearly with the slow arch's budget."
+            )
+            print(f"\n⚠ {warning}")
+            decisions.setdefault("budget_sanity_warnings", []).append(warning)
+        else:
+            print(
+                f"\n✓ Budget sanity: max/min ratio = {ratio:.2f}× (under {BUDGET_RATIO_THRESHOLD}× threshold)"
+            )
+
     DECISIONS.write_text(yaml.safe_dump(decisions, sort_keys=False))
     print(f"Wrote locks to {DECISIONS}")
 
