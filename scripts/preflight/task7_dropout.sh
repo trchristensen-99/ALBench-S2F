@@ -51,6 +51,10 @@ for arch in legnet dream_rnn dream_attn; do
     BS=$(get_locked $arch batch_size)
     EPOCHS=$(get_locked $arch epoch_budget)
     [ "$LR" = "NULL" ] && continue
+    if [ "$EPOCHS" = "NULL" ]; then
+        EPOCHS=80
+        echo "  [$arch] epoch_budget not yet locked — using published default 80 (provisional)"
+    fi
     DROPOUT_KEY=${ARCH_DROPOUT_KEY[$arch]}
     for d_val in ${ARCH_DROPOUT_VALUES[$arch]}; do
         for seed in "${SEEDS[@]}"; do
