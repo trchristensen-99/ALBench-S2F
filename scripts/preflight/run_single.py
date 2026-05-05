@@ -648,14 +648,21 @@ def main():
         ]
         if args.sweep_name:
             tags.append(f"sweep={args.sweep_name}")
-        wandb.init(
-            entity=os.environ.get("WANDB_ENTITY", "trchristensen-99"),
+        # Entity defaults to the user's primary account (set via wandb
+        # login → ~/.netrc); we don't hardcode it because the user's
+        # primary entity is a team name (trchristensen99-cold-spring-
+        # harbor-laboratory), not the username. Override with WANDB_ENTITY
+        # env var if needed.
+        wandb_kwargs = dict(
             project=os.environ.get("WANDB_PROJECT", "albench-s2f"),
             name=f"preflight_{args.arch}_d{args.d_train}_s{args.seed}",
             tags=tags,
             config={**vars(args), **hp},
             mode=os.environ.get("WANDB_MODE", "online"),
         )
+        if os.environ.get("WANDB_ENTITY"):
+            wandb_kwargs["entity"] = os.environ["WANDB_ENTITY"]
+        wandb.init(**wandb_kwargs)
         run_id = wandb.run.id if wandb.run else None
     except Exception:
         run_id = None
