@@ -231,16 +231,57 @@ def main():
     # 2. Dinuc-shuffled real test seqs
     test_pool = OUT_DIR / "pool" / "test.parquet"
     if test_pool.exists():
-        test_df = pd.read_parquet(test_pool).head(500)
-        real_seqs = test_df["sequence"].astype(str).tolist()
-        panels["test_real"] = {
-            "seqs": real_seqs,
-            "labels": test_df["K562_log2FC"].to_numpy(np.float32),
-        }
+        # Use full test pool (not head=500) so we have enough seqs per
+        # activity-decile bin for reliable residual statistics.
+        test_df_full = pd.read_parquet(test_pool)
+        real_seqs_full = test_df_full["sequence"].astype(str).tolist()
+        real_labels_full = test_df_full["K562_log2FC"].to_numpy(np.float32)
+        panels["test_real"] = {"seqs": real_seqs_full, "labels": real_labels_full}
+        # Dinuc shuffle on a sub-sample (slow) — 500 is plenty
         panels["test_dinuc_shuffled"] = {
-            "seqs": _gen_dinuc_shuffle(real_seqs, seed=42),
-            "labels": None,  # shuffled seqs have no real K562 label
+            "seqs": _gen_dinuc_shuffle(real_seqs_full[:500], seed=42),
+            "labels": None,
         }
+        # Cross-cell-type sanity: same test seqs, but score against HepG2
+        # and SKNSH labels if present in pool. Oracle should NOT be perfect
+        # on these (it's K562-specific) — partial correlation is healthy,
+        # near-perfect correlation would indicate the oracle is picking up
+        # generic active-sequence features rather than K562-specific.
+        for cell in ("HepG2", "SKNSH"):
+            col = f"{cell}_log2FC"
+            if col in test_df_full.columns:
+                panels[f"test_real_{cell}_label"] = {
+                    "seqs": real_seqs_full,
+                    "labels": test_df_full[col].to_numpy(np.float32),
+                }
+        # SNV pairs for variant-effect calibration
+        snv_pool = OUT_DIR / "pool" / "snv_pairs.parquet"
+        if snv_pool.exists():
+            snv_df = pd.read_parquet(snv_pool).head(2000)
+            ref_col = "ref_sequence" if "ref_sequence" in snv_df.columns else "sequence"
+            alt_col = "alt_sequence" if "alt_sequence" in snv_df.columns else None
+            if alt_col is None:
+                # Pool layout may differ; skip if can't find pair columns
+                pass
+            else:
+                snv_ref_label = (
+                    snv_df["ref_log2FC"].to_numpy(np.float32)
+                    if "ref_log2FC" in snv_df.columns
+                    else None
+                )
+                snv_alt_label = (
+                    snv_df["alt_log2FC"].to_numpy(np.float32)
+                    if "alt_log2FC" in snv_df.columns
+                    else None
+                )
+                panels["snv_ref"] = {
+                    "seqs": snv_df[ref_col].astype(str).tolist(),
+                    "labels": snv_ref_label,
+                }
+                panels["snv_alt"] = {
+                    "seqs": snv_df[alt_col].astype(str).tolist(),
+                    "labels": snv_alt_label,
+                }
 
     # 3. Eval-set panels
     eval_dir = REPO / "outputs" / "eval_sets_expanded"
@@ -273,9 +314,69 @@ def main():
 
     # ── Aggregate to ensemble means + write summary ────────────────────────
     summary = {}
+    fold_stacks = {}  # keep for cross-panel analyses below
     for name, p in panels.items():
-        ens = np.mean(np.stack(fold_preds[name], axis=0), axis=0)
-        summary[name] = _stats(ens, p["labels"])
+        stack = np.stack(fold_preds[name], axis=0)
+        fold_stacks[name] = stack
+        ens = stack.mean(axis=0)
+        s = _stats(ens, p["labels"])
+        # Per-seq ensemble std (oracle uncertainty)
+        per_seq_std = stack.std(axis=0)
+        s["ensemble_std_mean"] = float(per_seq_std.mean())
+        s["ensemble_std_p90"] = float(np.quantile(per_seq_std, 0.9))
+        summary[name] = s
+
+    # ── Activity-stratified residuals (test_real panel) ───────────────────
+    # Bins by ground-truth activity decile; reports mean residual + count
+    # per bin. Exposes whether overprediction is concentrated at the
+    # high-activity tail (the user's specific concern).
+    if "test_real" in panels and panels["test_real"]["labels"] is not None:
+        ens = fold_stacks["test_real"].mean(axis=0)
+        labels = panels["test_real"]["labels"]
+        deciles = np.quantile(labels, np.linspace(0, 1, 11))
+        bin_stats = []
+        for i in range(10):
+            lo, hi = deciles[i], deciles[i + 1]
+            mask = (labels >= lo) & (labels <= hi if i == 9 else labels < hi)
+            if mask.sum() == 0:
+                continue
+            resid = ens[mask] - labels[mask]
+            bin_stats.append(
+                {
+                    "decile": i + 1,
+                    "label_lo": float(lo),
+                    "label_hi": float(hi),
+                    "n": int(mask.sum()),
+                    "mean_residual": float(resid.mean()),
+                    "abs_mean_residual": float(np.abs(resid).mean()),
+                    "rmse": float(np.sqrt((resid**2).mean())),
+                }
+            )
+        summary["__activity_stratified__"] = bin_stats
+
+    # ── SNV delta calibration ─────────────────────────────────────────────
+    # Predicted alt - ref vs measured alt - ref. Pearson R + mean error.
+    # Diagonal = perfect; mean residual signals systematic bias.
+    if "snv_ref" in panels and "snv_alt" in panels:
+        ref_ens = fold_stacks["snv_ref"].mean(axis=0)
+        alt_ens = fold_stacks["snv_alt"].mean(axis=0)
+        delta_pred = alt_ens - ref_ens
+        ref_lab = panels["snv_ref"]["labels"]
+        alt_lab = panels["snv_alt"]["labels"]
+        if ref_lab is not None and alt_lab is not None:
+            delta_true = alt_lab - ref_lab
+            d_stats = {
+                "n": int(len(delta_pred)),
+                "pearson_r": float(pearsonr(delta_pred, delta_true)[0])
+                if delta_true.std() > 0
+                else 0.0,
+                "spearman_r": float(spearmanr(delta_pred, delta_true)[0]),
+                "mse": float(np.mean((delta_pred - delta_true) ** 2)),
+                "mean_residual": float(np.mean(delta_pred - delta_true)),
+                "delta_pred_std": float(delta_pred.std()),
+                "delta_true_std": float(delta_true.std()),
+            }
+            summary["__snv_delta_calibration__"] = d_stats
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUT_DIR / "bias_eval.json"
