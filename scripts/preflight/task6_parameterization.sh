@@ -24,7 +24,7 @@ SWEEP=parameterization
 D_MIN=500   # provisional from Task 2; same value used in Task 9 confirmation
 D_MAX=600000
 
-declare -A ARCH_QOS=( [legnet]=slow_nice [dream_rnn]=default [dream_attn]=slow_nice )
+declare -A ARCH_QOS=( [legnet]=slow_nice [dream_rnn]=slow_nice [dream_attn]=slow_nice )
 declare -A ARCH_TIME_DMIN=(
     [legnet]=04:00:00
     [dream_rnn]=04:00:00
