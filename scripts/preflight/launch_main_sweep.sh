@@ -74,6 +74,40 @@ else
     echo "  d_grid from YAML is empty; using default: ${D_GRID[*]}"
 fi
 
+# Filter d_grid by the d_min convergence floor.
+# d_min.confirmed (Task 9, val_R²>0.1 across all archs × seeds at locked HPs)
+# is the hard floor — any d_grid point below this would be a wasted main-
+# sweep cell because the model can't even minimally fit the data there.
+# We fall back to d_min.provisional (Task 2) if Task 9 hasn't run.
+D_MIN_FLOOR=$(uv run --no-sync python -c "
+import yaml
+d = yaml.safe_load(open('$DECISIONS')).get('d_min', {})
+floor = d.get('confirmed') or d.get('provisional') or 0
+print(int(floor))
+")
+if [ "$D_MIN_FLOOR" -gt 0 ]; then
+    FILTERED_GRID=()
+    DROPPED=()
+    for d in "${D_GRID[@]}"; do
+        if [ "$d" -ge "$D_MIN_FLOOR" ]; then
+            FILTERED_GRID+=("$d")
+        else
+            DROPPED+=("$d")
+        fi
+    done
+    if [ ${#DROPPED[@]} -gt 0 ]; then
+        echo "  ⚠ Dropping d_grid points below d_min floor ($D_MIN_FLOOR): ${DROPPED[*]}"
+        echo "    These points are below the convergence threshold (val_R²>0.1)."
+        echo "    Pre-flight Task 2/9 confirmed models can't reliably learn at smaller D."
+    fi
+    if [ ${#FILTERED_GRID[@]} -eq 0 ]; then
+        echo "ERROR: all d_grid points are below d_min floor $D_MIN_FLOOR. Refusing to launch."
+        exit 1
+    fi
+    D_GRID=("${FILTERED_GRID[@]}")
+    echo "  d_grid after floor: ${D_GRID[*]}"
+fi
+
 D_INIT_VALUES=(0 600000)
 
 # Methods: from YAML lists

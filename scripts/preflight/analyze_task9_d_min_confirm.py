@@ -104,6 +104,22 @@ def main():
     decisions["d_min"]["confirmed"] = d_min_confirmed
     decisions["d_min"]["locked_by"] = "task9_d_min_confirm"
     decisions["d_min"]["evidence"] = str(csv_path.relative_to(REPO))
+    decisions["d_min"]["notes"] = (
+        f"Convergence floor for the main sweep. d_grid points below "
+        f"{d_min_confirmed} will be dropped by launch_main_sweep.sh. "
+        f"Threshold: val_R² > {R2_THRESHOLD} across all 3 archs × 3 seeds at locked HPs."
+    )
+    # ── Auto-trim d_grid in YAML to the floor (so the value persists in
+    # version control even if launch_main_sweep.sh isn't run again) ─────
+    if "d_grid" in decisions and decisions["d_grid"] and d_min_confirmed is not None:
+        original = list(decisions["d_grid"])
+        trimmed = [d for d in original if d >= d_min_confirmed]
+        if trimmed != original:
+            print(
+                f"\nTrimming d_grid: {original} → {trimmed} "
+                f"(dropped points below floor {d_min_confirmed})"
+            )
+            decisions["d_grid"] = trimmed
     DECISIONS.write_text(yaml.safe_dump(decisions, sort_keys=False))
     print(f"\nWrote d_min.confirmed={d_min_confirmed} to {DECISIONS}")
 
