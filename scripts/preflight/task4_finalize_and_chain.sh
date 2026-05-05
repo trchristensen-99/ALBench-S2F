@@ -18,9 +18,10 @@ MAX_HOURS=72
 MAX_TRIES=$((MAX_HOURS * 3600 / POLL_SLEEP))
 
 echo "=== Task 4 finalize: polling for $EXPECTED result.json files ==="
+mkdir -p "$TASK4_RESULTS"
 n=0
 for ((try=0; try<MAX_TRIES; try++)); do
-    n=$(find "$TASK4_RESULTS" -name 'result.json' 2>/dev/null | wc -l)
+    n=$(find "$TASK4_RESULTS" -name 'result.json' 2>/dev/null | wc -l || echo 0)
     echo "  poll $try: $n result.json files"
     if [ "$n" -ge "$EXPECTED" ]; then
         echo "  threshold met; proceeding"
