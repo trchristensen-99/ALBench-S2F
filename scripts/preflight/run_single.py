@@ -523,6 +523,26 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
                 out_dir / "best.pt",
             )
 
+        # Per-epoch W&B logging — gracefully no-ops if wandb not active.
+        try:
+            import wandb as _wb
+
+            if _wb.run:
+                _wb.log(
+                    {
+                        "epoch": epoch + 1,
+                        "train_loss": train_loss,
+                        "val_loss": val_loss,
+                        "test_loss": test_loss,
+                        "lr": history["lr"][-1],
+                        "best_val_so_far": best_val,
+                        "best_epoch_so_far": best_epoch + 1,
+                    },
+                    step=epoch + 1,
+                )
+        except Exception:
+            pass
+
         print(
             f"  ep {epoch + 1}/{args.epochs}  train={train_loss:.4f}  "
             f"val={val_loss:.4f}  test={test_loss:.4f}  lr={history['lr'][-1]:.5f}"
@@ -629,11 +649,12 @@ def main():
         if args.sweep_name:
             tags.append(f"sweep={args.sweep_name}")
         wandb.init(
-            project="albench-s2f",
+            entity=os.environ.get("WANDB_ENTITY", "trchristensen-99"),
+            project=os.environ.get("WANDB_PROJECT", "albench-s2f"),
             name=f"preflight_{args.arch}_d{args.d_train}_s{args.seed}",
             tags=tags,
             config={**vars(args), **hp},
-            mode=os.environ.get("WANDB_MODE", "offline"),
+            mode=os.environ.get("WANDB_MODE", "online"),
         )
         run_id = wandb.run.id if wandb.run else None
     except Exception:
