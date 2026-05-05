@@ -58,14 +58,13 @@ declare -A ARCH_BSS=(
     [dream_attn]="64 128 256 512"
 )
 
-# D-specific QOS routing (small D → fast, big D → slow_nice)
+# All routes to slow_nice — has 1000 submit cap and 20 running cap.
+# Other queues are saturated by Tasks 3-7. The 24h time limit handles
+# any D point easily (D=600k is ~4h max). slow_nice queues will drain
+# fastest because they have the largest pool of slots.
 choose_qos() {
     local d=$1
-    if [ "$d" -le 1000 ]; then echo "fast 04:00:00"
-    elif [ "$d" -le 10000 ]; then echo "fast 04:00:00"
-    elif [ "$d" -le 100000 ]; then echo "default 12:00:00"
-    else echo "slow_nice 24:00:00"
-    fi
+    echo "slow_nice 24:00:00"
 }
 
 # D values for the multi-scale sweep
