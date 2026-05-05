@@ -55,6 +55,34 @@ uv run --no-sync python scripts/preflight/lock_task3_decisions.py
 echo "=== Submitting Task 3 D_min verification ==="
 bash scripts/preflight/task3_verify_at_dmin.sh
 
+echo "=== Submitting Task 3 verify watcher (auto-runs analyze_task3_verify.py) ==="
+T3V_FIN=$(/cm/shared/apps/slurm/current/bin/sbatch --parsable <<'EOF'
+#!/bin/bash
+#SBATCH --job-name=pf_task3_verify_finalize
+#SBATCH --output=/grid/wsbs/home_norepl/christen/ALBench-S2F/logs/%x-%j.out
+#SBATCH --error=/grid/wsbs/home_norepl/christen/ALBench-S2F/logs/%x-%j.err
+#SBATCH --partition=cpuq
+#SBATCH --qos=cpuq_base
+#SBATCH --cpus-per-task=2
+#SBATCH --time=12:00:00
+#SBATCH --mem=4G
+set -euo pipefail
+cd /grid/wsbs/home_norepl/christen/ALBench-S2F
+EXPECTED=12   # min: 3 archs × 2 LR neighbors × 2 seeds = 12 (boundary archs)
+DIR=results/preflight/task3_verify_dmin
+mkdir -p "$DIR"
+for try in $(seq 0 144); do
+    n=$(find "$DIR" -name 'result.json' 2>/dev/null | wc -l || echo 0)
+    echo "  poll $try: $n result.json files"
+    if [ "$n" -ge "$EXPECTED" ]; then break; fi
+    sleep 300
+done
+uv run --no-sync python scripts/preflight/analyze_task3_verify.py || \
+    echo "WARN: analyze_task3_verify exit code $? — may indicate scale-coupling failure"
+EOF
+)
+echo "  task3_verify_finalize submitted as $T3V_FIN"
+
 echo "=== Submitting Task 4 epoch-budget calibration ==="
 bash scripts/preflight/task4_epoch_budget.sh
 
