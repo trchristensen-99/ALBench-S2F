@@ -56,7 +56,7 @@ OUT="${PREFLIGHT_OUT:-results/preflight/${ARCH}/d${D_TRAIN}/seed${SEED}}"
 
 # Build sbatch payload as a heredoc — auto-chosen queue & time, fixed
 # 1×H100 + standard preflight setup. SLURM #-directives must come first.
-JOB_NAME="pf_${ARCH}_d${D_TRAIN}_s${SEED}"
+JOB_NAME="${PREFLIGHT_JOB_NAME:-pf_${ARCH}_d${D_TRAIN}_s${SEED}}"
 
 mkdir -p logs
 
