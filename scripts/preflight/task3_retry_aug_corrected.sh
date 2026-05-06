@@ -81,11 +81,11 @@ submit_one() {
     elif [ "$i_idx" -lt 6 ]; then qos=default; time=06:00:00
     else qos=slow_nice; time=12:00:00
     fi
-    # Encode cfg into output path
+    # Encode cfg into output path — use literal dot→underscore so each LR is unique
     local lr_val bs_val
     lr_val=$(echo "$cfg" | grep -oE 'lr=[0-9.e\-]+' | cut -d= -f2)
     bs_val=$(echo "$cfg" | grep -oE 'batch_size=[0-9]+' | cut -d= -f2)
-    local lrtag=$(echo "$lr_val" | sed 's/0\.0*/e_/; s/0\.//;')
+    local lrtag="${lr_val//./_}"
     local out="$outroot/lr${lrtag}_bs${bs_val}/seed${SEED}"
     if [ -f "${out}/result.json" ]; then
         echo "  [skip] $out — done"
