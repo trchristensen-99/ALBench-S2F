@@ -30,6 +30,10 @@ echo "=== Top retry cells per arch ==="
 uv run --no-sync python scripts/preflight/_dump_task3_retry.py 2>&1 || true
 
 echo
-echo "=== Submit task5/6/7 finalize watcher (resumes chain) ==="
+echo "=== AUTO-UPDATE pre_flight_decisions.yaml with retry winners ==="
+uv run --no-sync python scripts/preflight/_apply_task3_retry_results.py
+
+echo
+echo "=== Submit task5/6/7 finalize watcher (resumes chain with NEW locks) ==="
 sbatch /grid/wsbs/home_norepl/christen/ALBench-S2F/scripts/preflight/_resubmit_task567_finalize.sh
-echo "Done. Manually update pre_flight_decisions.yaml LR/BS for legnet+dream_attn if retry winners differ."
+echo "Done — pre_flight_decisions.yaml updated automatically; chain resumed."
