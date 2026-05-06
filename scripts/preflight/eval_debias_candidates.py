@@ -203,6 +203,16 @@ def _build_panels(n_random: int = 500, n_test: int = 4000, n_snv: int = 2000):
                 else None,
                 "kind": "labeled_snv_alt",
             }
+
+    ood_path = REPO / "data" / "k562" / "test_sets" / "test_ood_designed_k562.tsv"
+    if ood_path.exists():
+        od = pd.read_csv(ood_path, sep="\t")
+        if "K562_log2FC" in od.columns:
+            panels["test_ood"] = {
+                "seqs": od["sequence"].astype(str).tolist(),
+                "labels": od["K562_log2FC"].to_numpy(np.float32),
+                "kind": "labeled_ood",
+            }
     return panels
 
 
@@ -223,14 +233,19 @@ def _stats(preds, labels):
 
 def _composite(per_panel: dict, snv_delta_r: float | None, alpha: float) -> dict:
     in_dist_r = per_panel.get("test_real", {}).get("pearson_r", 0.0)
+    ood_r = per_panel.get("test_ood", {}).get("pearson_r", 0.0)
     snv_r = snv_delta_r if snv_delta_r is not None else 0.0
     gc_means = [abs(per_panel[k]["mean"]) for k in per_panel if k.startswith("random_gc_")]
     neg_bias = float(np.mean(gc_means)) if gc_means else 0.0
+    # v1 lesson: configs with low neg_bias often have collapsed OOD. Score
+    # MUST penalize OOD drop heavily — weight matches in_dist so a config
+    # has to win on BOTH in-dist AND OOD to outscore a less-aggressive one.
     return {
         "in_dist_pearson": in_dist_r,
+        "ood_pearson": ood_r,
         "snv_delta_pearson": snv_r,
         "neg_bias": neg_bias,
-        "score": in_dist_r + 0.5 * snv_r - alpha * neg_bias,
+        "score": in_dist_r + ood_r + 0.5 * snv_r - alpha * neg_bias,
     }
 
 
@@ -325,8 +340,10 @@ def main():
                 "name": r["name"],
                 "score": c["score"],
                 "in_dist_pearson": c["in_dist_pearson"],
+                "ood_pearson": c["ood_pearson"],
                 "snv_delta_pearson": c["snv_delta_pearson"],
                 "neg_bias": c["neg_bias"],
+                "test_ood_mse": r["per_panel"].get("test_ood", {}).get("mse"),
                 **{
                     f"{k}_mean": v["mean"]
                     for k, v in r["per_panel"].items()
