@@ -178,6 +178,42 @@ def correct_cdf_match(data, bias):
     return out, {"n_train": len(sorted_pred)}
 
 
+def correct_gc_stratified_cdf(data, bias, n_gc_bins=4):
+    """CDF match WITHIN each GC quartile separately. Fixes both
+    activity-stratified AND GC-stratified bias by allowing the mapping
+    to adapt per-GC-bin. Most flexible post-hoc strategy."""
+    y_pred_train = data["train"]["y_pred"]
+    y_true_train = data["train"]["y_true"]
+    gc_train = data["train"]["gc"]
+    edges = np.quantile(gc_train, np.linspace(0, 1, n_gc_bins + 1))
+    # Build per-bin sorted (pred, true) for the lookup
+    per_bin = []
+    for i in range(n_gc_bins):
+        lo, hi = edges[i], edges[i + 1]
+        mask = (gc_train >= lo) & (gc_train <= hi if i == n_gc_bins - 1 else gc_train < hi)
+        if mask.sum() < 100:
+            per_bin.append(None)
+            continue
+        per_bin.append((np.sort(y_pred_train[mask]), np.sort(y_true_train[mask])))
+    out = {}
+    for split, d in data.items():
+        idx = np.digitize(d["gc"], edges[1:-1])  # bin index 0..n_gc_bins-1
+        idx = np.clip(idx, 0, n_gc_bins - 1)
+        corrected = np.empty_like(d["y_pred"])
+        for i in range(n_gc_bins):
+            mask = idx == i
+            if not mask.any():
+                continue
+            if per_bin[i] is None:
+                corrected[mask] = d["y_pred"][mask]
+                continue
+            sp, st = per_bin[i]
+            ranks = np.searchsorted(sp, d["y_pred"][mask]) / len(sp)
+            corrected[mask] = np.interp(ranks, np.linspace(0, 1, len(st)), st)
+        out[split] = corrected
+    return out, {"n_gc_bins": n_gc_bins, "edges": edges.tolist()}
+
+
 def correct_gc_threshold(data, bias):
     """Apply gc_poly2 ONLY when GC > 0.55 (where bias is large in our
     oracle). Below 0.55, leave predictions alone. Compromise between
@@ -280,6 +316,7 @@ def main():
         ("gc_affine_then_isotonic", correct_gc_affine_then_isotonic),
         ("per_decile", correct_per_decile),
         ("cdf_match", correct_cdf_match),
+        ("gc_stratified_cdf", correct_gc_stratified_cdf),
         ("gc_threshold", correct_gc_threshold),
     ]
     corrected_predictions = {}
