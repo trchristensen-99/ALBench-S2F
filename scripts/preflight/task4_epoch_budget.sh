@@ -58,15 +58,11 @@ for arch in legnet dream_rnn dream_attn; do
             echo "  [skip] ${arch}/seed${seed} — done"
             continue
         fi
-        jname="pf_${arch}_d${D_TRAIN}_s${seed}"
+        jname="pf_t4_${arch}_s${seed}"   # distinct from task6's pf_<arch>_d600000_s<seed>
         if /cm/shared/apps/slurm/current/bin/squeue -u christen --noheader -o '%j' \
             | grep -qx "$jname"; then
-            # name collides with task6's d=600000 jobs, so also check the out_dir
-            # via partial files — if no last.pt, assume we still need to submit
-            if [ ! -f "${out}/last.pt" ]; then
-                echo "  [skip] ${jname} already in queue (collides with task6 name; check manually)"
-                continue
-            fi
+            echo "  [skip] $jname already in queue"
+            continue
         fi
         PREFLIGHT_QOS=$qos PREFLIGHT_TIME=$t \
         PREFLIGHT_EPOCHS=$EPOCHS \
@@ -74,6 +70,7 @@ for arch in legnet dream_rnn dream_attn; do
         PREFLIGHT_SWEEP=$SWEEP \
         PREFLIGHT_LABEL_SOURCE=ag_oracle \
         PREFLIGHT_OUT=$out \
+        PREFLIGHT_JOB_NAME=$jname \
             bash scripts/preflight/launch.sh "$arch" "$D_TRAIN" "$seed" \
                 "lr=$LR" "batch_size=$BS"
         n_submitted=$((n_submitted + 1))
