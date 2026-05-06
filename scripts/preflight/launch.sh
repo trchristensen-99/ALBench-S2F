@@ -16,6 +16,7 @@
 #                   results/preflight/<arch>/d<d_train>/seed<seed>
 #   PREFLIGHT_SWEEP name for the W&B sweep tag; default null.
 #   PREFLIGHT_EPOCHS override --epochs (default 80)
+#   PREFLIGHT_EARLY_STOP_PATIENCE  --early_stop_patience (default 0 = off)
 #   PREFLIGHT_AUG   one of {none, rev_complement, rc_shift, rc_shift_evoaug}.
 #                   Default rev_complement.
 
@@ -46,6 +47,7 @@ case "$QOS" in
 esac
 TIME="${PREFLIGHT_TIME:-$DEFAULT_TIME}"
 EPOCHS="${PREFLIGHT_EPOCHS:-80}"
+EARLY_STOP_PATIENCE="${PREFLIGHT_EARLY_STOP_PATIENCE:-0}"
 AUG="${PREFLIGHT_AUG:-rev_complement}"
 SWEEP="${PREFLIGHT_SWEEP:-}"
 LABEL_SOURCE="${PREFLIGHT_LABEL_SOURCE:-ag_oracle}"
@@ -91,6 +93,7 @@ uv run --no-sync python scripts/preflight/run_single.py \\
     --d_train ${D_TRAIN} \\
     --seed ${SEED} \\
     --epochs ${EPOCHS} \\
+    --early_stop_patience ${EARLY_STOP_PATIENCE} \\
     --augmentations ${AUG} \\
     --label_source ${LABEL_SOURCE} \\
     --output_dir ${OUT} \\

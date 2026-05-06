@@ -483,7 +483,9 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
             best_epoch = int(ckpt["best_epoch"])
             best_test_mse = float(ckpt["best_test_mse"])
             history = ckpt.get("history", history)
-            print(f"  Resumed from epoch {start_epoch} (best_val={best_val:.4f} @ ep {best_epoch + 1})")
+            print(
+                f"  Resumed from epoch {start_epoch} (best_val={best_val:.4f} @ ep {best_epoch + 1})"
+            )
         except Exception as e:
             print(f"  WARN: last.pt exists but failed to load ({e}); starting fresh")
             start_epoch = 0
@@ -590,6 +592,15 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
             f"val={val_loss:.4f}  test={test_loss:.4f}  lr={history['lr'][-1]:.5f}"
         )
 
+        if args.early_stop_patience > 0:
+            since_best = epoch - best_epoch
+            if since_best >= args.early_stop_patience:
+                print(
+                    f"  early stop: no val improvement in {args.early_stop_patience} epochs "
+                    f"(best @ ep {best_epoch + 1})"
+                )
+                break
+
     elapsed = time.time() - t_start
 
     # Post-hoc flag: did min val loss occur in the final 10% of epochs?
@@ -664,6 +675,12 @@ def main():
         "real = K562_log2FC real labels.",
     )
     ap.add_argument("--report_min_val_in_final_pct", type=float, default=0.1)
+    ap.add_argument(
+        "--early_stop_patience",
+        type=int,
+        default=0,
+        help="Stop if val_loss has not improved for N consecutive epochs. 0 = disabled.",
+    )
     ap.add_argument("--sweep_name", default=None, help="W&B tag value for sweep=<>")
     ap.add_argument(
         "--hp",
