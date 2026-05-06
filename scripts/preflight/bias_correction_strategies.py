@@ -139,6 +139,62 @@ def correct_gc_affine_then_isotonic(data, bias):
     return iso_out, {"stage1": affine_p, "stage2": iso_p}
 
 
+def correct_per_decile(data, bias):
+    """Bin train by PREDICTED decile, subtract per-bin mean residual.
+    More flexible than affine, less smooth than isotonic."""
+    y_pred_train = data["train"]["y_pred"]
+    y_true_train = data["train"]["y_true"]
+    edges = np.quantile(y_pred_train, np.linspace(0, 1, 11))
+    bin_residuals = []
+    for i in range(10):
+        lo, hi = edges[i], edges[i + 1]
+        mask = (y_pred_train >= lo) & (y_pred_train <= hi if i == 9 else y_pred_train < hi)
+        if mask.sum() == 0:
+            bin_residuals.append(0.0)
+            continue
+        bin_residuals.append(float((y_pred_train[mask] - y_true_train[mask]).mean()))
+    out = {}
+    for split, d in data.items():
+        idx = np.digitize(d["y_pred"], edges[1:-1])  # 0..9
+        idx = np.clip(idx, 0, 9)
+        bias_per_seq = np.array([bin_residuals[i] for i in idx])
+        out[split] = d["y_pred"] - bias_per_seq
+    return out, {"edges": edges.tolist(), "bin_residuals": bin_residuals}
+
+
+def correct_cdf_match(data, bias):
+    """Quantile mapping: map predicted-CDF to true-CDF on train pool.
+    Most flexible; doesn't preserve rank if mapping is non-monotonic
+    (typically still close to monotonic in practice)."""
+    y_pred_train = data["train"]["y_pred"]
+    y_true_train = data["train"]["y_true"]
+    sorted_pred = np.sort(y_pred_train)
+    sorted_true = np.sort(y_true_train)
+    out = {}
+    for split, d in data.items():
+        # Linear interpolation: rank → true-CDF value
+        ranks = np.searchsorted(sorted_pred, d["y_pred"]) / len(sorted_pred)
+        out[split] = np.interp(ranks, np.linspace(0, 1, len(sorted_true)), sorted_true)
+    return out, {"n_train": len(sorted_pred)}
+
+
+def correct_gc_threshold(data, bias):
+    """Apply gc_poly2 ONLY when GC > 0.55 (where bias is large in our
+    oracle). Below 0.55, leave predictions alone. Compromise between
+    'fix high-GC bias' and 'don't distort everything'."""
+    gc_vals, means = _bias_at_gc_levels(bias)
+    coeffs = np.polyfit(gc_vals, means, deg=2)
+    out = {}
+    for split, d in data.items():
+        bias_pred = np.polyval(coeffs, d["gc"])
+        # Only apply correction where GC > 0.55
+        mask = d["gc"] > 0.55
+        corrected = d["y_pred"].copy()
+        corrected[mask] = corrected[mask] - bias_pred[mask]
+        out[split] = corrected
+    return out, {"coeffs_high_to_low": coeffs.tolist(), "gc_threshold": 0.55}
+
+
 # ── Evaluation ────────────────────────────────────────────────────────────
 def _evaluate(corrected, data, bias, strategy_name):
     """Compute headline metrics on the test split + predicted bias on
@@ -222,6 +278,9 @@ def main():
         ("gc_poly2", correct_gc_poly2),
         ("isotonic", correct_isotonic),
         ("gc_affine_then_isotonic", correct_gc_affine_then_isotonic),
+        ("per_decile", correct_per_decile),
+        ("cdf_match", correct_cdf_match),
+        ("gc_threshold", correct_gc_threshold),
     ]
     corrected_predictions = {}
     for name, fn in strategies:
