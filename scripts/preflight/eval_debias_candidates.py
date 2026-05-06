@@ -234,18 +234,28 @@ def _stats(preds, labels):
 def _composite(per_panel: dict, snv_delta_r: float | None, alpha: float) -> dict:
     in_dist_r = per_panel.get("test_real", {}).get("pearson_r", 0.0)
     ood_r = per_panel.get("test_ood", {}).get("pearson_r", 0.0)
+    ood_mse = per_panel.get("test_ood", {}).get("mse", 0.0)
     snv_r = snv_delta_r if snv_delta_r is not None else 0.0
     gc_means = [abs(per_panel[k]["mean"]) for k in per_panel if k.startswith("random_gc_")]
     neg_bias = float(np.mean(gc_means)) if gc_means else 0.0
-    # v1 lesson: configs with low neg_bias often have collapsed OOD. Score
-    # MUST penalize OOD drop heavily — weight matches in_dist so a config
-    # has to win on BOTH in-dist AND OOD to outscore a less-aggressive one.
+    # v3 lesson: OOD Pearson alone can stay deceptively high while OOD
+    # MSE explodes 4-13× due to scale collapse. c31 (10% dinuc + grad
+    # penalty) ranked top with score=1.37 but OOD MSE was 4.96 vs baseline
+    # 1.15 — the model's predictions were 4× more wrong on average,
+    # despite preserving rank-ordering.
+    # Add a normalized OOD-MSE penalty anchored at baseline (~1.15). Only
+    # penalize when MSE rises above baseline; cap to avoid runaway penalty.
+    ood_mse_baseline = 1.15  # K562 OOD MSE for the original 10-fold oracle
+    ood_mse_penalty = max(0.0, (ood_mse - ood_mse_baseline) / ood_mse_baseline)
+    ood_mse_penalty = min(ood_mse_penalty, 5.0)  # cap so collapse doesn't dominate
     return {
         "in_dist_pearson": in_dist_r,
         "ood_pearson": ood_r,
+        "ood_mse": ood_mse,
+        "ood_mse_penalty": ood_mse_penalty,
         "snv_delta_pearson": snv_r,
         "neg_bias": neg_bias,
-        "score": in_dist_r + ood_r + 0.5 * snv_r - alpha * neg_bias,
+        "score": in_dist_r + ood_r + 0.5 * snv_r - alpha * neg_bias - 0.5 * ood_mse_penalty,
     }
 
 
@@ -341,6 +351,8 @@ def main():
                 "score": c["score"],
                 "in_dist_pearson": c["in_dist_pearson"],
                 "ood_pearson": c["ood_pearson"],
+                "ood_mse": c.get("ood_mse"),
+                "ood_mse_penalty": c.get("ood_mse_penalty"),
                 "snv_delta_pearson": c["snv_delta_pearson"],
                 "neg_bias": c["neg_bias"],
                 "test_ood_mse": r["per_panel"].get("test_ood", {}).get("mse"),
