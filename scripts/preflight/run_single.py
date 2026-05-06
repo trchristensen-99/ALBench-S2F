@@ -465,7 +465,30 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     t_start = time.time()
 
-    for epoch in range(args.epochs):
+    # Checkpoint resume: if last.pt exists from a prior pre-emption, load
+    # model/optimizer/scheduler state and resume from the saved epoch.
+    # This makes long-running Task 4 (240 epochs at D=600k) resilient to
+    # slow_nice preemption — without it, every preemption resets to ep 1.
+    start_epoch = 0
+    last_ckpt = out_dir / "last.pt"
+    if last_ckpt.exists():
+        try:
+            ckpt = torch.load(last_ckpt, map_location=device)
+            model.load_state_dict(ckpt["state_dict"])
+            optimizer.load_state_dict(ckpt["optimizer"])
+            scheduler.load_state_dict(ckpt["scheduler"])
+            scaler.load_state_dict(ckpt["scaler"])
+            start_epoch = int(ckpt["epoch"]) + 1
+            best_val = float(ckpt["best_val"])
+            best_epoch = int(ckpt["best_epoch"])
+            best_test_mse = float(ckpt["best_test_mse"])
+            history = ckpt.get("history", history)
+            print(f"  Resumed from epoch {start_epoch} (best_val={best_val:.4f} @ ep {best_epoch + 1})")
+        except Exception as e:
+            print(f"  WARN: last.pt exists but failed to load ({e}); starting fresh")
+            start_epoch = 0
+
+    for epoch in range(start_epoch, args.epochs):
         # Train
         model.train()
         epoch_loss = 0.0
@@ -522,6 +545,25 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
                 {"epoch": epoch, "state_dict": model.state_dict(), "hp": hp},
                 out_dir / "best.pt",
             )
+
+        # Save resume checkpoint every epoch (overwrites last.pt). This
+        # is what enables preemption recovery — without it, slow_nice
+        # preemption forces a fresh restart from epoch 1.
+        torch.save(
+            {
+                "epoch": epoch,
+                "state_dict": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "scaler": scaler.state_dict(),
+                "best_val": best_val,
+                "best_epoch": best_epoch,
+                "best_test_mse": best_test_mse,
+                "history": history,
+                "hp": hp,
+            },
+            out_dir / "last.pt",
+        )
 
         # Per-epoch W&B logging — gracefully no-ops if wandb not active.
         try:
