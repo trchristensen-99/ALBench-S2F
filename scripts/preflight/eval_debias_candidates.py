@@ -286,7 +286,8 @@ def main():
     )
     args = ap.parse_args()
 
-    base = Path(args.base)
+    # orbax requires absolute paths for checkpoint reads — resolve early.
+    base = Path(args.base).resolve()
     if not base.exists():
         raise SystemExit(f"missing {base}")
 
@@ -300,9 +301,11 @@ def main():
     candidates = sorted([d for d in base.iterdir() if d.is_dir()])
     rows = []
     if args.include_baseline:
-        rows.append(_eval_candidate("__current_oracle__", Path(args.include_baseline), panels))
+        rows.append(
+            _eval_candidate("__current_oracle__", Path(args.include_baseline).resolve(), panels)
+        )
     for cand in candidates:
-        ckpt = cand / "fold_0" / "best_model" / "checkpoint"
+        ckpt = (cand / "fold_0" / "best_model" / "checkpoint").resolve()
         if not ckpt.exists():
             print(f"  SKIP {cand.name}: no ckpt at {ckpt}")
             continue
