@@ -632,7 +632,12 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_overrides(items: list[str]) -> dict[str, Any]:
-    """Parse k=v overrides where v is auto-parsed (int, float, bool, str)."""
+    """Parse k=v overrides where v is auto-parsed (int, float, bool, list, str).
+
+    List literals: ``block_sizes=[128,128,64,64]`` → ``[128, 128, 64, 64]``.
+    """
+    import ast
+
     out: dict[str, Any] = {}
     for it in items:
         if "=" not in it:
@@ -641,6 +646,12 @@ def parse_overrides(items: list[str]) -> dict[str, Any]:
         # type coerce
         if v.lower() in ("true", "false"):
             out[k] = v.lower() == "true"
+        elif v.startswith("[") and v.endswith("]"):
+            # list/tuple literal — use ast.literal_eval (safe vs eval)
+            try:
+                out[k] = ast.literal_eval(v)
+            except (ValueError, SyntaxError):
+                out[k] = v
         else:
             try:
                 out[k] = int(v)
