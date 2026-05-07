@@ -59,7 +59,7 @@ for aug in rev_complement rc_shift; do
         jname="pf_legnetfx_${aug}_s${seed}"
         # Route to fast since these are short
         submit_cell legnet 600000 $seed "$aug" 35 "$out" "$jname" \
-            fast 04:00:00 "lr=0.003" "batch_size=512"
+            slow_nice 12:00:00 "lr=0.003" "batch_size=512"
         n=$((n + 1))
     done
 done
@@ -74,7 +74,7 @@ for dr in 0.05 0.10; do
         out="results/preflight/task7_dream_rnn_dropout_ext/dropout_lstm_${dr}/seed${seed}"
         jname="pf_drnndr_${dr/./p}_s${seed}"
         submit_cell dream_rnn 600000 $seed rev_complement 66 "$out" "$jname" \
-            default 06:00:00 "lr=0.003" "batch_size=256" "dropout_lstm=$dr"
+            slow_nice 12:00:00 "lr=0.003" "batch_size=256" "dropout_lstm=$dr"
         n=$((n + 1))
     done
 done
@@ -97,11 +97,8 @@ for arch in legnet dream_rnn dream_attn; do
         for seed in 42 123; do
             out="results/preflight/task_hp_universality/${arch}/d${d}/seed${seed}"
             jname="pf_univ_${arch}_d${d}_s${seed}"
-            # Route by D: small=fast, mid=default, large=slow_nice
-            if [ "$d" -le 1000 ]; then qos=fast; t=04:00:00
-            elif [ "$d" -le 100000 ]; then qos=default; t=06:00:00
-            else qos=slow_nice; t=12:00:00
-            fi
+            # Route everything to slow_nice (fast/default already saturated by task9)
+            qos=slow_nice; t=12:00:00
             dr_key="${DROPOUT_KEY[$arch]}"
             dr_val="${DROPOUT_VAL[$arch]}"
             submit_cell "$arch" "$d" "$seed" "${AUG[$arch]}" "${EP[$arch]}" "$out" "$jname" \
