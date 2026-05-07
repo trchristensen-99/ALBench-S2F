@@ -1,21 +1,28 @@
-"""Parallel multi-model trainer on a single GPU.
+"""Parallel multi-model trainer with optional multi-GPU support.
 
 LegNet (~2M params) and DREAM-RNN (~1M) are tiny; multiple instances
-can train concurrently on one H100 (80 GB) without OOM. This runner
-spawns up to k_parallel subprocesses, each running run_single.py with
-a different HP config, all sharing the same GPU. CUDA driver natively
-multiplexes contexts, so no MPS setup needed.
+can train concurrently on one H100 (80 GB) without OOM.
+
+Single GPU mode (default): all k_parallel subprocesses share GPU 0
+via CUDA driver context multiplexing. Best when each model is small
+and the GPU is underutilized by one process.
+
+Multi-GPU mode (env N_GPUS>1): processes are round-robin assigned
+to N_GPUS via CUDA_VISIBLE_DEVICES. Use when SLURM allocation has
+multiple GPUs and you want isolated per-process CUDA contexts (less
+contention but ties up more cluster slots).
 
 Throughput vs serial:
-- Each LegNet uses ~0.5 GB GPU memory + minor compute
-- 6× concurrent fits easily in 80 GB
-- GPU compute is data-loading-bound for LegNet so multi-process
-  utilization actually IMPROVES throughput vs serial single-model runs
-- Real-world speedup: ~3-5x over serial for k_parallel=6
+- Single GPU, 6× LegNet: ~3-5x speedup vs serial
+- Multi-GPU (N), N×6 LegNet: ~N× more throughput on top of that
 
 Usage:
+    # Single GPU
     uv run --no-sync python scripts/preflight/parallel_gpu_runner.py \\
         configs.json [k_parallel=6]
+    # Multi-GPU (4 H100s, 6 models each = 24 concurrent)
+    N_GPUS=4 uv run --no-sync python scripts/preflight/parallel_gpu_runner.py \\
+        configs.json 24
 
 configs.json format:
     [
@@ -28,7 +35,9 @@ configs.json format:
 
 from __future__ import annotations
 
+import itertools
 import json
+import os
 import subprocess
 import sys
 import time
@@ -43,8 +52,10 @@ def main():
         sys.exit(1)
     cfg_path = Path(sys.argv[1])
     k_parallel = int(sys.argv[2]) if len(sys.argv) > 2 else 6
+    n_gpus = int(os.environ.get("N_GPUS", "1"))
+    gpu_iter = itertools.cycle(range(n_gpus)) if n_gpus > 1 else None
     configs = json.loads(cfg_path.read_text())
-    print(f"Loaded {len(configs)} configs, k_parallel={k_parallel}")
+    print(f"Loaded {len(configs)} configs, k_parallel={k_parallel}, N_GPUS={n_gpus}")
     pending = list(configs)
     running: list[tuple[subprocess.Popen, dict, object]] = []
     completed: list[dict] = []
@@ -90,10 +101,18 @@ def main():
             ]
             log_path = out_dir / "stdout.log"
             log_f = open(log_path, "w")
-            p = subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT, cwd=str(REPO))
+            env = os.environ.copy()
+            gpu_tag = ""
+            if gpu_iter is not None:
+                gpu_idx = next(gpu_iter)
+                env["CUDA_VISIBLE_DEVICES"] = str(gpu_idx)
+                gpu_tag = f" [GPU{gpu_idx}]"
+            p = subprocess.Popen(
+                cmd, stdout=log_f, stderr=subprocess.STDOUT, cwd=str(REPO), env=env
+            )
             running.append((p, cfg, log_f))
             elapsed = time.time() - t_start
-            print(f"  [start +{elapsed:.0f}s] {label} (pid {p.pid})")
+            print(f"  [start +{elapsed:.0f}s]{gpu_tag} {label} (pid {p.pid})")
         # Poll for completed
         for entry in list(running):
             p, cfg, log_f = entry
