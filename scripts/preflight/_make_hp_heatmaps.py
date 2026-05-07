@@ -255,6 +255,72 @@ def d_train_universality(df: pd.DataFrame, out_png: Path):
     print(f"  Saved {out_png}")
 
 
+def lr_bs_by_arch_d_for_legnet(df: pd.DataFrame, out_png: Path):
+    """LR × BS heatmap by D for LegNet — we have d=500 (task3b) AND d=600k.
+    Tests whether the optimal LR shifts with N (HP × D coupling)."""
+    df_ = df[df["arch"] == "legnet"].copy()
+    df_ = df_.dropna(subset=["lr", "batch_size", "test_mse"])
+    if df_.empty:
+        return
+    ds = sorted(df_["d_train"].unique())
+    augs = sorted(df_["aug"].dropna().unique())
+    fig, axes = plt.subplots(
+        len(augs), len(ds), figsize=(4 * len(ds), 3 * len(augs)), squeeze=False
+    )
+    for i, aug in enumerate(augs):
+        for j, d in enumerate(ds):
+            ax = axes[i][j]
+            sub = df_[(df_["d_train"] == d) & (df_["aug"] == aug)]
+            if sub.empty:
+                ax.set_title(f"d={d} aug={aug}\n(no data)", fontsize=8)
+                ax.axis("off")
+                continue
+            agg = sub.groupby(["lr", "batch_size"])["test_mse"].mean().reset_index()
+            piv = agg.pivot(index="lr", columns="batch_size", values="test_mse")
+            sns.heatmap(piv, ax=ax, annot=True, fmt=".3f", cmap="viridis_r", cbar=False)
+            ax.set_title(f"LegNet d={d} aug={aug} | n={len(sub)}", fontsize=8)
+            ax.set_xlabel("BS")
+            ax.set_ylabel("LR")
+    fig.suptitle("LegNet: LR × BS at d=500 vs d=600k (HP × N coupling check)", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=120)
+    plt.close(fig)
+    print(f"  Saved {out_png}")
+
+
+def aug_d_coupling(df: pd.DataFrame, out_png: Path):
+    """Best aug per arch as a function of D — does the winner shift?"""
+    df_ = df.dropna(subset=["aug", "d_train", "test_mse"]).copy()
+    archs = ["legnet", "dream_rnn", "dream_attn"]
+    fig, axes = plt.subplots(1, len(archs), figsize=(5 * len(archs), 4), squeeze=False)
+    for i, arch in enumerate(archs):
+        ax = axes[0][i]
+        sub = df_[df_["arch"] == arch]
+        ds = sorted(sub["d_train"].unique())
+        augs = sorted(sub["aug"].unique())
+        for aug in augs:
+            xs, ys = [], []
+            for d in ds:
+                cell = sub[(sub["d_train"] == d) & (sub["aug"] == aug)]
+                if cell.empty:
+                    continue
+                xs.append(d)
+                ys.append(cell["test_mse"].min())  # use BEST cell (HP-optimized)
+            if xs:
+                ax.plot(xs, ys, marker="o", label=aug)
+        ax.set_xscale("log")
+        ax.set_xlabel("d_train (log)")
+        ax.set_ylabel("min test_mse (best HP cell)")
+        ax.set_title(arch)
+        ax.legend(fontsize=8)
+        ax.grid(alpha=0.3)
+    fig.suptitle("Aug × N coupling: does best aug shift with dataset size?")
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=120)
+    plt.close(fig)
+    print(f"  Saved {out_png}")
+
+
 def main():
     df = load_all_results()
     print(f"Loaded {len(df):,} rows total")
@@ -271,6 +337,8 @@ def main():
     aug_by_arch_d(df, OUT_DIR / "aug_by_arch_d.png")
     size_d_by_arch(df, OUT_DIR / "size_d_by_arch.png")
     d_train_universality(df, OUT_DIR / "d_train_universality.png")
+    lr_bs_by_arch_d_for_legnet(df, OUT_DIR / "lr_bs_legnet_by_d.png")
+    aug_d_coupling(df, OUT_DIR / "aug_d_coupling.png")
     print(f"\nAll figures saved to {OUT_DIR}/")
 
 
