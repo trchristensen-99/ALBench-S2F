@@ -1,13 +1,12 @@
 """Test-time augmentation (TTA) eval: predict each sequence with multiple
-shift offsets + RC, average predictions. Pure inference-time technique
-that may reduce variance and improve SNV correlation without retraining.
+shift offsets + RC, average predictions. Pure inference-time technique.
 
-For each ref/alt sequence:
-  - Generate 5 shifted variants (offsets -10, -5, 0, +5, +10 bp via shifted flanks)
-  - For each shift, predict forward + reverse-complement
-  - Average all 10 predictions per sequence
+Implementation: build the canonical 600bp one-hot (200bp upstream + 200bp
+insert + 200bp downstream), then `np.roll` for each shift. This matches
+the training-time augmentation exactly.
 
-Compares baseline (RC only) vs TTA-shift (5 shifts × 2 strands) on SNV pairs.
+Usage:
+    python _eval_tta_shift.py --oracle_dir DIR --out OUT.json [--shifts -100 ... 100]
 """
 
 from __future__ import annotations
@@ -31,37 +30,21 @@ from models.embedding_cache import reinit_head_params
 REPO = Path(__file__).resolve().parents[2]
 SNV_TSV = REPO / "data" / "k562" / "test_sets" / "test_snv_pairs_hashfrag.tsv"
 
-_FLANK_5 = MPRA_UPSTREAM[-220:]
-_FLANK_3 = MPRA_DOWNSTREAM[:220]
+_FLANK_5 = MPRA_UPSTREAM[-200:]
+_FLANK_3 = MPRA_DOWNSTREAM[:200]
 _MAP = {"A": 0, "C": 1, "G": 2, "T": 3}
 
 
-def _seq_to_600_with_shift(seq: str, shift: int = 0) -> np.ndarray:
-    """600bp window around 200bp insert with `shift` bp offset.
-    Positive shift = move insert right (more upstream flank visible)."""
+def _seq_to_canonical_600(seq: str) -> np.ndarray:
+    """200bp upstream + 200bp insert + 200bp downstream = 600bp one-hot."""
     seq = seq.upper()
-    if len(seq) != 200:
-        if len(seq) > 200:
-            s = (len(seq) - 200) // 2
-            seq = seq[s : s + 200]
-        else:
-            pad = 200 - len(seq)
-            seq = "N" * (pad // 2) + seq + "N" * (pad - pad // 2)
-    # Use 600bp window with insert centered at 200..400 (default), shift slides it
-    # Default: 200 left flank + 200 insert + 200 right flank (we use 200bp flanks here)
-    # With shift +s: take left flank ending s bp later, right flank starting s bp later
-    left = (
-        _FLANK_5[200 - shift - 200 : 200 - shift]
-        if shift >= 0
-        else _FLANK_5[200 - shift - 200 : 200 - shift]
-    )
-    right = _FLANK_3[-shift : 200 - shift] if shift <= 0 else _FLANK_3[-shift : 200 - shift]
-    if len(left) != 200 or len(right) != 200:
-        # Fallback: standard alignment, ignore shift
-        left = _FLANK_5[-200:]
-        right = _FLANK_3[:200]
-    full = left + seq + right
-    full = full[:600]
+    if len(seq) > 200:
+        s = (len(seq) - 200) // 2
+        seq = seq[s : s + 200]
+    elif len(seq) < 200:
+        pad = 200 - len(seq)
+        seq = "N" * (pad // 2) + seq + "N" * (pad - pad // 2)
+    full = _FLANK_5 + seq + _FLANK_3
     out = np.zeros((600, 4), dtype=np.float32)
     for i, c in enumerate(full):
         if c in _MAP:
@@ -121,18 +104,17 @@ def _predict_batched(predict_step, params, state, x: np.ndarray, batch: int = 25
     return np.concatenate(preds)
 
 
-def _tta_predict(
-    predict_step, params, state, seqs: list[str], shifts=(-10, -5, 0, 5, 10), batch: int = 256
-):
-    """Predict each sequence with all (shift, strand) combos, average."""
+def _tta_predict(predict_step, params, state, seqs: list[str], shifts, batch: int = 256):
+    """For each shift in shifts: shift the canonical 600bp one-hot via np.roll
+    (matching training-time augmentation), predict forward + RC, then average
+    all (shift × strand) views."""
+    canonical = np.stack([_seq_to_canonical_600(s) for s in seqs])
     all_preds = []
     for sh in shifts:
-        x = np.stack([_seq_to_600_with_shift(s, shift=sh) for s in seqs])
+        x = np.roll(canonical, sh, axis=1) if sh != 0 else canonical
         x_rc = x[:, ::-1, ::-1]
-        pf = _predict_batched(predict_step, params, state, x, batch)
-        pr = _predict_batched(predict_step, params, state, x_rc, batch)
-        all_preds.append(pf)
-        all_preds.append(pr)
+        all_preds.append(_predict_batched(predict_step, params, state, x, batch))
+        all_preds.append(_predict_batched(predict_step, params, state, x_rc, batch))
     return np.mean(np.stack(all_preds), axis=0)
 
 
@@ -146,7 +128,9 @@ def main():
 
     oracle_dir = Path(args.oracle_dir)
     df = pd.read_csv(SNV_TSV, sep="\t")
-    print(f"Loaded {len(df):,} SNV pairs; using shifts={args.shifts}")
+    print(
+        f"Loaded {len(df):,} SNV pairs; using shifts={args.shifts} ({len(args.shifts)} × 2 strands)"
+    )
     ref_seqs = df["sequence_ref"].astype(str).tolist()
     alt_seqs = df["sequence_alt"].astype(str).tolist()
     ref_true = df["K562_log2FC_ref"].to_numpy(np.float32)
