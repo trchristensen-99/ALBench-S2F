@@ -66,7 +66,10 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR / "models").mkdir(exist_ok=True)
 
-    # ---------- train (FULL pool — notebook subsamples to any D) ----------
+    # ---------- train: full pool + a fixed D=20k subset ----------
+    # train_d20k.parquet is the "default" file the notebook loads — small, fast.
+    # train_full.parquet is the full pool; the notebook has an optional cell that
+    # subsamples it to any D the user picks.
     train_pool = pd.read_parquet(ORACLE / "pool/train.parquet")
     train_npz = np.load(ORACLE / "train_oracle_labels.npz")
     print(f"Full train pool: {len(train_pool):,} sequences")
@@ -78,6 +81,12 @@ def main():
         f"  wrote train_full.parquet ({len(train_full):,} rows, "
         f"label_mean={train_full['label'].mean():.3f})"
     )
+
+    rng = np.random.default_rng(SEED)
+    idx = rng.choice(len(train_full), size=20000, replace=False)
+    train_d20k = train_full.iloc[idx].reset_index(drop=True)
+    train_d20k.to_parquet(OUT_DIR / "train_d20k.parquet", index=False)
+    print(f"  wrote train_d20k.parquet ({len(train_d20k):,} rows, seed={SEED})")
 
     # ---------- val + test (real labels) ----------
     for split in ["val", "test"]:
@@ -156,8 +165,11 @@ def main():
         f"""# K562 MPRA training/eval bundle
 
 ## Files
-- `train_full.parquet` — full chromosome-split train pool ({len(train_full):,} sequences,
-  AG-oracle OOF pseudolabels). Subsample to any D in the notebook.
+- `train_d20k.parquet` — 20,000-sequence subset of the train pool (seed={SEED},
+  AG-oracle OOF labels). This is what the notebook loads by default.
+- `train_full.parquet` — full chromosome-split train pool ({len(train_full):,}
+  sequences). Optional cell at the bottom of the notebook subsamples this to
+  any D.
 - `val.parquet` — held-out validation (chr 19/21/X, real K562_log2FC labels).
 - `test.parquet` — held-out test (chr 7/13, real K562_log2FC labels).
 - `models/manifest.json` — list of bundled checkpoints with HPs + val metrics.
@@ -169,10 +181,6 @@ def main():
 ## Label sources
 - Train: AG-oracle out-of-fold predictions (denoised pseudolabels).
 - Val/test: real K562_log2FC measurements.
-
-## Subsampling
-Use `np.random.default_rng({SEED}).choice(N, D, replace=False)` for deterministic
-D-sized training subsets.
 """
     )
 
