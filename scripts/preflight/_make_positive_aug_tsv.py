@@ -22,13 +22,27 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 
 def main():
-    # Use full Gosai dataset (from k562_full.py)
-    from data.k562_full import K562_FULL_DATASET_PATH
-    full_path = Path(K562_FULL_DATASET_PATH)
+    # Load the Gosai dataset from the raw text file
+    full_path = REPO / "data/k562/DATA-Table_S2__MPRA_dataset.txt"
     if not full_path.exists():
         print(f"Gosai full dataset not found at {full_path}")
         return
-    df = pd.read_parquet(full_path)
+    df = pd.read_csv(full_path, sep="\t")
+    # Find K562 column (may be named differently)
+    k562_col = None
+    for c in df.columns:
+        if "K562" in c and ("log2FC" in c or "_log2" in c.lower()):
+            k562_col = c
+            break
+    if k562_col is None:
+        print(f"No K562 log2FC column found; available cols: {list(df.columns)[:15]}")
+        return
+    if k562_col != "K562_log2FC":
+        df = df.rename(columns={k562_col: "K562_log2FC"})
+    df = df.dropna(subset=["K562_log2FC"])
+    seq_col = "sequence" if "sequence" in df.columns else next(c for c in df.columns if "seq" in c.lower())
+    if seq_col != "sequence":
+        df = df.rename(columns={seq_col: "sequence"})
     print(f"Loaded {len(df):,} Gosai sequences; K562_log2FC mean={df['K562_log2FC'].mean():+.3f}")
 
     for pct in (5, 10, 25):
