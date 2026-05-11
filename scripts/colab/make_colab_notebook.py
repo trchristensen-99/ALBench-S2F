@@ -51,23 +51,17 @@ CELLS = [
     md(
         f"""# K562 MPRA HP Search Sandbox — D=20,000 subset
 
-**Sent to Peter Koo, May 11 2026, for architecture exploration.**
+Self-contained Colab for exploring sequence-to-function architectures on a
+slice of the Tewhey K562 MPRA dataset.
 
-This notebook contains:
-- A **20,000-sequence training subset** of the Tewhey K562 MPRA dataset
-  (sampled deterministically from the chromosome-split train pool, AG-oracle
-  pseudo-labels — same labels used in the broader HP search)
-- The held-out **validation set** (chromosomes 19/21/X)
-- The held-out **test set** (chromosomes 7/13)
-- The **best LegNet model** trained on this subset (see `model.pt`)
-- Self-contained code: just run the cells
+**Contents (after running the wget cell):**
+- `train_d20k.parquet` — 20,000 train sequences (AG-oracle OOF pseudolabels)
+- `val.parquet` — chr 19/21/X held-out (real K562_log2FC labels)
+- `test.parquet` — chr 7/13 held-out (real K562_log2FC labels)
+- `best_model.pt` — LegNet trained on the D=20k subset (reference baseline)
 
-The training pool spans D ∈ [600, 600,000] sequences in the larger study.
-20k is a "middle" point — small enough that you can iterate quickly, large
-enough that overfitting is meaningful.
-
-**Goal:** swap in different architectures (AG modules, conv-only, different
-dropout placement, etc.) and see what beats the current best.
+The training pool spans D ∈ [600, 600,000] sequences in the broader study;
+20k is a midpoint — fast to iterate on but where architecture choices matter.
 
 Data URL: `{BUNDLE_URL}`
 """
@@ -92,11 +86,17 @@ Run these once at the top. The bundle is ~50 MB.
     md(
         """## 2. Data loading
 
-Sequences are 200 bp (the MPRA insert payload, no flanking).
-Labels are AG-oracle pseudolabels on the train split, real K562_log2FC on
-val/test (so eval numbers are directly comparable to "real-data" training).
+Sequences are 200 bp (the MPRA insert payload). The MPRA reporter construct
+flanks each insert with fixed 15-bp adapters:
+```
+LEFT_ADAPTER = "AGGACCGGATCAACT"   RIGHT_ADAPTER = "CATTGCGTGAACCGA"
+```
+We expose these as constants so shift-augmentation (Section 5) has real
+flanking context to slide into.
 
-The one-hot encoder uses 4 channels: A, C, G, T. Anything else (N) maps to all-zeros.
+Labels: train uses AG-oracle pseudolabels (denoised, less noisy at small D);
+val/test use real K562_log2FC. The one-hot encoder uses 4 channels (ACGT);
+unknown bases map to all-zeros.
 """
     ),
     code(
@@ -302,10 +302,67 @@ print(f"Forward pass output shape: {model(x).shape}")
 '''
     ),
     md(
-        """## 4. Training loop — AdamW + OneCycleLR
+        """## 4. Augmentations
 
-Drop-in trainer. You can swap the optimizer (Adam, AdamW, Muon) here; change the
-LR schedule; add per-layer dropout; etc.
+Three sequence-domain augmentations. RC is on by default; shift requires
+adapter-padded inputs (we expand the payload at batch time so the dataset
+stays compact); EvoAug is provided as a pointer (separate library).
+"""
+    ),
+    code(
+        '''LEFT_ADAPTER  = "AGGACCGGATCAACT"   # 15 bp, 5' MPRA flank
+RIGHT_ADAPTER = "CATTGCGTGAACCGA"   # 15 bp, 3' MPRA flank
+MAX_SHIFT = len(LEFT_ADAPTER)       # = 15; each side gets up to 15 bp of context
+
+
+def rc_flip(x):
+    """Reverse-complement a (B, 4, L) one-hot batch."""
+    out = x.flip(dims=[2]).clone()
+    out[:, [0, 1, 2, 3]] = out[:, [3, 2, 1, 0]]
+    return out
+
+
+# Precompute adapter one-hots once (4 x 15) for fast batch-time concatenation
+def _adapter_oh(s):
+    a = torch.zeros(4, len(s))
+    for j, c in enumerate(s.upper()):
+        if c in _NUC_TO_IDX:
+            a[_NUC_TO_IDX[c], j] = 1.0
+    return a
+
+_LEFT_OH  = _adapter_oh(LEFT_ADAPTER)
+_RIGHT_OH = _adapter_oh(RIGHT_ADAPTER)
+
+
+def pad_with_adapters(x):
+    """(B, 4, 200) -> (B, 4, 200 + 2*MAX_SHIFT) by prepending/appending adapter one-hots."""
+    B = x.shape[0]
+    L = _LEFT_OH.unsqueeze(0).expand(B, -1, -1).to(x.device)
+    R = _RIGHT_OH.unsqueeze(0).expand(B, -1, -1).to(x.device)
+    return torch.cat([L, x, R], dim=2)
+
+
+def shift_crop(x_padded, training=True, payload_len=PAYLOAD_LEN, max_shift=MAX_SHIFT):
+    """Random offset sliding-window crop. At eval, returns the centered payload."""
+    if not training:
+        return x_padded[:, :, max_shift : max_shift + payload_len]
+    B = x_padded.shape[0]
+    offsets = torch.randint(0, 2 * max_shift + 1, (B,), device=x_padded.device)
+    idx = offsets[:, None] + torch.arange(payload_len, device=x_padded.device)[None, :]
+    idx = idx[:, None, :].expand(B, 4, payload_len)
+    return x_padded.gather(2, idx)
+
+
+# EvoAug (structural mutations: deletion, insertion, inversion, translocation, tandem dup,
+# point mutation) — Lee & Koo 2023, https://www.biorxiv.org/content/10.1101/2023.06.16.545475v1
+# Pip-installable as `evoaug-pytorch`. To use, transform `xb` per batch before model forward.
+'''
+    ),
+    md(
+        """## 5. Training loop — AdamW + OneCycleLR
+
+Toggles for the augmentations above. You can swap the optimizer (Adam, AdamW,
+Muon) here; change the LR schedule; add per-layer dropout; etc.
 """
     ),
     code(
@@ -317,8 +374,9 @@ from scipy.stats import pearsonr, spearmanr
 
 def train_model(model, train_loader, val_loader, *,
                 lr=3e-3, weight_decay=0.05,
-                epochs=80, patience=15, use_rc_aug=True):
-    """Train with AdamW + OneCycleLR + RC augmentation + early stopping."""
+                epochs=80, patience=15,
+                use_rc_aug=True, use_shift_aug=False):
+    """Train with AdamW + OneCycleLR + optional augmentations + early stopping."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -326,11 +384,6 @@ def train_model(model, train_loader, val_loader, *,
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=total_steps, pct_start=0.1)
     crit = nn.MSELoss()
     scaler = torch.amp.GradScaler("cuda", enabled=torch.cuda.is_available())
-
-    def rc_flip(x):
-        out = x.flip(dims=[2]).clone()
-        out[:, [0, 1, 2, 3]] = out[:, [3, 2, 1, 0]]
-        return out
 
     def eval_pearson(loader):
         model.eval()
@@ -351,6 +404,8 @@ def train_model(model, train_loader, val_loader, *,
         ep_loss = 0; n = 0
         for xb, yb in train_loader:
             xb = xb.to(device, non_blocking=True); yb = yb.to(device, non_blocking=True)
+            if use_shift_aug:
+                xb = shift_crop(pad_with_adapters(xb), training=True)
             if use_rc_aug and torch.rand(1).item() < 0.5:
                 xb = rc_flip(xb)
             opt.zero_grad(set_to_none=True)
@@ -381,7 +436,7 @@ def train_model(model, train_loader, val_loader, *,
 '''
     ),
     md(
-        """## 5. Train a fresh model
+        """## 6. Train a fresh model
 
 Default takes ~5–15 min on a Colab T4.
 Iterate quickly: try `block_sizes=[128, 128, 64, 64]` for a smaller model, or change the optimizer / dropout / etc.
@@ -397,13 +452,14 @@ print(f"Params: {sum(p.numel() for p in model.parameters()):,}")
 
 model, best_val_mse = train_model(
     model, train_loader, val_loader,
-    lr=3e-3, weight_decay=0.05, epochs=80, patience=15, use_rc_aug=True,
+    lr=3e-3, weight_decay=0.05, epochs=80, patience=15,
+    use_rc_aug=True, use_shift_aug=False,
 )
 print(f"\\nBest val_mse: {best_val_mse:.4f}")
 """
     ),
     md(
-        """## 6. Evaluate on test set
+        """## 7. Evaluate on test set
 """
     ),
     code(
@@ -443,36 +499,31 @@ evaluate(model, test_loader, "test")
 """
     ),
     md(
-        """## 7. Things to try
+        """## 8. Ideas to try
 
-Things Peter suggested over Slack:
+**Optimizer:** try Adam, AdamW, [Muon](https://github.com/KellerJordan/Muon).
 
-**Optimizer:** try Adam, AdamW, [Muon](https://github.com/KellerJordan/Muon) — the last one
-is sometimes surprisingly competitive for these small-data convolutional setups.
+**Dropout placement:** the current `dropout` is applied to each conv stage. Conv
+layers typically need *less* dropout than dense layers, so it's worth splitting
+into `conv_dropout` (~0.05–0.15) and `dense_dropout` (~0.3–0.5) — the latter
+only matters if you add an MLP head.
 
-**Dropout placement:** the current LegNet `dropout` is applied to the conv output of
-each stage. Conv layers typically need *less* dropout than dense layers. Try splitting:
-`conv_dropout=0.05–0.15` for the EffBlock stages, `dense_dropout=0.3–0.5` if you add
-an MLP head.
+**Per-layer widths:** `block_sizes` is currently a smooth ladder. Try independent
+per-layer widths (each layer its own HP) — e.g. `[256, 512, 256, 128, 64]`.
 
-**Per-layer widths:** `block_sizes` is currently a small ladder. Try independent per-layer
-widths (so each layer is its own HP) — e.g. `[256, 512, 256, 128, 64]`.
+**Block class:** swap `EffBlock` for an AG-style block (stronger inductive bias
+for regulatory genomics). Or strip it down to plain conv + SE.
 
-**AG modules:** Yash Moon (Koo lab) has code for AG-style inductive-bias blocks that
-have been beating vanilla conv in our regulatory-genomics benchmarks. Worth swapping
-into the LegNet body and seeing how it compares.
+**Attention:** for transformer-flavored architectures, try removing attention
+entirely — conv stem + SE is often competitive.
 
-**Conv-only:** for DREAM-ATTN, try removing the attention blocks entirely. Sometimes
-the conv stem + SE is enough.
+**Augmentations** (RC is on by default; toggle `use_shift_aug=True` in section 6
+to try shift):
+- Shift: already wired up via the adapter-padded sliding-window crop (max ±15 bp)
+- EvoAug structural mutations: `pip install evoaug-pytorch`, apply per-batch
+  before model forward; see [Lee & Koo 2023](https://www.biorxiv.org/content/10.1101/2023.06.16.545475v1)
 
-**Data augmentations** (currently we only do RC at 50%):
-- Shift augmentation (slide the payload window over flanking adapters) — adapters are
-  `LEFT="AGGACCGGATCAACT"`, `RIGHT="CATTGCGTGAACCGA"` (15 bp each, MPRA constants)
-- EvoAug structural mutations (deletion / insertion / inversion / translocation /
-  tandem duplication / point mutation) — from [Lee & Koo 2023](https://www.biorxiv.org/content/10.1101/2023.06.16.545475v1).
-  Implemented in `models/evoaug_transform.py` upstream.
-
-**Bigger Ds:** if 20k is too small for the architecture you want to test, just resample
+**Bigger Ds:** if 20k is too small for the architecture you want to test, resample
 from the parquet file — the full train pool is ~600k sequences on the chromosome split.
 """
     ),
