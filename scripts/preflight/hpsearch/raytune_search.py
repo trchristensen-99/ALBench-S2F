@@ -138,7 +138,10 @@ def main():
     # Save run config for reproducibility
     (out / "search_config.json").write_text(json.dumps(vars(args), indent=2))
 
-    # Init ray with the requested GPU count
+    # Init ray with the requested GPU count.
+    # IMPORTANT: explicitly exclude large data dirs from runtime_env packaging
+    # — otherwise Ray tries to ship the entire repo (incl. 3GB+ pretrained
+    # weights, 200MB+ MPRA TSVs) to each worker, hanging for minutes.
     num_cpus = max(1, os.cpu_count() or 4)
     ray.init(
         num_gpus=args.gpus,
@@ -146,6 +149,26 @@ def main():
         log_to_driver=True,
         include_dashboard=False,
         ignore_reinit_error=True,
+        runtime_env={
+            "excludes": [
+                "data/**",
+                "outputs/**",
+                "results/**",
+                "external/**",
+                "logs/**",
+                "wandb/**",
+                ".venv/**",
+                ".git/**",
+                "*.zip",
+                "*.tsv",
+                "*.pt",
+                "*.txt",
+                "*.parquet",
+                "*.npz",
+                "*.h5",
+                "*.pkl",
+            ]
+        },
     )
 
     metric = "val_loss"

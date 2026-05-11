@@ -1,113 +1,159 @@
-"""Ray Tune Trainable wrapping run_single.train() with per-epoch reports.
+"""Ray Tune Trainable: subprocess wrapper around run_single.py with epoch heartbeat.
 
-Uses function_trainable. Each trial:
-  1. Sets seed, builds args namespace from Ray config
-  2. Translates abstract HP (width/depth/etc) to run_single overrides
-  3. Calls run_single.train() with epoch_callback that calls tune.report
-  4. Final result.json written by train()
+Why subprocess: in-process training requires Ray to ship the whole codebase
+to workers via runtime_env packaging. The repo contains GB-scale data and
+weights, so packaging hangs. Running run_single.py as a subprocess inside
+the trainable function keeps Ray's package small (just this file).
 
-ASHA can early-stop trials based on the per-epoch heartbeat val_loss.
+The trainable:
+  1. Builds the run_single.py command from the Ray config
+  2. Spawns subprocess
+  3. Polls history.json every 5s
+  4. Reports each new epoch via tune.report (ASHA can early-stop)
+  5. On ASHA stop, kills the subprocess
+  6. Reads result.json on completion and reports final metric
 """
 
 from __future__ import annotations
 
-import argparse
+import json
 import os
+import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO))
 
 
-def _build_args(config: dict[str, Any], trial_dir: str) -> argparse.Namespace:
-    """Build the argparse.Namespace that run_single.train() expects."""
-    return argparse.Namespace(
-        arch=config["arch"],
-        d_train=int(config["d_train"]),
-        seed=int(config["seed"]),
-        epochs=int(config.get("epochs", 60)),
-        augmentations=config.get("aug", "rev_complement"),
-        gpu=0,
-        num_workers=int(config.get("num_workers", 2)),
-        use_amp=True,
-        output_dir=trial_dir,
-        label_source=config.get("label_source", "ag_oracle"),
-        report_min_val_in_final_pct=0.1,
-        early_stop_patience=int(config.get("patience", 15)),
-        evoaug_intensity=config.get("evoaug_intensity"),
-        evoaug_prob=float(config.get("evoaug_prob", 0.5)),
-        sweep_name=config.get("sweep_name"),
-        hp=[],
-    )
+def _to_overrides(arch: str, config: dict[str, Any]) -> list[str]:
+    """Translate abstract HP keys → run_single.py --hp k=v overrides per arch."""
+    lr = config["lr"]
+    bs = config["batch_size"]
+    wd = config["weight_decay"]
+    dr = config["dropout"]
+    w = int(config["width"])
+    d = int(config["depth"])
+    out = [f"lr={lr}", f"batch_size={bs}", f"weight_decay={wd}"]
+    if arch == "legnet":
+        out.append(f"block_sizes={[w] * d}")
+        out.append(f"dropout={dr}")
+    elif arch == "dream_rnn":
+        out.append(f"hidden_dim={w}")
+        out.append(f"cnn_filters={min(w, 320)}")
+        out.append(f"num_lstm_layers={d}")
+        out.append(f"dropout_cnn={dr}")
+        out.append(f"dropout_lstm={dr}")
+    elif arch == "dream_attn":
+        out.append(f"embedding_dim={w}")
+        out.append(f"num_blocks={d}")
+        out.append(f"first_block_dropout={dr}")
+        out.append(f"core_dropout={dr}")
+        out.append(f"head_dropout={dr}")
+    else:
+        raise ValueError(f"Unknown arch: {arch}")
+    return out
 
 
 def trainable(config: dict[str, Any]):
-    """Ray Tune function trainable. Runs one trial to completion (or until ASHA stops it)."""
+    """Ray Tune function trainable. Spawns run_single.py subprocess."""
     from ray import tune
 
-    import wandb
-    from scripts.preflight.hpsearch.hp_space import to_run_single_overrides
-    from scripts.preflight.run_single import ARCH_PRIORS, train
+    trial_dir = Path(tune.get_context().get_trial_dir())
+    trial_dir.mkdir(parents=True, exist_ok=True)
 
-    trial_dir = tune.get_context().get_trial_dir()
-    args = _build_args(config, trial_dir)
-
-    # Build hp dict: start from arch priors, apply abstract HPs via translator.
     arch = config["arch"]
-    hp = dict(ARCH_PRIORS[arch])
-    # Translate abstract HPs to overrides via the same shared logic used everywhere
-    abstract_hp = {
-        "lr": config["lr"],
-        "batch_size": config["batch_size"],
-        "weight_decay": config["weight_decay"],
-        "dropout": config["dropout"],
-        "width": config["width"],
-        "depth": config["depth"],
-    }
-    overrides_strings = to_run_single_overrides(arch, abstract_hp)
-    # Parse override strings (they're "k=v" form)
-    from scripts.preflight.run_single import parse_overrides
+    cmd = [
+        "uv",
+        "run",
+        "--no-sync",
+        "python",
+        str(REPO / "scripts/preflight/run_single.py"),
+        "--arch",
+        arch,
+        "--d_train",
+        str(config["d_train"]),
+        "--seed",
+        str(config["seed"]),
+        "--epochs",
+        str(int(config.get("epochs", 60))),
+        "--early_stop_patience",
+        str(int(config.get("patience", 15))),
+        "--augmentations",
+        config.get("aug", "rev_complement"),
+        "--label_source",
+        config.get("label_source", "ag_oracle"),
+        "--output_dir",
+        str(trial_dir),
+        "--sweep_name",
+        f"hpsearch_{config.get('strategy', '?')}",
+        "--hp",
+        *_to_overrides(arch, config),
+    ]
 
-    hp.update(parse_overrides(overrides_strings))
+    env = os.environ.copy()
+    # Make sure W&B identifies trials uniquely
+    env["WANDB_RUN_GROUP"] = f"{config.get('strategy', '?')}_{arch}_d{config['d_train']}"
+    env["WANDB_TAGS"] = (
+        f"phase=hpsearch,arch={arch},d={config['d_train']},strategy={config.get('strategy', '?')}"
+    )
+    env["WANDB_PROJECT"] = env.get("WANDB_PROJECT", "albench-s2f-hpsearch")
 
-    # W&B init for this trial. WANDB_API_KEY in env (set via SLURM script).
-    strategy = config.get("strategy", "unknown")
-    wandb_run = None
+    log_path = trial_dir / "subprocess.log"
+    log_f = open(log_path, "w")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=log_f,
+        stderr=subprocess.STDOUT,
+        cwd=str(REPO),
+        env=env,
+        preexec_fn=os.setsid,  # so we can kill the process group
+    )
+
+    last_epoch = 0
+    history_path = trial_dir / "history.json"
+    result_path = trial_dir / "result.json"
+
     try:
-        wandb_run = wandb.init(
-            project=os.environ.get("WANDB_PROJECT", "albench-s2f-hpsearch"),
-            entity=os.environ.get("WANDB_ENTITY"),
-            name=f"{strategy}_{arch}_d{config['d_train']}_t{tune.get_context().get_trial_id()}",
-            tags=[
-                f"arch={arch}",
-                f"d={config['d_train']}",
-                f"strategy={strategy}",
-                "phase=hpsearch",
-            ],
-            config={**config, **abstract_hp, "hp_resolved": hp},
-            reinit=True,
-            mode=os.environ.get("WANDB_MODE", "online"),
-        )
-    except Exception as e:
-        print(f"  W&B init failed: {e}")
+        while True:
+            if history_path.exists():
+                try:
+                    h = json.loads(history_path.read_text())
+                    n = len(h.get("val_loss", []))
+                    if n > last_epoch:
+                        for i in range(last_epoch, n):
+                            tune.report(
+                                {
+                                    "epoch": i + 1,
+                                    "val_loss": h["val_loss"][i],
+                                    "train_loss": h["train_loss"][i],
+                                    "test_loss": h["test_loss"][i],
+                                    "best_val": min(h["val_loss"][: i + 1]),
+                                }
+                            )
+                        last_epoch = n
+                except Exception:
+                    pass
+            ret = proc.poll()
+            if ret is not None:
+                break
+            time.sleep(5)
+    finally:
+        if proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                time.sleep(2)
+                if proc.poll() is None:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
+        log_f.close()
 
-    # Heartbeat callback: reports per-epoch metrics to Ray Tune (for ASHA)
-    def _epoch_cb(metrics: dict[str, Any]):
-        tune.report(
-            {
-                "epoch": metrics["epoch"],
-                "val_loss": metrics["val_loss"],
-                "train_loss": metrics["train_loss"],
-                "test_loss": metrics["test_loss"],
-                "best_val": metrics["best_val_so_far"],
-            }
-        )
-
-    try:
-        summary = train(args, hp, epoch_callback=_epoch_cb)
-        # Final report so ASHA + searcher see the best metric
+    # Read final result
+    if result_path.exists():
+        summary = json.loads(result_path.read_text())
         tune.report(
             {
                 "epoch": summary["best_epoch"] + 1,
@@ -119,9 +165,6 @@ def trainable(config: dict[str, Any]):
                 "done": True,
             }
         )
-    finally:
-        if wandb_run is not None:
-            try:
-                wandb_run.finish()
-            except Exception:
-                pass
+    elif proc.returncode != 0:
+        # Failed; report something so ASHA can move on
+        tune.report({"val_loss": float("inf"), "done": True, "failed": True})
