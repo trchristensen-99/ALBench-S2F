@@ -32,30 +32,14 @@ BUNDLE = REPO / "scripts/colab/bundle_d20k.tar.gz"
 
 SEED = 42
 
-# Checkpoints to bundle. Each entry is (display_name, source_dir, training_d).
-# Empty/missing source_dirs are skipped — bundle tolerates partial.
-CHECKPOINTS: list[tuple[str, Path, int]] = [
-    (
-        "legnet_published_default",
-        REPO / "results/preflight/shootout_d20k_legnet/legnet_published_default",
-        20000,
-    ),
-    (
-        "legnet_optimized_default",
-        REPO / "results/preflight/shootout_d20k_legnet/current_colab_default",
-        20000,
-    ),
-    (
-        "legnet_wider_arch",
-        REPO / "results/preflight/shootout_d20k_legnet/wider_arch",
-        20000,
-    ),
-    (
-        "legnet_with_shift_aug",
-        REPO / "results/preflight/shootout_d20k_legnet/with_shift_aug",
-        20000,
-    ),
-]
+# Single reference checkpoint to bundle. Best-known LegNet from past sweeps
+# at a D close to the notebook's default. Real-label trained.
+REFERENCE_CHECKPOINT = (
+    "legnet_reference",
+    REPO / "results/preflight/hp_arch_size_x_d/legnet_d30000_hd1024_s123",
+    30000,
+    "real",  # label_source used during training
+)
 
 
 def main():
@@ -105,14 +89,14 @@ def main():
         )
         print(f"  wrote {split}.parquet ({len(df):,} rows, label source: {src_col})")
 
-    # ---------- checkpoints ----------
-    manifest = []
-    for name, src_dir, training_d in CHECKPOINTS:
-        best_pt = src_dir / "best.pt"
-        result_json = src_dir / "result.json"
-        if not best_pt.exists():
-            print(f"  skip {name}: {best_pt} not found")
-            continue
+    # ---------- single reference checkpoint ----------
+    name, src_dir, training_d, label_src = REFERENCE_CHECKPOINT
+    best_pt = src_dir / "best.pt"
+    result_json = src_dir / "result.json"
+    ckpt_line = "_(no reference model bundled yet)_"
+    if not best_pt.exists():
+        print(f"  WARN: reference {best_pt} not found — bundle ships without a reference model")
+    else:
         ckpt = torch.load(best_pt, map_location="cpu", weights_only=False)
         hp = ckpt.get("hp", {})
         result = json.loads(result_json.read_text()) if result_json.exists() else {}
@@ -120,63 +104,46 @@ def main():
             "model_state_dict": ckpt["state_dict"],
             "block_sizes": hp.get("block_sizes", [256, 256, 128, 128, 64, 64, 32, 32]),
             "ks": hp.get("ks", 5),
-            "block_class": "eff",  # All current checkpoints use EffBlock
+            "block_class": "eff",
             "conv_dropout": hp.get("dropout", 0.0),
             "dense_dims": [],
             "dense_dropout": 0.0,
             "epoch": ckpt.get("epoch"),
             "training_d": training_d,
+            "training_label_source": label_src,
             "hp": hp,
-        }
-        out_path = OUT_DIR / "models" / f"{name}.pt"
-        torch.save(out_ckpt, out_path)
-        meta = {
-            "name": name,
-            "file": f"models/{name}.pt",
-            "training_d": training_d,
-            "best_val_mse": result.get("best_val_mse"),
-            "test_mse_at_best_val": result.get("test_mse_at_best_val"),
-            "best_epoch": result.get("best_epoch"),
-            "n_params": result.get("n_params"),
-            "hp_summary": {
-                "lr": hp.get("lr"),
-                "batch_size": hp.get("batch_size"),
-                "weight_decay": hp.get("weight_decay"),
-                "dropout": hp.get("dropout"),
-                "block_sizes": hp.get("block_sizes"),
+            "meta": {
+                "best_val_mse": result.get("best_val_mse"),
+                "test_mse_at_best_val": result.get("test_mse_at_best_val"),
+                "best_epoch": result.get("best_epoch"),
+                "n_params": result.get("n_params"),
             },
         }
-        manifest.append(meta)
-        print(f"  wrote {out_path.name}  (val_mse={result.get('best_val_mse', float('nan')):.4f})")
-
-    (OUT_DIR / "models" / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    print(f"\n  manifest: {len(manifest)} checkpoints bundled")
+        out_path = OUT_DIR / "best_model.pt"
+        torch.save(out_ckpt, out_path)
+        v = result.get("best_val_mse", float("nan"))
+        t = result.get("test_mse_at_best_val", float("nan"))
+        print(
+            f"  wrote best_model.pt  (D={training_d:,}, labels={label_src}, val_mse={v:.4f}, test_mse={t:.4f})"
+        )
+        ckpt_line = f"- `best_model.pt` — D={training_d:,}, labels={label_src}, val_mse={v:.4f}, test_mse={t:.4f}"
 
     # ---------- README ----------
-    ckpt_lines = (
-        "\n".join(
-            f"- `models/{m['name']}.pt` — val_mse={m['best_val_mse']:.4f}"
-            f" (trained at D={m['training_d']:,})"
-            for m in manifest
-        )
-        or "_(no checkpoints bundled yet)_"
-    )
     (OUT_DIR / "README.md").write_text(
         f"""# K562 MPRA training/eval bundle
 
 ## Files
 - `train_d20k.parquet` — 20,000-sequence subset of the train pool (seed={SEED},
-  AG-oracle OOF labels). This is what the notebook loads by default.
+  AG-oracle OOF labels). Loaded by the notebook by default.
 - `train_full.parquet` — full chromosome-split train pool ({len(train_full):,}
   sequences). Optional cell at the bottom of the notebook subsamples this to
   any D.
 - `val.parquet` — held-out validation (chr 19/21/X, real K562_log2FC labels).
 - `test.parquet` — held-out test (chr 7/13, real K562_log2FC labels).
-- `models/manifest.json` — list of bundled checkpoints with HPs + val metrics.
-- `models/*.pt` — LegNet checkpoints; see README in notebook for usage.
+- `best_model.pt` — reference LegNet checkpoint.
 
-## Bundled checkpoints
-{ckpt_lines}
+## Bundled model
+{ckpt_line}
 
 ## Label sources
 - Train: AG-oracle out-of-fold predictions (denoised pseudolabels).
