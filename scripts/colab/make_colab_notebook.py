@@ -407,7 +407,9 @@ print(f"\\nBest val_mse: {best_val_mse:.4f}")
 """
     ),
     code(
-        """def evaluate(model, loader, name="set"):
+        """import os
+
+def evaluate(model, loader, name="set"):
     model.eval()
     device = next(model.parameters()).device
     ps, ts = [], []
@@ -423,13 +425,17 @@ print(f"\\nBest val_mse: {best_val_mse:.4f}")
     print(f"{name:8s}: Pearson R = {pearson:.4f}  Spearman R = {spearman:.4f}  MSE = {mse:.4f}")
     return pearson, spearman, mse
 
-print("=== Our pre-trained best model ===")
-ckpt = torch.load("k562_d20k/best_model.pt", map_location="cpu", weights_only=False)
-pretrained = LegNet(in_channels=4, block_sizes=ckpt["block_sizes"], ks=5, dropout=ckpt.get("dropout", 0.1))
-pretrained.load_state_dict(ckpt["model_state_dict"])
-pretrained = pretrained.to("cuda" if torch.cuda.is_available() else "cpu")
-evaluate(pretrained, val_loader,  "val ")
-evaluate(pretrained, test_loader, "test")
+if os.path.exists("k562_d20k/best_model.pt"):
+    print("=== Our pre-trained best model ===")
+    ckpt = torch.load("k562_d20k/best_model.pt", map_location="cpu", weights_only=False)
+    pretrained = LegNet(in_channels=4, block_sizes=ckpt["block_sizes"], ks=5,
+                         dropout=ckpt.get("dropout", 0.1))
+    pretrained.load_state_dict(ckpt["model_state_dict"])
+    pretrained = pretrained.to("cuda" if torch.cuda.is_available() else "cpu")
+    evaluate(pretrained, val_loader,  "val ")
+    evaluate(pretrained, test_loader, "test")
+else:
+    print("(best_model.pt not yet in bundle — re-pull the bundle once Trevor has uploaded it.)")
 
 print("\\n=== Your fresh training ===")
 evaluate(model, val_loader,  "val ")
