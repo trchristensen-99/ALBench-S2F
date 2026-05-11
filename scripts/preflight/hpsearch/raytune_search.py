@@ -199,8 +199,6 @@ def main():
             search_alg=search_alg,
             scheduler=scheduler,
             num_samples=args.n_trials,
-            metric=metric,
-            mode=mode,
             max_concurrent_trials=args.gpus * args.trials_per_gpu,
         ),
         run_config=tune.RunConfig(
