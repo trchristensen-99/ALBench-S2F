@@ -50,6 +50,8 @@ ARCH_PRIORS: dict[str, dict[str, Any]] = {
         "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
         "ks": 5,
         "dropout": 0.0,
+        "block_class": "eff",  # eff | plain | ag (see models/legnet.BLOCK_CLASSES)
+        "optimizer": "adamw",  # adam | adamw | muon
     },
     "dream_rnn": {
         "lr": 1e-3,
@@ -189,6 +191,28 @@ def _shift_window_crop(
     return x.gather(2, idx)
 
 
+# ── Optimizer factory ────────────────────────────────────────────────────
+def _make_optimizer(
+    model: torch.nn.Module, name: str, lr: float, weight_decay: float
+) -> torch.optim.Optimizer:
+    """Build an optimizer by name. Supports adam, adamw, muon."""
+    name = name.lower()
+    if name == "adam":
+        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if name == "adamw":
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if name == "muon":
+        try:
+            from muon import Muon
+        except ImportError as e:
+            raise ImportError(
+                "Optimizer='muon' requires `pip install muon` "
+                "(https://github.com/KellerJordan/Muon)"
+            ) from e
+        return Muon(model.parameters(), lr=lr, weight_decay=weight_decay)
+    raise ValueError(f"Unknown optimizer: {name!r} (use adam | adamw | muon)")
+
+
 # ── Build models ─────────────────────────────────────────────────────────
 def build_model(arch: str, hp: dict[str, Any], device: torch.device) -> torch.nn.Module:
     if arch == "legnet":
@@ -200,6 +224,7 @@ def build_model(arch: str, hp: dict[str, Any], device: torch.device) -> torch.nn
             ks=hp.get("ks", 5),
             dropout=hp.get("dropout", 0.0),
             task_mode="k562",
+            block_class=hp.get("block_class", "eff"),
         ).to(device)
     if arch == "dream_rnn":
         from models.dream_rnn import DREAMRNN
@@ -442,10 +467,11 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
     model = build_model(args.arch, hp, device)
     n_params = sum(p.numel() for p in model.parameters())
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=hp["lr"],
-        weight_decay=hp["weight_decay"],
+    optimizer = _make_optimizer(
+        model,
+        hp.get("optimizer", "adamw"),
+        hp["lr"],
+        hp["weight_decay"],
     )
     total_steps = max(1, args.epochs * max(1, len(train_loader)))
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
