@@ -60,6 +60,7 @@ ARCH_PRIORS: dict[str, dict[str, Any]] = {
         "cnn_filters": 160,
         "dropout_cnn": 0.2,
         "dropout_lstm": 0.3,
+        "num_lstm_layers": 1,
     },
     "dream_attn": {
         "lr": 3e-4,
@@ -211,6 +212,7 @@ def build_model(arch: str, hp: dict[str, Any], device: torch.device) -> torch.nn
             cnn_filters=hp["cnn_filters"],
             dropout_cnn=hp["dropout_cnn"],
             dropout_lstm=hp["dropout_lstm"],
+            num_lstm_layers=hp.get("num_lstm_layers", 1),
         ).to(device)
     if arch == "dream_attn":
         from models.dream_attn import DREAMATTN
@@ -379,7 +381,7 @@ def _eval_loss(
     return float(np.mean((p - t) ** 2)), p
 
 
-def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
+def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> dict[str, Any]:
     set_seed(args.seed)
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
@@ -609,6 +611,21 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
             f"  ep {epoch + 1}/{args.epochs}  train={train_loss:.4f}  "
             f"val={val_loss:.4f}  test={test_loss:.4f}  lr={history['lr'][-1]:.5f}"
         )
+
+        if epoch_callback is not None:
+            try:
+                epoch_callback(
+                    {
+                        "epoch": epoch + 1,
+                        "train_loss": train_loss,
+                        "val_loss": val_loss,
+                        "test_loss": test_loss,
+                        "best_val_so_far": best_val,
+                        "best_epoch_so_far": best_epoch + 1,
+                    }
+                )
+            except Exception:
+                pass
 
         if args.early_stop_patience > 0:
             since_best = epoch - best_epoch
