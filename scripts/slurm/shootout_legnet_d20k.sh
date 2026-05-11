@@ -109,7 +109,7 @@ cat > "$OUT/configs.json" <<'EOF'
 ]
 EOF
 
-uv run --no-sync python scripts/preflight/parallel_gpu_runner.py "$OUT/configs.json" 8 2>&1 | tee "$OUT/driver.log"
+uv run --no-sync python scripts/preflight/parallel_gpu_runner.py "$OUT/configs.json" 4 2>&1 | tee "$OUT/driver.log"
 
 echo ""
 echo "=== Summary ==="
