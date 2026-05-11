@@ -30,10 +30,13 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 
 
-def _make_searcher(strategy: str, arch: str, metric: str, mode: str):
+def _make_searcher(strategy: str, arch: str, metric: str, mode: str, max_t: int = 60):
     """Build a Ray Tune search algorithm + scheduler for the given strategy.
 
     Returns (search_alg, scheduler) tuple. Either can be None.
+
+    max_t: max training iterations per trial (ASHA cap). Should match the
+    caller's --max_epochs so ASHA respects the configured epoch budget.
     """
     from ray import tune
     from ray.tune.schedulers import ASHAScheduler
@@ -42,11 +45,13 @@ def _make_searcher(strategy: str, arch: str, metric: str, mode: str):
 
     space = to_ray_space(arch)  # noqa: F841  (used by callers via param_space)
 
+    # Grace period: ~15% of budget — kill trials with no improvement that early
+    grace_period = max(3, max_t // 7)
     asha = ASHAScheduler(
         metric=metric,
         mode=mode,
-        max_t=60,
-        grace_period=8,
+        max_t=max_t,
+        grace_period=grace_period,
         reduction_factor=3,
     )
 
@@ -69,7 +74,7 @@ def _make_searcher(strategy: str, arch: str, metric: str, mode: str):
             time_attr="training_iteration",
             metric=metric,
             mode=mode,
-            max_t=60,
+            max_t=max_t,
             reduction_factor=3,
         )
         return bohb_search, bohb_sched
@@ -173,7 +178,9 @@ def main():
 
     metric = "val_loss"
     mode = "min"
-    search_alg, scheduler = _make_searcher(args.strategy, args.arch, metric, mode)
+    search_alg, scheduler = _make_searcher(
+        args.strategy, args.arch, metric, mode, max_t=args.max_epochs
+    )
 
     # Fixed params (not searched) — passed as constants
     param_space = to_ray_space(args.arch)
