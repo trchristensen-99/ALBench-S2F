@@ -96,9 +96,13 @@ def main():
                 "ag_oracle",
                 "--output_dir",
                 str(out_dir),
-                "--hp",
-                *cfg["hp_overrides"],
             ]
+            # Optional EvoAug args
+            if cfg.get("evoaug_intensity"):
+                cmd.extend(["--evoaug_intensity", str(cfg["evoaug_intensity"])])
+            if "evoaug_prob" in cfg:
+                cmd.extend(["--evoaug_prob", str(cfg["evoaug_prob"])])
+            cmd.extend(["--hp", *cfg["hp_overrides"]])
             log_path = out_dir / "stdout.log"
             log_f = open(log_path, "w")
             env = os.environ.copy()

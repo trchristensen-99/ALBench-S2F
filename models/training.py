@@ -93,6 +93,7 @@ def train_epoch_optimized(
     shift_aug: bool = False,
     max_shift: int = 15,
     multitask: bool = False,
+    extra_augment: Optional[Any] = None,
 ) -> Dict[str, float]:
     """
     Train for one epoch with optional mixed precision.
@@ -108,6 +109,8 @@ def train_epoch_optimized(
         use_amp: Whether to use automatic mixed precision
         shift_aug: Whether to apply random shift augmentation
         max_shift: Maximum shift in bp for shift augmentation
+        extra_augment: Optional callable(sequences)->sequences applied per batch
+            after shift_aug (e.g., EvoAugTransform for training-time EvoAug).
 
     Returns:
         Dictionary with training metrics
@@ -128,6 +131,8 @@ def train_epoch_optimized(
         targets = targets.to(device)
         if shift_aug:
             sequences = _shift_augment_batch(sequences, max_shift)
+        if extra_augment is not None:
+            sequences = extra_augment(sequences)
         rc_sequences = _reverse_complement_batch(sequences) if use_reverse_complement else None
 
         # Zero gradients
@@ -244,6 +249,7 @@ def train_model_optimized(
     max_shift: int = 15,
     multitask: bool = False,
     epoch_callback: Optional[Any] = None,
+    extra_augment: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Train a model with validation, checkpointing, and optimizations.
@@ -372,6 +378,7 @@ def train_model_optimized(
             shift_aug=shift_aug,
             max_shift=max_shift,
             multitask=multitask,
+            extra_augment=extra_augment,
         )
 
         # Validate (use standard evaluate function)

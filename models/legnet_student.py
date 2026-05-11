@@ -34,6 +34,8 @@ class TrainConfig:
     num_workers: int = 2
     shift_aug: bool = False
     max_shift: int = 15
+    evoaug_intensity: str | None = None  # None | "light" | "medium" | "heavy"
+    evoaug_prob: float = 0.5  # per-sample apply probability
 
 
 class _InMemorySequenceDataset(Dataset):
@@ -226,6 +228,18 @@ class LegNetStudent(SequenceModel):
                 criterion = NaNMaskedMSELoss()
             else:
                 criterion = nn.MSELoss()
+            # Build optional training-time EvoAug transform
+            extra_aug = None
+            if getattr(self.train_config, "evoaug_intensity", None):
+                from models.evoaug_transform import EvoAugTransform
+
+                extra_aug = EvoAugTransform(
+                    intensity=self.train_config.evoaug_intensity,
+                    apply_prob=self.train_config.evoaug_prob,
+                    seed=42,
+                    target_length=self.sequence_length,
+                )
+
             train_model_optimized(
                 model=model,
                 train_loader=loader,
@@ -245,4 +259,5 @@ class LegNetStudent(SequenceModel):
                 max_shift=self.train_config.max_shift,
                 multitask=self.multitask,
                 epoch_callback=epoch_callback,
+                extra_augment=extra_aug,
             )
