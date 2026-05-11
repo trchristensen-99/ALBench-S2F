@@ -16,6 +16,8 @@ set -euo pipefail
 set +u; source /etc/profile.d/modules.sh; set -u
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
+# Activate venv directly so Ray's spawned worker processes can find 'ray'.
+source .venv/bin/activate
 export PYTHONPATH="$PWD"
 export TORCHDYNAMO_DISABLE=1
 export WANDB_PROJECT=albench-s2f-hpsearch
@@ -33,7 +35,7 @@ TRIALS_PER_GPU=${TRIALS_PER_GPU:-4}
 
 mkdir -p "$OUT_DIR"
 
-uv run --no-sync python -m scripts.preflight.hpsearch.raytune_search \
+python -m scripts.preflight.hpsearch.raytune_search \
     --strategy "$STRATEGY" \
     --arch "$ARCH" \
     --d_train "$D_TRAIN" \
