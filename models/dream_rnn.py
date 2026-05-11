@@ -60,6 +60,7 @@ class DREAMRNN(SequenceModel):
         dropout_lstm: float = 0.5,
         task_mode: str = "k562",  # 'yeast' or 'k562'
         multitask: bool = False,  # If True, output 3 cell types (K562, HepG2, SknSh)
+        num_lstm_layers: int = 1,
     ):
         # Auto-detect output_dim from task_mode if not specified
         if output_dim is None:
@@ -102,13 +103,14 @@ class DREAMRNN(SequenceModel):
         # Core block: Bi-LSTM
         # Input: (batch, seq_len, features) - need to permute from (batch, channels, seq_len)
         # hidden_dim per direction, so total output is 2*hidden_dim
+        self.num_lstm_layers = num_lstm_layers
         self.lstm = nn.LSTM(
             input_size=concat_channels,
             hidden_size=hidden_dim,
-            num_layers=1,
+            num_layers=num_lstm_layers,
             batch_first=True,
             bidirectional=True,
-            dropout=0.0,  # Only one layer, so no dropout between layers
+            dropout=dropout_lstm if num_lstm_layers > 1 else 0.0,
         )
 
         # CNN block after LSTM (dual CNNs like first layer block)
