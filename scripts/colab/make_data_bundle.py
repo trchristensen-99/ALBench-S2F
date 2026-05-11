@@ -1,26 +1,24 @@
-"""Bundle the D=20k LegNet training data + best model for the Peter Colab.
+"""Bundle the full K562 train pool + val + test + multiple model checkpoints.
 
 Reads:
   outputs/oracle_pseudolabels_k562_ag_s2_refalt/pool/{train,val,test}.parquet
   outputs/oracle_pseudolabels_k562_ag_s2_refalt/*_oracle_labels.npz
-  results/preflight/colab_d20k_legnet/best.pt + result.json
+  results/preflight/shootout_d20k_legnet/*/best.pt + result.json
+       (any LegNet checkpoint dirs to bundle, see CHECKPOINTS list)
 
-Writes:
-  scripts/colab/k562_d20k/train_d20k.parquet  (20k subsample with sequence + label)
-  scripts/colab/k562_d20k/val.parquet         (all val rows; label = K562_log2FC real)
-  scripts/colab/k562_d20k/test.parquet        (all test rows; label = K562_log2FC real)
-  scripts/colab/k562_d20k/best_model.pt       (the LegNet checkpoint)
-  scripts/colab/k562_d20k/README.md           (notes on labels + splits)
-  scripts/colab/bundle_d20k.tar.gz            (gzipped tarball of the directory)
-
-Notes on label choices (for Peter):
-  - train uses oracle (OOF) labels — what the HP-search runs use, less noisy
-  - val/test use REAL K562_log2FC — what eval should be against
+Writes (under scripts/colab/k562_data/):
+  train_full.parquet      — full train pool (~617k rows, oracle OOF labels)
+  val.parquet             — chr 19/21/X, real K562_log2FC labels
+  test.parquet            — chr 7/13, real K562_log2FC labels
+  models/<name>.pt        — one per checkpoint in CHECKPOINTS
+  models/manifest.json    — list of available models with metadata
+  README.md
+scripts/colab/bundle_d20k.tar.gz  — gzipped tarball of the directory
 """
 
 from __future__ import annotations
 
-import shutil
+import json
 import subprocess
 from pathlib import Path
 
@@ -29,108 +27,152 @@ import pandas as pd
 
 REPO = Path(__file__).resolve().parents[2]
 ORACLE = REPO / "outputs/oracle_pseudolabels_k562_ag_s2_refalt"
-MODEL_DIR = REPO / "results/preflight/colab_d20k_legnet"
-OUT_DIR = REPO / "scripts/colab/k562_d20k"
+OUT_DIR = REPO / "scripts/colab/k562_data"
 BUNDLE = REPO / "scripts/colab/bundle_d20k.tar.gz"
 
-D = 20000
 SEED = 42
+
+# Checkpoints to bundle. Each entry is (display_name, source_dir, training_d).
+# Empty/missing source_dirs are skipped — bundle tolerates partial.
+CHECKPOINTS: list[tuple[str, Path, int]] = [
+    (
+        "legnet_published_default",
+        REPO / "results/preflight/shootout_d20k_legnet/legnet_published_default",
+        20000,
+    ),
+    (
+        "legnet_optimized_default",
+        REPO / "results/preflight/shootout_d20k_legnet/current_colab_default",
+        20000,
+    ),
+    (
+        "legnet_wider_arch",
+        REPO / "results/preflight/shootout_d20k_legnet/wider_arch",
+        20000,
+    ),
+    (
+        "legnet_with_shift_aug",
+        REPO / "results/preflight/shootout_d20k_legnet/with_shift_aug",
+        20000,
+    ),
+]
 
 
 def main():
+    import torch
+
     assert ORACLE.exists(), f"Oracle dir missing: {ORACLE}"
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    (OUT_DIR / "models").mkdir(exist_ok=True)
 
-    # ---------- train ----------
+    # ---------- train (FULL pool — notebook subsamples to any D) ----------
     train_pool = pd.read_parquet(ORACLE / "pool/train.parquet")
     train_npz = np.load(ORACLE / "train_oracle_labels.npz")
     print(f"Full train pool: {len(train_pool):,} sequences")
 
-    # AG oracle OOF labels for train
-    train_pool = train_pool.copy()
-    train_pool["label"] = train_npz["oof_oracle"].astype(np.float32)
-
-    rng = np.random.default_rng(SEED)
-    idx = rng.choice(len(train_pool), size=D, replace=False)
-    train_subset = train_pool.iloc[idx][["sequence", "label"]].reset_index(drop=True)
-    train_subset.to_parquet(OUT_DIR / "train_d20k.parquet", index=False)
+    train_full = train_pool[["sequence"]].copy()
+    train_full["label"] = train_npz["oof_oracle"].astype(np.float32)
+    train_full.to_parquet(OUT_DIR / "train_full.parquet", index=False)
     print(
-        f"  wrote train_d20k.parquet ({len(train_subset):,} rows, "
-        f"label_mean={train_subset['label'].mean():.3f})"
+        f"  wrote train_full.parquet ({len(train_full):,} rows, "
+        f"label_mean={train_full['label'].mean():.3f})"
     )
 
-    # ---------- val + test ----------
-    # Use REAL labels (K562_log2FC column from the parquet, NOT the oracle ensemble mean)
+    # ---------- val + test (real labels) ----------
     for split in ["val", "test"]:
         df = pd.read_parquet(ORACLE / f"pool/{split}.parquet").copy()
-        # Find the real-label column. Common names:
         for col in ["K562_log2FC", "log2FC", "k562_log2FC", "k562"]:
             if col in df.columns:
                 df["label"] = df[col].astype(np.float32)
                 src_col = col
                 break
         else:
-            # Fallback to oracle mean if real column missing
             npz = np.load(ORACLE / f"{split}_oracle_labels.npz")
             df["label"] = npz["oracle_mean"].astype(np.float32)
             src_col = "oracle_mean (fallback)"
-        out_df = df[["sequence", "label"]].reset_index(drop=True)
-        out_df.to_parquet(OUT_DIR / f"{split}.parquet", index=False)
-        print(f"  wrote {split}.parquet ({len(out_df):,} rows, label source: {src_col})")
+        df[["sequence", "label"]].reset_index(drop=True).to_parquet(
+            OUT_DIR / f"{split}.parquet", index=False
+        )
+        print(f"  wrote {split}.parquet ({len(df):,} rows, label source: {src_col})")
 
-    # ---------- model ----------
-    best_pt = MODEL_DIR / "best.pt"
-    if not best_pt.exists():
-        print(f"  WARN: {best_pt} not found — bundle will skip model.pt")
-    else:
-        # Convert run_single.py's checkpoint format to one with model_info
-        import torch
-
+    # ---------- checkpoints ----------
+    manifest = []
+    for name, src_dir, training_d in CHECKPOINTS:
+        best_pt = src_dir / "best.pt"
+        result_json = src_dir / "result.json"
+        if not best_pt.exists():
+            print(f"  skip {name}: {best_pt} not found")
+            continue
         ckpt = torch.load(best_pt, map_location="cpu", weights_only=False)
         hp = ckpt.get("hp", {})
+        result = json.loads(result_json.read_text()) if result_json.exists() else {}
         out_ckpt = {
             "model_state_dict": ckpt["state_dict"],
             "block_sizes": hp.get("block_sizes", [256, 256, 128, 128, 64, 64, 32, 32]),
             "ks": hp.get("ks", 5),
-            "dropout": hp.get("dropout", 0.1),
+            "block_class": "eff",  # All current checkpoints use EffBlock
+            "conv_dropout": hp.get("dropout", 0.0),
+            "dense_dims": [],
+            "dense_dropout": 0.0,
             "epoch": ckpt.get("epoch"),
-            "model_info": {
-                "arch": "legnet",
-                "trained_d": D,
-                "hp": hp,
+            "training_d": training_d,
+            "hp": hp,
+        }
+        out_path = OUT_DIR / "models" / f"{name}.pt"
+        torch.save(out_ckpt, out_path)
+        meta = {
+            "name": name,
+            "file": f"models/{name}.pt",
+            "training_d": training_d,
+            "best_val_mse": result.get("best_val_mse"),
+            "test_mse_at_best_val": result.get("test_mse_at_best_val"),
+            "best_epoch": result.get("best_epoch"),
+            "n_params": result.get("n_params"),
+            "hp_summary": {
+                "lr": hp.get("lr"),
+                "batch_size": hp.get("batch_size"),
+                "weight_decay": hp.get("weight_decay"),
+                "dropout": hp.get("dropout"),
+                "block_sizes": hp.get("block_sizes"),
             },
         }
-        torch.save(out_ckpt, OUT_DIR / "best_model.pt")
-        print(f"  wrote best_model.pt (epoch={ckpt.get('epoch')})")
+        manifest.append(meta)
+        print(f"  wrote {out_path.name}  (val_mse={result.get('best_val_mse', float('nan')):.4f})")
 
-        # Save the result.json too for context
-        result_json = MODEL_DIR / "result.json"
-        if result_json.exists():
-            shutil.copy(result_json, OUT_DIR / "result.json")
-            print("  wrote result.json")
+    (OUT_DIR / "models" / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    print(f"\n  manifest: {len(manifest)} checkpoints bundled")
 
     # ---------- README ----------
+    ckpt_lines = (
+        "\n".join(
+            f"- `models/{m['name']}.pt` — val_mse={m['best_val_mse']:.4f}"
+            f" (trained at D={m['training_d']:,})"
+            for m in manifest
+        )
+        or "_(no checkpoints bundled yet)_"
+    )
     (OUT_DIR / "README.md").write_text(
-        f"""# K562 D=20k MPRA Subset
-
-Bundled for the Peter Colab notebook (May 11, 2026).
+        f"""# K562 MPRA training/eval bundle
 
 ## Files
-- `train_d20k.parquet` — {D:,} train sequences (AG oracle OOF labels, seed={SEED})
-- `val.parquet` — held-out validation (chromosomes 19/21/X, real K562_log2FC labels)
-- `test.parquet` — held-out test (chromosomes 7/13, real K562_log2FC labels)
-- `best_model.pt` — LegNet trained on `train_d20k.parquet`
-- `result.json` — training summary (best epoch, val_mse, gpu_hrs, etc.)
+- `train_full.parquet` — full chromosome-split train pool ({len(train_full):,} sequences,
+  AG-oracle OOF pseudolabels). Subsample to any D in the notebook.
+- `val.parquet` — held-out validation (chr 19/21/X, real K562_log2FC labels).
+- `test.parquet` — held-out test (chr 7/13, real K562_log2FC labels).
+- `models/manifest.json` — list of bundled checkpoints with HPs + val metrics.
+- `models/*.pt` — LegNet checkpoints; see README in notebook for usage.
+
+## Bundled checkpoints
+{ckpt_lines}
 
 ## Label sources
-- Train: AG-oracle out-of-fold predictions (denoised pseudolabels — what our HP
-  search uses internally; smoother loss surface than real labels at small D)
-- Val/test: real K562_log2FC measurements (so eval numbers are interpretable)
+- Train: AG-oracle out-of-fold predictions (denoised pseudolabels).
+- Val/test: real K562_log2FC measurements.
 
-## Sampling
-Train is a deterministic uniform random subsample (`np.random.default_rng({SEED}).choice`)
-from the chromosome-split train pool.
+## Subsampling
+Use `np.random.default_rng({SEED}).choice(N, D, replace=False)` for deterministic
+D-sized training subsets.
 """
     )
 

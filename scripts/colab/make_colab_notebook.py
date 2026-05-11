@@ -49,19 +49,23 @@ def code(text: str) -> dict:
 
 CELLS = [
     md(
-        f"""# K562 MPRA HP Search Sandbox — D=20,000 subset
+        f"""# K562 MPRA HP Search Sandbox
 
-Self-contained Colab for exploring sequence-to-function architectures on a
-slice of the Tewhey K562 MPRA dataset.
+Self-contained Colab for exploring sequence-to-function architectures on the
+Tewhey K562 MPRA dataset.
 
 **Contents (after running the wget cell):**
-- `train_d20k.parquet` — 20,000 train sequences (AG-oracle OOF pseudolabels)
+- `train_full.parquet` — full chromosome-split train pool (~617k sequences,
+  AG-oracle OOF pseudolabels). Pick any `D_TRAIN` and the notebook subsamples
+  deterministically.
 - `val.parquet` — chr 19/21/X held-out (real K562_log2FC labels)
 - `test.parquet` — chr 7/13 held-out (real K562_log2FC labels)
-- `best_model.pt` — LegNet trained on the D=20k subset (reference baseline)
+- `models/manifest.json` + `models/*.pt` — LegNet baselines (published default
+  + a few optimized variants), evaluated at the bottom of the notebook.
 
-The training pool spans D ∈ [600, 600,000] sequences in the broader study;
-20k is a midpoint — fast to iterate on but where architecture choices matter.
+The training pool spans D ∈ [600, 600,000] sequences in the broader study.
+D=20k is a useful default — fast to iterate, large enough that architecture
+choices matter.
 
 Data URL: `{BUNDLE_URL}`
 """
@@ -77,10 +81,10 @@ Run these once at the top. The bundle is ~50 MB.
 """
     ),
     code(
-        f"""# Download + extract the data + model bundle
-!wget -q {BUNDLE_URL} -O bundle_d20k.tar.gz
-!tar -xzf bundle_d20k.tar.gz
-!ls -la k562_d20k/
+        f"""# Download + extract the data + model bundle (~70 MB)
+!wget -q {BUNDLE_URL} -O bundle.tar.gz
+!tar -xzf bundle.tar.gz
+!ls -la k562_data/ k562_data/models/
 """
     ),
     md(
@@ -91,12 +95,15 @@ flanks each insert with fixed 15-bp adapters:
 ```
 LEFT_ADAPTER = "AGGACCGGATCAACT"   RIGHT_ADAPTER = "CATTGCGTGAACCGA"
 ```
-We expose these as constants so shift-augmentation (Section 5) has real
+These are exposed as constants so shift-augmentation (Section 5) has real
 flanking context to slide into.
 
 Labels: train uses AG-oracle pseudolabels (denoised, less noisy at small D);
 val/test use real K562_log2FC. The one-hot encoder uses 4 channels (ACGT);
 unknown bases map to all-zeros.
+
+`D_TRAIN` controls how many training sequences to use (deterministic
+subsample). Try 500 / 5k / 20k / 100k / 600k — the scaling laws change.
 """
     ),
     code(
@@ -105,14 +112,22 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-DATA_DIR = "k562_d20k"
+DATA_DIR = "k562_data"
 PAYLOAD_LEN = 200
+D_TRAIN = 20_000          # try 500, 5_000, 20_000, 100_000, 617_217 (full)
+SUBSAMPLE_SEED = 42       # deterministic — same D_TRAIN always picks the same sequences
 
-train_df = pd.read_parquet(f"{DATA_DIR}/train_d20k.parquet")
-val_df   = pd.read_parquet(f"{DATA_DIR}/val.parquet")
-test_df  = pd.read_parquet(f"{DATA_DIR}/test.parquet")
+train_full = pd.read_parquet(f"{DATA_DIR}/train_full.parquet")
+val_df     = pd.read_parquet(f"{DATA_DIR}/val.parquet")
+test_df    = pd.read_parquet(f"{DATA_DIR}/test.parquet")
 
-print(f"train: {len(train_df):,} sequences")
+# Deterministic subsample of train
+D = min(D_TRAIN, len(train_full))
+rng = np.random.default_rng(SUBSAMPLE_SEED)
+idx = rng.choice(len(train_full), size=D, replace=False)
+train_df = train_full.iloc[idx].reset_index(drop=True)
+
+print(f"train: {len(train_df):,} sequences  (subsampled from {len(train_full):,} pool, seed={SUBSAMPLE_SEED})")
 print(f"val:   {len(val_df):,} sequences")
 print(f"test:  {len(test_df):,} sequences")
 print(f"\\nTrain label stats: mean={train_df['label'].mean():.3f}  std={train_df['label'].std():.3f}")
@@ -571,9 +586,7 @@ print(f"\\nBest val_mse: {best_val_mse:.4f}")
 """
     ),
     code(
-        """import os
-
-def evaluate(model, loader, name="set"):
+        """def evaluate(model, loader, name="set"):
     model.eval()
     device = next(model.parameters()).device
     ps, ts = [], []
@@ -589,32 +602,89 @@ def evaluate(model, loader, name="set"):
     print(f"{name:8s}: Pearson R = {pearson:.4f}  Spearman R = {spearman:.4f}  MSE = {mse:.4f}")
     return pearson, spearman, mse
 
-if os.path.exists("k562_d20k/best_model.pt"):
-    print("=== Reference pre-trained best model ===")
-    ckpt = torch.load("k562_d20k/best_model.pt", map_location="cpu", weights_only=False)
-    pretrained = LegNet(
-        in_channels=4,
-        block_sizes=ckpt["block_sizes"],
-        ks=ckpt.get("ks", 5),
-        block_class=BLOCK_CLASSES[ckpt.get("block_class", "eff")],
-        conv_dropout=ckpt.get("conv_dropout", ckpt.get("dropout", 0.1)),
-        dense_dims=ckpt.get("dense_dims", []),
-        dense_dropout=ckpt.get("dense_dropout", 0.3),
-    )
-    pretrained.load_state_dict(ckpt["model_state_dict"])
-    pretrained = pretrained.to("cuda" if torch.cuda.is_available() else "cpu")
-    evaluate(pretrained, val_loader,  "val ")
-    evaluate(pretrained, test_loader, "test")
-else:
-    print("(best_model.pt not yet in bundle — re-pull the bundle once it has been uploaded.)")
 
-print("\\n=== Your fresh training ===")
+print("=== Your fresh training ===")
 evaluate(model, val_loader,  "val ")
 evaluate(model, test_loader, "test")
 """
     ),
     md(
-        """## 9. Ideas to try
+        """## 9. Pre-trained baselines
+
+The bundle ships LegNet checkpoints already trained at D=20k — useful as a
+floor (and a sanity check that your fresh run is doing something reasonable).
+Each cell below loads one, evaluates on val + test, and you can compare.
+
+Replace the `DATA_DIR` / `BUNDLED_MODELS` constants if you want to point at
+your own trained checkpoints.
+"""
+    ),
+    code(
+        """import json, os
+
+BUNDLED_MODELS_DIR = f"{DATA_DIR}/models"
+if not os.path.exists(f"{BUNDLED_MODELS_DIR}/manifest.json"):
+    print("(no manifest.json found — the bundle may not yet include trained models)")
+    manifest = []
+else:
+    manifest = json.loads(open(f"{BUNDLED_MODELS_DIR}/manifest.json").read())
+    print(f"Available checkpoints ({len(manifest)}):")
+    for m in manifest:
+        print(f"  - {m['name']:30s}  trained at D={m['training_d']:,}  "
+              f"val_mse={m['best_val_mse']:.4f}  params={m['n_params']:,}")
+"""
+    ),
+    code(
+        '''def load_bundled(name, models_dir=BUNDLED_MODELS_DIR):
+    """Build a LegNet from a bundled checkpoint and load its weights.
+
+    The checkpoint dict stores all the architecture HPs it was trained with,
+    so we can reconstruct the exact model.
+    """
+    ckpt = torch.load(f"{models_dir}/{name}.pt", map_location="cpu", weights_only=False)
+    m = LegNet(
+        in_channels=4,
+        block_sizes=ckpt["block_sizes"],
+        ks=ckpt.get("ks", 5),
+        block_class=BLOCK_CLASSES[ckpt.get("block_class", "eff")],
+        conv_dropout=ckpt.get("conv_dropout", 0.0),
+        dense_dims=ckpt.get("dense_dims", []),
+        dense_dropout=ckpt.get("dense_dropout", 0.0),
+    )
+    m.load_state_dict(ckpt["model_state_dict"])
+    return m.to("cuda" if torch.cuda.is_available() else "cpu")
+
+
+# Compare every bundled checkpoint side-by-side
+for m_meta in manifest:
+    name = m_meta["name"]
+    print(f"\\n--- {name} ---")
+    pretrained = load_bundled(name)
+    evaluate(pretrained, val_loader,  "val ")
+    evaluate(pretrained, test_loader, "test")
+'''
+    ),
+    md(
+        """### Load a specific baseline by name
+
+If you only want one to compare against (e.g. the published default):
+```python
+m = load_bundled("legnet_published_default")
+evaluate(m, val_loader,  "val ")
+evaluate(m, test_loader, "test")
+```
+
+To use a baseline as the **starting weights** for fine-tuning:
+```python
+m = load_bundled("legnet_optimized_default")
+m, best = train_model(m, train_loader, val_loader, CONFIG)
+```
+(Just make sure your `CONFIG`'s `block_sizes` + `block_class` match the
+baseline; otherwise the state-dict load will fail.)
+"""
+    ),
+    md(
+        """## 10. Ideas to try
 
 All of these are one-line `CONFIG` tweaks unless otherwise noted.
 
