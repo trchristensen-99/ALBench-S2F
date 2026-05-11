@@ -19,13 +19,18 @@ SHARED_RANGES: dict[str, Any] = {
     "batch_size": ("choice", [64, 128, 256, 512, 1024]),
     "weight_decay": ("loguniform", 1e-6, 1e-1),
     "dropout": ("choice", [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]),
+    # Added per Peter's feedback (May 11 2026): optimizer choice
+    "optimizer": ("choice", ["adam", "adamw"]),  # muon added later (needs pip)
 }
 
 ARCH_RANGES: dict[str, dict[str, Any]] = {
     "legnet": {
-        # block_sizes = [width] * depth
+        # block_sizes = [width] * depth (homogeneous), or per-layer (TODO)
         "width": ("choice", [128, 256, 512, 1024, 2000]),
         "depth": ("choice", [2, 3, 4, 5, 6, 7]),
+        # Added per Peter: alternative block classes (vanilla conv / AlphaGenome-style)
+        # See models/legnet.BLOCK_CLASSES
+        "block_class": ("choice", ["eff", "plain", "ag"]),
     },
     "dream_rnn": {
         # hidden_dim = width (LSTM hidden per direction)
@@ -67,11 +72,15 @@ def to_run_single_overrides(arch: str, hp: dict[str, Any]) -> list[str]:
     d = hp["depth"]
 
     overrides = [f"lr={lr}", f"batch_size={bs}", f"weight_decay={wd}"]
+    if "optimizer" in hp:
+        overrides.append(f"optimizer={hp['optimizer']}")
 
     if arch == "legnet":
         block_sizes = [int(w)] * int(d)
         overrides.append(f"block_sizes={block_sizes}")
         overrides.append(f"dropout={dr}")
+        if "block_class" in hp:
+            overrides.append(f"block_class={hp['block_class']}")
     elif arch == "dream_rnn":
         overrides.append(f"hidden_dim={int(w)}")
         # cnn_filters scales with width (clamped to keep params reasonable)

@@ -163,6 +163,123 @@ class MappingBlock(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# Alternative block classes (pluggable into LegNet via block_class kwarg)
+# ---------------------------------------------------------------------------
+
+
+class PlainConvBlock(nn.Module):
+    """Vanilla 2-layer conv block (Conv → BN → SiLU)², preserves channels.
+
+    Simplest baseline alternative to EffBlock — no inverted residual or SE.
+    Drop-in replacement: matches EffBlock(in_ch, ks=...) signature; output is
+    same shape as input.
+    """
+
+    def __init__(self, in_ch: int, ks: int = 5, **_unused):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv1d(in_ch, in_ch, ks, padding="same", bias=False),
+            nn.BatchNorm1d(in_ch),
+            nn.SiLU(),
+            nn.Conv1d(in_ch, in_ch, ks, padding="same", bias=False),
+            nn.BatchNorm1d(in_ch),
+            nn.SiLU(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.block(x)
+
+
+class QuickGELU(nn.Module):
+    """sigmoid(1.702·x) · x — the GELU variant used by AlphaGenome."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.sigmoid(1.702 * x) * x
+
+
+class RMSBatchNorm1d(nn.Module):
+    """RMS batch norm: x * scale / sqrt(var + eps) + offset (no mean centering).
+
+    Faithful port of `alphagenome_research.model.layers.RMSBatchNorm`: variance
+    across (batch, seq) per channel, learned scale + offset, running EMA for eval.
+    """
+
+    def __init__(self, num_features: int, eps: float = 1e-5, momentum: float = 0.1):
+        super().__init__()
+        self.eps = eps
+        self.momentum = momentum
+        self.scale = nn.Parameter(torch.ones(1, num_features, 1))
+        self.offset = nn.Parameter(torch.zeros(1, num_features, 1))
+        self.register_buffer("running_var", torch.ones(num_features))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.training:
+            var = x.pow(2).mean(dim=(0, 2))  # (C,)
+            with torch.no_grad():
+                self.running_var.mul_(1 - self.momentum).add_(self.momentum * var.detach())
+        else:
+            var = self.running_var
+        inv = self.scale / torch.sqrt(var.view(1, -1, 1) + self.eps)
+        return x * inv + self.offset
+
+
+class StandardizedConv1d(nn.Module):
+    """Conv1d with weight standardization (AlphaGenome's `StandardizedConv1D`).
+
+    Per output channel: zero-mean its kernel, divide by `sqrt(fan_in · var_w)` with
+    a learned per-channel gain. Zero-init kernel matches AG's haiku init.
+    """
+
+    def __init__(self, in_ch: int, out_ch: int, ks: int):
+        super().__init__()
+        self.fan_in = ks * in_ch
+        self.pad = (ks - 1) // 2
+        self.weight = nn.Parameter(torch.zeros(out_ch, in_ch, ks))
+        self.bias = nn.Parameter(torch.zeros(out_ch))
+        self.gain = nn.Parameter(torch.ones(out_ch, 1, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        w = self.weight - self.weight.mean(dim=(1, 2), keepdim=True)
+        var = w.var(dim=(1, 2), keepdim=True, unbiased=False)
+        scale = self.gain * torch.rsqrt(torch.clamp(self.fan_in * var, min=1e-4))
+        return F.conv1d(x, w * scale, self.bias, padding=self.pad)
+
+
+class AGBlock(nn.Module):
+    """AlphaGenome-style stage: two pre-norm ConvBlocks with internal residuals.
+
+    Each ConvBlock = RMSBatchNorm → QuickGELU → StandardizedConv1D, matching
+    `alphagenome_research.model.convolutions.ConvBlock`. Internal residuals
+    around each ConvBlock are essential because StandardizedConv1D weights
+    init to zero (matching AG's haiku init) — without them, the second
+    ConvBlock receives all-zero input and gradients never flow.
+
+    Channels stay constant inside the block; channel growth happens outside
+    in the parent LegNet stage.
+    """
+
+    def __init__(self, in_ch: int, ks: int = 5, **_unused):
+        super().__init__()
+        self.norm1 = RMSBatchNorm1d(in_ch)
+        self.conv1 = StandardizedConv1d(in_ch, in_ch, ks)
+        self.norm2 = RMSBatchNorm1d(in_ch)
+        self.conv2 = StandardizedConv1d(in_ch, in_ch, ks)
+        self.act = QuickGELU()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.conv1(self.act(self.norm1(x))) + x
+        return self.conv2(self.act(self.norm2(h))) + h
+
+
+# Block class registry — used by hp_space.py + LegNet's block_class kwarg
+BLOCK_CLASSES = {
+    "eff": EffBlock,
+    "plain": PlainConvBlock,
+    "ag": AGBlock,
+}
+
+
+# ---------------------------------------------------------------------------
 # LegNet
 # ---------------------------------------------------------------------------
 
@@ -204,10 +321,17 @@ class LegNet(nn.Module):
         task_mode: str = "k562",
         multitask: bool = False,
         dropout: float = 0.0,
+        block_class: str | Type[nn.Module] = "eff",
     ):
         super().__init__()
         if block_sizes is None:
             block_sizes = [256, 256, 128, 128, 64, 64, 32, 32]
+
+        # Resolve string → class. Default "eff" keeps backward compat.
+        block_cls: Type[nn.Module] = (
+            BLOCK_CLASSES[block_class] if isinstance(block_class, str) else block_class
+        )
+        self.block_class = block_class
 
         self.block_sizes = block_sizes
         self.task_mode = task_mode
@@ -228,21 +352,25 @@ class LegNet(nn.Module):
             activation=activation,
         )
 
-        # Main body: ResidualConcat(EffBlock) + LocalBlock + optional Dropout per stage
+        # Main body: ResidualConcat(block) + LocalBlock + optional Dropout per stage.
+        # block is one of {EffBlock, PlainConvBlock, AGBlock}, all preserving in_ch.
+        def _build_block(in_ch: int) -> nn.Module:
+            if block_cls is EffBlock:
+                return EffBlock(
+                    in_ch=in_ch,
+                    ks=ks,
+                    resize_factor=resize_factor,
+                    activation=activation,
+                    filter_per_group=filter_per_group,
+                    inner_dim_calculation=inner_dim_calculation,
+                )
+            # PlainConvBlock + AGBlock take only (in_ch, ks)
+            return block_cls(in_ch=in_ch, ks=ks)
+
         blocks = []
         for prev_sz, sz in zip(block_sizes[:-1], block_sizes[1:]):
             layers: list[nn.Module] = [
-                ResidualConcat(
-                    EffBlock(
-                        in_ch=prev_sz,
-                        out_ch=sz,
-                        ks=ks,
-                        resize_factor=resize_factor,
-                        activation=activation,
-                        filter_per_group=filter_per_group,
-                        inner_dim_calculation=inner_dim_calculation,
-                    )
-                ),
+                ResidualConcat(_build_block(prev_sz)),
                 LocalBlock(
                     in_ch=2 * prev_sz,  # doubled by ResidualConcat
                     out_ch=sz,

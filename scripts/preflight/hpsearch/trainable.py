@@ -37,9 +37,13 @@ def _to_overrides(arch: str, config: dict[str, Any]) -> list[str]:
     w = int(config["width"])
     d = int(config["depth"])
     out = [f"lr={lr}", f"batch_size={bs}", f"weight_decay={wd}"]
+    if "optimizer" in config:
+        out.append(f"optimizer={config['optimizer']}")
     if arch == "legnet":
         out.append(f"block_sizes={[w] * d}")
         out.append(f"dropout={dr}")
+        if "block_class" in config:
+            out.append(f"block_class={config['block_class']}")
     elif arch == "dream_rnn":
         out.append(f"hidden_dim={w}")
         out.append(f"cnn_filters={min(w, 320)}")
