@@ -77,7 +77,7 @@ echo "  All label jobs: $LABEL_JOB_IDS_STR"
 # ── Step 2: Submit student training jobs (depend on all label jobs) ──
 echo
 echo "=== Step 2: Submit student scaling-law jobs (depends on label jobs) ==="
-declare -A ARCH_QOS=([legnet]="default" [dream_rnn]="default" [dream_attn]="slow_nice")
+declare -A ARCH_QOS=([legnet]="slow_nice" [dream_rnn]="slow_nice" [dream_attn]="slow_nice")
 declare -A ARCH_GPU=([legnet]="v100" [dream_rnn]="v100" [dream_attn]="h100")
 declare -A ARCH_K=([legnet]=4 [dream_rnn]=2 [dream_attn]=3)
 
