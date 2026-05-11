@@ -165,6 +165,8 @@ def fig02_decision_10fold(df, out):
 
 
 def fig03_hp_best_per_d(out):
+    """Best test_mse per (arch, D) with 95% CI of the mean across seeds.
+    Center = mean of best-per-seed; band = mean ± 1.96 * std / sqrt(n)."""
     df = pd.read_parquet(REPO / "results/preflight/all_hp_results.parquet")
     df = df.dropna(subset=["test_mse", "d_train"])
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -172,18 +174,33 @@ def fig03_hp_best_per_d(out):
     for arch in sorted(df.arch.unique()):
         a = df[df.arch == arch]
         ds = sorted(a.d_train.unique())
-        lows, mids, highs = [], [], []
+        means, lows, highs = [], [], []
         for d in ds:
             cell = a[a.d_train == d]
-            best_per_seed = cell.groupby("seed")["test_mse"].min().tolist() if "seed" in cell.columns else cell.test_mse.tolist()
-            lo, md, hi = empirical_ci(best_per_seed)
-            lows.append(lo); mids.append(md); highs.append(hi)
-        ax.plot(ds, mids, "o-", label=arch, color=colors.get(arch, "k"), markersize=8)
-        ax.fill_between(ds, lows, highs, alpha=0.2, color=colors.get(arch, "k"))
+            if "seed" in cell.columns and cell["seed"].notna().any():
+                best_per_seed = cell.groupby("seed")["test_mse"].min().to_numpy()
+            else:
+                best_per_seed = cell["test_mse"].to_numpy()
+            n = len(best_per_seed)
+            if n == 0:
+                continue
+            mu = float(best_per_seed.mean())
+            if n == 1:
+                lo = hi = mu
+            else:
+                sem = float(best_per_seed.std(ddof=1)) / np.sqrt(n)
+                lo = mu - 1.96 * sem
+                hi = mu + 1.96 * sem
+            means.append(mu)
+            lows.append(lo)
+            highs.append(hi)
+        valid_ds = [d for d, m in zip(ds, means) if m is not None]
+        ax.plot(valid_ds, means, "o-", label=arch, color=colors.get(arch, "k"), markersize=8)
+        ax.fill_between(valid_ds, lows, highs, alpha=0.2, color=colors.get(arch, "k"))
     ax.set_xscale("log")
     ax.set_xlabel("D (training samples, log scale)", fontsize=11)
     ax.set_ylabel("Test MSE (best HP per seed)", fontsize=11)
-    ax.set_title("Best HP per D × architecture (empirical CI: 2nd-low to 2nd-high)", fontsize=12)
+    ax.set_title("Best HP per D × architecture (line = mean; band = 95% CI)", fontsize=12)
     ax.legend()
     ax.grid(alpha=0.3)
     fig.tight_layout()
