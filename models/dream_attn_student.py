@@ -1,0 +1,225 @@
+"""DREAM-ATTN student wrapper implementing the SequenceModel interface.
+
+Parallel of dream_rnn_student.py / dream_cnn_student.py.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Sequence
+
+import numpy as np
+import torch
+from torch import nn
+from torch.utils.data import DataLoader, Dataset
+
+from albench.model import SequenceModel
+from data.utils import one_hot_encode
+from models.dream_attn import DREAMATTN, create_dream_attn
+from models.loss_utils import NaNMaskedMSELoss, YeastKLLoss
+from models.training import train_model_optimized
+from models.training_base import create_optimizer_and_scheduler
+
+
+@dataclass
+class TrainConfig:
+    """Training hyperparameters for one ensemble member."""
+
+    batch_size: int = 128
+    epochs: int = 80
+    lr: float = 0.0003
+    lr_lstm: float = 0.0003
+    weight_decay: float = 0.01
+    pct_start: float = 0.3
+    early_stopping_patience: int | None = None
+    num_workers: int = 2
+    shift_aug: bool = False
+    max_shift: int = 15
+
+
+class _InMemorySequenceDataset(Dataset):
+    def __init__(self, x: torch.Tensor, y: torch.Tensor) -> None:
+        self.x = x
+        self.y = y
+
+    def __len__(self) -> int:
+        return self.x.shape[0]
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.x[idx], self.y[idx]
+
+
+class DREAMAttnStudent(SequenceModel):
+    """SequenceModel wrapper around an ensemble of DREAMATTN models."""
+
+    def __init__(
+        self,
+        input_channels: int,
+        sequence_length: int,
+        task_mode: str = "k562",
+        ensemble_size: int = 3,
+        device: str | None = None,
+        train_config: TrainConfig | None = None,
+        multitask: bool = False,
+    ) -> None:
+        self.input_channels = input_channels
+        self.sequence_length = sequence_length
+        self.task_mode = task_mode
+        self.ensemble_size = ensemble_size
+        self.multitask = multitask
+        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.train_config = train_config or TrainConfig()
+        self.models = [
+            create_dream_attn(
+                task_mode=task_mode,
+                in_channels=input_channels,
+                sequence_length=sequence_length,
+            ).to(self.device)
+            for _ in range(ensemble_size)
+        ]
+
+    def _encode_sequences(
+        self, sequences: Sequence[str], singleton_flag: float = 0.0
+    ) -> torch.Tensor:
+        target_len = self.sequence_length
+        encoded: list[np.ndarray] = []
+        for seq in sequences:
+            seq = seq.upper()
+            if len(seq) < target_len:
+                pad = target_len - len(seq)
+                seq = "N" * (pad // 2) + seq + "N" * (pad - pad // 2)
+            elif len(seq) > target_len:
+                start = (len(seq) - target_len) // 2
+                seq = seq[start : start + target_len]
+            base = one_hot_encode(seq, add_singleton_channel=False)
+            rc = np.zeros((1, len(seq)), dtype=np.float32)
+            if self.input_channels == 6:
+                singleton = np.full((1, len(seq)), singleton_flag, dtype=np.float32)
+                arr = np.concatenate([base, rc, singleton], axis=0)
+            elif self.input_channels == 5:
+                arr = np.concatenate([base, rc], axis=0)
+            else:
+                arr = base
+            encoded.append(arr)
+        array = np.stack(encoded, axis=0)
+        return torch.from_numpy(array).float()
+
+    def _predict_member(self, model: DREAMATTN, x: torch.Tensor) -> np.ndarray:
+        model.eval()
+        with torch.no_grad():
+            out = model(x.to(self.device)).detach().cpu().numpy()
+        if self.multitask:
+            return out
+        return out.reshape(-1)
+
+    def predict(
+        self, sequences: list[str], batch_size: int = 4096, cell_type_idx: int = 0
+    ) -> np.ndarray:
+        x = self._encode_sequences(sequences)
+        if len(x) <= batch_size:
+            preds = [self._predict_member(model, x) for model in self.models]
+        else:
+            preds = []
+            for model in self.models:
+                chunks = [
+                    self._predict_member(model, x[i : i + batch_size])
+                    for i in range(0, len(x), batch_size)
+                ]
+                preds.append(np.concatenate(chunks))
+        mean_pred = np.mean(np.stack(preds, axis=0), axis=0)
+        if self.multitask:
+            return mean_pred[:, cell_type_idx]
+        return mean_pred
+
+    def uncertainty(self, sequences: list[str]) -> np.ndarray:
+        x = self._encode_sequences(sequences).to(self.device)
+        all_passes: list[np.ndarray] = []
+        for model in self.models:
+            member_passes: list[np.ndarray] = []
+            model.train()
+            for _ in range(30):
+                with torch.no_grad():
+                    member_passes.append(model(x).detach().cpu().numpy().reshape(-1))
+            all_passes.append(np.var(np.stack(member_passes, axis=0), axis=0))
+        return np.mean(np.stack(all_passes, axis=0), axis=0)
+
+    def embed(self, sequences: list[str]) -> np.ndarray:
+        # No specialized embedding extraction; reuse predict for now
+        return self.predict(sequences)
+
+    def fit(
+        self,
+        sequences: list[str],
+        labels: np.ndarray,
+        val_sequences: list[str] | None = None,
+        val_labels: np.ndarray | None = None,
+    ) -> None:
+        x = self._encode_sequences(sequences)
+        y = torch.from_numpy(labels.astype(np.float32))
+
+        if val_sequences is not None and val_labels is not None:
+            x_val = self._encode_sequences(val_sequences)
+            y_val = torch.from_numpy(val_labels.astype(np.float32))
+        else:
+            n_val = max(50, int(0.1 * len(x)))
+            perm = torch.randperm(len(x))
+            val_idx, train_idx = perm[:n_val], perm[n_val:]
+            x_val, y_val = x[val_idx], y[val_idx]
+            x, y = x[train_idx], y[train_idx]
+
+        train_dataset = _InMemorySequenceDataset(x, y)
+        val_dataset = _InMemorySequenceDataset(x_val, y_val)
+        nw = self.train_config.num_workers
+        loader = DataLoader(
+            train_dataset,
+            batch_size=self.train_config.batch_size,
+            shuffle=True,
+            pin_memory=True,
+            num_workers=nw,
+            persistent_workers=nw > 0,
+            drop_last=True,
+        )
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=self.train_config.batch_size,
+            shuffle=False,
+            pin_memory=True,
+            num_workers=nw,
+            persistent_workers=nw > 0,
+        )
+
+        for model in self.models:
+            optimizer, scheduler = create_optimizer_and_scheduler(
+                model=model,
+                train_loader=loader,
+                num_epochs=self.train_config.epochs,
+                lr=self.train_config.lr,
+                lr_lstm=self.train_config.lr_lstm,
+                weight_decay=self.train_config.weight_decay,
+                pct_start=self.train_config.pct_start,
+            )
+            if self.task_mode == "yeast":
+                criterion: nn.Module = YeastKLLoss()
+            elif self.multitask:
+                criterion = NaNMaskedMSELoss()
+            else:
+                criterion = nn.MSELoss()
+            train_model_optimized(
+                model=model,
+                train_loader=loader,
+                val_loader=val_loader,
+                optimizer=optimizer,
+                criterion=criterion,
+                num_epochs=self.train_config.epochs,
+                device=self.device,
+                scheduler=scheduler,
+                checkpoint_dir=None,
+                use_reverse_complement=True,
+                early_stopping_patience=self.train_config.early_stopping_patience,
+                metric_for_best="pearson_r",
+                use_amp=True,
+                use_compile=False,
+                shift_aug=getattr(self.train_config, "shift_aug", False),
+                max_shift=getattr(self.train_config, "max_shift", 15),
+                multitask=self.multitask,
+            )

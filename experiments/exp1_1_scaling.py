@@ -73,6 +73,10 @@ HP_GRIDS = {
         "learning_rate": [0.005],
         "batch_size": [512, 1024],
     },
+    "dream_attn": {
+        "learning_rate": [0.0003, 0.001],
+        "batch_size": [64, 128],
+    },
     "legnet": {
         "learning_rate": [0.005, 0.001],
         "batch_size": [512, 1024],
@@ -115,6 +119,10 @@ HP_GRIDS_LARGE_N = {
     "dream_cnn": {
         "learning_rate": [0.005],
         "batch_size": [1024],
+    },
+    "dream_attn": {
+        "learning_rate": [0.0003],
+        "batch_size": [128],
     },
     "legnet": {
         "learning_rate": [0.005],
@@ -2015,6 +2023,33 @@ def _train_student(
         )
         student.fit(sequences, fit_labels, val_sequences=val_sequences, val_labels=fit_val_labels)
         return student
+    elif student_type == "dream_attn":
+        from models.dream_attn_student import DREAMAttnStudent
+        from models.dream_attn_student import TrainConfig as ATTNTrainConfig
+
+        cfg = TASK_CONFIGS[task]
+        np.random.seed(seed)
+        import torch
+
+        torch.manual_seed(seed)
+
+        student = DREAMAttnStudent(
+            input_channels=cfg["input_channels"],
+            sequence_length=cfg["sequence_length"],
+            task_mode=cfg["task_mode"],
+            ensemble_size=ensemble_size,
+            multitask=is_multitask,
+            train_config=ATTNTrainConfig(
+                batch_size=batch_size,
+                lr=lr,
+                epochs=epochs,
+                early_stopping_patience=early_stopping_patience,
+                shift_aug=shift_aug,
+                max_shift=max_shift,
+            ),
+        )
+        student.fit(sequences, fit_labels, val_sequences=val_sequences, val_labels=fit_val_labels)
+        return student
     elif student_type == "legnet":
         from models.legnet_student import LegNetStudent
         from models.legnet_student import TrainConfig as LegNetTrainConfig
@@ -2068,7 +2103,7 @@ def _save_student_checkpoint(student: Any, student_type: str, run_dir: Path) -> 
 
     Supports DREAM-RNN/CNN (PyTorch) and AG S1/S2 (JAX/orbax).
     """
-    if student_type in ("dream_rnn", "dream_cnn", "legnet"):
+    if student_type in ("dream_rnn", "dream_cnn", "dream_attn", "legnet"):
         import torch
 
         ckpt_path = run_dir / "best_model.pt"
@@ -2985,6 +3020,7 @@ def main():
         choices=[
             "dream_rnn",
             "dream_cnn",
+            "dream_attn",
             "legnet",
             "alphagenome_k562_s1",
             "alphagenome_k562_s1_multitask",
@@ -3157,12 +3193,12 @@ def main():
         if args.student == "alphagenome_k562_s1":
             args.student = "alphagenome_k562_s1_multitask"
             logger.info("--multitask: remapped student to alphagenome_k562_s1_multitask")
-        elif args.student in ("dream_rnn", "dream_cnn", "legnet"):
+        elif args.student in ("dream_rnn", "dream_cnn", "dream_attn", "legnet"):
             logger.info(f"--multitask: will train {args.student} with 3-output heads")
         elif args.student != "alphagenome_k562_s1_multitask":
             parser.error(
                 "--multitask is only supported with alphagenome_k562_s1, "
-                "dream_rnn, dream_cnn, or legnet students"
+                "dream_rnn, dream_cnn, dream_attn, or legnet students"
             )
 
     training_sizes = args.training_sizes or DEFAULT_TRAINING_SIZES
