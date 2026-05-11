@@ -158,151 +158,213 @@ print(f"Train tensor: {train_ds.x.shape}")
 """
     ),
     md(
-        """## 3. Model — LegNet (self-contained)
+        """## 3. Building blocks
 
-This is the architecture currently leading our HP search. It's an inverted-residual
-1-D CNN with squeeze-and-excitation, descended from the DREAM Challenge 2022 winner.
+Three drop-in conv block classes, all with the same signature
+`__init__(in_ch, ks)` and `forward: (B, in_ch, L) → (B, in_ch, L)`.
+That makes them interchangeable — just change `BLOCK_CLASS` in the config.
 
-Things you might want to change:
-- `block_sizes` — channel counts per stage (length = depth)
-- `ks` — kernel size for the depthwise conv inside each block
-- `dropout` — applied to the spatial output of each stage (we currently use one dropout knob; consider conv vs dense split)
-- The block class itself — swap in AG modules / pure conv / etc.
+| Class | What it is |
+|---|---|
+| `EffBlock` | Inverted-residual (1x1 expand → DW conv → SE → 1x1 project). Current LegNet default. |
+| `PlainConvBlock` | Vanilla 2-layer conv → BN → SiLU. Simplest baseline. |
+| `AGStyleBlock` | GroupNorm + depthwise-separable conv + GELU. Closer to AlphaGenome / Borzoi style — stronger inductive bias for regulatory genomics. |
+
+To add a new block: write a class with the same signature and add it to `BLOCK_CLASSES`.
 """
     ),
     code(
-        '''from __future__ import annotations
-import math
-from typing import Type
-
-import torch
+        '''import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class SELayer(nn.Module):
     """Squeeze-and-excitation channel attention."""
-    def __init__(self, inp: int, oup: int, reduction: int = 4):
+    def __init__(self, inp, oup, reduction=4):
         super().__init__()
         self.fc = nn.Sequential(
-            nn.Linear(oup, int(inp // reduction)),
-            nn.SiLU(),
-            nn.Linear(int(inp // reduction), oup),
-            nn.Sigmoid(),
+            nn.Linear(oup, int(inp // reduction)), nn.SiLU(),
+            nn.Linear(int(inp // reduction), oup), nn.Sigmoid(),
         )
 
     def forward(self, x):
         b, c, _ = x.size()
         y = x.view(b, c, -1).mean(dim=2)
-        y = self.fc(y).view(b, c, 1)
-        return x * y
+        return x * self.fc(y).view(b, c, 1)
 
 
-class ResidualConcat(nn.Module):
-    """Channel-concatenating residual."""
+class EffBlock(nn.Module):
+    """Inverted-residual block (LegNet default): 1x1 expand → DW conv → SE → 1x1 project."""
+    def __init__(self, in_ch, ks=5, resize_factor=4, filter_per_group=2, se_reduction=4):
+        super().__init__()
+        inner = in_ch * resize_factor
+        self.block = nn.Sequential(
+            nn.Conv1d(in_ch, inner, 1, padding="same", bias=False),
+            nn.BatchNorm1d(inner), nn.SiLU(),
+            nn.Conv1d(inner, inner, ks, groups=inner // filter_per_group,
+                      padding="same", bias=False),
+            nn.BatchNorm1d(inner), nn.SiLU(),
+            SELayer(in_ch, inner, reduction=se_reduction),
+            nn.Conv1d(inner, in_ch, 1, padding="same", bias=False),
+            nn.BatchNorm1d(in_ch), nn.SiLU(),
+        )
+
+    def forward(self, x): return self.block(x)
+
+
+class PlainConvBlock(nn.Module):
+    """Vanilla 2-layer conv block — no inverted residual, no SE."""
+    def __init__(self, in_ch, ks=5):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv1d(in_ch, in_ch, ks, padding="same", bias=False),
+            nn.BatchNorm1d(in_ch), nn.SiLU(),
+            nn.Conv1d(in_ch, in_ch, ks, padding="same", bias=False),
+            nn.BatchNorm1d(in_ch), nn.SiLU(),
+        )
+
+    def forward(self, x): return self.block(x)
+
+
+class AGStyleBlock(nn.Module):
+    """AlphaGenome-style block: GroupNorm + depthwise-separable conv with GELU.
+
+    Stronger genomic inductive bias than plain conv. Pre-norm transformer-flavored
+    layout. This is a community approximation of the AG-style blocks used in
+    AlphaGenome / Borzoi — drop in Yash Moon's reference implementation if you
+    want the exact one.
+    """
+    def __init__(self, in_ch, ks=5, expansion=2):
+        super().__init__()
+        inner = in_ch * expansion
+        self.block = nn.Sequential(
+            nn.GroupNorm(1, in_ch),  # 1D layer-norm equivalent
+            nn.Conv1d(in_ch, inner, 1, bias=False), nn.GELU(),
+            nn.Conv1d(inner, inner, ks, groups=inner, padding="same", bias=False),
+            nn.GELU(),
+            nn.Conv1d(inner, in_ch, 1, bias=False),
+        )
+
+    def forward(self, x): return self.block(x)
+
+
+BLOCK_CLASSES = {
+    "eff":   EffBlock,
+    "plain": PlainConvBlock,
+    "ag":    AGStyleBlock,
+}
+'''
+    ),
+    md(
+        """## 4. Model — modular LegNet
+
+The model wires up the chosen block class into a multi-stage CNN. Each stage:
+1. `ResidualConcat(block(in_ch))` — concat-style residual, doubles channel count
+2. `LocalBlock(2*in_ch → out_ch, ks)` — 1-stage conv that picks the next channel size
+3. Optional `Dropout1d(conv_dropout)` — conv-level dropout (low values, ~0.05–0.15)
+
+After the conv stack, you can either pool-and-map (current default) or pool-and-MLP.
+The MLP head uses `dense_dropout` separately — dense layers tolerate higher dropout
+(~0.3–0.5) than conv layers.
+"""
+    ),
+    code(
+        '''class ResidualConcat(nn.Module):
+    """fn(x) and x are channel-concatenated (channels double)."""
     def __init__(self, fn): super().__init__(); self.fn = fn
     def forward(self, x): return torch.cat([self.fn(x), x], dim=1)
 
 
 class LocalBlock(nn.Module):
-    """Conv → BN → SiLU."""
-    def __init__(self, in_ch, ks, activation, out_ch=None):
+    """Conv → BN → SiLU. Used for stem + channel-resize steps."""
+    def __init__(self, in_ch, out_ch, ks):
         super().__init__()
-        out_ch = in_ch if out_ch is None else out_ch
         self.block = nn.Sequential(
             nn.Conv1d(in_ch, out_ch, ks, padding="same", bias=False),
-            nn.BatchNorm1d(out_ch),
-            activation(),
+            nn.BatchNorm1d(out_ch), nn.SiLU(),
         )
     def forward(self, x): return self.block(x)
 
 
-class EffBlock(nn.Module):
-    """Inverted-residual block (1x1 expand → DW conv → SE → 1x1 project)."""
-    def __init__(self, in_ch, ks, resize_factor, filter_per_group, activation,
-                 out_ch=None, se_reduction=None, inner_dim_calculation="out"):
-        super().__init__()
-        out_ch = in_ch if out_ch is None else out_ch
-        se_reduction = resize_factor if se_reduction is None else se_reduction
-        inner_dim = (out_ch if inner_dim_calculation == "out" else in_ch) * resize_factor
-        self.block = nn.Sequential(
-            nn.Conv1d(in_ch, inner_dim, 1, padding="same", bias=False),
-            nn.BatchNorm1d(inner_dim),
-            activation(),
-            nn.Conv1d(inner_dim, inner_dim, ks, groups=inner_dim // filter_per_group,
-                      padding="same", bias=False),
-            nn.BatchNorm1d(inner_dim),
-            activation(),
-            SELayer(in_ch, inner_dim, reduction=se_reduction),
-            nn.Conv1d(inner_dim, in_ch, 1, padding="same", bias=False),
-            nn.BatchNorm1d(in_ch),
-            activation(),
-        )
-    def forward(self, x): return self.block(x)
+class DenseHead(nn.Module):
+    """Optional MLP head: pooled features → Linear stack → scalar.
 
-
-class MappingBlock(nn.Module):
-    """1x1 conv → activation, for channel rescale at the head."""
-    def __init__(self, in_ch, out_ch, activation):
+    Dense layers tolerate higher dropout than conv. Set dense_dims=[] to skip and
+    use the pooled-conv mapper instead (the LegNet default).
+    """
+    def __init__(self, in_dim, dense_dims, dense_dropout, out_dim=1):
         super().__init__()
-        self.block = nn.Sequential(nn.Conv1d(in_ch, out_ch, 1, padding="same"), activation())
-    def forward(self, x): return self.block(x)
+        layers, prev = [], in_dim
+        for d in dense_dims:
+            layers += [nn.Linear(prev, d), nn.SiLU(), nn.Dropout(dense_dropout)]
+            prev = d
+        layers += [nn.Linear(prev, out_dim)]
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x): return self.net(x).squeeze(-1)
 
 
 class LegNet(nn.Module):
-    """LegNet (NoGINet)."""
+    """Modular LegNet — swap the conv block, change widths, toggle dense head."""
+
     def __init__(
         self,
-        in_channels: int = 4,
-        block_sizes=None,
-        ks: int = 5,
-        resize_factor: int = 4,
-        activation: Type[nn.Module] = nn.SiLU,
-        final_activation: Type[nn.Module] = nn.SiLU,
-        filter_per_group: int = 2,
-        se_reduction: int = 4,
-        inner_dim_calculation: str = "out",
-        dropout: float = 0.0,
+        in_channels=4,
+        block_sizes=(256, 256, 128, 128, 64, 64, 32, 32),
+        ks=5,
+        block_class=EffBlock,    # swap with PlainConvBlock / AGStyleBlock / your own
+        conv_dropout=0.1,        # applied after each conv stage
+        dense_dims=(),           # () = no MLP head (use pooled mapper); e.g. (256, 64) = MLP
+        dense_dropout=0.3,       # dropout inside the optional MLP head
     ):
         super().__init__()
-        if block_sizes is None:
-            block_sizes = [256, 256, 128, 128, 64, 64, 32, 32]
-        self.block_sizes = block_sizes
-        self.stem_block = LocalBlock(in_channels, ks, activation, out_ch=block_sizes[0])
+        self.block_sizes = list(block_sizes)
 
-        blocks = []
-        for prev_sz, sz in zip(block_sizes[:-1], block_sizes[1:]):
+        self.stem = LocalBlock(in_channels, self.block_sizes[0], ks)
+
+        stages = []
+        for prev_sz, sz in zip(self.block_sizes[:-1], self.block_sizes[1:]):
             layers = [
-                ResidualConcat(EffBlock(prev_sz, ks, resize_factor, filter_per_group,
-                                         activation, out_ch=sz,
-                                         inner_dim_calculation=inner_dim_calculation)),
-                LocalBlock(2 * prev_sz, ks, activation, out_ch=sz),
+                ResidualConcat(block_class(prev_sz, ks=ks)),
+                LocalBlock(2 * prev_sz, sz, ks),
             ]
-            if dropout > 0:
-                layers.append(nn.Dropout1d(dropout))
-            blocks.append(nn.Sequential(*layers))
-        self.main = nn.Sequential(*blocks)
-        self.mapper = MappingBlock(block_sizes[-1], 1, activation=final_activation)
+            if conv_dropout > 0:
+                layers.append(nn.Dropout1d(conv_dropout))
+            stages.append(nn.Sequential(*layers))
+        self.body = nn.Sequential(*stages)
+
+        if dense_dims:
+            # Pool conv features → MLP head with dense_dropout
+            self.head = DenseHead(self.block_sizes[-1], list(dense_dims), dense_dropout)
+            self.mapper = None
+        else:
+            # Default: 1x1 conv mapper after pooling
+            self.mapper = nn.Sequential(
+                nn.Conv1d(self.block_sizes[-1], 1, 1, padding="same"), nn.SiLU(),
+            )
+            self.head = None
 
     def forward(self, x):
-        x = self.stem_block(x)
-        x = self.main(x)
+        x = self.stem(x)
+        x = self.body(x)
+        if self.head is not None:
+            x = F.adaptive_avg_pool1d(x, 1).squeeze(2)   # (B, last_block)
+            return self.head(x)
         x = self.mapper(x)
-        x = F.adaptive_avg_pool1d(x, 1).squeeze(2)
-        return x.squeeze(-1)
+        return F.adaptive_avg_pool1d(x, 1).squeeze(2).squeeze(-1)
 
 
-# Sanity check
-model = LegNet()
-n_params = sum(p.numel() for p in model.parameters())
-print(f"LegNet default: {n_params:,} params")
-print(f"Block sizes: {model.block_sizes}")
-x = torch.zeros(2, 4, PAYLOAD_LEN)
-print(f"Forward pass output shape: {model(x).shape}")
+# Quick sanity check on all three block options
+for name, cls in BLOCK_CLASSES.items():
+    m = LegNet(block_class=cls, conv_dropout=0.1)
+    n_params = sum(p.numel() for p in m.parameters())
+    y = m(torch.zeros(2, 4, PAYLOAD_LEN))
+    print(f"  block={name:6s}  params={n_params:>8,}  output={tuple(y.shape)}")
 '''
     ),
     md(
-        """## 4. Augmentations
+        """## 5. Augmentations
 
 Three sequence-domain augmentations. RC is on by default; shift requires
 adapter-padded inputs (we expand the payload at batch time so the dataset
@@ -359,29 +421,41 @@ def shift_crop(x_padded, training=True, payload_len=PAYLOAD_LEN, max_shift=MAX_S
 '''
     ),
     md(
-        """## 5. Training loop — AdamW + OneCycleLR
+        """## 6. Training loop — pluggable optimizer + AdamW default
 
-Toggles for the augmentations above. You can swap the optimizer (Adam, AdamW,
-Muon) here; change the LR schedule; add per-layer dropout; etc.
+`make_optimizer` supports `adam` / `adamw` / `muon` (last requires `pip install muon`).
+`train_model` takes a model, loaders, and a config dict and does the rest.
 """
     ),
     code(
         '''import math
-import time
-from tqdm.auto import tqdm
 from scipy.stats import pearsonr, spearmanr
 
 
-def train_model(model, train_loader, val_loader, *,
-                lr=3e-3, weight_decay=0.05,
-                epochs=80, patience=15,
-                use_rc_aug=True, use_shift_aug=False):
-    """Train with AdamW + OneCycleLR + optional augmentations + early stopping."""
+def make_optimizer(model, name, lr, weight_decay):
+    name = name.lower()
+    if name == "adam":
+        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if name == "adamw":
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if name == "muon":
+        try:
+            from muon import Muon
+        except ImportError:
+            raise ImportError("pip install muon  (https://github.com/KellerJordan/Muon)")
+        return Muon(model.parameters(), lr=lr, weight_decay=weight_decay)
+    raise ValueError(f"Unknown optimizer: {name}  (use adam | adamw | muon)")
+
+
+def train_model(model, train_loader, val_loader, cfg):
+    """Train with optimizer + OneCycleLR + optional augmentations + early stopping."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
-    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    total_steps = epochs * max(1, len(train_loader))
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=total_steps, pct_start=0.1)
+    opt = make_optimizer(model, cfg["optimizer"], cfg["lr"], cfg["weight_decay"])
+    total_steps = cfg["epochs"] * max(1, len(train_loader))
+    sched = torch.optim.lr_scheduler.OneCycleLR(
+        opt, max_lr=cfg["lr"], total_steps=total_steps, pct_start=0.1
+    )
     crit = nn.MSELoss()
     scaler = torch.amp.GradScaler("cuda", enabled=torch.cuda.is_available())
 
@@ -399,14 +473,14 @@ def train_model(model, train_loader, val_loader, *,
     best_val_mse = math.inf
     best_state = None
     epochs_since_best = 0
-    for epoch in range(epochs):
+    for epoch in range(cfg["epochs"]):
         model.train()
         ep_loss = 0; n = 0
         for xb, yb in train_loader:
             xb = xb.to(device, non_blocking=True); yb = yb.to(device, non_blocking=True)
-            if use_shift_aug:
+            if cfg["use_shift_aug"]:
                 xb = shift_crop(pad_with_adapters(xb), training=True)
-            if use_rc_aug and torch.rand(1).item() < 0.5:
+            if cfg["use_rc_aug"] and torch.rand(1).item() < 0.5:
                 xb = rc_flip(xb)
             opt.zero_grad(set_to_none=True)
             with torch.amp.autocast("cuda", enabled=torch.cuda.is_available()):
@@ -427,8 +501,8 @@ def train_model(model, train_loader, val_loader, *,
         print(f"  ep {epoch+1:3d}  train_mse={train_loss:.4f}  val_mse={val_mse:.4f}  "
               f"val_pearson={val_pearson:.4f}  lr={sched.get_last_lr()[0]:.5f}")
 
-        if epochs_since_best >= patience:
-            print(f"  early stop @ ep {epoch+1} (patience {patience})")
+        if epochs_since_best >= cfg["patience"]:
+            print(f"  early stop @ ep {epoch+1} (patience {cfg['patience']})")
             break
 
     model.load_state_dict(best_state)
@@ -436,30 +510,64 @@ def train_model(model, train_loader, val_loader, *,
 '''
     ),
     md(
-        """## 6. Train a fresh model
+        """## 7. Configure + train
 
-Default takes ~5–15 min on a Colab T4.
-Iterate quickly: try `block_sizes=[128, 128, 64, 64]` for a smaller model, or change the optimizer / dropout / etc.
+**Everything you can change lives here.** Edit `CONFIG`, re-run the cell.
+Default config trains in ~5–15 min on a Colab T4.
 """
     ),
     code(
-        """train_loader = DataLoader(train_ds, batch_size=512, shuffle=True, num_workers=2, pin_memory=True)
-val_loader   = DataLoader(val_ds,   batch_size=512, shuffle=False, num_workers=2, pin_memory=True)
-test_loader  = DataLoader(test_ds,  batch_size=512, shuffle=False, num_workers=2, pin_memory=True)
+        """CONFIG = {
+    # Architecture
+    "block_class":   "eff",                      # eff | plain | ag
+    "block_sizes":   [256, 256, 128, 128, 64, 64, 32, 32],  # per-stage channels (depth = len-1 stages)
+    "ks":            5,                          # conv kernel size
 
-model = LegNet(in_channels=4, block_sizes=[256, 256, 128, 128, 64, 64, 32, 32], ks=5, dropout=0.1)
-print(f"Params: {sum(p.numel() for p in model.parameters()):,}")
+    # Dropout (conv gets less than dense)
+    "conv_dropout":  0.1,                        # ~0.05-0.15 typical
+    "dense_dims":    [],                         # e.g. [256, 64] = add MLP head; [] = pooled-conv mapper
+    "dense_dropout": 0.3,                        # only used if dense_dims is non-empty
 
-model, best_val_mse = train_model(
-    model, train_loader, val_loader,
-    lr=3e-3, weight_decay=0.05, epochs=80, patience=15,
-    use_rc_aug=True, use_shift_aug=False,
+    # Optimizer + schedule
+    "optimizer":     "adamw",                    # adam | adamw | muon
+    "lr":            3e-3,
+    "weight_decay":  0.05,
+
+    # Training loop
+    "batch_size":    512,
+    "epochs":        80,
+    "patience":      15,
+
+    # Augmentations
+    "use_rc_aug":    True,
+    "use_shift_aug": False,
+}
+
+train_loader = DataLoader(train_ds, batch_size=CONFIG["batch_size"], shuffle=True,
+                          num_workers=2, pin_memory=True)
+val_loader   = DataLoader(val_ds,   batch_size=CONFIG["batch_size"], shuffle=False,
+                          num_workers=2, pin_memory=True)
+test_loader  = DataLoader(test_ds,  batch_size=CONFIG["batch_size"], shuffle=False,
+                          num_workers=2, pin_memory=True)
+
+model = LegNet(
+    in_channels=4,
+    block_sizes=CONFIG["block_sizes"],
+    ks=CONFIG["ks"],
+    block_class=BLOCK_CLASSES[CONFIG["block_class"]],
+    conv_dropout=CONFIG["conv_dropout"],
+    dense_dims=CONFIG["dense_dims"],
+    dense_dropout=CONFIG["dense_dropout"],
 )
+print(f"Params: {sum(p.numel() for p in model.parameters()):,}  "
+      f"(block={CONFIG['block_class']}, depth={len(CONFIG['block_sizes'])-1} stages)")
+
+model, best_val_mse = train_model(model, train_loader, val_loader, CONFIG)
 print(f"\\nBest val_mse: {best_val_mse:.4f}")
 """
     ),
     md(
-        """## 7. Evaluate on test set
+        """## 8. Evaluate on test set
 """
     ),
     code(
@@ -482,16 +590,23 @@ def evaluate(model, loader, name="set"):
     return pearson, spearman, mse
 
 if os.path.exists("k562_d20k/best_model.pt"):
-    print("=== Our pre-trained best model ===")
+    print("=== Reference pre-trained best model ===")
     ckpt = torch.load("k562_d20k/best_model.pt", map_location="cpu", weights_only=False)
-    pretrained = LegNet(in_channels=4, block_sizes=ckpt["block_sizes"], ks=5,
-                         dropout=ckpt.get("dropout", 0.1))
+    pretrained = LegNet(
+        in_channels=4,
+        block_sizes=ckpt["block_sizes"],
+        ks=ckpt.get("ks", 5),
+        block_class=BLOCK_CLASSES[ckpt.get("block_class", "eff")],
+        conv_dropout=ckpt.get("conv_dropout", ckpt.get("dropout", 0.1)),
+        dense_dims=ckpt.get("dense_dims", []),
+        dense_dropout=ckpt.get("dense_dropout", 0.3),
+    )
     pretrained.load_state_dict(ckpt["model_state_dict"])
     pretrained = pretrained.to("cuda" if torch.cuda.is_available() else "cpu")
     evaluate(pretrained, val_loader,  "val ")
     evaluate(pretrained, test_loader, "test")
 else:
-    print("(best_model.pt not yet in bundle — re-pull the bundle once Trevor has uploaded it.)")
+    print("(best_model.pt not yet in bundle — re-pull the bundle once it has been uploaded.)")
 
 print("\\n=== Your fresh training ===")
 evaluate(model, val_loader,  "val ")
@@ -499,32 +614,37 @@ evaluate(model, test_loader, "test")
 """
     ),
     md(
-        """## 8. Ideas to try
+        """## 9. Ideas to try
 
-**Optimizer:** try Adam, AdamW, [Muon](https://github.com/KellerJordan/Muon).
+All of these are one-line `CONFIG` tweaks unless otherwise noted.
 
-**Dropout placement:** the current `dropout` is applied to each conv stage. Conv
-layers typically need *less* dropout than dense layers, so it's worth splitting
-into `conv_dropout` (~0.05–0.15) and `dense_dropout` (~0.3–0.5) — the latter
-only matters if you add an MLP head.
+**Block class** — `CONFIG["block_class"] = "plain"` (vanilla conv) or `"ag"`
+(AlphaGenome-style depthwise-separable). Easy to add a 4th: write a class with
+`__init__(in_ch, ks)` and `forward(x: (B, in_ch, L)) -> (B, in_ch, L)`, then
+`BLOCK_CLASSES["mine"] = MyBlock`.
 
-**Per-layer widths:** `block_sizes` is currently a smooth ladder. Try independent
-per-layer widths (each layer its own HP) — e.g. `[256, 512, 256, 128, 64]`.
+**Optimizer** — `CONFIG["optimizer"] = "adam"` / `"adamw"` / `"muon"`.
+[Muon](https://github.com/KellerJordan/Muon) requires `pip install muon`; it's
+sometimes surprisingly competitive on small-data convolutional setups.
 
-**Block class:** swap `EffBlock` for an AG-style block (stronger inductive bias
-for regulatory genomics). Or strip it down to plain conv + SE.
+**Conv vs dense dropout** — `conv_dropout=0.1` is applied after each conv
+stage; `dense_dropout=0.3` is applied inside the optional MLP head. Conv layers
+generally tolerate *less* dropout than dense.
 
-**Attention:** for transformer-flavored architectures, try removing attention
-entirely — conv stem + SE is often competitive.
+**Per-layer widths** — `block_sizes` is a list, no constraint that it has to
+be monotone or use a constant ratio. Try `[256, 512, 256, 128, 64]`, etc.
 
-**Augmentations** (RC is on by default; toggle `use_shift_aug=True` in section 6
-to try shift):
-- Shift: already wired up via the adapter-padded sliding-window crop (max ±15 bp)
-- EvoAug structural mutations: `pip install evoaug-pytorch`, apply per-batch
-  before model forward; see [Lee & Koo 2023](https://www.biorxiv.org/content/10.1101/2023.06.16.545475v1)
+**MLP head** — set `dense_dims=[256, 64]` to add an MLP after the conv stack
+(replaces the pooled mapper). `dense_dropout` controls the dropout inside it.
 
-**Bigger Ds:** if 20k is too small for the architecture you want to test, resample
-from the parquet file — the full train pool is ~600k sequences on the chromosome split.
+**Augmentations** — `CONFIG["use_shift_aug"] = True` turns on shift via the
+adapter-padded sliding-window crop (max ±15 bp). For EvoAug structural mutations
+(deletion / insertion / inversion / translocation / tandem dup / point mutation —
+[Lee & Koo 2023](https://www.biorxiv.org/content/10.1101/2023.06.16.545475v1)):
+`pip install evoaug-pytorch` and apply per-batch before the model forward pass.
+
+**Bigger Ds** — if 20k is too small, resample from the parquet file: the full
+train pool on the chromosome split is ~600k sequences.
 """
     ),
 ]
