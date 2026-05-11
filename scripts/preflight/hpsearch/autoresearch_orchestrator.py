@@ -205,8 +205,10 @@ def submit_round(
     jids = {}
     for role in ["A", "B", "C"]:
         cfg_path = proposals_to_runner_cfg(cell_dir, arch, d_train, role, round_idx)
-        # Time limit: D=5k cell ~ 1.5h, D=100k cell ~ 6h
-        if d_train >= 50000:
+        # Time limit: D=5k cell ~ 30min, D=100k cell ~ 6h
+        if qos == "fast":
+            timelimit = "03:30:00"  # fast qos cap is 4h
+        elif d_train >= 50000:
             timelimit = "12:00:00"
         else:
             timelimit = "06:00:00"
