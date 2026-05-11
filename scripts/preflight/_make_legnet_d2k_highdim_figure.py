@@ -32,9 +32,10 @@ def load_all_legnet_d2k():
     df["use_evoaug"] = False
     rows.append(df)
 
-    # New high-dim sweep (legnet_d2k_highdim + v23 corner)
+    # New high-dim sweeps
     for base_path in [REPO / "results/preflight/legnet_d2k_highdim",
-                       REPO / "results/preflight/legnet_d2k_v23"]:
+                       REPO / "results/preflight/legnet_d2k_v23",
+                       REPO / "results/preflight/legnet_d2k_patience"]:
         if not base_path.exists():
             continue
         for rj in base_path.rglob("result.json"):
@@ -56,6 +57,8 @@ def load_all_legnet_d2k():
                     "d_train": r.get("d_train"),
                     "seed": r.get("seed"),
                     "epochs": r.get("epochs"),
+                    "best_epoch": r.get("best_epoch"),
+                    "patience": r.get("patience") or r.get("early_stop_patience"),
                     "aug": aug,
                     "max_shift": max_shift,
                     "use_evoaug": use_evoaug,
@@ -160,7 +163,8 @@ def main():
     heatmap_panel(axes[0, 2], df, "lr", "dropout", "test_mse", "Dropout × Learning Rate")
 
     walk_panel(axes[1, 0], df, "dropout", "test_mse", "Dropout 1D walk")
-    walk_panel(axes[1, 1], df, "epochs", "test_mse", "Epochs 1D walk")
+    # Patience walk (replaces epochs — early stopping makes max_epochs less meaningful)
+    walk_panel(axes[1, 1], df, "patience", "test_mse", "Early-stop Patience 1D walk")
     aug_grid_panel(axes[1, 2], df)
 
     fig.suptitle(
