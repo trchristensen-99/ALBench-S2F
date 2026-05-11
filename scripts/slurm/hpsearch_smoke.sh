@@ -16,6 +16,9 @@ set -euo pipefail
 set +u; source /etc/profile.d/modules.sh; set -u
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
+# Activate venv directly so Ray's spawned worker processes can find 'ray'.
+# `uv run` only sets the env for the current process, not for Ray's child workers.
+source .venv/bin/activate
 export PYTHONPATH="$PWD"
 export TORCHDYNAMO_DISABLE=1
 export WANDB_PROJECT=albench-s2f-hpsearch
@@ -25,7 +28,7 @@ OUT=results/preflight/hpsearch/_smoke_legnet
 rm -rf $OUT
 mkdir -p $OUT
 
-uv run --no-sync python -m scripts.preflight.hpsearch.raytune_search \
+python -m scripts.preflight.hpsearch.raytune_search \
     --strategy random \
     --arch legnet \
     --d_train 500 \
