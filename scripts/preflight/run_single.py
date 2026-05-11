@@ -457,6 +457,22 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
     criterion = torch.nn.MSELoss()
     scaler = torch.amp.GradScaler("cuda", enabled=args.use_amp)
 
+    # Build optional training-time EvoAug transform
+    evoaug_transform = None
+    if getattr(args, "evoaug_intensity", None):
+        from models.evoaug_transform import EvoAugTransform
+
+        evoaug_transform = EvoAugTransform(
+            intensity=args.evoaug_intensity,
+            apply_prob=args.evoaug_prob,
+            seed=args.seed,
+            target_length=payload_len,
+        )
+        print(
+            f"  EvoAug training-time aug enabled: intensity={args.evoaug_intensity}, "
+            f"apply_prob={args.evoaug_prob}"
+        )
+
     history = {"train_loss": [], "val_loss": [], "test_loss": [], "lr": []}
     best_val = math.inf
     best_epoch = -1
@@ -506,6 +522,8 @@ def train(args: argparse.Namespace, hp: dict[str, Any]) -> dict[str, Any]:
                 xb = _shift_window_crop(xb, payload_len, max_shift, training=True)
             if augment_rc and torch.rand(1).item() < 0.5:
                 xb = _rc_flip(xb)
+            if evoaug_transform is not None:
+                xb = evoaug_transform(xb)
             with torch.amp.autocast("cuda", enabled=args.use_amp):
                 yhat = model(xb).reshape(-1)
                 loss = criterion(yhat, yb)
@@ -691,6 +709,19 @@ def main():
         type=int,
         default=0,
         help="Stop if val_loss has not improved for N consecutive epochs. 0 = disabled.",
+    )
+    ap.add_argument(
+        "--evoaug_intensity",
+        type=str,
+        default=None,
+        choices=[None, "light", "medium", "heavy"],
+        help="Training-time EvoAug intensity (light/medium/heavy). None disables.",
+    )
+    ap.add_argument(
+        "--evoaug_prob",
+        type=float,
+        default=0.5,
+        help="Per-sample probability of applying EvoAug per batch (0.0-1.0).",
     )
     ap.add_argument("--sweep_name", default=None, help="W&B tag value for sweep=<>")
     ap.add_argument(
