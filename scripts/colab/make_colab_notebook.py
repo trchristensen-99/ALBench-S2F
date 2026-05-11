@@ -61,8 +61,7 @@ Tewhey K562 MPRA dataset.
   Optional cell at the bottom subsamples this to any D you want.
 - `val.parquet` — chr 19/21/X held-out (real K562_log2FC labels)
 - `test.parquet` — chr 7/13 held-out (real K562_log2FC labels)
-- `models/manifest.json` + `models/*.pt` — LegNet baselines (published default
-  + a few optimized variants), evaluated near the bottom of the notebook.
+- `best_model.pt` — reference LegNet checkpoint, evaluated near the bottom of the notebook.
 
 D=20k is a useful default — fast to iterate, large enough that architecture
 choices matter. The full pool spans D ∈ [600, 617,000].
@@ -84,7 +83,7 @@ Run these once at the top. The bundle is ~50 MB.
         f"""# Download + extract the data + model bundle (~70 MB)
 !wget -q {BUNDLE_URL} -O bundle.tar.gz
 !tar -xzf bundle.tar.gz
-!ls -la k562_data/ k562_data/models/
+!ls -la k562_data/
 """
     ),
     md(
@@ -601,40 +600,28 @@ evaluate(model, test_loader, "test")
 """
     ),
     md(
-        """## 9. Pre-trained baselines
+        """## 9. Compare against the bundled reference model
 
-The bundle ships LegNet checkpoints already trained at D=20k — useful as a
-floor (and a sanity check that your fresh run is doing something reasonable).
-Each cell below loads one, evaluates on val + test, and you can compare.
-
-Replace the `DATA_DIR` / `BUNDLED_MODELS` constants if you want to point at
-your own trained checkpoints.
+The bundle ships one LegNet checkpoint as `best_model.pt` — a reasonable
+reference to compare your fresh training against. Its training details
+(D, label source, HPs) are saved inside the checkpoint dict.
 """
     ),
     code(
-        """import json, os
+        """import os
 
-BUNDLED_MODELS_DIR = f"{DATA_DIR}/models"
-if not os.path.exists(f"{BUNDLED_MODELS_DIR}/manifest.json"):
-    print("(no manifest.json found — the bundle may not yet include trained models)")
-    manifest = []
+ref_path = f"{DATA_DIR}/best_model.pt"
+if not os.path.exists(ref_path):
+    print("(no best_model.pt in bundle yet — skip this cell, or re-run wget when it lands)")
 else:
-    manifest = json.loads(open(f"{BUNDLED_MODELS_DIR}/manifest.json").read())
-    print(f"Available checkpoints ({len(manifest)}):")
-    for m in manifest:
-        print(f"  - {m['name']:30s}  trained at D={m['training_d']:,}  "
-              f"val_mse={m['best_val_mse']:.4f}  params={m['n_params']:,}")
-"""
-    ),
-    code(
-        '''def load_bundled(name, models_dir=BUNDLED_MODELS_DIR):
-    """Build a LegNet from a bundled checkpoint and load its weights.
+    ckpt = torch.load(ref_path, map_location="cpu", weights_only=False)
+    print(f"Reference model: D={ckpt.get('training_d', '?'):,}  "
+          f"labels={ckpt.get('training_label_source', '?')!r}")
+    print(f"  block_sizes={ckpt['block_sizes']}  ks={ckpt.get('ks', 5)}  "
+          f"block_class={ckpt.get('block_class', 'eff')}")
+    print(f"  meta: {ckpt.get('meta', {})}")
 
-    The checkpoint dict stores all the architecture HPs it was trained with,
-    so we can reconstruct the exact model.
-    """
-    ckpt = torch.load(f"{models_dir}/{name}.pt", map_location="cpu", weights_only=False)
-    m = LegNet(
+    ref = LegNet(
         in_channels=4,
         block_sizes=ckpt["block_sizes"],
         ks=ckpt.get("ks", 5),
@@ -643,36 +630,11 @@ else:
         dense_dims=ckpt.get("dense_dims", []),
         dense_dropout=ckpt.get("dense_dropout", 0.0),
     )
-    m.load_state_dict(ckpt["model_state_dict"])
-    return m.to("cuda" if torch.cuda.is_available() else "cpu")
-
-
-# Compare every bundled checkpoint side-by-side
-for m_meta in manifest:
-    name = m_meta["name"]
-    print(f"\\n--- {name} ---")
-    pretrained = load_bundled(name)
-    evaluate(pretrained, val_loader,  "val ")
-    evaluate(pretrained, test_loader, "test")
-'''
-    ),
-    md(
-        """### Load a specific baseline by name
-
-If you only want one to compare against (e.g. the published default):
-```python
-m = load_bundled("legnet_published_default")
-evaluate(m, val_loader,  "val ")
-evaluate(m, test_loader, "test")
-```
-
-To use a baseline as the **starting weights** for fine-tuning:
-```python
-m = load_bundled("legnet_optimized_default")
-m, best = train_model(m, train_loader, val_loader, CONFIG)
-```
-(Just make sure your `CONFIG`'s `block_sizes` + `block_class` match the
-baseline; otherwise the state-dict load will fail.)
+    ref.load_state_dict(ckpt["model_state_dict"])
+    ref = ref.to("cuda" if torch.cuda.is_available() else "cpu")
+    print("\\n=== Reference model on held-out splits ===")
+    evaluate(ref, val_loader,  "val ")
+    evaluate(ref, test_loader, "test")
 """
     ),
     md(
