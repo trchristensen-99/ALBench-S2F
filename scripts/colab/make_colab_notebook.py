@@ -172,9 +172,14 @@ That makes them interchangeable — just change `BLOCK_CLASS` in the config.
 
 | Class | What it is |
 |---|---|
-| `EffBlock` | Inverted-residual (1x1 expand → DW conv → SE → 1x1 project). Current LegNet default. |
+| `EffBlock` | Inverted-residual (1×1 expand → DW conv → SE → 1×1 project). Current LegNet default. |
 | `PlainConvBlock` | Vanilla 2-layer conv → BN → SiLU. Simplest baseline. |
-| `AGStyleBlock` | GroupNorm + depthwise-separable conv + GELU. Closer to AlphaGenome / Borzoi style — stronger inductive bias for regulatory genomics. |
+| `AGBlock` | Two pre-norm `ConvBlock`s in the exact AlphaGenome style: `RMSBatchNorm → QuickGELU → StandardizedConv1D` (with weight standardization). Stronger inductive bias for regulatory genomics. |
+
+The `AGBlock` is a faithful PyTorch port of `alphagenome_research.model.convolutions.ConvBlock` —
+QuickGELU = `sigmoid(1.702·x)·x` (not the tanh approximation), batch-normalized by RMS only
+(no mean centering), and weight-standardized convs. Channel growth handled outside the block
+by the parent LegNet.
 
 To add a new block: write a class with the same signature and add it to `BLOCK_CLASSES`.
 """
@@ -233,32 +238,86 @@ class PlainConvBlock(nn.Module):
     def forward(self, x): return self.block(x)
 
 
-class AGStyleBlock(nn.Module):
-    """AlphaGenome-style block: GroupNorm + depthwise-separable conv with GELU.
+class QuickGELU(nn.Module):
+    """sigmoid(1.702·x) · x — the GELU variant used by AlphaGenome."""
+    def forward(self, x):
+        return torch.sigmoid(1.702 * x) * x
 
-    Stronger genomic inductive bias than plain conv. Pre-norm transformer-flavored
-    layout. This is a community approximation of the AG-style blocks used in
-    AlphaGenome / Borzoi — drop in Yash Moon's reference implementation if you
-    want the exact one.
+
+class RMSBatchNorm1d(nn.Module):
+    """Root-Mean-Square batch norm: x * scale / sqrt(var + eps) + offset.
+
+    Matches `alphagenome_research.model.layers.RMSBatchNorm`: variance across
+    (batch, seq) per channel, no mean centering. Running EMA at eval.
     """
-    def __init__(self, in_ch, ks=5, expansion=2):
+    def __init__(self, num_features, eps=1e-5, momentum=0.1):
         super().__init__()
-        inner = in_ch * expansion
-        self.block = nn.Sequential(
-            nn.GroupNorm(1, in_ch),  # 1D layer-norm equivalent
-            nn.Conv1d(in_ch, inner, 1, bias=False), nn.GELU(),
-            nn.Conv1d(inner, inner, ks, groups=inner, padding="same", bias=False),
-            nn.GELU(),
-            nn.Conv1d(inner, in_ch, 1, bias=False),
-        )
+        self.eps = eps
+        self.momentum = momentum
+        self.scale = nn.Parameter(torch.ones(1, num_features, 1))
+        self.offset = nn.Parameter(torch.zeros(1, num_features, 1))
+        self.register_buffer("running_var", torch.ones(num_features))
 
-    def forward(self, x): return self.block(x)
+    def forward(self, x):  # x: (B, C, L)
+        if self.training:
+            var = x.pow(2).mean(dim=(0, 2))  # (C,)
+            with torch.no_grad():
+                self.running_var.mul_(1 - self.momentum).add_(self.momentum * var.detach())
+        else:
+            var = self.running_var
+        inv = self.scale / torch.sqrt(var.view(1, -1, 1) + self.eps)
+        return x * inv + self.offset
+
+
+class StandardizedConv1d(nn.Module):
+    """1D conv with scaled weight standardization (AlphaGenome's `StandardizedConv1D`).
+
+    Per output channel: zero-mean its kernel, divide by `sqrt(fan_in · var_w)` with
+    a learned per-channel gain. Output gets a learned bias. Init: weights zero,
+    gain one, bias zero (matches AlphaGenome's haiku init).
+    """
+    def __init__(self, in_ch, out_ch, ks):
+        super().__init__()
+        self.fan_in = ks * in_ch
+        self.pad = (ks - 1) // 2
+        self.weight = nn.Parameter(torch.zeros(out_ch, in_ch, ks))
+        self.bias = nn.Parameter(torch.zeros(out_ch))
+        self.gain = nn.Parameter(torch.ones(out_ch, 1, 1))
+
+    def forward(self, x):
+        w = self.weight - self.weight.mean(dim=(1, 2), keepdim=True)
+        var = w.var(dim=(1, 2), keepdim=True, unbiased=False)
+        scale = self.gain * torch.rsqrt(torch.clamp(self.fan_in * var, min=1e-4))
+        return F.conv1d(x, w * scale, self.bias, padding=self.pad)
+
+
+class AGBlock(nn.Module):
+    """AlphaGenome-style stage: two pre-norm ConvBlocks with internal residuals.
+
+    Each ConvBlock = RMSBatchNorm → QuickGELU → StandardizedConv1D, matching
+    `alphagenome_research.model.convolutions.ConvBlock`. The DownResBlock
+    pattern adds residuals AROUND each ConvBlock — essential for gradient flow
+    given that StandardizedConv1D weights start at zero. Channels stay constant
+    inside the block (channel growth handled by parent LegNet stage).
+    """
+    def __init__(self, in_ch, ks=5):
+        super().__init__()
+        self.norm1 = RMSBatchNorm1d(in_ch)
+        self.conv1 = StandardizedConv1d(in_ch, in_ch, ks)
+        self.norm2 = RMSBatchNorm1d(in_ch)
+        self.conv2 = StandardizedConv1d(in_ch, in_ch, ks)
+        self.act = QuickGELU()
+
+    def forward(self, x):
+        # Mirror AG's DownResBlock: ConvBlock + residual, ConvBlock + residual
+        h = self.conv1(self.act(self.norm1(x))) + x
+        return self.conv2(self.act(self.norm2(h))) + h
 
 
 BLOCK_CLASSES = {
     "eff":   EffBlock,
     "plain": PlainConvBlock,
-    "ag":    AGStyleBlock,
+    "ag":    AGBlock,
 }
 '''
     ),
