@@ -55,17 +55,17 @@ Self-contained Colab for exploring sequence-to-function architectures on the
 Tewhey K562 MPRA dataset.
 
 **Contents (after running the wget cell):**
-- `train_full.parquet` — full chromosome-split train pool (~617k sequences,
-  AG-oracle OOF pseudolabels). Pick any `D_TRAIN` and the notebook subsamples
-  deterministically.
+- `train_d20k.parquet` — 20,000-sequence train subset (AG-oracle OOF labels).
+  This is what the notebook loads by default.
+- `train_full.parquet` — full chromosome-split train pool (~617k sequences).
+  Optional cell at the bottom subsamples this to any D you want.
 - `val.parquet` — chr 19/21/X held-out (real K562_log2FC labels)
 - `test.parquet` — chr 7/13 held-out (real K562_log2FC labels)
 - `models/manifest.json` + `models/*.pt` — LegNet baselines (published default
-  + a few optimized variants), evaluated at the bottom of the notebook.
+  + a few optimized variants), evaluated near the bottom of the notebook.
 
-The training pool spans D ∈ [600, 600,000] sequences in the broader study.
 D=20k is a useful default — fast to iterate, large enough that architecture
-choices matter.
+choices matter. The full pool spans D ∈ [600, 617,000].
 
 Data URL: `{BUNDLE_URL}`
 """
@@ -102,8 +102,8 @@ Labels: train uses AG-oracle pseudolabels (denoised, less noisy at small D);
 val/test use real K562_log2FC. The one-hot encoder uses 4 channels (ACGT);
 unknown bases map to all-zeros.
 
-`D_TRAIN` controls how many training sequences to use (deterministic
-subsample). Try 500 / 5k / 20k / 100k / 600k — the scaling laws change.
+This cell loads the **default D=20k subset** (`train_d20k.parquet`). Skip to
+Section 11 at the bottom if you want a different D from the full pool.
 """
     ),
     code(
@@ -114,20 +114,12 @@ from torch.utils.data import Dataset, DataLoader
 
 DATA_DIR = "k562_data"
 PAYLOAD_LEN = 200
-D_TRAIN = 20_000          # try 500, 5_000, 20_000, 100_000, 617_217 (full)
-SUBSAMPLE_SEED = 42       # deterministic — same D_TRAIN always picks the same sequences
 
-train_full = pd.read_parquet(f"{DATA_DIR}/train_full.parquet")
-val_df     = pd.read_parquet(f"{DATA_DIR}/val.parquet")
-test_df    = pd.read_parquet(f"{DATA_DIR}/test.parquet")
+train_df = pd.read_parquet(f"{DATA_DIR}/train_d20k.parquet")
+val_df   = pd.read_parquet(f"{DATA_DIR}/val.parquet")
+test_df  = pd.read_parquet(f"{DATA_DIR}/test.parquet")
 
-# Deterministic subsample of train
-D = min(D_TRAIN, len(train_full))
-rng = np.random.default_rng(SUBSAMPLE_SEED)
-idx = rng.choice(len(train_full), size=D, replace=False)
-train_df = train_full.iloc[idx].reset_index(drop=True)
-
-print(f"train: {len(train_df):,} sequences  (subsampled from {len(train_full):,} pool, seed={SUBSAMPLE_SEED})")
+print(f"train: {len(train_df):,} sequences")
 print(f"val:   {len(val_df):,} sequences")
 print(f"test:  {len(test_df):,} sequences")
 print(f"\\nTrain label stats: mean={train_df['label'].mean():.3f}  std={train_df['label'].std():.3f}")
@@ -713,8 +705,42 @@ adapter-padded sliding-window crop (max ±15 bp). For EvoAug structural mutation
 [Lee & Koo 2023](https://www.biorxiv.org/content/10.1101/2023.06.16.545475v1)):
 `pip install evoaug-pytorch` and apply per-batch before the model forward pass.
 
-**Bigger Ds** — if 20k is too small, resample from the parquet file: the full
-train pool on the chromosome split is ~600k sequences.
+**Bigger / smaller Ds** — see Section 11 below for the one-cell recipe.
+"""
+    ),
+    md(
+        """## 11. (Optional) Use a custom training size
+
+Skip this if D=20k is fine for what you want to try.
+
+`train_full.parquet` is the full chromosome-split train pool (~617k sequences).
+This cell subsamples it to whatever `D_TRAIN` you pick (deterministic via
+`SUBSAMPLE_SEED`, so the same D always selects the same sequences). Then
+re-run model build + `train_model(...)` to fit on the new size.
+"""
+    ),
+    code(
+        """# Pick any D in [600, 617_217]. Common picks: 500, 5_000, 100_000, 600_000.
+D_TRAIN = 100_000
+SUBSAMPLE_SEED = 42
+
+train_full = pd.read_parquet(f"{DATA_DIR}/train_full.parquet")
+D = min(D_TRAIN, len(train_full))
+rng = np.random.default_rng(SUBSAMPLE_SEED)
+idx = rng.choice(len(train_full), size=D, replace=False)
+train_df_custom = train_full.iloc[idx].reset_index(drop=True)
+
+train_ds_custom    = SeqDataset(train_df_custom)
+train_loader_custom = DataLoader(train_ds_custom, batch_size=CONFIG["batch_size"],
+                                  shuffle=True, num_workers=2, pin_memory=True)
+print(f"Custom D={D:,} loader ready (subsampled from {len(train_full):,}, seed={SUBSAMPLE_SEED})")
+
+# Then fit on the new loader:
+# model = LegNet(in_channels=4, block_sizes=CONFIG["block_sizes"], ks=CONFIG["ks"],
+#                block_class=BLOCK_CLASSES[CONFIG["block_class"]],
+#                conv_dropout=CONFIG["conv_dropout"],
+#                dense_dims=CONFIG["dense_dims"], dense_dropout=CONFIG["dense_dropout"])
+# model, best = train_model(model, train_loader_custom, val_loader, CONFIG)
 """
     ),
 ]
