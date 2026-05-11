@@ -61,8 +61,13 @@ def trainable(config: dict[str, Any]):
     """Ray Tune function trainable. Spawns run_single.py subprocess."""
     from ray import tune
 
+    # Ray Tune writes its own result.json to trial_dir. We need to keep
+    # run_single.py's output (history.json, result.json, best.pt) in a
+    # separate subdirectory so it doesn't clobber Ray's result.json.
     trial_dir = Path(tune.get_context().get_trial_dir())
     trial_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = trial_dir / "run"
+    run_dir.mkdir(exist_ok=True)
 
     arch = config["arch"]
     cmd = [
@@ -86,7 +91,7 @@ def trainable(config: dict[str, Any]):
         "--label_source",
         config.get("label_source", "ag_oracle"),
         "--output_dir",
-        str(trial_dir),
+        str(run_dir),
         "--sweep_name",
         f"hpsearch_{config.get('strategy', '?')}",
         "--hp",
@@ -101,7 +106,7 @@ def trainable(config: dict[str, Any]):
     )
     env["WANDB_PROJECT"] = env.get("WANDB_PROJECT", "albench-s2f-hpsearch")
 
-    log_path = trial_dir / "subprocess.log"
+    log_path = run_dir / "subprocess.log"
     log_f = open(log_path, "w")
     proc = subprocess.Popen(
         cmd,
@@ -113,8 +118,8 @@ def trainable(config: dict[str, Any]):
     )
 
     last_epoch = 0
-    history_path = trial_dir / "history.json"
-    result_path = trial_dir / "result.json"
+    history_path = run_dir / "history.json"
+    result_path = run_dir / "result.json"
 
     try:
         while True:
