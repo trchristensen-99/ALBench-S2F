@@ -101,7 +101,7 @@ for ARCH in legnet dream_rnn dream_attn; do
             echo "#SBATCH --job-name=scl_c91_${ARCH}_${STRAT}"
             echo "#SBATCH --output=$REPO/logs/%x-%j.out"
             echo "#SBATCH --error=$REPO/logs/%x-%j.err"
-            echo "#SBATCH --partition=gpuq --qos=$QOS --gres=gpu:${GPU}:1 --cpus-per-task=14 --time=24:00:00 --mem=120G"
+            echo "#SBATCH --partition=gpuq --qos=$QOS --gres=gpu:${GPU}:1 --cpus-per-task=14 --time=12:00:00 --mem=120G"
             echo "set -euo pipefail; set +u; source /etc/profile.d/modules.sh; set -u"
             echo "module load EB5; cd $REPO"
             echo 'export PYTHONPATH="$PWD"'
