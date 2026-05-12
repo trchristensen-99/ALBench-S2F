@@ -171,6 +171,13 @@ def main():
                 cmd.extend(["--evoaug_intensity", str(cfg["evoaug_intensity"])])
             if "evoaug_prob" in cfg:
                 cmd.extend(["--evoaug_prob", str(cfg["evoaug_prob"])])
+            # Optional chr-fold args (MPAC-style ensemble: each fold's val
+            # chromosome is different; test_chrs stays as chr 7+13 for the SNV
+            # eval). val_chrs / test_chrs are comma-sep strings.
+            if cfg.get("val_chrs"):
+                cmd.extend(["--val_chrs", str(cfg["val_chrs"])])
+            if cfg.get("test_chrs"):
+                cmd.extend(["--test_chrs", str(cfg["test_chrs"])])
             # Forward the pre-built tensor cache so trials skip one-hot encoding
             if cache_dir is not None:
                 cmd.extend(["--cache_dir", str(cache_dir)])

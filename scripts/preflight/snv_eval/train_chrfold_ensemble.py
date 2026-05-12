@@ -57,8 +57,11 @@ def build_configs(
     patience: int,
     aug: str,
     val_chrs: list[int],
+    test_chrs: list[int],
+    d_train: int = 0,
 ) -> list[dict]:
-    """Build per-fold configs that point at the cached pool, differ only in val_chr."""
+    """Build per-fold configs. Each fold differs only in val_chrs (one
+    chromosome). test_chrs is shared (chr 7+13 always)."""
     configs = []
     for i in range(n_folds):
         val_chr = val_chrs[i % len(val_chrs)]
@@ -66,13 +69,15 @@ def build_configs(
         cfg = {
             "label": label,
             "arch": arch,
-            "d_train": 0,  # 0 = "use full pool minus val_chr minus test (7,13)"
+            "d_train": d_train,  # 0 = full pool (minus val + test)
             "seed": 42 + i,
             "epochs": epochs,
             "patience": patience,
             "aug": aug,
+            "val_chrs": str(val_chr),
+            "test_chrs": ",".join(str(c) for c in test_chrs),
             "output_dir": str(output_dir / label),
-            "hp_overrides": list(hp_overrides) + [f"val_chr={val_chr}", f"cell={cell}"],
+            "hp_overrides": list(hp_overrides),
         }
         configs.append(cfg)
     return configs
@@ -107,10 +112,10 @@ def main():
         "--dry_run", action="store_true", help="Only write configs.json; do not invoke training."
     )
     ap.add_argument(
-        "--shared_batch_size",
+        "--k_parallel",
         type=int,
-        default=0,
-        help="In-process trainer shared batch size (0 = max of configs).",
+        default=4,
+        help="parallel_gpu_runner trials concurrent per GPU. Small models can do 4-8.",
     )
     args = ap.parse_args()
 
@@ -128,6 +133,8 @@ def main():
         args.patience,
         args.aug,
         val_chrs,
+        test_chrs=[7, 13],
+        d_train=0,
     )
     configs_path = out_dir / "configs.json"
     configs_path.write_text(json.dumps(configs, indent=2))
@@ -138,24 +145,21 @@ def main():
     if args.dry_run:
         return
 
-    # Heterogeneity check: the in-process runner requires homogeneous
-    # (d_train, seed, ...). Our folds differ only in val_chr (a config-only
-    # override), so as long as the data path is the same the in-process
-    # runner will load data once and share it. If the runner refuses, fall
-    # back to parallel_gpu_runner.
+    # Each fold trains with different val_chrs, so data layouts differ per
+    # config — must use the subprocess-style parallel_gpu_runner (in-process
+    # trainer requires homogeneous data across configs).
     cmd = [
         "uv",
         "run",
         "--no-sync",
         "python",
         "-u",
-        str(REPO / "scripts/preflight/inprocess_runner.py"),
+        str(REPO / "scripts/preflight/parallel_gpu_runner.py"),
         str(configs_path),
+        str(args.k_parallel),
     ]
-    if args.shared_batch_size > 0:
-        cmd.extend(["--shared_batch_size", str(args.shared_batch_size)])
     print()
-    print(f"Invoking in-process trainer: {' '.join(cmd)}")
+    print(f"Invoking parallel_gpu_runner k={args.k_parallel}: {' '.join(cmd)}")
     ret = subprocess.run(cmd, cwd=str(REPO))
     raise SystemExit(ret.returncode)
 
