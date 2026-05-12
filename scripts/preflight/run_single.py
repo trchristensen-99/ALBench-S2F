@@ -258,7 +258,7 @@ def build_model(arch: str, hp: dict[str, Any], device: torch.device) -> torch.nn
 
 
 # ── Data loading (K562 + AG oracle pseudolabels) ─────────────────────────
-def _cache_key(
+def _train_cache_name(
     d_train: int,
     seed: int,
     in_channels: int,
@@ -266,11 +266,20 @@ def _cache_key(
     label_source: str,
     pad_with_adapters: bool,
 ) -> str:
-    """Stable filename for a (data params) tuple."""
     return (
-        f"data_ls{label_source}_d{d_train}_seed{seed}_"
+        f"train_ls{label_source}_d{d_train}_seed{seed}_"
         f"len{seq_len}_ch{in_channels}_pad{int(pad_with_adapters)}.pt"
     )
+
+
+def _valtest_cache_name(
+    in_channels: int,
+    seq_len: int,
+    label_source: str,
+    pad_with_adapters: bool,
+) -> str:
+    """val/test tensors don't depend on d_train or seed — shared across all D."""
+    return f"valtest_ls{label_source}_len{seq_len}_ch{in_channels}_pad{int(pad_with_adapters)}.pt"
 
 
 def load_data(
@@ -305,19 +314,31 @@ def load_data(
     the same SLURM job share (d_train, seed, label_source) — encoding 20k
     sequences to one-hot takes ~30s; loading the cached tensor takes ~0.5s.
     """
-    cache_path = None
+    # Two cache files: one for val/test (shared across all D), one for train (per D+seed).
+    # This avoids rebuilding val/test (~75% of encode time) every time we switch D.
+    train_cache_path = None
+    valtest_cache_path = None
+    cached_valtest = None
     if cache_dir is not None:
-        cache_path = Path(cache_dir) / _cache_key(
+        cache_dir = Path(cache_dir)
+        train_cache_path = cache_dir / _train_cache_name(
             d_train, seed, in_channels, seq_len, label_source, pad_with_adapters
         )
-        if cache_path.exists():
-            print(f"  tensor cache HIT: {cache_path}")
-            blob = torch.load(cache_path, weights_only=False)
+        valtest_cache_path = cache_dir / _valtest_cache_name(
+            in_channels, seq_len, label_source, pad_with_adapters
+        )
+        if train_cache_path.exists() and valtest_cache_path.exists():
+            print(f"  tensor cache HIT (train+valtest): {train_cache_path.name}")
+            tr = torch.load(train_cache_path, weights_only=False)
+            vt = torch.load(valtest_cache_path, weights_only=False)
             return (
-                (blob["Xtr"], blob["ytr"]),
-                (blob["Xva"], blob["yva"]),
-                (blob["Xte"], blob["yte"]),
+                (tr["Xtr"], tr["ytr"]),
+                (vt["Xva"], vt["yva"]),
+                (vt["Xte"], vt["yte"]),
             )
+        if valtest_cache_path.exists():
+            print(f"  tensor cache HIT (valtest only): {valtest_cache_path.name}")
+            cached_valtest = torch.load(valtest_cache_path, weights_only=False)
 
     from data.k562 import K562Dataset
 
@@ -404,26 +425,31 @@ def load_data(
     train_labels = train_pool_lbl[idx]
 
     Xtr = one_hot(train_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
-    Xva = one_hot(val_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
-    Xte = one_hot(test_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
+    if cached_valtest is None:
+        Xva = one_hot(val_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
+        Xte = one_hot(test_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
+    else:
+        Xva = cached_valtest["Xva"]
+        val_labels = cached_valtest["yva"]
+        Xte = cached_valtest["Xte"]
+        test_labels = cached_valtest["yte"]
 
-    if cache_path is not None:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        # Atomic write: tmp file + rename to avoid race conditions
-        tmp_path = cache_path.with_suffix(".tmp.pt")
-        torch.save(
-            {
-                "Xtr": Xtr,
-                "ytr": train_labels,
-                "Xva": Xva,
-                "yva": val_labels,
-                "Xte": Xte,
-                "yte": test_labels,
-            },
-            tmp_path,
+    # Save caches (atomic: tmp + rename so concurrent trials don't see partial files)
+    if train_cache_path is not None:
+        train_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = train_cache_path.with_suffix(".tmp.pt")
+        torch.save({"Xtr": Xtr, "ytr": train_labels}, tmp)
+        tmp.rename(train_cache_path)
+        print(
+            f"  train cache WRITE: {train_cache_path.name} ({train_cache_path.stat().st_size / 1e6:.1f} MB)"
         )
-        tmp_path.rename(cache_path)
-        print(f"  tensor cache WRITE: {cache_path} ({cache_path.stat().st_size / 1e6:.1f} MB)")
+    if valtest_cache_path is not None and not valtest_cache_path.exists():
+        tmp = valtest_cache_path.with_suffix(".tmp.pt")
+        torch.save({"Xva": Xva, "yva": val_labels, "Xte": Xte, "yte": test_labels}, tmp)
+        tmp.rename(valtest_cache_path)
+        print(
+            f"  valtest cache WRITE: {valtest_cache_path.name} ({valtest_cache_path.stat().st_size / 1e6:.1f} MB)"
+        )
 
     return (Xtr, train_labels), (Xva, val_labels), (Xte, test_labels)
 
@@ -521,6 +547,12 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
     # Model & optimizer
     model = build_model(args.arch, hp, device)
     n_params = sum(p.numel() for p in model.parameters())
+    if getattr(args, "use_compile", False):
+        try:
+            model = torch.compile(model, mode="reduce-overhead", dynamic=False)
+            print("  torch.compile enabled (mode=reduce-overhead)")
+        except Exception as e:
+            print(f"  torch.compile failed, falling back to eager: {e}")
 
     optimizer = _make_optimizer(
         model,
@@ -830,6 +862,12 @@ def main():
             "Massive speedup when many trials share the same data — encoding 20k seqs "
             "takes ~30s; loading the cached tensor takes ~0.5s."
         ),
+    )
+    ap.add_argument(
+        "--use_compile",
+        action="store_true",
+        help="Wrap the model with torch.compile(mode='reduce-overhead'). "
+        "Often 30-80%% faster per epoch after a one-time compile penalty (first epoch slow).",
     )
     ap.add_argument(
         "--hp",
