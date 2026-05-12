@@ -501,10 +501,15 @@ def load_data(
         raise ValueError(f"unknown label_source {label_source!r}")
 
     n_pool = len(train_pool_seqs)
+    # d_train=0 means "use full pool" (no subsampling). Else sample d_train
+    # rows without replacement, seeded by `seed`.
     if d_train > n_pool:
         raise ValueError(f"d_train={d_train} > train pool size {n_pool}")
     rng = np.random.default_rng(seed)
-    idx = rng.choice(n_pool, size=d_train, replace=False)
+    if d_train <= 0:
+        idx = np.arange(n_pool)
+    else:
+        idx = rng.choice(n_pool, size=d_train, replace=False)
     train_seqs = [train_pool_seqs[i] for i in idx]
     train_labels = train_pool_lbl[idx]
 
