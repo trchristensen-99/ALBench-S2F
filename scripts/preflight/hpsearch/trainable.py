@@ -98,9 +98,20 @@ def trainable(config: dict[str, Any]):
         str(run_dir),
         "--sweep_name",
         f"hpsearch_{config.get('strategy', '?')}",
-        "--hp",
-        *_to_overrides(arch, config),
     ]
+    # Speedup flags — set via SLURM env vars so we can toggle for a full job
+    # without modifying every trial config. Round 2 turns these on by default.
+    if os.environ.get("USE_COMPILE", "0") == "1":
+        cmd.append("--use_compile")
+    if os.environ.get("CUDNN_BENCHMARK", "0") == "1":
+        cmd.append("--cudnn_benchmark")
+    if os.environ.get("EVAL_TEST_EVERY"):
+        cmd.extend(["--eval_test_every", os.environ["EVAL_TEST_EVERY"]])
+    # Shared one-hot tensor cache (populated by parallel_gpu_runner pre-build
+    # or by the very first trial; subsequent trials hit cache)
+    cache_dir = os.environ.get("HP_CACHE_DIR", str(REPO / "outputs/tensor_cache"))
+    cmd.extend(["--cache_dir", cache_dir])
+    cmd.extend(["--hp", *_to_overrides(arch, config)])
 
     env = os.environ.copy()
     # Make sure W&B identifies trials uniquely
