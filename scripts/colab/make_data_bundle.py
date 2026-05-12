@@ -32,12 +32,13 @@ BUNDLE = REPO / "scripts/colab/bundle_d20k.tar.gz"
 
 SEED = 42
 
-# Single reference checkpoint to bundle. Best D=20k LegNet across all overnight
-# searches — winner is shootout_d20k_fillin/low_dropout_aggressive
-# (val=0.6234, test=0.5117 vs prior published_default 0.6290/0.5189).
+# Single reference checkpoint to bundle. Best D=20k LegNet across all
+# AutoResearch rounds — winner is agent_legnet_d20000_r4/r4_explore_wider_256
+# (val=0.5994, test=0.4856 — beats prior low_dropout_aggressive 0.6234/0.5117).
+# Config: lr=3e-4, bs=128, drop=0.1, wd=0, block_sizes=[256]*4, eff, adamw.
 REFERENCE_CHECKPOINT = (
-    "legnet_d20k_low_dropout_aggressive",
-    REPO / "results/preflight/shootout_d20k_fillin/low_dropout_aggressive",
+    "legnet_d20k_r4_wider_256",
+    REPO / "results/preflight/hpsearch/agent_legnet_d20000_r4/r4_explore_wider_256",
     20000,
     "ag_oracle",
 )
