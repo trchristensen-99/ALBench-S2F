@@ -105,8 +105,12 @@ def trainable(config: dict[str, Any]):
         cmd.append("--use_compile")
     if os.environ.get("CUDNN_BENCHMARK", "0") == "1":
         cmd.append("--cudnn_benchmark")
+    if os.environ.get("EVAL_ON_GPU", "0") == "1":
+        cmd.append("--eval_on_gpu")
     if os.environ.get("EVAL_TEST_EVERY"):
         cmd.extend(["--eval_test_every", os.environ["EVAL_TEST_EVERY"]])
+    if os.environ.get("EVAL_BATCH_MULT"):
+        cmd.extend(["--eval_batch_mult", os.environ["EVAL_BATCH_MULT"]])
     # Shared one-hot tensor cache (populated by parallel_gpu_runner pre-build
     # or by the very first trial; subsequent trials hit cache)
     cache_dir = os.environ.get("HP_CACHE_DIR", str(REPO / "outputs/tensor_cache"))

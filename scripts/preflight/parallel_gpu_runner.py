@@ -180,9 +180,14 @@ def main():
                 cmd.append("--use_compile")
             if cfg.get("cudnn_benchmark") or os.environ.get("CUDNN_BENCHMARK") == "1":
                 cmd.append("--cudnn_benchmark")
+            if cfg.get("eval_on_gpu") or os.environ.get("EVAL_ON_GPU") == "1":
+                cmd.append("--eval_on_gpu")
             ete = cfg.get("eval_test_every") or os.environ.get("EVAL_TEST_EVERY")
             if ete:
                 cmd.extend(["--eval_test_every", str(ete)])
+            ebm = cfg.get("eval_batch_mult") or os.environ.get("EVAL_BATCH_MULT")
+            if ebm:
+                cmd.extend(["--eval_batch_mult", str(ebm)])
             cmd.extend(["--hp", *cfg["hp_overrides"]])
             log_path = out_dir / "stdout.log"
             log_f = open(log_path, "w")

@@ -518,7 +518,21 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
     Xte_t = torch.from_numpy(Xte).float()
     yte_t = torch.from_numpy(yte).float()
 
+    # Speedup: keep val/test on GPU permanently — they're a few hundred MB at
+    # most and saved every-epoch H2D transfer dominates eval time at small D.
+    # Only do this when GPU has plenty of headroom (small/medium D, single trial).
+    keep_eval_on_gpu = bool(getattr(args, "eval_on_gpu", False)) and device.type == "cuda"
+    if keep_eval_on_gpu:
+        Xva_t = Xva_t.to(device)
+        yva_t = yva_t.to(device)
+        Xte_t = Xte_t.to(device)
+        yte_t = yte_t.to(device)
+
     from torch.utils.data import DataLoader, TensorDataset
+
+    # Eval can use a bigger batch since there are no gradients/optimizer state.
+    eval_bs_mult = int(getattr(args, "eval_batch_mult", 2))
+    eval_bs = hp["batch_size"] * max(1, eval_bs_mult)
 
     # drop_last=False so very small D (e.g. D=500 with bs=1024) still
     # trains on the available partial batch — the D_min sweep needs to
@@ -532,19 +546,20 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
         pin_memory=True,
         drop_last=False,
     )
+    # If val/test are already on GPU, skip pin_memory + workers
     val_loader = DataLoader(
         TensorDataset(Xva_t, yva_t),
-        batch_size=hp["batch_size"],
+        batch_size=eval_bs,
         shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True,
+        num_workers=0 if keep_eval_on_gpu else args.num_workers,
+        pin_memory=not keep_eval_on_gpu,
     )
     test_loader = DataLoader(
         TensorDataset(Xte_t, yte_t),
-        batch_size=hp["batch_size"],
+        batch_size=eval_bs,
         shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True,
+        num_workers=0 if keep_eval_on_gpu else args.num_workers,
+        pin_memory=not keep_eval_on_gpu,
     )
 
     # Model & optimizer
@@ -893,6 +908,19 @@ def main():
         action="store_true",
         help="Enable cudnn.benchmark mode (auto-tunes conv kernels for fixed input shapes). "
         "10-20%% per-epoch speedup; loses bitwise determinism between runs.",
+    )
+    ap.add_argument(
+        "--eval_on_gpu",
+        action="store_true",
+        help="Keep val/test tensors on GPU permanently (skip H2D transfer each epoch). "
+        "Saves 5-10%% eval time; uses extra GPU memory (~250MB for K562 val+test).",
+    )
+    ap.add_argument(
+        "--eval_batch_mult",
+        type=int,
+        default=2,
+        help="Eval batch_size = train batch_size × this. Eval is forward-only, "
+        "can fit 2-4x the train BS. Default 2.",
     )
     ap.add_argument(
         "--hp",

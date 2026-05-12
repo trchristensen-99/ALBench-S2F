@@ -22,7 +22,9 @@ export WANDB_ENTITY=trchristensen99-cold-spring-harbor-laboratory
 # Speedup flags (also picked up by parallel_gpu_runner forwarding logic)
 export USE_COMPILE=${USE_COMPILE:-0}
 export CUDNN_BENCHMARK=${CUDNN_BENCHMARK:-1}
+export EVAL_ON_GPU=${EVAL_ON_GPU:-0}    # off by default — 4-parallel trials share GPU
 export EVAL_TEST_EVERY=${EVAL_TEST_EVERY:-5}
+export EVAL_BATCH_MULT=${EVAL_BATCH_MULT:-2}
 export HP_CACHE_DIR=${HP_CACHE_DIR:-$PWD/outputs/tensor_cache}
 
 : "${ARCH:?ARCH required}"
