@@ -22,22 +22,28 @@ module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
 source .venv/bin/activate
 export PYTHONPATH="$PWD"
-export TORCHDYNAMO_DISABLE=1
+# Compile enabled, so DO NOT set TORCHDYNAMO_DISABLE
 
 OUT=results/preflight/colab_d20k_legnet_optuna_winner
 rm -rf "$OUT"
 
+# Same Optuna-winner HPs, but with all speedup flags + tighter early stop.
+# bs=64 is fine for HP fidelity but slow on V100 (~30s/ep). With compile +
+# cudnn_benchmark + eval_test_every=5 + patience=8, target wall ~5-10 min.
 python scripts/preflight/run_single.py \
     --arch legnet \
     --d_train 20000 \
     --seed 42 \
-    --epochs 80 \
-    --early_stop_patience 15 \
+    --epochs 60 \
+    --early_stop_patience 8 \
     --augmentations rev_complement \
     --label_source ag_oracle \
     --output_dir "$OUT" \
     --cache_dir outputs/tensor_cache \
     --cudnn_benchmark \
+    --use_compile \
+    --eval_on_gpu \
     --eval_test_every 5 \
+    --eval_batch_mult 4 \
     --hp lr=0.0015 batch_size=64 weight_decay=0.0189 dropout=0.1 \
          "block_sizes=[256,256,256]" ks=5
