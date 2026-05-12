@@ -22,14 +22,15 @@ module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
 source .venv/bin/activate
 export PYTHONPATH="$PWD"
-# Compile enabled, so DO NOT set TORCHDYNAMO_DISABLE
+# torch.compile disabled — hangs > 15 min on first compile for this tiny model
+# (compile overhead > savings on small LegNet at bs=64).
+export TORCHDYNAMO_DISABLE=1
 
 OUT=results/preflight/colab_d20k_legnet_optuna_winner
 rm -rf "$OUT"
 
-# Same Optuna-winner HPs, but with all speedup flags + tighter early stop.
-# bs=64 is fine for HP fidelity but slow on V100 (~30s/ep). With compile +
-# cudnn_benchmark + eval_test_every=5 + patience=8, target wall ~5-10 min.
+# Same Optuna-winner HPs, with non-compile speedups (cudnn, gpu-resident
+# tensors, skip last.pt, sparser test eval, larger eval BS).
 python scripts/preflight/run_single.py \
     --arch legnet \
     --d_train 20000 \
@@ -41,8 +42,9 @@ python scripts/preflight/run_single.py \
     --output_dir "$OUT" \
     --cache_dir outputs/tensor_cache \
     --cudnn_benchmark \
-    --use_compile \
     --eval_on_gpu \
+    --train_on_gpu \
+    --skip_last_ckpt \
     --eval_test_every 5 \
     --eval_batch_mult 4 \
     --hp lr=0.0015 batch_size=64 weight_decay=0.0189 dropout=0.1 \
