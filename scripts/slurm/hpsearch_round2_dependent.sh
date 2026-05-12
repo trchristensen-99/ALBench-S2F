@@ -78,12 +78,11 @@ export PATIENCE=10
 export GPUS=1
 export TRIALS_PER_GPU=6
 
-# Round 2 speedup flags: cudnn benchmark (10-20%% faster) + skip per-epoch test
-# eval (still eval on new-best + final epoch). torch.compile left OFF by default
-# because it occasionally breaks on dynamic shapes — toggle USE_COMPILE=1 to opt in.
-export USE_COMPILE=0
-export CUDNN_BENCHMARK=1
-export EVAL_TEST_EVERY=5
+# Round 2 speedup flags. torch.compile enabled (run_single.py falls back to
+# eager on graph-break, so worst case is same speed; best case is +30-80%).
+export USE_COMPILE=${USE_COMPILE:-1}
+export CUDNN_BENCHMARK=${CUDNN_BENCHMARK:-1}
+export EVAL_TEST_EVERY=${EVAL_TEST_EVERY:-5}
 
 bash $REPO/scripts/slurm/hpsearch_raytune_cell.sh
 EOF

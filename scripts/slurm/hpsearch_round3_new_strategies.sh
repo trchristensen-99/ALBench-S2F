@@ -65,6 +65,7 @@ export MAX_EPOCHS=40
 export PATIENCE=10
 export GPUS=1
 export TRIALS_PER_GPU=6
+export USE_COMPILE=1
 export CUDNN_BENCHMARK=1
 export EVAL_TEST_EVERY=5
 export EVAL_BATCH_MULT=2
