@@ -101,16 +101,24 @@ def trainable(config: dict[str, Any]):
     ]
     # Speedup flags — set via SLURM env vars so we can toggle for a full job
     # without modifying every trial config. Round 2 turns these on by default.
-    if os.environ.get("USE_COMPILE", "0") == "1":
-        cmd.append("--use_compile")
-    if os.environ.get("CUDNN_BENCHMARK", "0") == "1":
-        cmd.append("--cudnn_benchmark")
-    if os.environ.get("EVAL_ON_GPU", "0") == "1":
-        cmd.append("--eval_on_gpu")
-    if os.environ.get("EVAL_TEST_EVERY"):
-        cmd.extend(["--eval_test_every", os.environ["EVAL_TEST_EVERY"]])
-    if os.environ.get("EVAL_BATCH_MULT"):
-        cmd.extend(["--eval_batch_mult", os.environ["EVAL_BATCH_MULT"]])
+    # HP_FAST=1 turns on all speedups (most jobs should use this)
+    if os.environ.get("HP_FAST", "1") == "1":
+        cmd.append("--fast")
+    else:
+        if os.environ.get("USE_COMPILE", "0") == "1":
+            cmd.append("--use_compile")
+        if os.environ.get("CUDNN_BENCHMARK", "0") == "1":
+            cmd.append("--cudnn_benchmark")
+        if os.environ.get("EVAL_ON_GPU", "0") == "1":
+            cmd.append("--eval_on_gpu")
+        if os.environ.get("TRAIN_ON_GPU", "0") == "1":
+            cmd.append("--train_on_gpu")
+        if os.environ.get("SKIP_LAST_CKPT", "0") == "1":
+            cmd.append("--skip_last_ckpt")
+        if os.environ.get("EVAL_TEST_EVERY"):
+            cmd.extend(["--eval_test_every", os.environ["EVAL_TEST_EVERY"]])
+        if os.environ.get("EVAL_BATCH_MULT"):
+            cmd.extend(["--eval_batch_mult", os.environ["EVAL_BATCH_MULT"]])
     # Shared one-hot tensor cache (populated by parallel_gpu_runner pre-build
     # or by the very first trial; subsequent trials hit cache)
     cache_dir = os.environ.get("HP_CACHE_DIR", str(REPO / "outputs/tensor_cache"))
