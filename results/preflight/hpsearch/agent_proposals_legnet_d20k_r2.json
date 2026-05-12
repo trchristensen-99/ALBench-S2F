@@ -1,0 +1,177 @@
+[
+  {
+    "label": "r2_exploit_lr_0.003",
+    "lr": 0.003, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: lower lr from 0.005 (winner) toward D=100k-best (~3e-4 to 1e-3) regime"
+  },
+  {
+    "label": "r2_exploit_lr_0.007",
+    "lr": 0.007, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: nudge lr up from 0.005; published default also used 0.005-0.01 range"
+  },
+  {
+    "label": "r2_exploit_drop_0.0",
+    "lr": 0.005, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.0,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: ablate dropout to test whether 0.05 is necessary vs 0"
+  },
+  {
+    "label": "r2_exploit_drop_0.1",
+    "lr": 0.005, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.1,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: nudge dropout up to 0.1 (rank 3-5 use 0.1)"
+  },
+  {
+    "label": "r2_exploit_wd_0.02",
+    "lr": 0.005, "batch_size": 512, "weight_decay": 0.02, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: reduce wd from 0.05 to 0.02 (matches D=100k optuna ~0.019)"
+  },
+  {
+    "label": "r2_exploit_wd_0.1",
+    "lr": 0.005, "batch_size": 512, "weight_decay": 0.1, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: increase wd to 0.1 (published default uses 0.1)"
+  },
+  {
+    "label": "r2_exploit_bs_256",
+    "lr": 0.005, "batch_size": 256, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: smaller bs=256 (D=5k winner used 256), more grad noise/regularization"
+  },
+  {
+    "label": "r2_exploit_bs_1024",
+    "lr": 0.007, "batch_size": 1024, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: bigger bs=1024 with lr scaled (sqrt rule) to test if winner config scales"
+  },
+  {
+    "label": "r2_exploit_ks_7",
+    "lr": 0.005, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 7, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: wider kernel ks=7 to capture broader motifs"
+  },
+  {
+    "label": "r2_exploit_aug_rc_shift",
+    "lr": 0.005, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rc_shift", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Exploit: add shift aug on top of winner config (more data-effective use of D=20k)"
+  },
+  {
+    "label": "r2_explore_d100k_width512_d4",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 0.0, "dropout": 0.1,
+    "block_sizes": [512, 512, 256, 256],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Explore: direct transfer of D=100k pbt winner (lr=3e-4, bs=128, drop=0.1, width=512, depth=4)"
+  },
+  {
+    "label": "r2_explore_d100k_width512_d4_v2",
+    "lr": 0.0013, "batch_size": 128, "weight_decay": 0.003, "dropout": 0.1,
+    "block_sizes": [512, 512, 256, 256],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Explore: D=100k random rank-2 (lr=1.3e-3, bs=128, wd=3e-3, drop=0.1)"
+  },
+  {
+    "label": "r2_explore_d100k_width512_d6_drop0.4",
+    "lr": 0.0002, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.4,
+    "block_sizes": [512, 512, 256, 256, 128, 128],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Explore: D=100k rank-3 (deeper width=512, high dropout 0.4 for regularization)"
+  },
+  {
+    "label": "r2_explore_d100k_width256_d3",
+    "lr": 0.0015, "batch_size": 64, "weight_decay": 0.019, "dropout": 0.1,
+    "block_sizes": [256, 256, 128],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Explore: D=100k optuna rank-4 (small bs, mid wd, shallow width=256)"
+  },
+  {
+    "label": "r2_explore_wide_high_lr",
+    "lr": 0.001, "batch_size": 256, "weight_decay": 0.001, "dropout": 0.15,
+    "block_sizes": [512, 512, 256, 256],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Explore: wider [512,512,256,256] at moderate lr/bs to bridge D=20k and D=100k regimes"
+  },
+  {
+    "label": "r2_explore_wide_deep_drop0.2",
+    "lr": 0.0005, "batch_size": 256, "weight_decay": 0.001, "dropout": 0.2,
+    "block_sizes": [512, 512, 256, 256, 128, 128],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Explore: 6-stage wide pyramid with stronger dropout to combat overfit at D=20k"
+  },
+  {
+    "label": "r2_explore_wide_lowlr_rc_shift",
+    "lr": 0.0008, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.1,
+    "block_sizes": [512, 512, 256, 256],
+    "ks": 5, "aug": "rc_shift", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Explore: D=100k-style wide network with rc_shift aug to add data diversity"
+  },
+  {
+    "label": "r2_explore_wide_lowlr_ks7",
+    "lr": 0.0004, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.1,
+    "block_sizes": [512, 512, 256, 256],
+    "ks": 7, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Explore: width=512 + ks=7 for broader motif capture at low lr"
+  },
+  {
+    "label": "r2_novel_low_drop_rc_shift",
+    "lr": 0.005, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rc_shift", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Novel: winner config + rc_shift augmentation (untried combination)"
+  },
+  {
+    "label": "r2_novel_low_drop_ks7_8stage",
+    "lr": 0.004, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 7, "aug": "rc_shift", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Novel: winner with ks=7 + rc_shift, slight lr reduction"
+  },
+  {
+    "label": "r2_novel_plain_block_winner",
+    "lr": 0.003, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "plain", "optimizer": "adamw",
+    "rationale": "Novel: try plain block_class (no SE/inverted-residual) with winner topology"
+  },
+  {
+    "label": "r2_novel_ag_block_winner",
+    "lr": 0.002, "batch_size": 512, "weight_decay": 0.01, "dropout": 0.1,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "ag", "optimizer": "adamw",
+    "rationale": "Novel: ag block_class with moderated regularization; new architecture path"
+  },
+  {
+    "label": "r2_novel_adam_winner",
+    "lr": 0.003, "batch_size": 512, "weight_decay": 0.05, "dropout": 0.05,
+    "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adam",
+    "rationale": "Novel: switch to plain adam (decoupled wd may not be needed at this scale)"
+  },
+  {
+    "label": "r2_novel_constant256_5stage",
+    "lr": 0.0007, "batch_size": 256, "weight_decay": 0.001, "dropout": 0.15,
+    "block_sizes": [256, 256, 256, 256, 256],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Novel: constant width=256 across 5 stages (between explore_constant128 and width=512)"
+  },
+  {
+    "label": "r2_novel_pyramid_wide_to_narrow_rc_shift",
+    "lr": 0.0006, "batch_size": 256, "weight_decay": 0.005, "dropout": 0.1,
+    "block_sizes": [512, 256, 256, 128, 128, 64],
+    "ks": 5, "aug": "rc_shift", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Novel: aggressive wide-to-narrow pyramid + rc_shift; tests aggressive funneling"
+  }
+]

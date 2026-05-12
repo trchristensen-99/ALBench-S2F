@@ -1,0 +1,177 @@
+[
+  {
+    "label": "r2_d100k_exploit_pbt_winner_lr_lower",
+    "lr": 0.0002, "batch_size": 128, "weight_decay": 0.0, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Tight perturbation of pbt winner: slightly lower LR with same width=512/depth=4 to see if 3e-4 is right of optimum."
+  },
+  {
+    "label": "r2_d100k_exploit_pbt_winner_lr_higher",
+    "lr": 0.0004, "batch_size": 128, "weight_decay": 0.0, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Lr just above pbt winner (3e-4) to bracket optimum."
+  },
+  {
+    "label": "r2_d100k_exploit_pbt_winner_wd_small",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 1e-05, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Add tiny weight decay to pbt winner (which had wd=0) — may help generalization slightly."
+  },
+  {
+    "label": "r2_d100k_exploit_pbt_winner_drop015",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 0.0, "dropout": 0.15,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Slightly more dropout on pbt winner — width=512/depth=4 may benefit from a bit more regularization."
+  },
+  {
+    "label": "r2_d100k_exploit_pbt_winner_drop005",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 0.0, "dropout": 0.05,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Slightly less dropout on pbt winner — test whether 0.1 is already enough."
+  },
+  {
+    "label": "r2_d100k_exploit_pbt_winner_bs64",
+    "lr": 0.0002, "batch_size": 64, "weight_decay": 0.0, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Smaller batch size with the pbt winner arch — more SGD noise sometimes helps small-data."
+  },
+  {
+    "label": "r2_d100k_exploit_pbt_winner_bs256",
+    "lr": 0.0005, "batch_size": 256, "weight_decay": 0.0, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Larger batch + linearly scaled LR to test BS=128 vs 256 with linear LR scaling on the wide arch."
+  },
+  {
+    "label": "r2_d100k_exploit_pbt_winner_shift_aug",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 0.0, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rc_shift", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Pbt winner + rc_shift aug; shift augmentation often beats rev_complement-only on small data."
+  },
+  {
+    "label": "r2_d100k_exploit_pbt_winner_adam",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 0.0, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adam",
+    "rationale": "Same as pbt winner but plain Adam vs AdamW — when wd=0 the difference should be negligible (sanity check)."
+  },
+  {
+    "label": "r2_d100k_exploit_pbt_winner_wd_mid",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Mid weight decay (1e-4) like the depth=6 winner — see if it lifts the depth=4 base."
+  },
+  {
+    "label": "r2_d100k_explore_w512_d5",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 1e-05, "dropout": 0.15,
+    "block_sizes": [512, 512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Depth=5 at width=512 — bridge between best depth=4 (test=0.4017) and depth=6 (test=0.4075)."
+  },
+  {
+    "label": "r2_d100k_explore_w512_d6_low_drop",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.2,
+    "block_sizes": [512, 512, 512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Depth=6 width=512 (the #3 config) but with lower dropout 0.2 and slightly higher LR — see if its 0.4 dropout was over-regularized."
+  },
+  {
+    "label": "r2_d100k_explore_w1024_d3",
+    "lr": 0.0002, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.2,
+    "block_sizes": [1024, 1024, 1024],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Go wider not deeper — width=1024 at depth=3 (similar params to 512x4)."
+  },
+  {
+    "label": "r2_d100k_explore_w1024_d4",
+    "lr": 0.0002, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.2,
+    "block_sizes": [1024, 1024, 1024, 1024],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Aggressive scale-up: width=1024, depth=4. Needs more regularization (wd=1e-4, drop=0.2)."
+  },
+  {
+    "label": "r2_d100k_explore_pyramid_w1024_taper",
+    "lr": 0.0002, "batch_size": 128, "weight_decay": 1e-05, "dropout": 0.15,
+    "block_sizes": [1024, 768, 512, 256],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Pyramid width: wide early layers (better feature extraction), narrower later — often beats uniform width."
+  },
+  {
+    "label": "r2_d100k_explore_inverted_pyramid",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 1e-05, "dropout": 0.1,
+    "block_sizes": [256, 384, 512, 768],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Inverted pyramid: narrower early to wider later — classic CNN scaling pattern, contrast with taper."
+  },
+  {
+    "label": "r2_d100k_explore_w768_d5",
+    "lr": 0.00025, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.2,
+    "block_sizes": [768, 768, 768, 768, 768],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Intermediate width 768, depth 5 — between 512x4 and 1024x4."
+  },
+  {
+    "label": "r2_d100k_explore_w512_d7",
+    "lr": 0.00025, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.3,
+    "block_sizes": [512, 512, 512, 512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Push depth to 7 with width=512, heavier dropout=0.3 to prevent overfit."
+  },
+  {
+    "label": "r2_d100k_novel_pbt_winner_shift_drop015",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 1e-05, "dropout": 0.15,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rc_shift", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Combo: shift aug + slightly higher dropout + tiny wd on pbt winner — multi-knob regularization with stronger aug."
+  },
+  {
+    "label": "r2_d100k_novel_ag_block_w512_d4",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 1e-05, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "ag", "optimizer": "adamw",
+    "rationale": "AG block_class (AlphaGenome-style block) with pbt winner geometry — different inductive bias may help."
+  },
+  {
+    "label": "r2_d100k_novel_plain_block_w512_d4",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 1e-05, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 5, "aug": "rev_complement", "block_class": "plain", "optimizer": "adamw",
+    "rationale": "Plain block_class (no SE / inverted residual) — tests whether LegNet's eff block is critical at D=100k."
+  },
+  {
+    "label": "r2_d100k_novel_ks7_w512_d4",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 0.0, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 7, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Larger kernel size ks=7 with pbt winner — wider receptive field may help on 600bp MPRA."
+  },
+  {
+    "label": "r2_d100k_novel_ks3_w512_d4",
+    "lr": 0.0003, "batch_size": 128, "weight_decay": 0.0, "dropout": 0.1,
+    "block_sizes": [512, 512, 512, 512],
+    "ks": 3, "aug": "rev_complement", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Smaller kernel ks=3 with pbt winner — more locality, fewer params per conv."
+  },
+  {
+    "label": "r2_d100k_novel_ks7_shift_d5",
+    "lr": 0.00025, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.2,
+    "block_sizes": [512, 512, 512, 512, 512],
+    "ks": 7, "aug": "rc_shift", "block_class": "eff", "optimizer": "adamw",
+    "rationale": "Combine ks=7 + shift aug + depth=5 — bigger receptive field + stronger aug for deeper net."
+  },
+  {
+    "label": "r2_d100k_novel_ag_block_w1024_d3_shift",
+    "lr": 0.0002, "batch_size": 128, "weight_decay": 0.0001, "dropout": 0.2,
+    "block_sizes": [1024, 1024, 1024],
+    "ks": 5, "aug": "rc_shift", "block_class": "ag", "optimizer": "adamw",
+    "rationale": "Triple novel: AG block + width=1024 + shift aug — biggest departure from current frontier."
+  }
+]
