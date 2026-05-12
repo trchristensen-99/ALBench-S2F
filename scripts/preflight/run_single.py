@@ -258,6 +258,21 @@ def build_model(arch: str, hp: dict[str, Any], device: torch.device) -> torch.nn
 
 
 # ── Data loading (K562 + AG oracle pseudolabels) ─────────────────────────
+def _cache_key(
+    d_train: int,
+    seed: int,
+    in_channels: int,
+    seq_len: int,
+    label_source: str,
+    pad_with_adapters: bool,
+) -> str:
+    """Stable filename for a (data params) tuple."""
+    return (
+        f"data_ls{label_source}_d{d_train}_seed{seed}_"
+        f"len{seq_len}_ch{in_channels}_pad{int(pad_with_adapters)}.pt"
+    )
+
+
 def load_data(
     d_train: int,
     seed: int,
@@ -265,6 +280,7 @@ def load_data(
     seq_len: int = 200,
     label_source: str = "ag_oracle",
     pad_with_adapters: bool = False,
+    cache_dir: str | Path | None = None,
 ):
     """Sample d_train from K562 train pool, with chosen label source.
 
@@ -283,7 +299,26 @@ def load_data(
 
     Train uses out-of-fold oracle predictions (``oof_oracle``); val/test
     use the full-ensemble mean (``oracle_mean``).
+
+    cache_dir: if set, the one-hot tensors are saved/loaded as torch tensors
+    under {cache_dir}/{stable filename}. Huge speedup when many trials in
+    the same SLURM job share (d_train, seed, label_source) — encoding 20k
+    sequences to one-hot takes ~30s; loading the cached tensor takes ~0.5s.
     """
+    cache_path = None
+    if cache_dir is not None:
+        cache_path = Path(cache_dir) / _cache_key(
+            d_train, seed, in_channels, seq_len, label_source, pad_with_adapters
+        )
+        if cache_path.exists():
+            print(f"  tensor cache HIT: {cache_path}")
+            blob = torch.load(cache_path, weights_only=False)
+            return (
+                (blob["Xtr"], blob["ytr"]),
+                (blob["Xva"], blob["yva"]),
+                (blob["Xte"], blob["yte"]),
+            )
+
     from data.k562 import K562Dataset
 
     _kw = dict(use_hashfrag=False, use_chromosome_fallback=True)
@@ -371,6 +406,25 @@ def load_data(
     Xtr = one_hot(train_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
     Xva = one_hot(val_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
     Xte = one_hot(test_seqs, seq_len, in_channels, pad_with_adapters=pad_with_adapters)
+
+    if cache_path is not None:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        # Atomic write: tmp file + rename to avoid race conditions
+        tmp_path = cache_path.with_suffix(".tmp.pt")
+        torch.save(
+            {
+                "Xtr": Xtr,
+                "ytr": train_labels,
+                "Xva": Xva,
+                "yva": val_labels,
+                "Xte": Xte,
+                "yte": test_labels,
+            },
+            tmp_path,
+        )
+        tmp_path.rename(cache_path)
+        print(f"  tensor cache WRITE: {cache_path} ({cache_path.stat().st_size / 1e6:.1f} MB)")
+
     return (Xtr, train_labels), (Xva, val_labels), (Xte, test_labels)
 
 
@@ -426,6 +480,7 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
         seq_len=payload_len,
         label_source=args.label_source,
         pad_with_adapters=use_shift,
+        cache_dir=getattr(args, "cache_dir", None),
     )
     Xtr_t = torch.from_numpy(Xtr).float()
     ytr_t = torch.from_numpy(ytr).float()
@@ -767,6 +822,15 @@ def main():
         help="Per-sample probability of applying EvoAug per batch (0.0-1.0).",
     )
     ap.add_argument("--sweep_name", default=None, help="W&B tag value for sweep=<>")
+    ap.add_argument(
+        "--cache_dir",
+        default=None,
+        help=(
+            "Directory to cache one-hot tensor arrays (per d_train+seed+label_source). "
+            "Massive speedup when many trials share the same data — encoding 20k seqs "
+            "takes ~30s; loading the cached tensor takes ~0.5s."
+        ),
+    )
     ap.add_argument(
         "--hp",
         nargs="*",
