@@ -78,6 +78,24 @@ def _make_searcher(strategy: str, arch: str, metric: str, mode: str, max_t: int 
             reduction_factor=3,
         )
         return bohb_search, bohb_sched
+    if strategy == "nevergrad":
+        from ray.tune.search.nevergrad import NevergradSearch
+
+        try:
+            import nevergrad as ng
+        except ImportError as e:
+            raise ImportError("strategy=nevergrad needs `pip install nevergrad`") from e
+        # OnePlusOne: evolutionary, well-suited to small/discrete spaces
+        return (
+            NevergradSearch(optimizer=ng.optimizers.OnePlusOne, metric=metric, mode=mode),
+            asha,
+        )
+    if strategy == "bayesopt":
+        from ray.tune.search.bayesopt import BayesOptSearch
+
+        # BayesOptSearch uses scikit-optimize-style GP-EI behind the scenes;
+        # categorical dims (block_class, optimizer, batch_size) are auto-encoded.
+        return BayesOptSearch(metric=metric, mode=mode, random_state=42), asha
     if strategy == "pbt":
         from ray.tune.schedulers import PopulationBasedTraining
 
@@ -102,7 +120,7 @@ def main():
     ap.add_argument(
         "--strategy",
         required=True,
-        choices=["random", "optuna", "hyperopt", "bohb", "pbt"],
+        choices=["random", "optuna", "hyperopt", "bohb", "pbt", "nevergrad", "bayesopt"],
     )
     ap.add_argument("--arch", required=True, choices=["legnet", "dream_rnn", "dream_attn"])
     ap.add_argument("--d_train", type=int, required=True)
