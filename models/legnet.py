@@ -321,6 +321,9 @@ class LegNet(nn.Module):
         task_mode: str = "k562",
         multitask: bool = False,
         dropout: float = 0.0,
+        conv_dropout: float | None = None,
+        dense_dims: list[int] | None = None,
+        dense_dropout: float = 0.0,
         block_class: str | Type[nn.Module] = "eff",
     ):
         super().__init__()
@@ -336,7 +339,13 @@ class LegNet(nn.Module):
         self.block_sizes = block_sizes
         self.task_mode = task_mode
         self.multitask = multitask
-        self.dropout = dropout
+        # Backward compat: `dropout` is the legacy single dropout. New code can pass
+        # `conv_dropout` explicitly; falls back to `dropout` if not set. Peter's ask:
+        # conv layers need less dropout than dense layers — so split the two.
+        self.conv_dropout = conv_dropout if conv_dropout is not None else dropout
+        self.dropout = self.conv_dropout  # alias for legacy callers
+        self.dense_dims = list(dense_dims) if dense_dims else []
+        self.dense_dropout = dense_dropout
         if task_mode == "yeast":
             self.final_ch = 18
         elif multitask:
@@ -378,17 +387,35 @@ class LegNet(nn.Module):
                     activation=activation,
                 ),
             ]
-            if dropout > 0:
-                layers.append(nn.Dropout1d(dropout))
+            if self.conv_dropout > 0:
+                layers.append(nn.Dropout1d(self.conv_dropout))
             blocks.append(nn.Sequential(*layers))
         self.main = nn.Sequential(*blocks)
 
-        # Output mapping
-        self.mapper = MappingBlock(
-            in_ch=block_sizes[-1],
-            out_ch=self.final_ch,
-            activation=final_activation,
-        )
+        # Output head. Two modes:
+        #   (a) dense_dims is empty: original LegNet head — 1x1 conv mapper then GAP.
+        #   (b) dense_dims non-empty: GAP → flatten → [Linear → activation → Dropout]*
+        #       → final Linear(... → final_ch). Allows higher dropout for dense layers
+        #       per Peter's "conv layers need less dropout than dense layers" guidance.
+        if not self.dense_dims:
+            self.mapper = MappingBlock(
+                in_ch=block_sizes[-1],
+                out_ch=self.final_ch,
+                activation=final_activation,
+            )
+            self.dense_head = None
+        else:
+            self.mapper = None
+            dense_layers: list[nn.Module] = []
+            prev = block_sizes[-1]
+            for d in self.dense_dims:
+                dense_layers.append(nn.Linear(prev, d))
+                dense_layers.append(activation())
+                if self.dense_dropout > 0:
+                    dense_layers.append(nn.Dropout(self.dense_dropout))
+                prev = d
+            dense_layers.append(nn.Linear(prev, self.final_ch))
+            self.dense_head = nn.Sequential(*dense_layers)
 
         if task_mode == "yeast":
             self.register_buffer(
@@ -412,8 +439,12 @@ class LegNet(nn.Module):
         """
         x = self.stem_block(x)
         x = self.main(x)
-        x = self.mapper(x)
-        x = F.adaptive_avg_pool1d(x, 1).squeeze(2)
+        if self.dense_head is None:
+            x = self.mapper(x)
+            x = F.adaptive_avg_pool1d(x, 1).squeeze(2)
+        else:
+            x = F.adaptive_avg_pool1d(x, 1).squeeze(2)
+            x = self.dense_head(x)
 
         if self.task_mode == "yeast":
             probs = F.softmax(x, dim=1)
@@ -426,8 +457,12 @@ class LegNet(nn.Module):
         """Get raw logits before softmax (yeast) or identity (k562)."""
         h = self.stem_block(x)
         h = self.main(h)
-        h = self.mapper(h)
-        h = F.adaptive_avg_pool1d(h, 1).squeeze(2)
+        if self.dense_head is None:
+            h = self.mapper(h)
+            h = F.adaptive_avg_pool1d(h, 1).squeeze(2)
+        else:
+            h = F.adaptive_avg_pool1d(h, 1).squeeze(2)
+            h = self.dense_head(h)
         return h
 
     # --- Checkpoint helpers (matches SequenceModel.save/load_checkpoint) ---
@@ -444,6 +479,10 @@ class LegNet(nn.Module):
                     "task_mode": self.task_mode,
                     "multitask": self.multitask,
                     "dropout": self.dropout,
+                    "conv_dropout": self.conv_dropout,
+                    "dense_dims": self.dense_dims,
+                    "dense_dropout": self.dense_dropout,
+                    "block_class": self.block_class,
                 },
                 **kwargs,
             },
