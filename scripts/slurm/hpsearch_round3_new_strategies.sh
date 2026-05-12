@@ -13,16 +13,16 @@ REPO=/grid/wsbs/home_norepl/christen/ALBench-S2F
 cd "$REPO"
 SBATCH=/cm/shared/apps/slurm/current/bin/sbatch
 
-# (strategy, arch, D_TRAIN, parent_round2_jobid)
+# (strategy, arch, D_TRAIN, parent_round2_jobid) — parents updated after R2 resubmit
 declare -a JOBS=(
-    "nevergrad legnet     5000    2184103"
-    "bayesopt  legnet     5000    2184103"
-    "nevergrad legnet     100000  2184106"
-    "bayesopt  legnet     100000  2184106"
-    "nevergrad dream_attn 5000    2184109"
-    "bayesopt  dream_attn 5000    2184109"
-    "nevergrad dream_attn 100000  2184110"
-    "bayesopt  dream_attn 100000  2184110"
+    "nevergrad legnet     5000    2187111"
+    "bayesopt  legnet     5000    2187111"
+    "nevergrad legnet     100000  2187114"
+    "bayesopt  legnet     100000  2187114"
+    "nevergrad dream_attn 5000    2187117"
+    "bayesopt  dream_attn 5000    2187117"
+    "nevergrad dream_attn 100000  2187118"
+    "bayesopt  dream_attn 100000  2187118"
 )
 
 submit_one() {
