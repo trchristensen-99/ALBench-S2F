@@ -10,6 +10,42 @@ from __future__ import annotations
 
 from typing import Any
 
+
+def expand_block_sizes(width: int, depth: int, shape: str = "flat") -> list[int]:
+    """Expand (width, depth, shape) into a concrete block_sizes list.
+
+    Per Peter's feedback (May 12 2026): "change [width] by layer" — search
+    over different shape patterns instead of forcing homogeneous widths.
+
+    Shapes:
+      flat         — [W, W, ..., W]                          uniform
+      pyramid      — pairs of equal widths, halving every 2  (legnet default style)
+      decreasing   — linear ramp from W → max(W/8, 16)       smooth narrowing
+      increasing   — linear ramp from max(W/4, 16) → W       widening
+    """
+    width = int(width)
+    depth = int(depth)
+    if depth < 1:
+        return [width]
+    if shape == "flat":
+        return [width] * depth
+    if shape == "pyramid":
+        sizes = []
+        cur = width
+        for i in range(depth):
+            sizes.append(int(cur))
+            if (i + 1) % 2 == 0 and cur > 16:
+                cur = max(16, cur // 2)
+        return sizes
+    if shape == "decreasing":
+        end = max(width // 8, 16)
+        return [int(round(width + (end - width) * i / max(1, depth - 1))) for i in range(depth)]
+    if shape == "increasing":
+        start = max(width // 4, 16)
+        return [int(round(start + (width - start) * i / max(1, depth - 1))) for i in range(depth)]
+    raise ValueError(f"unknown shape {shape!r}; expected one of flat/pyramid/decreasing/increasing")
+
+
 # Boundaries chosen 2026-05-11.
 # Each arch has independent (width, depth, dropout) ranges based on what is
 # computationally feasible and architecturally meaningful. LR/BS/WD use the
@@ -18,6 +54,9 @@ SHARED_RANGES: dict[str, Any] = {
     "lr": ("loguniform", 1e-5, 1e-2),
     "batch_size": ("choice", [64, 128, 256, 512, 1024]),
     "weight_decay": ("loguniform", 1e-6, 1e-1),
+    # `dropout` is a legacy single-knob default. For LegNet it's overridden by
+    # the explicit conv_dropout/dense_dropout below; for dream_attn it still
+    # acts as a single dropout knob applied to all 3 sites.
     "dropout": ("choice", [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]),
     # Added per Peter's feedback (May 11 2026): optimizer choice
     "optimizer": ("choice", ["adam", "adamw"]),  # muon added later (needs pip)
@@ -25,12 +64,21 @@ SHARED_RANGES: dict[str, Any] = {
 
 ARCH_RANGES: dict[str, dict[str, Any]] = {
     "legnet": {
-        # block_sizes = [width] * depth (homogeneous), or per-layer (TODO)
+        # Per-layer widths picked from a shape pattern + global width/depth.
+        # See expand_block_sizes() — shape ∈ {flat, pyramid, decreasing, increasing}.
         "width": ("choice", [128, 256, 512, 1024, 2000]),
         "depth": ("choice", [2, 3, 4, 5, 6, 7]),
+        "shape": ("choice", ["flat", "pyramid", "decreasing", "increasing"]),
         # Added per Peter: alternative block classes (vanilla conv / AlphaGenome-style)
         # See models/legnet.BLOCK_CLASSES
         "block_class": ("choice", ["eff", "plain", "ag"]),
+        # Peter (May 12 2026): split conv vs dense dropout. Conv layers need less
+        # dropout than dense layers — search them independently.
+        "conv_dropout": ("choice", [0.0, 0.05, 0.1, 0.15, 0.2, 0.3]),
+        "dense_dropout": ("choice", [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]),
+        # Dense head shape. [] = original 1x1-conv + GAP head (no dense layers).
+        # Single or two hidden layers map the GAP output → 1 scalar.
+        "dense_dims": ("choice", [[], [256], [512], [256, 128], [512, 256]]),
     },
     "dream_rnn": {
         # hidden_dim = width (LSTM hidden per direction)
@@ -76,9 +124,27 @@ def to_run_single_overrides(arch: str, hp: dict[str, Any]) -> list[str]:
         overrides.append(f"optimizer={hp['optimizer']}")
 
     if arch == "legnet":
-        block_sizes = [int(w)] * int(d)
+        shape = hp.get("shape", "flat")
+        block_sizes = expand_block_sizes(int(w), int(d), shape)
         overrides.append(f"block_sizes={block_sizes}")
-        overrides.append(f"dropout={dr}")
+        if "shape" in hp:
+            overrides.append(f"shape={shape}")
+        # If conv_dropout/dense_dropout are present (new search space), forward
+        # them; otherwise fall back to the legacy shared `dropout`.
+        if "conv_dropout" in hp:
+            overrides.append(f"conv_dropout={hp['conv_dropout']}")
+        else:
+            overrides.append(f"dropout={dr}")
+        if "dense_dropout" in hp:
+            overrides.append(f"dense_dropout={hp['dense_dropout']}")
+        if "dense_dims" in hp:
+            # Pass as list literal — parse_overrides understands [a,b]
+            dd = hp["dense_dims"]
+            if isinstance(dd, (list, tuple)):
+                dd_str = "[" + ",".join(str(int(x)) for x in dd) + "]"
+            else:
+                dd_str = str(dd)
+            overrides.append(f"dense_dims={dd_str}")
         if "block_class" in hp:
             overrides.append(f"block_class={hp['block_class']}")
     elif arch == "dream_rnn":

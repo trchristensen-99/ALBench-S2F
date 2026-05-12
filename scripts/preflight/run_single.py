@@ -49,7 +49,10 @@ ARCH_PRIORS: dict[str, dict[str, Any]] = {
         "in_channels": 4,
         "block_sizes": [256, 256, 128, 128, 64, 64, 32, 32],
         "ks": 5,
-        "dropout": 0.0,
+        "dropout": 0.0,  # legacy single-dropout alias for conv_dropout
+        "conv_dropout": 0.0,  # dropout on conv stages (PI: low; conv needs less)
+        "dense_dims": [],  # optional dense head [d1, d2, ...]; empty = original head
+        "dense_dropout": 0.0,  # dropout on dense layers (PI: higher than conv)
         "block_class": "eff",  # eff | plain | ag (see models/legnet.BLOCK_CLASSES)
         "optimizer": "adamw",  # adam | adamw | muon
     },
@@ -226,11 +229,17 @@ def build_model(arch: str, hp: dict[str, Any], device: torch.device) -> torch.nn
     if arch == "legnet":
         from models.legnet import LegNet
 
+        # `conv_dropout` overrides legacy `dropout` if set; `dense_dims` enables
+        # a dense head with `dense_dropout`. Legacy callers passing only `dropout`
+        # still work (treated as conv_dropout with no dense head).
         return LegNet(
             in_channels=hp["in_channels"],
             block_sizes=hp.get("block_sizes"),
             ks=hp.get("ks", 5),
             dropout=hp.get("dropout", 0.0),
+            conv_dropout=hp.get("conv_dropout"),
+            dense_dims=hp.get("dense_dims", []),
+            dense_dropout=hp.get("dense_dropout", 0.0),
             task_mode="k562",
             block_class=hp.get("block_class", "eff"),
         ).to(device)
