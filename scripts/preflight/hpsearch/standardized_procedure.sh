@@ -3,31 +3,41 @@
 # Standardized HP-search procedure for one (ARCH, D_TRAIN) cell.
 #
 # Stages:
-#   1. PARALLEL COARSE SEARCH (3 SLURM jobs in parallel)
-#        random + optuna + pbt, each ~30-50 trials in one job
-#   2. AUTORESEARCH REFINEMENT (1 SLURM job, depends on Stage 1)
-#        2 rounds × 15 LLM-proposed configs (relies on user invoking subagent;
-#        falls back to the autoresearch_orchestrator scaffold)
-#   3. AUGMENTATION SWEEP (1 SLURM job, depends on Stage 2)
-#        Top-3 configs × {rev_complement, rc_shift, rc_shift_evoaug} ×
-#        {max_shift ∈ 0, 15, 25} × 1 seed = ~27 configs
-#   4. SEED VARIANCE (1 SLURM job, depends on Stage 3)
-#        Top-2 of Stage 3 × 3 seeds = 6 final runs
-#   5. COVERAGE AUDIT (lightweight CPU job)
-#        Verifies every dimension was probed.
+#   1. PARALLEL COARSE SEARCH (3 SLURM jobs in parallel — random + optuna + pbt)
+#   2. AUTORESEARCH REFINEMENT (depends on Stage 1; LLM-driven, currently stub)
+#   3. AUGMENTATION SWEEP (depends on Stage 2)
+#   4. SEED VARIANCE (depends on Stage 3)
+#   5. COVERAGE AUDIT (lightweight CPU job, depends on Stage 4)
 #
-# Transfer mode:
-#   If ANCHOR_DIR is set, Stages 1+2 are SKIPPED and only Stage 3 + Stage 4 run
-#   on the top-N configs from the anchor. Use this for {D values × reservoir
-#   strategies} that share an arch with a previously-run anchor.
+# Modes:
+#   SMOKE=1   ↳ Tiny sweep to validate the pipeline plumbing end-to-end. Runs
+#               in ~20-30 min on H100 instead of ~3-4 h. Uses:
+#                 - 8 trials per strategy (Stage 1) vs 30
+#                 - 12 configs (Stage 2) vs 30
+#                 - 6 configs (Stage 3) vs 27
+#                 - 2 seeds × 1 config (Stage 4) vs 3 seeds × 2 configs
+#                 - epochs=25 (early-stop hits ~ep 30 anyway) vs 60
+#                 - val_subsample=5000 vs full 57k
+#                 - k_parallel=8 + multi-GPU (Stage 1) for max throughput
+#   SMOKE=0   ↳ Full procedure. Default.
 #
-# Usage:
-#   ARCH=legnet D_TRAIN=20000 bash scripts/preflight/hpsearch/standardized_procedure.sh
+# Transfer mode (independent of SMOKE):
+#   ANCHOR_DIR=<...std_…_dXXX>  ↳ Skip Stages 1+2; reuse anchor's winners.
 #
-#   # Transfer mode:
-#   ARCH=legnet D_TRAIN=5000 \
-#       ANCHOR_DIR=results/preflight/hpsearch/std_legnet_d20000 \
-#       bash scripts/preflight/hpsearch/standardized_procedure.sh
+# Multi-GPU per stage (independent):
+#   N_GPUS=4  ↳ Request N GPUs per Stage 1 job and round-robin trials.
+#               Default 1.
+#
+# Usage examples:
+#   # Smoke test (~25 min)
+#   SMOKE=1 ARCH=legnet D_TRAIN=20000 bash scripts/preflight/hpsearch/standardized_procedure.sh
+#
+#   # Full procedure with 4 GPUs per Stage 1 job
+#   N_GPUS=4 ARCH=legnet D_TRAIN=20000 bash scripts/preflight/hpsearch/standardized_procedure.sh
+#
+#   # Transfer mode
+#   ANCHOR_DIR=results/preflight/hpsearch/std_legnet_d20000 \
+#     ARCH=legnet D_TRAIN=5000 bash scripts/preflight/hpsearch/standardized_procedure.sh
 # ============================================================================
 
 set -euo pipefail
@@ -38,23 +48,49 @@ SBATCH=/cm/shared/apps/slurm/current/bin/sbatch
 : "${ARCH:?ARCH required (legnet | dream_attn)}"
 : "${D_TRAIN:?D_TRAIN required}"
 ANCHOR_DIR=${ANCHOR_DIR:-}
-N_STAGE1_TRIALS=${N_STAGE1_TRIALS:-30}
-N_AUTORESEARCH_ROUNDS=${N_AUTORESEARCH_ROUNDS:-2}
-TOP_K_FOR_AUG_SWEEP=${TOP_K_FOR_AUG_SWEEP:-3}
-TOP_K_FOR_SEED_VAR=${TOP_K_FOR_SEED_VAR:-2}
+SMOKE=${SMOKE:-0}
+N_GPUS=${N_GPUS:-1}
 
-OUT_BASE="results/preflight/hpsearch/std_${ARCH}_d${D_TRAIN}"
+if [ "$SMOKE" = "1" ]; then
+    N_STAGE1_TRIALS=${N_STAGE1_TRIALS:-8}
+    AUTORESEARCH_CONFIGS=${AUTORESEARCH_CONFIGS:-12}
+    AUG_SWEEP_CONFIGS=${AUG_SWEEP_CONFIGS:-6}
+    SEED_VAR_REPS=${SEED_VAR_REPS:-2}
+    MAX_EPOCHS=${MAX_EPOCHS:-25}
+    PATIENCE=${PATIENCE:-6}
+    VAL_SUBSAMPLE=${VAL_SUBSAMPLE:-5000}
+    K_PARALLEL=${K_PARALLEL:-8}
+    STAGE_TIME=${STAGE_TIME:-02:00:00}
+    TAG="_smoke"
+else
+    N_STAGE1_TRIALS=${N_STAGE1_TRIALS:-30}
+    AUTORESEARCH_CONFIGS=${AUTORESEARCH_CONFIGS:-30}
+    AUG_SWEEP_CONFIGS=${AUG_SWEEP_CONFIGS:-27}
+    SEED_VAR_REPS=${SEED_VAR_REPS:-3}
+    MAX_EPOCHS=${MAX_EPOCHS:-60}
+    PATIENCE=${PATIENCE:-15}
+    VAL_SUBSAMPLE=${VAL_SUBSAMPLE:-0}
+    K_PARALLEL=${K_PARALLEL:-4}
+    STAGE_TIME=${STAGE_TIME:-08:00:00}
+    TAG=""
+fi
+
+OUT_BASE="results/preflight/hpsearch/std_${ARCH}_d${D_TRAIN}${TAG}"
 mkdir -p "$OUT_BASE"
-echo "[procedure] $(date) ARCH=$ARCH D_TRAIN=$D_TRAIN  → $OUT_BASE"
-echo "[procedure] ANCHOR_DIR=${ANCHOR_DIR:-<none — full procedure>}"
+echo "[procedure] $(date) ARCH=$ARCH D_TRAIN=$D_TRAIN SMOKE=$SMOKE N_GPUS=$N_GPUS"
+echo "[procedure] OUT_BASE=$OUT_BASE"
+echo "[procedure] N_STAGE1=$N_STAGE1_TRIALS MAX_EP=$MAX_EPOCHS K_PAR=$K_PARALLEL VAL_SUB=$VAL_SUBSAMPLE"
+echo "[procedure] ANCHOR_DIR=${ANCHOR_DIR:-<none>}"
 
 # Common SLURM wrapper params
-SLURM_COMMON="--partition=gpuq --qos=default --gres=gpu:1 --cpus-per-task=14 --mem=140G"
+CPUS=$(( N_GPUS * 4 + 2 ))
+MEM=$(( N_GPUS * 40 ))G
+SLURM_COMMON="--partition=gpuq --qos=default --gres=gpu:$N_GPUS --cpus-per-task=$CPUS --mem=$MEM"
 
 # Helper: submit a Ray Tune strategy
 submit_raytune() {
     local strategy=$1
-    local jobname="std_${ARCH}_d${D_TRAIN}_${strategy}"
+    local jobname="std${TAG}_${ARCH}_d${D_TRAIN}_${strategy}"
     local out="${OUT_BASE}/stage1_${strategy}"
     mkdir -p "$out"
     local jobfile=$(mktemp)
@@ -64,7 +100,7 @@ submit_raytune() {
 #SBATCH --output=$REPO/logs/%x-%j.out
 #SBATCH --error=$REPO/logs/%x-%j.err
 $SLURM_COMMON
-#SBATCH --time=06:00:00
+#SBATCH --time=$STAGE_TIME
 
 cd $REPO
 source .venv/bin/activate
@@ -73,11 +109,12 @@ export PYTHONUNBUFFERED=1
 export TORCHDYNAMO_DISABLE=1
 export HP_FAST=1
 export HP_CACHE_DIR=\$PWD/outputs/tensor_cache
+export EVAL_BATCH_MULT=2
 
 python -m scripts.preflight.hpsearch.raytune_search \\
     --strategy $strategy --arch $ARCH --d_train $D_TRAIN \\
-    --n_trials $N_STAGE1_TRIALS --max_epochs 60 --patience 15 \\
-    --gpus 1 --trials_per_gpu 4 \\
+    --n_trials $N_STAGE1_TRIALS --max_epochs $MAX_EPOCHS --patience $PATIENCE \\
+    --gpus $N_GPUS --trials_per_gpu $K_PARALLEL \\
     --output_dir $out
 EOF
     local jid=$($SBATCH --parsable "$jobfile")
@@ -85,7 +122,7 @@ EOF
     echo "$jid"
 }
 
-# Helper: submit a config-list runner with optional dependency
+# Helper: submit a config-list runner (for stages 2-4)
 submit_configlist() {
     local jobname=$1
     local configs_path=$2
@@ -111,6 +148,7 @@ export TORCHDYNAMO_DISABLE=1
 export HP_FAST=1
 export HP_CACHE_DIR=\$PWD/outputs/tensor_cache
 export EVAL_BATCH_MULT=2
+export N_GPUS=$N_GPUS
 
 uv run --no-sync python -u scripts/preflight/parallel_gpu_runner.py "$configs_path" $k_parallel
 EOF
@@ -123,28 +161,23 @@ source .venv/bin/activate
 S1_DEP=""
 
 if [ -z "$ANCHOR_DIR" ]; then
-    # ---- STAGE 1: parallel coarse search ----
     echo "[stage1] submitting random + optuna + pbt in parallel..."
     S1_RANDOM=$(submit_raytune random)
     S1_OPTUNA=$(submit_raytune optuna)
     S1_PBT=$(submit_raytune pbt)
-    echo "  stage1 jobs: random=$S1_RANDOM optuna=$S1_OPTUNA pbt=$S1_PBT"
+    echo "  stage1 jobs: random=$S1_RANDOM  optuna=$S1_OPTUNA  pbt=$S1_PBT"
     S1_DEP="afterany:${S1_RANDOM}:${S1_OPTUNA}:${S1_PBT}"
 else
     echo "[stage1] SKIPPED (transfer mode from $ANCHOR_DIR)"
 fi
 
-# ---- STAGE 2: AutoResearch refinement (placeholder — needs main Claude to drive) ----
-# We submit a stub job that prepares the digest; user/orchestrator invokes
-# subagents to write proposals; this script does NOT call the LLM.
+# Stage 2 digest job (writes the leaderboard for AutoResearch input)
 S2_OUT="${OUT_BASE}/stage2_autoresearch"
 mkdir -p "$S2_OUT"
-if [ -z "$ANCHOR_DIR" ]; then
-    # Digest stage 1 winners (waits for stage 1)
-    DIGEST_JOBFILE=$(mktemp)
-    cat > "$DIGEST_JOBFILE" <<EOF
+DIGEST_JOBFILE=$(mktemp)
+cat > "$DIGEST_JOBFILE" <<EOF
 #!/bin/bash
-#SBATCH --job-name=std_${ARCH}_d${D_TRAIN}_digest
+#SBATCH --job-name=std${TAG}_${ARCH}_d${D_TRAIN}_digest
 #SBATCH --output=$REPO/logs/%x-%j.out
 #SBATCH --error=$REPO/logs/%x-%j.err
 #SBATCH --partition=cpuq
@@ -157,31 +190,18 @@ cd $REPO
 source .venv/bin/activate
 python -m scripts.preflight.hpsearch.aggregate_trials
 python -m scripts.preflight.hpsearch.coverage_audit --arch $ARCH --d_train $D_TRAIN
-echo "[digest] Stage 1 leaderboard for $ARCH D=$D_TRAIN written; ready for AutoResearch."
-echo "[digest] Run: python -m scripts.preflight.hpsearch.autoresearch_orchestrator --arch $ARCH --d_train $D_TRAIN"
+echo "[digest] Leaderboard for $ARCH D=$D_TRAIN written. AutoResearch trigger should run next."
 EOF
-    DIGEST_DEP=""
-    [ -n "$S1_DEP" ] && DIGEST_DEP="--dependency=$S1_DEP"
-    S2_JID=$($SBATCH --parsable $DIGEST_DEP "$DIGEST_JOBFILE")
-    rm -f "$DIGEST_JOBFILE"
-    echo "[stage2] digest job (AutoResearch trigger) → $S2_JID"
-else
-    echo "[stage2] using ANCHOR_DIR=$ANCHOR_DIR; skipping coarse search."
-fi
+DIGEST_DEP=""
+[ -n "$S1_DEP" ] && DIGEST_DEP="--dependency=$S1_DEP"
+S2_JID=$($SBATCH --parsable $DIGEST_DEP "$DIGEST_JOBFILE")
+rm -f "$DIGEST_JOBFILE"
+echo "[stage2] digest job → $S2_JID"
 
-# ---- STAGE 3: augmentation sweep on top-K configs from stage 2 (or anchor) ----
-# Build aug-sweep configs.json post-hoc once stage 2 / anchor is available.
-# This is the same pattern as agent_r4_d20k_launch.sh.
-echo "[stage3] augmentation sweep will be assembled after Stage 2 completes."
-echo "[stage3]   (top-${TOP_K_FOR_AUG_SWEEP} × {rev_complement, rc_shift+max_shift∈{15,25}, rc_shift_evoaug+intensity∈{1,2,4}})"
-
-# ---- STAGE 4: 3-seed validation on top-2 of stage 3 ----
-echo "[stage4] 3-seed validation will run after Stage 3."
-
-# ---- STAGE 5: final coverage audit ----
-echo "[stage5] final coverage audit will run after Stage 4."
-
+# (Stage 3 + Stage 4 stubs — assembled post-hoc when prior stages land)
+echo "[stage3] aug-sweep / [stage4] seed-variance will be assembled after Stage 2 completes."
 echo ""
-echo "[procedure] Stage 1+2 submitted. Stage 3+4 need to be assembled after Stage 1+2 results land."
-echo "[procedure] Next: when Stage 2 digest writes the leaderboard, run:"
-echo "[procedure]    bash scripts/preflight/hpsearch/standardized_procedure_stage3.sh ARCH=$ARCH D_TRAIN=$D_TRAIN"
+echo "[procedure] Stage 1+2 submitted. To check status:"
+echo "  squeue -u christen -h | grep std${TAG}_${ARCH}_d${D_TRAIN}"
+echo "[procedure] To monitor leaderboard live:"
+echo "  python -m scripts.preflight.hpsearch.aggregate_trials"

@@ -130,8 +130,10 @@ def main():
     ap.add_argument(
         "--aug",
         type=str,
-        default="rev_complement",
-        choices=["none", "rev_complement", "rc_shift"],
+        default=None,
+        choices=[None, "none", "rev_complement", "rc_shift", "rc_shift_evoaug"],
+        help="Optional override that PINS aug to a single value. If unset, aug "
+        "is searched via the hp_space SHARED_RANGES dimension.",
     )
     ap.add_argument(
         "--gpus",
@@ -208,10 +210,14 @@ def main():
         "seed": args.seed,
         "epochs": args.max_epochs,
         "patience": args.patience,
-        "aug": args.aug,
         "strategy": args.strategy,
         "label_source": "ag_oracle",
     }
+    # Only pin `aug` if explicitly overridden via --aug; else it stays in the
+    # search space (and the strategy picks one of {rev_complement, rc_shift,
+    # rc_shift_evoaug}).
+    if args.aug is not None:
+        fixed["aug"] = args.aug
     for k, v in fixed.items():
         param_space[k] = v
 

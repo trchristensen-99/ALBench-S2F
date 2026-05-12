@@ -30,6 +30,8 @@ REPO = Path(__file__).resolve().parents[3]
 
 def _to_overrides(arch: str, config: dict[str, Any]) -> list[str]:
     """Translate abstract HP keys → run_single.py --hp k=v overrides per arch."""
+    from scripts.preflight.hpsearch.hp_space import expand_block_sizes
+
     lr = config["lr"]
     bs = config["batch_size"]
     wd = config["weight_decay"]
@@ -40,8 +42,24 @@ def _to_overrides(arch: str, config: dict[str, Any]) -> list[str]:
     if "optimizer" in config:
         out.append(f"optimizer={config['optimizer']}")
     if arch == "legnet":
-        out.append(f"block_sizes={[w] * d}")
-        out.append(f"dropout={dr}")
+        shape = config.get("shape", "flat")
+        block_sizes = expand_block_sizes(w, d, shape)
+        out.append(f"block_sizes={block_sizes}")
+        # Prefer explicit conv_dropout (new) over legacy `dropout` when present.
+        if "conv_dropout" in config:
+            out.append(f"conv_dropout={config['conv_dropout']}")
+        else:
+            out.append(f"dropout={dr}")
+        if "dense_dropout" in config:
+            out.append(f"dense_dropout={config['dense_dropout']}")
+        if "dense_dims" in config:
+            dd = config["dense_dims"]
+            dd_str = (
+                "[" + ",".join(str(int(x)) for x in dd) + "]"
+                if isinstance(dd, (list, tuple))
+                else str(dd)
+            )
+            out.append(f"dense_dims={dd_str}")
         if "block_class" in config:
             out.append(f"block_class={config['block_class']}")
     elif arch == "dream_rnn":
@@ -74,6 +92,15 @@ def trainable(config: dict[str, Any]):
     run_dir.mkdir(exist_ok=True)
 
     arch = config["arch"]
+    # If `aug` is "rc_shift_evoaug" and intensity is 0, treat as plain rc_shift.
+    # If `aug` is "rc_shift" with max_shift=0, treat as plain rev_complement.
+    aug = config.get("aug", "rev_complement")
+    max_shift = int(config.get("max_shift", 25 if aug.startswith("rc_shift") else 0))
+    evoaug_intensity = int(config.get("evoaug_intensity", 0))
+    if aug == "rc_shift_evoaug" and evoaug_intensity == 0:
+        aug = "rc_shift"
+    if aug == "rc_shift" and max_shift == 0:
+        aug = "rev_complement"
     cmd = [
         "uv",
         "run",
@@ -91,7 +118,7 @@ def trainable(config: dict[str, Any]):
         "--early_stop_patience",
         str(int(config.get("patience", 15))),
         "--augmentations",
-        config.get("aug", "rev_complement"),
+        aug,
         "--label_source",
         config.get("label_source", "ag_oracle"),
         "--output_dir",
@@ -99,6 +126,13 @@ def trainable(config: dict[str, Any]):
         "--sweep_name",
         f"hpsearch_{config.get('strategy', '?')}",
     ]
+    if max_shift > 0:
+        cmd.extend(["--max_shift", str(max_shift)])
+    if evoaug_intensity > 0 and aug == "rc_shift_evoaug":
+        # run_single expects {light, medium, heavy}; map our integer scale 1/2/4 → labels.
+        intensity_map = {1: "light", 2: "medium", 4: "heavy"}
+        cmd.extend(["--evoaug_intensity", intensity_map.get(evoaug_intensity, "light")])
+        cmd.extend(["--evoaug_prob", str(config.get("evoaug_prob", 0.5))])
     # Speedup flags — set via SLURM env vars so we can toggle for a full job
     # without modifying every trial config. Round 2 turns these on by default.
     # HP_FAST=1 turns on all speedups (most jobs should use this)
