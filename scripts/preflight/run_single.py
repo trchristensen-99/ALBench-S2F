@@ -80,13 +80,16 @@ ARCH_PRIORS: dict[str, dict[str, Any]] = {
 }
 
 
-def set_seed(seed: int) -> None:
+def set_seed(seed: int, cudnn_benchmark: bool = False) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+        # If cudnn_benchmark=True, prefer speed (10-20%% faster convs at the cost
+        # of bitwise determinism). Default keeps the deterministic setting for
+        # reproducibility across runs.
+        torch.backends.cudnn.deterministic = not cudnn_benchmark
+        torch.backends.cudnn.benchmark = cudnn_benchmark
 
 
 # ── One-hot encoding (4 nt + optional RC orientation channel) ────────────
@@ -487,7 +490,7 @@ def _eval_loss(
 
 
 def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> dict[str, Any]:
-    set_seed(args.seed)
+    set_seed(args.seed, cudnn_benchmark=getattr(args, "cudnn_benchmark", False))
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
     # Augmentation policy. RC is a per-sample channel flip; shift is a
@@ -658,21 +661,30 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
             payload_len=payload_len,
             max_shift=max_shift,
         )
-        test_loss, _ = _eval_loss(
-            model,
-            test_loader,
-            device,
-            augment_rc=augment_rc,
-            payload_len=payload_len,
-            max_shift=max_shift,
-        )
+        # Speedup: eval test only when this is a new best-val OR periodically
+        # (every eval_test_every epochs). HP search only cares about val loss
+        # for scheduling; the final reported test_mse uses the best checkpoint.
+        is_new_best = val_loss < best_val
+        eval_test_every = getattr(args, "eval_test_every", 1)
+        do_test_eval = is_new_best or (epoch % eval_test_every == 0) or (epoch + 1 == args.epochs)
+        if do_test_eval:
+            test_loss, _ = _eval_loss(
+                model,
+                test_loader,
+                device,
+                augment_rc=augment_rc,
+                payload_len=payload_len,
+                max_shift=max_shift,
+            )
+        else:
+            test_loss = history["test_loss"][-1] if history["test_loss"] else float("nan")
 
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
         history["test_loss"].append(test_loss)
         history["lr"].append(optimizer.param_groups[0]["lr"])
 
-        if val_loss < best_val:
+        if is_new_best:
             best_val = val_loss
             best_epoch = epoch
             best_test_mse = test_loss
@@ -868,6 +880,19 @@ def main():
         action="store_true",
         help="Wrap the model with torch.compile(mode='reduce-overhead'). "
         "Often 30-80%% faster per epoch after a one-time compile penalty (first epoch slow).",
+    )
+    ap.add_argument(
+        "--eval_test_every",
+        type=int,
+        default=1,
+        help="Run full test-set eval every N epochs (still always evals on new-best-val). "
+        "Setting N=5 saves ~50%% eval time during HP search where only val matters.",
+    )
+    ap.add_argument(
+        "--cudnn_benchmark",
+        action="store_true",
+        help="Enable cudnn.benchmark mode (auto-tunes conv kernels for fixed input shapes). "
+        "10-20%% per-epoch speedup; loses bitwise determinism between runs.",
     )
     ap.add_argument(
         "--hp",
