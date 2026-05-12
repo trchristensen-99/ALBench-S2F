@@ -178,37 +178,152 @@ else
     echo "[stage1] SKIPPED (transfer mode from $ANCHOR_DIR)"
 fi
 
-# Stage 2 digest job (writes the leaderboard for AutoResearch input)
-S2_OUT="${OUT_BASE}/stage2_autoresearch"
-mkdir -p "$S2_OUT"
-DIGEST_JOBFILE=$(mktemp)
-cat > "$DIGEST_JOBFILE" <<EOF
+# --- STAGE 2: ablation surrogate for AutoResearch (deterministic) ---
+# Builds 30 ablation configs around top-5 of Stage 1, then runs them.
+S2_DIR="${OUT_BASE}/stage2_ablate"
+S2_JOBFILE=$(mktemp)
+S2_IN_DIRS="${OUT_BASE}/stage1_random ${OUT_BASE}/stage1_optuna ${OUT_BASE}/stage1_pbt"
+if [ -n "$ANCHOR_DIR" ]; then S2_IN_DIRS="$ANCHOR_DIR/stage1_random $ANCHOR_DIR/stage1_optuna $ANCHOR_DIR/stage1_pbt $ANCHOR_DIR/stage2_ablate"; fi
+cat > "$S2_JOBFILE" <<EOF
 #!/bin/bash
-#SBATCH --job-name=std${TAG}_${ARCH}_d${D_TRAIN}_digest
+#SBATCH --job-name=std${TAG}_${ARCH}_d${D_TRAIN}_stage2
+#SBATCH --output=$REPO/logs/%x-%j.out
+#SBATCH --error=$REPO/logs/%x-%j.err
+#SBATCH --partition=gpuq
+#SBATCH --qos=default
+#SBATCH --gres=gpu:$N_GPUS
+#SBATCH --cpus-per-task=$CPUS
+#SBATCH --mem=$MEM
+#SBATCH --time=$STAGE_TIME
+
+cd $REPO
+source .venv/bin/activate
+export PYTHONPATH="\$PWD"
+export PYTHONUNBUFFERED=1
+export TORCHDYNAMO_DISABLE=1
+export HP_FAST=1
+export HP_CACHE_DIR=\$PWD/outputs/tensor_cache
+export EVAL_BATCH_MULT=2
+export N_GPUS=$N_GPUS
+
+python -m scripts.preflight.hpsearch.build_stage_configs \\
+    --stage stage2_ablate --top_k 5 --arch $ARCH --d_train $D_TRAIN \\
+    --epochs $MAX_EPOCHS --patience $PATIENCE \\
+    --in_dirs $S2_IN_DIRS \\
+    --out_dir $S2_DIR
+
+uv run --no-sync python -u scripts/preflight/parallel_gpu_runner.py "$S2_DIR/configs.json" $K_PARALLEL
+EOF
+S2_DEP_FLAG=""
+[ -n "$S1_DEP" ] && S2_DEP_FLAG="--dependency=$S1_DEP"
+S2_JID=$($SBATCH --parsable $S2_DEP_FLAG "$S2_JOBFILE")
+rm -f "$S2_JOBFILE"
+echo "[stage2] ablate (top-5 × 6 perturbations) → $S2_JID  ${S2_DEP_FLAG}"
+
+# --- STAGE 3: aug sweep on top-3 from Stage 1+2 ---
+S3_DIR="${OUT_BASE}/stage3_aug"
+S3_JOBFILE=$(mktemp)
+S3_IN_DIRS="${OUT_BASE}/stage1_random ${OUT_BASE}/stage1_optuna ${OUT_BASE}/stage1_pbt ${OUT_BASE}/stage2_ablate"
+cat > "$S3_JOBFILE" <<EOF
+#!/bin/bash
+#SBATCH --job-name=std${TAG}_${ARCH}_d${D_TRAIN}_stage3
+#SBATCH --output=$REPO/logs/%x-%j.out
+#SBATCH --error=$REPO/logs/%x-%j.err
+#SBATCH --partition=gpuq
+#SBATCH --qos=default
+#SBATCH --gres=gpu:$N_GPUS
+#SBATCH --cpus-per-task=$CPUS
+#SBATCH --mem=$MEM
+#SBATCH --time=$STAGE_TIME
+
+cd $REPO
+source .venv/bin/activate
+export PYTHONPATH="\$PWD"
+export PYTHONUNBUFFERED=1
+export TORCHDYNAMO_DISABLE=1
+export HP_FAST=1
+export HP_CACHE_DIR=\$PWD/outputs/tensor_cache
+export EVAL_BATCH_MULT=2
+export N_GPUS=$N_GPUS
+
+python -m scripts.preflight.hpsearch.build_stage_configs \\
+    --stage stage3_aug --top_k 3 --arch $ARCH --d_train $D_TRAIN \\
+    --epochs $MAX_EPOCHS --patience $PATIENCE \\
+    --in_dirs $S3_IN_DIRS \\
+    --out_dir $S3_DIR
+
+uv run --no-sync python -u scripts/preflight/parallel_gpu_runner.py "$S3_DIR/configs.json" $K_PARALLEL
+EOF
+S3_JID=$($SBATCH --parsable --dependency=afterany:$S2_JID "$S3_JOBFILE")
+rm -f "$S3_JOBFILE"
+echo "[stage3] aug sweep (top-3 × 9 aug variants) → $S3_JID  (afterany:$S2_JID)"
+
+# --- STAGE 4: seed variance on top-2 from Stage 3 ---
+S4_DIR="${OUT_BASE}/stage4_seeds"
+S4_JOBFILE=$(mktemp)
+cat > "$S4_JOBFILE" <<EOF
+#!/bin/bash
+#SBATCH --job-name=std${TAG}_${ARCH}_d${D_TRAIN}_stage4
+#SBATCH --output=$REPO/logs/%x-%j.out
+#SBATCH --error=$REPO/logs/%x-%j.err
+#SBATCH --partition=gpuq
+#SBATCH --qos=default
+#SBATCH --gres=gpu:$N_GPUS
+#SBATCH --cpus-per-task=$CPUS
+#SBATCH --mem=$MEM
+#SBATCH --time=$STAGE_TIME
+
+cd $REPO
+source .venv/bin/activate
+export PYTHONPATH="\$PWD"
+export PYTHONUNBUFFERED=1
+export TORCHDYNAMO_DISABLE=1
+export HP_FAST=1
+export HP_CACHE_DIR=\$PWD/outputs/tensor_cache
+export EVAL_BATCH_MULT=2
+export N_GPUS=$N_GPUS
+
+python -m scripts.preflight.hpsearch.build_stage_configs \\
+    --stage stage4_seeds --top_k 2 --n_seeds $SEED_VAR_REPS \\
+    --arch $ARCH --d_train $D_TRAIN --epochs $MAX_EPOCHS --patience $PATIENCE \\
+    --in_dirs $S3_DIR \\
+    --out_dir $S4_DIR
+
+uv run --no-sync python -u scripts/preflight/parallel_gpu_runner.py "$S4_DIR/configs.json" $K_PARALLEL
+EOF
+S4_JID=$($SBATCH --parsable --dependency=afterany:$S3_JID "$S4_JOBFILE")
+rm -f "$S4_JOBFILE"
+echo "[stage4] seed variance (top-2 × $SEED_VAR_REPS seeds) → $S4_JID  (afterany:$S3_JID)"
+
+# --- STAGE 5: final coverage audit ---
+S5_JOBFILE=$(mktemp)
+cat > "$S5_JOBFILE" <<EOF
+#!/bin/bash
+#SBATCH --job-name=std${TAG}_${ARCH}_d${D_TRAIN}_audit
 #SBATCH --output=$REPO/logs/%x-%j.out
 #SBATCH --error=$REPO/logs/%x-%j.err
 #SBATCH --partition=cpuq
 #SBATCH --qos=cpuq_base
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
-#SBATCH --time=00:30:00
+#SBATCH --time=00:15:00
 
 cd $REPO
 source .venv/bin/activate
 python -m scripts.preflight.hpsearch.aggregate_trials
 python -m scripts.preflight.hpsearch.coverage_audit --arch $ARCH --d_train $D_TRAIN
-echo "[digest] Leaderboard for $ARCH D=$D_TRAIN written. AutoResearch trigger should run next."
+echo "[audit] Final coverage report written for $ARCH D=$D_TRAIN."
 EOF
-DIGEST_DEP=""
-[ -n "$S1_DEP" ] && DIGEST_DEP="--dependency=$S1_DEP"
-S2_JID=$($SBATCH --parsable $DIGEST_DEP "$DIGEST_JOBFILE")
-rm -f "$DIGEST_JOBFILE"
-echo "[stage2] digest job → $S2_JID"
+S5_JID=$($SBATCH --parsable --dependency=afterany:$S4_JID "$S5_JOBFILE")
+rm -f "$S5_JOBFILE"
+echo "[stage5] coverage audit → $S5_JID  (afterany:$S4_JID)"
 
-# (Stage 3 + Stage 4 stubs — assembled post-hoc when prior stages land)
-echo "[stage3] aug-sweep / [stage4] seed-variance will be assembled after Stage 2 completes."
 echo ""
-echo "[procedure] Stage 1+2 submitted. To check status:"
-echo "  squeue -u christen -h | grep std${TAG}_${ARCH}_d${D_TRAIN}"
-echo "[procedure] To monitor leaderboard live:"
-echo "  python -m scripts.preflight.hpsearch.aggregate_trials"
+echo "[procedure] All 5 stages submitted. Pipeline jobs:"
+[ -n "$S1_DEP" ] && echo "  Stage 1: $S1_RANDOM (random), $S1_OPTUNA (optuna), $S1_PBT (pbt)"
+echo "  Stage 2: $S2_JID  (ablate, depends on Stage 1)"
+echo "  Stage 3: $S3_JID  (aug sweep, depends on Stage 2)"
+echo "  Stage 4: $S4_JID  (seed variance, depends on Stage 3)"
+echo "  Stage 5: $S5_JID  (coverage audit, depends on Stage 4)"
+echo ""
+echo "[procedure] To check status: squeue -u christen -h | grep std${TAG}_${ARCH}_d${D_TRAIN}"
