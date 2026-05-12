@@ -82,7 +82,7 @@ def _trim_hp(hp: dict, aug: str) -> dict:
 
 
 def stage2_ablate(top_anchors: list[dict]) -> list[dict]:
-    """6 perturbations per anchor — vary one HP axis at a time."""
+    """7 perturbations per anchor — vary one HP axis at a time."""
     proposals = []
     for i, anchor in enumerate(top_anchors[:5]):
         base = _trim_hp(anchor["hp"], anchor["aug"])
@@ -116,6 +116,12 @@ def stage2_ablate(top_anchors: list[dict]) -> list[dict]:
         p = dict(base)
         p["aug"] = new_aug
         proposals.append((f"s2_a{i}_aug_{new_aug}", p))
+        # 6. ks rotation — Stage 1 strategies tend to collapse on the default
+        # ks=5; force kernel-size diversity.
+        new_ks = 3 if base["ks"] != 3 else 7
+        p = dict(base)
+        p["ks"] = new_ks
+        proposals.append((f"s2_a{i}_ks_{new_ks}", p))
     return _to_run_configs(proposals)
 
 
