@@ -45,6 +45,8 @@ def _to_overrides(arch: str, config: dict[str, Any]) -> list[str]:
         shape = config.get("shape", "flat")
         block_sizes = expand_block_sizes(w, d, shape)
         out.append(f"block_sizes={block_sizes}")
+        # Persist shape so result.json's hp dict can be audited post-hoc.
+        out.append(f"shape={shape}")
         # Prefer explicit conv_dropout (new) over legacy `dropout` when present.
         if "conv_dropout" in config:
             out.append(f"conv_dropout={config['conv_dropout']}")
