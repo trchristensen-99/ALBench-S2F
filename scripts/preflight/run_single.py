@@ -540,6 +540,25 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
     eval_bs_mult = int(getattr(args, "eval_batch_mult", 2))
     eval_bs = hp["batch_size"] * max(1, eval_bs_mult)
 
+    # HP-search speedup: optionally subsample val/test for fast scheduling.
+    # Final reported metrics still computed on the FULL set at the end.
+    val_subsample_n = int(getattr(args, "val_subsample", 0))
+    if val_subsample_n > 0 and val_subsample_n < len(Xva_t):
+        # Deterministic subsample (same indices every trial → fair comparison)
+        rng = np.random.default_rng(42)
+        idx_v = rng.choice(len(Xva_t), size=val_subsample_n, replace=False)
+        idx_t = rng.choice(len(Xte_t), size=min(val_subsample_n, len(Xte_t)), replace=False)
+        idx_v_t = torch.from_numpy(idx_v)
+        idx_t_t = torch.from_numpy(idx_t)
+        Xva_t_sub = Xva_t[idx_v_t]
+        yva_t_sub = yva_t[idx_v_t]
+        Xte_t_sub = Xte_t[idx_t_t]
+        yte_t_sub = yte_t[idx_t_t]
+        print(f"  val/test subsampled to n={val_subsample_n} (speeds HP-search eval ~10x)")
+    else:
+        Xva_t_sub, yva_t_sub = Xva_t, yva_t
+        Xte_t_sub, yte_t_sub = Xte_t, yte_t
+
     # drop_last=False so very small D (e.g. D=500 with bs=1024) still
     # trains on the available partial batch — the D_min sweep needs to
     # see *some* gradient update at every D, otherwise the val-R² check
@@ -561,14 +580,14 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
     )
     # If val/test are already on GPU, skip pin_memory + workers
     val_loader = DataLoader(
-        TensorDataset(Xva_t, yva_t),
+        TensorDataset(Xva_t_sub, yva_t_sub),
         batch_size=eval_bs,
         shuffle=False,
         num_workers=0 if keep_eval_on_gpu else args.num_workers,
         pin_memory=not keep_eval_on_gpu,
     )
     test_loader = DataLoader(
-        TensorDataset(Xte_t, yte_t),
+        TensorDataset(Xte_t_sub, yte_t_sub),
         batch_size=eval_bs,
         shuffle=False,
         num_workers=0 if keep_eval_on_gpu else args.num_workers,
@@ -959,6 +978,14 @@ def main():
         "+ preemption resumability).",
     )
     ap.add_argument(
+        "--val_subsample",
+        type=int,
+        default=0,
+        help="If >0, deterministically subsample val + test to this many sequences "
+        "for per-epoch eval. Speeds up HP search ~10x at the cost of noisier val "
+        "signal. 0 = use full sets (default).",
+    )
+    ap.add_argument(
         "--hp",
         nargs="*",
         default=[],
@@ -977,6 +1004,8 @@ def main():
             args.eval_test_every = 5
         if args.eval_batch_mult == 2:
             args.eval_batch_mult = 4
+        if args.val_subsample == 0:
+            args.val_subsample = 5000  # 12× faster val eval, still good signal
 
     # Build HPs from priors then apply overrides
     hp = dict(ARCH_PRIORS[args.arch])
