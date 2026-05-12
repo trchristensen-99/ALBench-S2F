@@ -32,6 +32,9 @@ export WANDB_ENTITY=trchristensen99-cold-spring-harbor-laboratory
 # Override individual flags by setting HP_FAST=0 + the specific env vars.
 export HP_FAST=${HP_FAST:-1}
 export HP_CACHE_DIR=${HP_CACHE_DIR:-$PWD/outputs/tensor_cache}
+# LegNet is tiny — bump default k_parallel from 4 to 8 to better saturate the GPU.
+# Override via TRIALS_PER_GPU env var.
+TRIALS_PER_GPU=${TRIALS_PER_GPU:-8}
 
 : "${STRATEGY:?STRATEGY required}"
 : "${ARCH:?ARCH required}"
