@@ -513,12 +513,17 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
     # Augmentation policy. RC is a per-sample channel flip; shift is a
-    # sliding-window crop over an adapter-padded one-hot tensor with
-    # max_shift = min(len(LEFT_ADAPTER), len(RIGHT_ADAPTER)).
+    # sliding-window crop over an adapter-padded one-hot tensor.
+    # max_shift defaults to the full adapter length but can be overridden
+    # via --max_shift (e.g., HP search exposes max_shift ∈ {5, 15, 25}).
     augment_rc = args.augmentations in ("rev_complement", "rc_shift", "rc_shift_evoaug")
     use_shift = args.augmentations in ("rc_shift", "rc_shift_evoaug")
     payload_len = hp.get("sequence_length", 200)
-    max_shift = min(len(LEFT_ADAPTER), len(RIGHT_ADAPTER)) if use_shift else 0
+    adapter_cap = min(len(LEFT_ADAPTER), len(RIGHT_ADAPTER))
+    if use_shift:
+        max_shift = min(int(getattr(args, "max_shift", adapter_cap) or adapter_cap), adapter_cap)
+    else:
+        max_shift = 0
 
     # Data
     (Xtr, ytr), (Xva, yva), (Xte, yte) = load_data(
@@ -905,6 +910,12 @@ def main():
         "--augmentations",
         default="rev_complement",
         choices=["none", "rev_complement", "rc_shift", "rc_shift_evoaug"],
+    )
+    ap.add_argument(
+        "--max_shift",
+        type=int,
+        default=None,
+        help="Shift augmentation half-width (default = adapter cap). Capped at adapter length.",
     )
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--num_workers", type=int, default=4)

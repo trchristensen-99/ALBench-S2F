@@ -58,8 +58,15 @@ SHARED_RANGES: dict[str, Any] = {
     # the explicit conv_dropout/dense_dropout below; for dream_attn it still
     # acts as a single dropout knob applied to all 3 sites.
     "dropout": ("choice", [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]),
-    # Added per Peter's feedback (May 11 2026): optimizer choice
-    "optimizer": ("choice", ["adam", "adamw"]),  # muon added later (needs pip)
+    # Peter (May 11 2026): optimizer choice. Muon added (May 12) after install.
+    "optimizer": ("choice", ["adam", "adamw", "muon"]),
+    # Peter (May 11): "augmentations (shift and EvoAug) ... do this at the very
+    # end after all the others." We now search aug + its parameters as
+    # first-class dims so every strategy probes them.
+    "aug": ("choice", ["rev_complement", "rc_shift", "rc_shift_evoaug"]),
+    "max_shift": ("choice", [0, 5, 15, 25]),
+    # 0 = no EvoAug applied; positive values control mutation intensity.
+    "evoaug_intensity": ("choice", [0, 1, 2, 4]),
 }
 
 ARCH_RANGES: dict[str, dict[str, Any]] = {
