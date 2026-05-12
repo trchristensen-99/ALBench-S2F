@@ -90,6 +90,9 @@ def set_seed(seed: int, cudnn_benchmark: bool = False) -> None:
         # reproducibility across runs.
         torch.backends.cudnn.deterministic = not cudnn_benchmark
         torch.backends.cudnn.benchmark = cudnn_benchmark
+    # TF32 matmuls: enabled when fp32 path is taken. ~2x faster on A100/H100,
+    # neutral on V100. Always-on with no downside.
+    torch.set_float32_matmul_precision("medium")
 
 
 # ── One-hot encoding (4 nt + optional RC orientation channel) ────────────
@@ -538,12 +541,19 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
     # trains on the available partial batch — the D_min sweep needs to
     # see *some* gradient update at every D, otherwise the val-R² check
     # is trivially failed.
+    # Speedup: preload train data to GPU when it fits (small/medium D).
+    # D=20k × 4 × 200 × float32 ≈ 64 MB — trivial. Saves H2D transfer each batch.
+    train_on_gpu = bool(getattr(args, "train_on_gpu", False)) and device.type == "cuda"
+    if train_on_gpu:
+        Xtr_t = Xtr_t.to(device)
+        ytr_t = ytr_t.to(device)
     train_loader = DataLoader(
         TensorDataset(Xtr_t, ytr_t),
         batch_size=hp["batch_size"],
         shuffle=True,
-        num_workers=args.num_workers,
-        pin_memory=True,
+        num_workers=0 if train_on_gpu else args.num_workers,
+        pin_memory=not train_on_gpu,
+        persistent_workers=(args.num_workers > 0) and (not train_on_gpu),
         drop_last=False,
     )
     # If val/test are already on GPU, skip pin_memory + workers
@@ -711,21 +721,24 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
         # Save resume checkpoint every epoch (overwrites last.pt). This
         # is what enables preemption recovery — without it, slow_nice
         # preemption forces a fresh restart from epoch 1.
-        torch.save(
-            {
-                "epoch": epoch,
-                "state_dict": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "scaler": scaler.state_dict(),
-                "best_val": best_val,
-                "best_epoch": best_epoch,
-                "best_test_mse": best_test_mse,
-                "history": history,
-                "hp": hp,
-            },
-            out_dir / "last.pt",
-        )
+        # Speedup option: skip for HP search where we don't need resume
+        # (each trial is short-lived and ASHA can re-spawn cheaply).
+        if not getattr(args, "skip_last_ckpt", False):
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "state_dict": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "scaler": scaler.state_dict(),
+                    "best_val": best_val,
+                    "best_epoch": best_epoch,
+                    "best_test_mse": best_test_mse,
+                    "history": history,
+                    "hp": hp,
+                },
+                out_dir / "last.pt",
+            )
 
         # Per-epoch W&B logging — gracefully no-ops if wandb not active.
         try:
@@ -923,12 +936,44 @@ def main():
         "can fit 2-4x the train BS. Default 2.",
     )
     ap.add_argument(
+        "--train_on_gpu",
+        action="store_true",
+        help="Preload entire train tensor to GPU at trial start. Skips H2D each "
+        "batch. Free win when train fits in GPU memory (D≤100k is fine on V100).",
+    )
+    ap.add_argument(
+        "--skip_last_ckpt",
+        action="store_true",
+        help="Skip the per-epoch last.pt checkpoint write. Saves ~10ms/epoch + "
+        "disk pressure. Best.pt is still saved on each new best-val.",
+    )
+    ap.add_argument(
+        "--fast",
+        action="store_true",
+        help="Enable all speedup flags at once: --use_compile, --cudnn_benchmark, "
+        "--eval_on_gpu, --train_on_gpu, --skip_last_ckpt, --eval_test_every 5, "
+        "--eval_batch_mult 4. Use for HP search trials (loses bitwise determinism "
+        "+ preemption resumability).",
+    )
+    ap.add_argument(
         "--hp",
         nargs="*",
         default=[],
         help="HP overrides as k=v (e.g. lr=3e-3 batch_size=512 dropout=0.1)",
     )
     args = ap.parse_args()
+
+    # --fast expands to all speedup flags (don't downgrade explicit user choices)
+    if args.fast:
+        args.use_compile = True
+        args.cudnn_benchmark = True
+        args.eval_on_gpu = True
+        args.train_on_gpu = True
+        args.skip_last_ckpt = True
+        if args.eval_test_every == 1:
+            args.eval_test_every = 5
+        if args.eval_batch_mult == 2:
+            args.eval_batch_mult = 4
 
     # Build HPs from priors then apply overrides
     hp = dict(ARCH_PRIORS[args.arch])
