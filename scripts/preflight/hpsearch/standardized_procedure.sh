@@ -85,9 +85,8 @@ echo "[procedure] ANCHOR_DIR=${ANCHOR_DIR:-<none>}"
 # Common SLURM wrapper params
 CPUS=$(( N_GPUS * 4 + 2 ))
 MEM=$(( N_GPUS * 40 ))G
-SLURM_COMMON="--partition=gpuq --qos=default --gres=gpu:$N_GPUS --cpus-per-task=$CPUS --mem=$MEM"
 
-# Helper: submit a Ray Tune strategy
+# Helper: submit a Ray Tune strategy (each #SBATCH directive on its own line)
 submit_raytune() {
     local strategy=$1
     local jobname="std${TAG}_${ARCH}_d${D_TRAIN}_${strategy}"
@@ -99,7 +98,11 @@ submit_raytune() {
 #SBATCH --job-name=$jobname
 #SBATCH --output=$REPO/logs/%x-%j.out
 #SBATCH --error=$REPO/logs/%x-%j.err
-$SLURM_COMMON
+#SBATCH --partition=gpuq
+#SBATCH --qos=default
+#SBATCH --gres=gpu:$N_GPUS
+#SBATCH --cpus-per-task=$CPUS
+#SBATCH --mem=$MEM
 #SBATCH --time=$STAGE_TIME
 
 cd $REPO
@@ -137,7 +140,11 @@ submit_configlist() {
 #SBATCH --job-name=$jobname
 #SBATCH --output=$REPO/logs/%x-%j.out
 #SBATCH --error=$REPO/logs/%x-%j.err
-$SLURM_COMMON
+#SBATCH --partition=gpuq
+#SBATCH --qos=default
+#SBATCH --gres=gpu:$N_GPUS
+#SBATCH --cpus-per-task=$CPUS
+#SBATCH --mem=$MEM
 #SBATCH --time=$time_lim
 
 cd $REPO
