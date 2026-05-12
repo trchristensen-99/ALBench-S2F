@@ -17,17 +17,16 @@ import numpy as np
 REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
 OUT = REPO / "results/preflight/figures/meeting/15_oracle_bias_summary.png"
 
-# Ground truth targets (from real measured K562 episomal MPRA data)
+# Per Peter's May 11 meeting note: intergenic IS genomic, not a "negative".
+# Restrict this figure to TRULY synthetic negatives (random_dna + dinuc-shuffled).
+# Intergenic baseline behavior lives in its own figure now (not implemented yet).
 TARGETS = {
     "random_dna": (0.0, None, "Random DNA"),
     "shuffled": (0.27, 0.49, "Dinuc-shuffled\n(Gosai ctrl_neg)"),
-    "intergenic": (0.0, None, "Intergenic\n(model expectation)"),
 }
-# Real intergenic measured value (from real_inter_all.tsv stats)
-INTERGENIC_REAL_MEAN = -0.50
 
 # Hard-coded baseline values (we don't have bias_eval.json for baseline)
-BASELINE_VALS = {"random_dna": 0.830, "shuffled": 0.83, "intergenic": 1.00}
+BASELINE_VALS = {"random_dna": 0.830, "shuffled": 0.83}
 
 
 def load_bias_means():
@@ -40,7 +39,7 @@ def load_bias_means():
     }
     for name, sweep_path in sweeps.items():
         p = REPO / sweep_path
-        vals = {"random_dna": [], "shuffled": [], "intergenic": []}
+        vals = {"random_dna": [], "shuffled": []}
         for fold_dir in sorted(p.glob("fold_*")):
             be = fold_dir / "bias_eval.json"
             if be.exists():
@@ -87,25 +86,40 @@ def main():
                 means.append(m)
                 stds.append(s)
         offset = (i - 2) * width
-        bars = ax.bar(x + offset, means, width, yerr=stds, capsize=2,
-                      label=ora, color=colors[i], edgecolor="black", linewidth=0.5)
+        ax.bar(
+            x + offset,
+            means,
+            width,
+            yerr=stds,
+            capsize=2,
+            label=ora,
+            color=colors[i],
+            edgecolor="black",
+            linewidth=0.5,
+        )
 
     # Draw target lines per bias type
-    target_intergenic_real = INTERGENIC_REAL_MEAN
     for j, cat in enumerate(bias_types):
         target = TARGETS[cat][0]
         sigma = TARGETS[cat][1]
         # Show target as a horizontal segment at this group
-        ax.hlines(target, x[j] - 2.5 * width, x[j] + 2.5 * width,
-                  colors="red", linestyles="dashed", linewidth=2, alpha=0.8)
+        ax.hlines(
+            target,
+            x[j] - 2.5 * width,
+            x[j] + 2.5 * width,
+            colors="red",
+            linestyles="dashed",
+            linewidth=2,
+            alpha=0.8,
+        )
         if sigma:
-            ax.fill_between([x[j] - 2.5 * width, x[j] + 2.5 * width],
-                            target - sigma, target + sigma,
-                            color="red", alpha=0.1)
-        # For intergenic, also show real measured value (-0.50)
-        if cat == "intergenic":
-            ax.hlines(target_intergenic_real, x[j] - 2.5 * width, x[j] + 2.5 * width,
-                      colors="darkred", linestyles="dotted", linewidth=2, alpha=0.7)
+            ax.fill_between(
+                [x[j] - 2.5 * width, x[j] + 2.5 * width],
+                target - sigma,
+                target + sigma,
+                color="red",
+                alpha=0.1,
+            )
 
     ax.set_xticks(x)
     ax.set_xticklabels([TARGETS[c][2] for c in bias_types], fontsize=10)
@@ -121,21 +135,25 @@ def main():
         residuals = []
         for cat in bias_types:
             target = TARGETS[cat][0]
-            if cat == "intergenic":
-                target = INTERGENIC_REAL_MEAN  # use real measured mean
             if ora == "baseline":
                 pred = BASELINE_VALS.get(cat, np.nan)
             else:
                 pred, _ = summary[ora][cat]
             residuals.append(abs(pred - target))
         offset = (i - 2) * width
-        ax.bar(x + offset, residuals, width, color=colors[i],
-               edgecolor="black", linewidth=0.5)
+        ax.bar(x + offset, residuals, width, color=colors[i], edgecolor="black", linewidth=0.5)
         # Annotate c91 winning
         if ora == "c91":
             for j, r in enumerate(residuals):
-                ax.text(x[j] + offset, r + 0.04, f"{r:.2f}",
-                        ha="center", fontsize=8, fontweight="bold", color="darkred")
+                ax.text(
+                    x[j] + offset,
+                    r + 0.04,
+                    f"{r:.2f}",
+                    ha="center",
+                    fontsize=8,
+                    fontweight="bold",
+                    color="darkred",
+                )
     ax.set_xticks(x)
     ax.set_xticklabels([TARGETS[c][2] for c in bias_types], fontsize=10)
     ax.set_ylabel("|predicted − target|", fontsize=11)
@@ -152,8 +170,6 @@ def main():
     abs_c91 = []
     for cat in bias_types:
         target = TARGETS[cat][0]
-        if cat == "intergenic":
-            target = INTERGENIC_REAL_MEAN
         b_resid = abs(BASELINE_VALS.get(cat, np.nan) - target)
         c_resid = abs(summary["c91"][cat][0] - target)
         if b_resid > 0:
@@ -164,15 +180,19 @@ def main():
         abs_baseline.append(b_resid)
         abs_c91.append(c_resid)
 
-    bars = ax.bar(x, pct_reductions, width * 2.5, color="tomato",
-                  edgecolor="black", linewidth=0.5)
+    ax.bar(x, pct_reductions, width * 2.5, color="tomato", edgecolor="black", linewidth=0.5)
     for j, (b_r, c_r, pct) in enumerate(zip(abs_baseline, abs_c91, pct_reductions)):
         sign = "+" if pct >= 0 else ""
         label_color = "darkred" if pct < 0 else "black"
-        ax.text(x[j], pct + 5 if pct >= 0 else pct - 5,
-                f"{sign}{pct:.0f}%\nbase={b_r:.2f}→c91={c_r:.2f}",
-                ha="center", va="bottom" if pct >= 0 else "top",
-                fontsize=8, color=label_color)
+        ax.text(
+            x[j],
+            pct + 5 if pct >= 0 else pct - 5,
+            f"{sign}{pct:.0f}%\nbase={b_r:.2f}→c91={c_r:.2f}",
+            ha="center",
+            va="bottom" if pct >= 0 else "top",
+            fontsize=8,
+            color=label_color,
+        )
     ax.axhline(0, color="black", linewidth=0.5)
     ax.set_xticks(x)
     ax.set_xticklabels([TARGETS[c][2] for c in bias_types], fontsize=10)
@@ -183,8 +203,9 @@ def main():
     ax.set_ylim(min(y_min, -20), max(y_max, 80))
 
     fig.suptitle(
-        "Oracle bias panel: c91 (blocks 0-2 unfreeze + dinuc 3% + cpg_inv) "
-        "addresses random-DNA and shuffled bias but NOT intergenic",
+        "Oracle bias on SYNTHETIC negative controls: "
+        "c91 (blocks 0-2 unfreeze + dinuc 3% + cpg_inv) closes the bias gap "
+        "vs baseline. Intergenic = real genomic, evaluated separately.",
         fontsize=13,
     )
     fig.tight_layout()
@@ -195,13 +216,13 @@ def main():
     print("\n=== Summary ===")
     for cat in bias_types:
         target = TARGETS[cat][0]
-        if cat == "intergenic":
-            target = INTERGENIC_REAL_MEAN
         b_pred = BASELINE_VALS.get(cat, np.nan)
         c_pred = summary["c91"][cat][0]
-        print(f"  {cat:>12}: target={target:+.2f}, baseline={b_pred:+.2f} "
-              f"(|res|={abs(b_pred-target):.2f}), c91={c_pred:+.2f} "
-              f"(|res|={abs(c_pred-target):.2f})")
+        print(
+            f"  {cat:>12}: target={target:+.2f}, baseline={b_pred:+.2f} "
+            f"(|res|={abs(b_pred - target):.2f}), c91={c_pred:+.2f} "
+            f"(|res|={abs(c_pred - target):.2f})"
+        )
 
 
 if __name__ == "__main__":
