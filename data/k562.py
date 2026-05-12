@@ -456,8 +456,8 @@ class K562Dataset(SequenceDataset):
             "test": (all_sequences[test_indices], all_labels[test_indices], test_indices),
         }
 
-        logger.info(f"Generated test  {len(test_indices):,} seqs (chr7, chr13)")
-        logger.info(f"Generated val   {len(val_indices):,} seqs (chr19, chr21, chrX)")
+        logger.info(f"Generated test  {len(test_indices):,} seqs (chr {sorted(test_chrs)})")
+        logger.info(f"Generated val   {len(val_indices):,} seqs (chr {sorted(val_chrs)})")
         logger.info(f"Generated train {len(train_pool_indices):,} seqs (all non-val/test)")
 
         return splits
