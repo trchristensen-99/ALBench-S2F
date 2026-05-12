@@ -32,13 +32,13 @@ BUNDLE = REPO / "scripts/colab/bundle_d20k.tar.gz"
 
 SEED = 42
 
-# Single reference checkpoint to bundle. Best-known LegNet from past sweeps
-# at a D close to the notebook's default. Real-label trained.
+# Single reference checkpoint to bundle. Best D=20k LegNet from the shootout —
+# trained on AG oracle labels matching the Colab's default training setup.
 REFERENCE_CHECKPOINT = (
-    "legnet_reference",
-    REPO / "results/preflight/hp_arch_size_x_d/legnet_d30000_hd1024_s123",
-    30000,
-    "real",  # label_source used during training
+    "legnet_d20k_published_default",
+    REPO / "results/preflight/shootout_d20k_legnet/legnet_published_default",
+    20000,
+    "ag_oracle",  # label_source used during training
 )
 
 
