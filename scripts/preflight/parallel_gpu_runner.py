@@ -46,6 +46,72 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 
 
+def _maybe_prebuild_cache(configs: list[dict]) -> Path | None:
+    """If all configs share the same (d_train, seed, label_source, aug) tuple,
+    pre-build the one-hot tensor cache ONCE before launching subprocess trials.
+    All subprocesses share the cache; avoids encoding the dataset N times.
+
+    Returns the cache_dir Path to pass to each subprocess (or None if heterogeneous).
+    """
+    if not configs:
+        return None
+    keys = set()
+    for cfg in configs:
+        keys.add(
+            (
+                cfg.get("d_train"),
+                cfg.get("seed"),
+                cfg.get("label_source", "ag_oracle"),
+                # in_channels depends on arch — but we cache per-(payload_len, in_channels)
+                # via the filename, so heterogeneous archs in one cell are OK if D/seed
+                # match (different files written).
+            )
+        )
+    if len(keys) > 1:
+        print(f"  cache pre-build skipped (heterogeneous configs: {len(keys)} d_train/seed combos)")
+        return None
+    d_train, seed, label_source = next(iter(keys))
+    cache_dir = REPO / "outputs" / "tensor_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    print(
+        f"  pre-building tensor cache at {cache_dir}  (d={d_train}, seed={seed}, labels={label_source})"
+    )
+    # Run a quick subprocess to build the cache (one per in_channels/pad combo).
+    # We only need to invoke load_data once; the easiest is a tiny inline script.
+    # Use one_hot encoding at payload_len=200 for default in_channels=4 (LegNet) and =5
+    # (DREAM-ATTN), and once with adapter padding if any config uses rc_shift.
+    in_channels_set = set()
+    pad_set = set()
+    for cfg in configs:
+        arch = cfg.get("arch", "legnet")
+        in_channels_set.add(4 if arch == "legnet" else 5)
+        pad_set.add(cfg.get("aug") in ("rc_shift", "rc_shift_evoaug"))
+    # Pre-build all (in_channels, pad) combos
+    for ic in in_channels_set:
+        for pad in pad_set:
+            cmd = [
+                "uv",
+                "run",
+                "--no-sync",
+                "python",
+                "-c",
+                (
+                    "import sys; sys.path.insert(0, '.'); "
+                    "from scripts.preflight.run_single import load_data; "
+                    f"load_data({d_train}, {seed}, in_channels={ic}, "
+                    f"label_source='{label_source}', pad_with_adapters={pad}, "
+                    f"cache_dir='{cache_dir}')"
+                ),
+            ]
+            t0 = time.time()
+            ret = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True)
+            if ret.returncode == 0:
+                print(f"    in_ch={ic} pad={pad}: built in {time.time() - t0:.1f}s")
+            else:
+                print(f"    in_ch={ic} pad={pad}: WARN build failed:\n{ret.stderr[-500:]}")
+    return cache_dir
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -56,6 +122,9 @@ def main():
     gpu_iter = itertools.cycle(range(n_gpus)) if n_gpus > 1 else None
     configs = json.loads(cfg_path.read_text())
     print(f"Loaded {len(configs)} configs, k_parallel={k_parallel}, N_GPUS={n_gpus}")
+
+    # Pre-build the one-hot tensor cache once (saves ~30s × (k_parallel - 1) per batch)
+    cache_dir = _maybe_prebuild_cache(configs)
     pending = list(configs)
     running: list[tuple[subprocess.Popen, dict, object]] = []
     completed: list[dict] = []
@@ -102,6 +171,9 @@ def main():
                 cmd.extend(["--evoaug_intensity", str(cfg["evoaug_intensity"])])
             if "evoaug_prob" in cfg:
                 cmd.extend(["--evoaug_prob", str(cfg["evoaug_prob"])])
+            # Forward the pre-built tensor cache so trials skip one-hot encoding
+            if cache_dir is not None:
+                cmd.extend(["--cache_dir", str(cache_dir)])
             cmd.extend(["--hp", *cfg["hp_overrides"]])
             log_path = out_dir / "stdout.log"
             log_f = open(log_path, "w")
