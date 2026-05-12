@@ -19,9 +19,19 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F
 # Activate venv directly so Ray's spawned worker processes can find 'ray'.
 source .venv/bin/activate
 export PYTHONPATH="$PWD"
-export TORCHDYNAMO_DISABLE=1
+# Note: TORCHDYNAMO_DISABLE was set unconditionally, which broke torch.compile.
+# Only disable when speedup flag isn't asking for compile.
+if [ "${USE_COMPILE:-0}" != "1" ]; then
+    export TORCHDYNAMO_DISABLE=1
+fi
 export WANDB_PROJECT=albench-s2f-hpsearch
 export WANDB_ENTITY=trchristensen99-cold-spring-harbor-laboratory
+
+# Forward speedup flags to trial subprocesses (read by trainable.py)
+export USE_COMPILE=${USE_COMPILE:-0}
+export CUDNN_BENCHMARK=${CUDNN_BENCHMARK:-0}
+export EVAL_TEST_EVERY=${EVAL_TEST_EVERY:-1}
+export HP_CACHE_DIR=${HP_CACHE_DIR:-$PWD/outputs/tensor_cache}
 
 : "${STRATEGY:?STRATEGY required}"
 : "${ARCH:?ARCH required}"

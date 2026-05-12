@@ -54,11 +54,12 @@ EOF
 echo "Submitting consolidated AutoResearch round=$ROUND_IDX for ${#CELLS[@]} cells..."
 for spec in "${CELLS[@]}"; do
     read -r arch d <<<"$spec"
-    # D=5k cells fit in fast queue (4h cap). D=100k needs more time.
+    # Move to slow_nice (default queue is at QOSMaxJobsPerUserLimit; slow_nice
+    # is the only QoS with room). Speedup flags applied via autoresearch_cell.
     if [ "$d" -ge 50000 ]; then
-        submit_one "$arch" "$d" "default" "10:00:00" 4
+        submit_one "$arch" "$d" "slow_nice" "12:00:00" 4
     else
-        submit_one "$arch" "$d" "default" "06:00:00" 4
+        submit_one "$arch" "$d" "slow_nice" "06:00:00" 4
     fi
 done
 

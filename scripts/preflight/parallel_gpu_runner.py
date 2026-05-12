@@ -174,14 +174,15 @@ def main():
             # Forward the pre-built tensor cache so trials skip one-hot encoding
             if cache_dir is not None:
                 cmd.extend(["--cache_dir", str(cache_dir)])
-            # Speedup flags — opt-in per config so we don't change semantics for
-            # the slow-but-deterministic full-train pipeline.
-            if cfg.get("use_compile"):
+            # Speedup flags — opt-in per config OR via env vars (set by SLURM
+            # wrapper). Per-config wins if set.
+            if cfg.get("use_compile") or os.environ.get("USE_COMPILE") == "1":
                 cmd.append("--use_compile")
-            if cfg.get("cudnn_benchmark"):
+            if cfg.get("cudnn_benchmark") or os.environ.get("CUDNN_BENCHMARK") == "1":
                 cmd.append("--cudnn_benchmark")
-            if "eval_test_every" in cfg:
-                cmd.extend(["--eval_test_every", str(cfg["eval_test_every"])])
+            ete = cfg.get("eval_test_every") or os.environ.get("EVAL_TEST_EVERY")
+            if ete:
+                cmd.extend(["--eval_test_every", str(ete)])
             cmd.extend(["--hp", *cfg["hp_overrides"]])
             log_path = out_dir / "stdout.log"
             log_f = open(log_path, "w")

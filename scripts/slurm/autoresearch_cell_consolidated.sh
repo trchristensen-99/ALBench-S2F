@@ -14,9 +14,16 @@ set +u; source /etc/profile.d/modules.sh; set -u
 module load EB5
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
 export PYTHONPATH="$PWD"
-export TORCHDYNAMO_DISABLE=1
+if [ "${USE_COMPILE:-0}" != "1" ]; then
+    export TORCHDYNAMO_DISABLE=1
+fi
 export WANDB_PROJECT=albench-s2f-hpsearch
 export WANDB_ENTITY=trchristensen99-cold-spring-harbor-laboratory
+# Speedup flags (also picked up by parallel_gpu_runner forwarding logic)
+export USE_COMPILE=${USE_COMPILE:-0}
+export CUDNN_BENCHMARK=${CUDNN_BENCHMARK:-1}
+export EVAL_TEST_EVERY=${EVAL_TEST_EVERY:-5}
+export HP_CACHE_DIR=${HP_CACHE_DIR:-$PWD/outputs/tensor_cache}
 
 : "${ARCH:?ARCH required}"
 : "${D_TRAIN:?D_TRAIN required}"
