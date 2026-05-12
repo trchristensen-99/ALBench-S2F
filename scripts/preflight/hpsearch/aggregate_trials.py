@@ -143,8 +143,40 @@ def aggregate_autoresearch() -> list[dict]:
     return rows
 
 
+def aggregate_agent_rounds() -> list[dict]:
+    """Walk per-round agent_* dirs produced by `_convert_agent_proposals` +
+    `parallel_gpu_runner` (subprocess-style; result.json sits directly in each
+    trial dir).
+
+    Dir layout: results/preflight/hpsearch/agent_{arch}_d{D}{_rN}/{label}/result.json
+    """
+    rows = []
+    for cell_dir in sorted(ROOT.glob("agent_*")):
+        if not cell_dir.is_dir():
+            continue
+        # Parse strategy label from dir name (e.g. agent_legnet_d20000_r2 → agent_r2)
+        name = cell_dir.name
+        round_tag = ""
+        for suffix in ("_r4", "_r3", "_r2", "_r1"):
+            if name.endswith(suffix):
+                round_tag = suffix.lstrip("_")
+                break
+        strategy = f"agent_{round_tag}" if round_tag else "agent"
+        for trial_dir in cell_dir.iterdir():
+            if not trial_dir.is_dir():
+                continue
+            result_path = trial_dir / "result.json"
+            if not result_path.exists():
+                continue
+            row = _load_trial_result(result_path, strategy, source="agent_round")
+            if row:
+                row["round"] = round_tag
+                rows.append(row)
+    return rows
+
+
 def main():
-    rows = aggregate_raytune() + aggregate_autoresearch()
+    rows = aggregate_raytune() + aggregate_autoresearch() + aggregate_agent_rounds()
     if not rows:
         print("No completed trials found yet.")
         return
