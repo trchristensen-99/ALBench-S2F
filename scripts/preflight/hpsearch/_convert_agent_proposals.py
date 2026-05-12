@@ -43,6 +43,18 @@ def to_hp_overrides(proposal: dict) -> list[str]:
         out.append(f"optimizer={proposal['optimizer']}")
     if "block_class" in proposal:
         out.append(f"block_class={proposal['block_class']}")
+    # PI feedback (May 12 2026): conv vs dense dropout split + optional dense head
+    if "conv_dropout" in proposal:
+        out.append(f"conv_dropout={proposal['conv_dropout']}")
+    if "dense_dropout" in proposal:
+        out.append(f"dense_dropout={proposal['dense_dropout']}")
+    if "dense_dims" in proposal:
+        dd = proposal["dense_dims"]
+        if isinstance(dd, (list, tuple)):
+            dd_str = "[" + ",".join(str(int(x)) for x in dd) + "]"
+        else:
+            dd_str = str(dd)
+        out.append(f"dense_dims={dd_str}")
     return out
 
 
