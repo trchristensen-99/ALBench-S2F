@@ -13,7 +13,7 @@ Following benchmark paper preprocessing:
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -71,6 +71,8 @@ class K562Dataset(SequenceDataset):
         include_alt_alleles: bool = False,
         duplication_cutoff: Optional[float] = None,
         include_adapters: bool = False,
+        val_chrs: Optional[List[str]] = None,
+        test_chrs: Optional[List[str]] = None,
     ):
         """
         Initialize K562 dataset.
@@ -108,6 +110,12 @@ class K562Dataset(SequenceDataset):
         self.include_alt_alleles = include_alt_alleles
         self.duplication_cutoff = duplication_cutoff
         self.include_adapters = include_adapters
+        # Custom chromosome split: when set, overrides the default
+        # (val={19,21,X}, test={7,13}) used by _create_chromosome_splits.
+        # Used by the chr-fold ensemble pipeline: each fold passes a
+        # different val_chrs (one chromosome) while keeping test_chrs={7,13}.
+        self.val_chrs = [str(c).replace("chr", "") for c in val_chrs] if val_chrs else None
+        self.test_chrs = [str(c).replace("chr", "") for c in test_chrs] if test_chrs else None
         super().__init__(data_path, split, transform, target_transform)
 
     def load_data(self) -> None:
@@ -425,8 +433,10 @@ class K562Dataset(SequenceDataset):
         raw_chrs = np.array([seq_id.split(":")[0] for seq_id in all_ids])
         chrs = np.array([c.replace("chr", "") for c in raw_chrs])
 
-        val_chrs = {"19", "21", "X"}
-        test_chrs = {"7", "13"}
+        # Custom chr split (if specified at construction time) overrides defaults.
+        val_chrs = set(self.val_chrs) if self.val_chrs else {"19", "21", "X"}
+        test_chrs = set(self.test_chrs) if self.test_chrs else {"7", "13"}
+        logger.info(f"  chr split: val={sorted(val_chrs)}  test={sorted(test_chrs)}")
 
         val_mask = np.isin(chrs, list(val_chrs))
         test_mask = np.isin(chrs, list(test_chrs))

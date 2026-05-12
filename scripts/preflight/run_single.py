@@ -275,6 +275,18 @@ def build_model(arch: str, hp: dict[str, Any], device: torch.device) -> torch.nn
 
 
 # ── Data loading (K562 + AG oracle pseudolabels) ─────────────────────────
+def _chr_tag(val_chrs: list[str] | None, test_chrs: list[str] | None) -> str:
+    """Cache-key suffix encoding the chromosome split. Empty string when both
+    are None (= default Malinois split: val={19,21,X}, test={7,13}). Important
+    for the chr-fold ensemble: each fold has a different val_chr, so caches
+    must not collide."""
+    if val_chrs is None and test_chrs is None:
+        return ""
+    v = "+".join(sorted(str(c).replace("chr", "") for c in (val_chrs or []))) or "def"
+    t = "+".join(sorted(str(c).replace("chr", "") for c in (test_chrs or []))) or "def"
+    return f"_v{v}_t{t}"
+
+
 def _train_cache_name(
     d_train: int,
     seed: int,
@@ -282,10 +294,12 @@ def _train_cache_name(
     seq_len: int,
     label_source: str,
     pad_with_adapters: bool,
+    val_chrs: list[str] | None = None,
+    test_chrs: list[str] | None = None,
 ) -> str:
     return (
         f"train_ls{label_source}_d{d_train}_seed{seed}_"
-        f"len{seq_len}_ch{in_channels}_pad{int(pad_with_adapters)}.pt"
+        f"len{seq_len}_ch{in_channels}_pad{int(pad_with_adapters)}{_chr_tag(val_chrs, test_chrs)}.pt"
     )
 
 
@@ -294,9 +308,11 @@ def _valtest_cache_name(
     seq_len: int,
     label_source: str,
     pad_with_adapters: bool,
+    val_chrs: list[str] | None = None,
+    test_chrs: list[str] | None = None,
 ) -> str:
     """val/test tensors don't depend on d_train or seed — shared across all D."""
-    return f"valtest_ls{label_source}_len{seq_len}_ch{in_channels}_pad{int(pad_with_adapters)}.pt"
+    return f"valtest_ls{label_source}_len{seq_len}_ch{in_channels}_pad{int(pad_with_adapters)}{_chr_tag(val_chrs, test_chrs)}.pt"
 
 
 def load_data(
@@ -307,6 +323,8 @@ def load_data(
     label_source: str = "ag_oracle",
     pad_with_adapters: bool = False,
     cache_dir: str | Path | None = None,
+    val_chrs: list[str] | None = None,
+    test_chrs: list[str] | None = None,
 ):
     """Sample d_train from K562 train pool, with chosen label source.
 
@@ -339,10 +357,22 @@ def load_data(
     if cache_dir is not None:
         cache_dir = Path(cache_dir)
         train_cache_path = cache_dir / _train_cache_name(
-            d_train, seed, in_channels, seq_len, label_source, pad_with_adapters
+            d_train,
+            seed,
+            in_channels,
+            seq_len,
+            label_source,
+            pad_with_adapters,
+            val_chrs=val_chrs,
+            test_chrs=test_chrs,
         )
         valtest_cache_path = cache_dir / _valtest_cache_name(
-            in_channels, seq_len, label_source, pad_with_adapters
+            in_channels,
+            seq_len,
+            label_source,
+            pad_with_adapters,
+            val_chrs=val_chrs,
+            test_chrs=test_chrs,
         )
         if train_cache_path.exists() and valtest_cache_path.exists():
             print(f"  tensor cache HIT (train+valtest): {train_cache_path.name}")
@@ -359,7 +389,12 @@ def load_data(
 
     from data.k562 import K562Dataset
 
-    _kw = dict(use_hashfrag=False, use_chromosome_fallback=True)
+    _kw = dict(
+        use_hashfrag=False,
+        use_chromosome_fallback=True,
+        val_chrs=val_chrs,
+        test_chrs=test_chrs,
+    )
     ds_train = K562Dataset(data_path=str(REPO / "data" / "k562"), split="train", **_kw)
     ds_val = K562Dataset(data_path=str(REPO / "data" / "k562"), split="val", **_kw)
     ds_test = K562Dataset(data_path=str(REPO / "data" / "k562"), split="test", **_kw)
@@ -386,16 +421,48 @@ def load_data(
             train_npz = np.load(new_cache / "train_oracle_labels.npz")
             val_npz = np.load(new_cache / "val_oracle_labels.npz")
             test_npz = np.load(new_cache / "test_oracle_labels.npz")
-            train_pool_seqs = [str(s) for s in train_df["sequence"]]
-            train_pool_lbl = train_npz["oof_oracle"].astype(np.float32)
-            val_seqs = [str(s) for s in val_df["sequence"]]
-            val_labels = val_npz["oracle_mean"].astype(np.float32)
-            test_seqs = [str(s) for s in test_df["sequence"]]
-            test_labels = test_npz["oracle_mean"].astype(np.float32)
-            print(
-                f"  AG-S2 ref+alt cache:   train {len(train_pool_seqs):,}  "
-                f"val {len(val_seqs):,}  test {len(test_seqs):,}"
-            )
+            if val_chrs is None and test_chrs is None:
+                # Default chr split — use the row-aligned modern path
+                train_pool_seqs = [str(s) for s in train_df["sequence"]]
+                train_pool_lbl = train_npz["oof_oracle"].astype(np.float32)
+                val_seqs = [str(s) for s in val_df["sequence"]]
+                val_labels = val_npz["oracle_mean"].astype(np.float32)
+                test_seqs = [str(s) for s in test_df["sequence"]]
+                test_labels = test_npz["oracle_mean"].astype(np.float32)
+                print(
+                    f"  AG-S2 ref+alt cache:   train {len(train_pool_seqs):,}  "
+                    f"val {len(val_seqs):,}  test {len(test_seqs):,}"
+                )
+            else:
+                # Custom chr-fold split — build a seq→label dict from all 3
+                # combined and select sequences via K562Dataset (which honors
+                # val_chrs/test_chrs). Sequences without a label are dropped.
+                seq2label: dict[str, float] = {}
+                for df, npz, key in [
+                    (train_df, train_npz, "oof_oracle"),
+                    (val_df, val_npz, "oracle_mean"),
+                    (test_df, test_npz, "oracle_mean"),
+                ]:
+                    labels = npz[key].astype(np.float32)
+                    for s, lab in zip(df["sequence"], labels, strict=False):
+                        seq2label[str(s).upper()] = float(lab)
+
+                def _filter(seqs):
+                    keep_seqs, keep_lbl = [], []
+                    for s in seqs:
+                        u = str(s).upper()
+                        if u in seq2label:
+                            keep_seqs.append(str(s))
+                            keep_lbl.append(seq2label[u])
+                    return keep_seqs, np.array(keep_lbl, dtype=np.float32)
+
+                train_pool_seqs, train_pool_lbl = _filter(ds_train.sequences)
+                val_seqs, val_labels = _filter(ds_val.sequences)
+                test_seqs, test_labels = _filter(ds_test.sequences)
+                print(
+                    f"  AG-S2 cache (chr-fold val={val_chrs} test={test_chrs}): "
+                    f"train {len(train_pool_seqs):,}  val {len(val_seqs):,}  test {len(test_seqs):,}"
+                )
         else:
             # Legacy fallback (sequence-keyed lookup against older cache)
             cache = REPO / "outputs" / "oracle_pseudolabels_k562_ag"
@@ -525,7 +592,11 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
     else:
         max_shift = 0
 
-    # Data
+    # Data — optional chr-fold split override via --val_chrs / --test_chrs
+    val_chrs_arg = getattr(args, "val_chrs", None)
+    test_chrs_arg = getattr(args, "test_chrs", None)
+    val_chrs_list = [c.strip() for c in val_chrs_arg.split(",")] if val_chrs_arg else None
+    test_chrs_list = [c.strip() for c in test_chrs_arg.split(",")] if test_chrs_arg else None
     (Xtr, ytr), (Xva, yva), (Xte, yte) = load_data(
         args.d_train,
         args.seed,
@@ -534,6 +605,8 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
         label_source=args.label_source,
         pad_with_adapters=use_shift,
         cache_dir=getattr(args, "cache_dir", None),
+        val_chrs=val_chrs_list,
+        test_chrs=test_chrs_list,
     )
     Xtr_t = torch.from_numpy(Xtr).float()
     ytr_t = torch.from_numpy(ytr).float()
@@ -957,6 +1030,19 @@ def main():
             "Massive speedup when many trials share the same data — encoding 20k seqs "
             "takes ~30s; loading the cached tensor takes ~0.5s."
         ),
+    )
+    ap.add_argument(
+        "--val_chrs",
+        default=None,
+        help="Comma-separated val chromosome(s) (e.g. '1' or '19,21,X'). "
+        "Default = '19,21,X'. Used by the chr-fold ensemble: each fold picks a "
+        "different val_chrs to get a distinct out-of-fold model.",
+    )
+    ap.add_argument(
+        "--test_chrs",
+        default=None,
+        help="Comma-separated test chromosome(s) (e.g. '7,13'). Default = '7,13'. "
+        "Held out from both train and val for all folds.",
     )
     ap.add_argument(
         "--use_compile",
