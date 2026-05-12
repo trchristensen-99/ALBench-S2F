@@ -201,12 +201,14 @@ def _shift_window_crop(
 def _make_optimizer(
     model: torch.nn.Module, name: str, lr: float, weight_decay: float
 ) -> torch.optim.Optimizer:
-    """Build an optimizer by name. Supports adam, adamw, muon."""
+    """Build an optimizer by name. Supports adam, adamw, muon. Uses fused
+    kernels on CUDA when available (~5-10% faster step)."""
     name = name.lower()
+    fused = torch.cuda.is_available()
     if name == "adam":
-        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay, fused=fused)
     if name == "adamw":
-        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, fused=fused)
     if name == "muon":
         try:
             from muon import Muon
@@ -475,7 +477,9 @@ def _eval_loss(
     same canonical window."""
     model.eval()
     preds, targets = [], []
-    with torch.no_grad():
+    # inference_mode() is slightly faster than no_grad() (skips version counter,
+    # no view tracking) but disallows in-place autograd ops. Eval doesn't need them.
+    with torch.inference_mode():
         for xb, yb in loader:
             xb = xb.to(device, non_blocking=True)
             yb = yb.to(device, non_blocking=True)
@@ -620,7 +624,11 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
     )
 
     criterion = torch.nn.MSELoss()
-    scaler = torch.amp.GradScaler("cuda", enabled=args.use_amp)
+    # bf16 has same speed as fp16 on Ampere/Hopper, better numerical range — no GradScaler needed.
+    # fp16 is the historical fallback for V100 / pre-Ampere.
+    use_bf16 = bool(getattr(args, "bf16", False)) and device.type == "cuda"
+    amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
+    scaler = torch.amp.GradScaler("cuda", enabled=args.use_amp and not use_bf16)
 
     # Build optional training-time EvoAug transform
     evoaug_transform = None
@@ -689,12 +697,17 @@ def train(args: argparse.Namespace, hp: dict[str, Any], epoch_callback=None) -> 
                 xb = _rc_flip(xb)
             if evoaug_transform is not None:
                 xb = evoaug_transform(xb)
-            with torch.amp.autocast("cuda", enabled=args.use_amp):
+            with torch.amp.autocast("cuda", enabled=args.use_amp, dtype=amp_dtype):
                 yhat = model(xb).reshape(-1)
                 loss = criterion(yhat, yb)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            if scaler.is_enabled():
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                # bf16 path: no gradient scaling needed
+                loss.backward()
+                optimizer.step()
             scheduler.step()
             epoch_loss += loss.item()
             n_batches += 1
@@ -986,6 +999,13 @@ def main():
         "signal. 0 = use full sets (default).",
     )
     ap.add_argument(
+        "--bf16",
+        action="store_true",
+        help="Use bfloat16 autocast instead of fp16. Same speed on Ampere/Hopper, "
+        "but better numerical range (no GradScaler needed). Default off; --fast "
+        "enables on CUDA.",
+    )
+    ap.add_argument(
         "--hp",
         nargs="*",
         default=[],
@@ -1006,6 +1026,14 @@ def main():
             args.eval_batch_mult = 4
         if args.val_subsample == 0:
             args.val_subsample = 5000  # 12× faster val eval, still good signal
+        # bf16 is preferred on Ampere/Hopper, fp16 fallback on V100
+        if not args.bf16 and torch.cuda.is_available():
+            try:
+                cap = torch.cuda.get_device_capability(0)
+                if cap[0] >= 8:  # Ampere+
+                    args.bf16 = True
+            except Exception:
+                pass
 
     # Build HPs from priors then apply overrides
     hp = dict(ARCH_PRIORS[args.arch])
