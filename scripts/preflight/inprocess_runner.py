@@ -290,8 +290,11 @@ def main():
         )
 
     criterion = torch.nn.MSELoss()
-    amp_dtype = torch.bfloat16 if args.bf16 else torch.float16
-    use_amp = device.type == "cuda"
+    # AMP only used when bf16 is supported (no GradScaler in this runner).
+    # On pre-Ampere GPUs (no bf16), fp32 path is more stable than fp16
+    # without scaling (which overflows for some block classes).
+    use_amp = device.type == "cuda" and args.bf16
+    amp_dtype = torch.bfloat16 if args.bf16 else torch.float32
 
     # Pre-shuffled indices (one shuffle stream per epoch — shared across models)
     rng = torch.Generator(device=device if device.type == "cuda" else "cpu")
