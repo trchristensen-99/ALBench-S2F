@@ -481,9 +481,12 @@ def _eval_loss(
             yb = yb.to(device, non_blocking=True)
             if max_shift > 0:
                 xb = _shift_window_crop(xb, payload_len, max_shift, training=False)
-            yhat = model(xb).reshape(-1)
+            # .clone() is required when torch.compile(mode="reduce-overhead") is
+            # active: CUDA graphs reuse output buffers, so the second model()
+            # call below would overwrite yhat. Clone copies the result out.
+            yhat = model(xb).reshape(-1).clone()
             if augment_rc:
-                yhat_rc = model(_rc_flip(xb)).reshape(-1)
+                yhat_rc = model(_rc_flip(xb)).reshape(-1).clone()
                 yhat = 0.5 * (yhat + yhat_rc)
             preds.append(yhat.detach().cpu().numpy())
             targets.append(yb.detach().cpu().numpy())
