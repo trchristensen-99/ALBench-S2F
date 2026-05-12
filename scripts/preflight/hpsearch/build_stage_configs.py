@@ -49,13 +49,15 @@ def _walk_results(in_dirs: list[Path]) -> list[dict]:
                 continue
             if "best_val_mse" not in r:
                 continue
+            # rf may be relative or absolute depending on how the caller invoked
+            # us; either way just store as-is (the trial_path is informational).
             rows.append(
                 {
                     "val": r["best_val_mse"],
                     "test": r.get("test_mse_at_best_val", float("nan")),
                     "hp": r.get("hp", {}),
                     "aug": r.get("augmentations", "rev_complement"),
-                    "trial_path": str(rf.parent.relative_to(REPO)),
+                    "trial_path": str(rf.parent),
                 }
             )
     rows.sort(key=lambda r: r["val"])
