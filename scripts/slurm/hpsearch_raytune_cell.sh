@@ -27,12 +27,10 @@ fi
 export WANDB_PROJECT=albench-s2f-hpsearch
 export WANDB_ENTITY=trchristensen99-cold-spring-harbor-laboratory
 
-# Forward speedup flags to trial subprocesses (read by trainable.py)
-export USE_COMPILE=${USE_COMPILE:-0}
-export CUDNN_BENCHMARK=${CUDNN_BENCHMARK:-0}
-export EVAL_ON_GPU=${EVAL_ON_GPU:-0}
-export EVAL_TEST_EVERY=${EVAL_TEST_EVERY:-1}
-export EVAL_BATCH_MULT=${EVAL_BATCH_MULT:-2}
+# HP_FAST=1 default — turns on all speedups (TF32, compile, cudnn benchmark,
+# eval_on_gpu, train_on_gpu, skip_last_ckpt, eval_test_every=5, eval_batch_mult=4).
+# Override individual flags by setting HP_FAST=0 + the specific env vars.
+export HP_FAST=${HP_FAST:-1}
 export HP_CACHE_DIR=${HP_CACHE_DIR:-$PWD/outputs/tensor_cache}
 
 : "${STRATEGY:?STRATEGY required}"

@@ -174,20 +174,23 @@ def main():
             # Forward the pre-built tensor cache so trials skip one-hot encoding
             if cache_dir is not None:
                 cmd.extend(["--cache_dir", str(cache_dir)])
-            # Speedup flags — opt-in per config OR via env vars (set by SLURM
-            # wrapper). Per-config wins if set.
-            if cfg.get("use_compile") or os.environ.get("USE_COMPILE") == "1":
-                cmd.append("--use_compile")
-            if cfg.get("cudnn_benchmark") or os.environ.get("CUDNN_BENCHMARK") == "1":
-                cmd.append("--cudnn_benchmark")
-            if cfg.get("eval_on_gpu") or os.environ.get("EVAL_ON_GPU") == "1":
-                cmd.append("--eval_on_gpu")
-            ete = cfg.get("eval_test_every") or os.environ.get("EVAL_TEST_EVERY")
-            if ete:
-                cmd.extend(["--eval_test_every", str(ete)])
-            ebm = cfg.get("eval_batch_mult") or os.environ.get("EVAL_BATCH_MULT")
-            if ebm:
-                cmd.extend(["--eval_batch_mult", str(ebm)])
+            # HP_FAST=1 turns on all speedups (default for HP search; opt out via
+            # HP_FAST=0 in env).
+            if cfg.get("fast") or os.environ.get("HP_FAST", "1") == "1":
+                cmd.append("--fast")
+            else:
+                if cfg.get("use_compile") or os.environ.get("USE_COMPILE") == "1":
+                    cmd.append("--use_compile")
+                if cfg.get("cudnn_benchmark") or os.environ.get("CUDNN_BENCHMARK") == "1":
+                    cmd.append("--cudnn_benchmark")
+                if cfg.get("eval_on_gpu") or os.environ.get("EVAL_ON_GPU") == "1":
+                    cmd.append("--eval_on_gpu")
+                ete = cfg.get("eval_test_every") or os.environ.get("EVAL_TEST_EVERY")
+                if ete:
+                    cmd.extend(["--eval_test_every", str(ete)])
+                ebm = cfg.get("eval_batch_mult") or os.environ.get("EVAL_BATCH_MULT")
+                if ebm:
+                    cmd.extend(["--eval_batch_mult", str(ebm)])
             cmd.extend(["--hp", *cfg["hp_overrides"]])
             log_path = out_dir / "stdout.log"
             log_f = open(log_path, "w")
