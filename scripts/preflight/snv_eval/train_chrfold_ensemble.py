@@ -59,9 +59,12 @@ def build_configs(
     val_chrs: list[int],
     test_chrs: list[int],
     d_train: int = 0,
+    label_source: str = "ag_oracle",
 ) -> list[dict]:
     """Build per-fold configs. Each fold differs only in val_chrs (one
-    chromosome). test_chrs is shared (chr 7+13 always)."""
+    chromosome). test_chrs is shared (chr 7+13 always). For bar-plot
+    comparisons use label_source='real' (K562_log2FC); for scaling-law
+    / HP-search use label_source='ag_oracle' (denoised pseudolabels)."""
     configs = []
     for i in range(n_folds):
         val_chr = val_chrs[i % len(val_chrs)]
@@ -74,6 +77,7 @@ def build_configs(
             "epochs": epochs,
             "patience": patience,
             "aug": aug,
+            "label_source": label_source,
             "val_chrs": str(val_chr),
             "test_chrs": ",".join(str(c) for c in test_chrs),
             "output_dir": str(output_dir / label),
@@ -117,6 +121,13 @@ def main():
         default=4,
         help="parallel_gpu_runner trials concurrent per GPU. Small models can do 4-8.",
     )
+    ap.add_argument(
+        "--label_source",
+        default="ag_oracle",
+        choices=["ag_oracle", "real"],
+        help="ag_oracle = AG-oracle pseudolabels (denoised; for scaling/HP search). "
+        "real = K562_log2FC raw measurements (for bar-plot model comparisons).",
+    )
     args = ap.parse_args()
 
     out_dir = Path(args.output_dir)
@@ -135,6 +146,7 @@ def main():
         val_chrs,
         test_chrs=[7, 13],
         d_train=0,
+        label_source=args.label_source,
     )
     configs_path = out_dir / "configs.json"
     configs_path.write_text(json.dumps(configs, indent=2))
