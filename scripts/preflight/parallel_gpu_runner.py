@@ -162,7 +162,7 @@ def main():
                 "--augmentations",
                 cfg["aug"],
                 "--label_source",
-                "ag_oracle",
+                cfg.get("label_source", "ag_oracle"),
                 "--output_dir",
                 str(out_dir),
             ]
