@@ -68,9 +68,14 @@ else
     AUG_SWEEP_CONFIGS=${AUG_SWEEP_CONFIGS:-27}
     SEED_VAR_REPS=${SEED_VAR_REPS:-3}
     MAX_EPOCHS=${MAX_EPOCHS:-60}
-    PATIENCE=${PATIENCE:-15}
+    # patience tuned 2026-05-12: prior pipeline showed most trials early-stopped
+    # by epoch 30 with p=15 (wasted ~15 epochs of plateau). p=10 reclaims ~30%
+    # throughput at negligible best-val cost.
+    PATIENCE=${PATIENCE:-10}
     VAL_SUBSAMPLE=${VAL_SUBSAMPLE:-0}
-    K_PARALLEL=${K_PARALLEL:-4}
+    # k_parallel=3 for Stages 2-3 (k=4 OOMed on widest configs like width=2000
+    # + dense_dims=[512,256] when paired with rc_shift_evoaug).
+    K_PARALLEL=${K_PARALLEL:-3}
     STAGE_TIME=${STAGE_TIME:-08:00:00}
     TAG=""
 fi

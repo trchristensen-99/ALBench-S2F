@@ -655,12 +655,21 @@ def train_malinois(cfg: dict):
     dup_cutoff = cfg.get("duplication_cutoff")
     if dup_cutoff is not None:
         dup_cutoff = float(dup_cutoff)
+    # Optional chr-fold split: each fold overrides val_chrs (one chromosome)
+    # while keeping test_chrs as chr 7+13. Used by the SNV-eval chr-fold
+    # ensemble (10 models × different val_chr, all excluding test_chr).
+    val_chrs_cfg = cfg.get("val_chrs")
+    test_chrs_cfg = cfg.get("test_chrs")
+    val_chrs_list = [c.strip() for c in val_chrs_cfg.split(",")] if val_chrs_cfg else None
+    test_chrs_list = [c.strip() for c in test_chrs_cfg.split(",")] if test_chrs_cfg else None
     ds_kwargs = dict(
         data_path=str(data_path),
         label_column=label_col,
         use_hashfrag=not chr_split,
         use_chromosome_fallback=chr_split,
         include_alt_alleles=include_alt,
+        val_chrs=val_chrs_list,
+        test_chrs=test_chrs_list,
     )
     train_kwargs = {**ds_kwargs}
     if dup_cutoff is not None:
