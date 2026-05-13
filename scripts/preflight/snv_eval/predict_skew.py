@@ -265,41 +265,60 @@ def main():
     skew_ensemble = alt_mean - ref_mean
 
     empirical_skew = (df["alt_log2FC"] - df["ref_log2FC"]).to_numpy()
-    valid = np.isfinite(empirical_skew) & np.isfinite(skew_ensemble)
-    pearson = (
-        float(np.corrcoef(skew_ensemble[valid], empirical_skew[valid])[0, 1])
-        if valid.sum() > 1
-        else float("nan")
-    )
-    mse = (
-        float(np.mean((skew_ensemble[valid] - empirical_skew[valid]) ** 2))
-        if valid.sum() > 1
-        else float("nan")
-    )
+    empirical_ref = df["ref_log2FC"].to_numpy()
+    empirical_alt = df["alt_log2FC"].to_numpy()
+
+    def _r_mse(pred, emp):
+        v = np.isfinite(pred) & np.isfinite(emp)
+        if v.sum() < 2:
+            return float("nan"), float("nan"), int(v.sum())
+        return (
+            float(np.corrcoef(pred[v], emp[v])[0, 1]),
+            float(np.mean((pred[v] - emp[v]) ** 2)),
+            int(v.sum()),
+        )
+
+    # Three bar-plot metrics on the held-out chr 7+13 SNV pool:
+    r_ref, mse_ref, n_ref = _r_mse(ref_mean, empirical_ref)
+    r_alt, mse_alt, n_alt = _r_mse(alt_mean, empirical_alt)
+    r_skew, mse_skew, n_skew = _r_mse(skew_ensemble, empirical_skew)
+
     print()
     print(f"=== ENSEMBLE ({n_models} models, n_windows={args.n_windows}, step={args.step}):")
-    print(f"  Pearson r (alt-ref skew) = {pearson:.5f}")
-    print(f"  MSE                       = {mse:.5f}")
-    print(f"  n_variants               = {valid.sum():,}")
+    print(f"  reference activity   Pearson r = {r_ref:.5f}   MSE = {mse_ref:.5f}  n = {n_ref:,}")
+    print(f"  alternate allele     Pearson r = {r_alt:.5f}   MSE = {mse_alt:.5f}  n = {n_alt:,}")
+    print(f"  SNV effect (skew)    Pearson r = {r_skew:.5f}   MSE = {mse_skew:.5f}  n = {n_skew:,}")
 
     out_df = df[["locus", "chr"]].copy()
     out_df["ref_activity_pred"] = ref_mean
     out_df["alt_activity_pred"] = alt_mean
     out_df["skew_pred"] = skew_ensemble
     out_df["skew_empirical"] = empirical_skew
+    out_df["ref_empirical"] = empirical_ref
+    out_df["alt_empirical"] = empirical_alt
     out_df.to_parquet(out_dir / "skew_predictions.parquet", index=False)
 
+    valid_skew = np.isfinite(empirical_skew) & np.isfinite(skew_ensemble)
     summary = {
         "arch": args.arch,
         "n_models": n_models,
         "n_windows": args.n_windows,
         "step_bp": args.step,
         "chrs": chr_filter,
-        "n_variants": int(valid.sum()),
-        "ensemble_pearson_skew": pearson,
-        "ensemble_mse_skew": mse,
+        "n_variants": n_skew,
+        # Three bar-plot metrics (Pearson r vs raw K562_log2FC measurements).
+        "ref_pearson": r_ref,
+        "ref_mse": mse_ref,
+        "alt_pearson": r_alt,
+        "alt_mse": mse_alt,
+        "skew_pearson": r_skew,
+        "skew_mse": mse_skew,
+        # Back-compat aliases
+        "ensemble_pearson_skew": r_skew,
+        "ensemble_mse_skew": mse_skew,
         "per_model_pearson": [
-            float(np.corrcoef(s[valid], empirical_skew[valid])[0, 1]) for s in per_model_skews
+            float(np.corrcoef(s[valid_skew], empirical_skew[valid_skew])[0, 1])
+            for s in per_model_skews
         ],
         "model_paths": [str(p) for p in args.models],
     }
