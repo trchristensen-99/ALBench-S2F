@@ -368,6 +368,13 @@ def train(cfg: dict):
         ds_kwargs["use_hashfrag"] = False
         ds_kwargs["use_chromosome_fallback"] = True
     ds_kwargs["include_alt_alleles"] = include_alt
+    # Optional chr-fold split for the SNV-eval 10-fold ensemble.
+    val_chrs_cfg = cfg.get("val_chrs")
+    test_chrs_cfg = cfg.get("test_chrs")
+    if val_chrs_cfg:
+        ds_kwargs["val_chrs"] = [c.strip() for c in str(val_chrs_cfg).split(",")]
+    if test_chrs_cfg:
+        ds_kwargs["test_chrs"] = [c.strip() for c in str(test_chrs_cfg).split(",")]
     dup_cutoff = cfg.get("duplication_cutoff")
     if dup_cutoff is not None:
         dup_cutoff = float(dup_cutoff)
