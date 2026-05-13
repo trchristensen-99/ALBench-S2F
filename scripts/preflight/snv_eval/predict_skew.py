@@ -123,12 +123,24 @@ def predict_activity(
     in_channels: int = 4,
     n_windows: int = 3,
     step: int = 10,
-    batch_size: int = 256,
+    batch_size: int = 1024,
+    use_bf16: bool = True,
 ) -> np.ndarray:
-    """Predict scalar activity per sequence with sliding-window + RC averaging."""
+    """Predict scalar activity per sequence with sliding-window + RC averaging.
+
+    Speedups: bf16 autocast on Ampere+ GPUs (~1.7× over fp32, no scaler needed);
+    default batch_size raised to 1024 (~2-4× over BS=256 for small models)."""
     X = one_hot(seqs, seq_len=seq_len, in_channels=in_channels)
     preds_acc = torch.zeros(len(seqs), dtype=torch.float64)
     n_avg = 0
+
+    amp_ok = use_bf16 and device.type == "cuda"
+    if amp_ok:
+        try:
+            cap = torch.cuda.get_device_capability(0)
+            amp_ok = cap[0] >= 8  # Ampere or later
+        except Exception:
+            amp_ok = False
 
     # Iterate over (window-shifted, strand) pairs; for each, run batched fwd.
     for window_view in _slide(X, n_windows, step, seq_len):
@@ -136,7 +148,11 @@ def predict_activity(
             preds = []
             for s in range(0, len(view), batch_size):
                 xb = view[s : s + batch_size].to(device, non_blocking=True)
-                yhat = model(xb).reshape(-1).float().cpu()
+                if amp_ok:
+                    with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                        yhat = model(xb).reshape(-1).float().cpu()
+                else:
+                    yhat = model(xb).reshape(-1).float().cpu()
                 preds.append(yhat)
             preds = torch.cat(preds).double()
             preds_acc += preds
@@ -174,7 +190,10 @@ def main():
         help="Number of sliding windows per variant. Use 18 with --step 10 to match MPAC.",
     )
     ap.add_argument("--step", type=int, default=10, help="Stride between sliding windows in bp.")
-    ap.add_argument("--batch_size", type=int, default=256)
+    ap.add_argument("--batch_size", type=int, default=1024)
+    ap.add_argument(
+        "--bf16", action="store_true", default=True, help="bf16 autocast on Ampere+ (default on)."
+    )
     args = ap.parse_args()
 
     out_dir = Path(args.output_dir)
@@ -210,6 +229,7 @@ def main():
             args.n_windows,
             args.step,
             args.batch_size,
+            use_bf16=args.bf16,
         )
         alt_act = predict_activity(
             model,
@@ -220,6 +240,7 @@ def main():
             args.n_windows,
             args.step,
             args.batch_size,
+            use_bf16=args.bf16,
         )
         skew_m = alt_act - ref_act
         per_model_skews.append(skew_m)
