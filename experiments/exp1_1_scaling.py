@@ -912,6 +912,8 @@ def _load_k562_ag_s2_oracle():
     found in the cache are returned immediately, novel sequences (e.g. from
     EvoAug, mutagenesis, dinuc_shuffle) fall back to live model inference.
     """
+    import os
+
     import jax
     import jax.numpy as jnp
     import orbax.checkpoint as ocp
@@ -921,7 +923,40 @@ def _load_k562_ag_s2_oracle():
     from models.alphagenome_heads import register_s2f_head
 
     # ── Locate S2 oracle checkpoints ─────────────────────────────────────
-    oracle_dir = REPO / "outputs" / "stage2_k562_oracle"
+    # Explicit override: AG_S2_ORACLE_DIR points directly at a dir containing
+    # fold_*/best_model/checkpoint (e.g. the bias comparison scores the same
+    # battery under oracle_full856k_clean/s2 and oracle_no_designed/s2).
+    _override = os.environ.get("AG_S2_ORACLE_DIR", "").strip()
+    if _override:
+        oracle_dir = Path(_override)
+        logger.info("AG_S2 oracle dir overridden via AG_S2_ORACLE_DIR=%s", oracle_dir)
+    else:
+        # Prefer the chr-split natural ensemble (the only valid AG_S2 oracle for
+        # the chr-split protocol). Only use it once all 10 folds have landed —
+        # a partial ensemble would silently bias downstream pseudo-labels.
+        chr_split_dir = REPO / "outputs" / "oracle_chrsplit_natural" / "s2"
+        chr_split_folds = (
+            sorted(
+                p
+                for p in chr_split_dir.glob("fold_*")
+                if (p / "best_model" / "checkpoint").exists()
+            )
+            if chr_split_dir.exists()
+            else []
+        )
+        if len(chr_split_folds) >= 10:
+            oracle_dir = chr_split_dir
+        else:
+            # Fall back to the legacy stage2_k562_oracle (hashfrag-trained) until
+            # the chr-split retrain completes. Log a warning so downstream callers
+            # know the oracle is provisional.
+            oracle_dir = REPO / "outputs" / "stage2_k562_oracle"
+            logger.warning(
+                "AG_S2 chr-split ensemble only has %d/10 folds — falling back to "
+                "legacy %s. Re-run after chr-split retrain completes.",
+                len(chr_split_folds),
+                oracle_dir,
+            )
     ckpt_paths = sorted(
         [
             p / "best_model" / "checkpoint"
@@ -932,7 +967,7 @@ def _load_k562_ag_s2_oracle():
     if not ckpt_paths:
         raise FileNotFoundError(
             f"No AG S2 oracle checkpoints in {oracle_dir}. "
-            f"Run: sbatch scripts/slurm/train_stage2_k562_oracle_array.sh"
+            f"Run: sbatch scripts/slurm/train_stage2_k562_chrsplit_natural_array.sh"
         )
 
     # ── Flanking sequence encoding (same as S1 oracle) ───────────────────
