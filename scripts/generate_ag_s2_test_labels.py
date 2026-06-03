@@ -16,7 +16,9 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -31,10 +33,30 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--oracle-dir",
+        type=Path,
+        default=None,
+        help="Dir with fold_*/best_model/checkpoint to score with (sets "
+        "AG_S2_ORACLE_DIR). Default: the canonical AG_S2 oracle from _load_oracle.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=REPO / "data" / "k562" / "test_sets_ag_s2_chrsplit",
+        help="Where to write *_oracle.npz. Use a per-oracle dir for comparisons.",
+    )
+    args = parser.parse_args()
+
     from data.k562 import K562Dataset
     from experiments.exp1_1_scaling import _load_oracle
 
-    out_dir = REPO / "data" / "k562" / "test_sets_ag_s2_chrsplit"
+    if args.oracle_dir is not None:
+        os.environ["AG_S2_ORACLE_DIR"] = str(args.oracle_dir.resolve())
+        logger.info("Scoring with oracle dir: %s", os.environ["AG_S2_ORACLE_DIR"])
+
+    out_dir = args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     data_path = REPO / "data" / "k562"
 
@@ -46,8 +68,6 @@ def main():
     ds = K562Dataset(
         data_path=str(data_path),
         split="test",
-        use_hashfrag=False,
-        use_chromosome_fallback=True,
     )
     seqs = list(ds.sequences)
     logger.info(f"  {len(seqs)} in-dist sequences (chr7+13)")
@@ -64,7 +84,7 @@ def main():
 
     # 2. SNV pairs (chr7+13 only)
     logger.info("Loading SNV pairs...")
-    snv_path = data_path / "test_sets" / "test_snv_pairs_hashfrag.tsv"
+    snv_path = data_path / "test_sets" / "test_snv_pairs.tsv"
     snv_df = pd.read_csv(snv_path, sep="\t")
 
     # Filter to chr7+13
