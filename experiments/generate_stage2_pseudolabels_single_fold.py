@@ -260,8 +260,8 @@ def main(cfg: DictConfig) -> None:
     ds_val = K562Dataset(data_path=k562_data_path, split="val")
 
     test_dir = Path(k562_data_path) / "test_sets"
-    in_dist_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
-    snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
+    in_dist_df = pd.read_csv(test_dir / "test_chr7_13_ref_only.tsv", sep="\t")
+    snv_df = pd.read_csv(test_dir / "test_snv_pairs.tsv", sep="\t")
     ood_df = pd.read_csv(test_dir / "test_ood_designed_k562.tsv", sep="\t")
 
     # ── Predict all splits (incremental saving for preemption resilience) ────

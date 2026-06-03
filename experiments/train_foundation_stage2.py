@@ -74,7 +74,7 @@ DEFAULT_CONFIG = {
     "head_warmup_epochs": 0,  # train head with encoder frozen before unfreezing
     "normalize_embeddings": False,  # L2-normalize encoder embeddings before head
     "cell_line": "k562",
-    "chr_split": False,  # use chromosome-based splits (test=chr7+13, val=chr19+21+X)
+    "chr_split": True,  # chr-split is the only supported mode (hashFrag deprecated May 23 2026)
     "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
     "shift_aug": False,  # random shift augmentation during training
     "max_shift": 15,  # max shift in bp (±max_shift)
@@ -834,7 +834,7 @@ def train(cfg: dict):
     data_path = Path(cfg["data_path"])
     cell_line = cfg.get("cell_line", "k562")
     label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
-    use_chr_split = bool(cfg.get("chr_split", False))
+    use_chr_split = bool(cfg.get("chr_split", True))
     include_alt = cfg.get("include_alt_alleles")
     if include_alt is None:
         include_alt = use_chr_split  # default: True for chr_split to match Malinois paper
@@ -845,10 +845,7 @@ def train(cfg: dict):
         "label_column": label_col,
         "include_alt_alleles": include_alt,
     }
-    if use_chr_split:
-        ds_kwargs["use_hashfrag"] = False
-        ds_kwargs["use_chromosome_fallback"] = True
-        print("Using chromosome-based splits (test=chr7+13, val=chr19+21+X)", flush=True)
+    print("Using chromosome-based splits (test=chr7+13, val=chr19+21+X)", flush=True)
     train_ds = K562Dataset(split="train", **ds_kwargs)
     val_ds = K562Dataset(split="val", **ds_kwargs)
 

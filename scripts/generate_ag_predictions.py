@@ -274,8 +274,6 @@ def load_chr_split_test_data(cell_line: str = "k562"):
         data_path=str(REPO / "data" / "k562"),
         split="test",
         label_column=label_col,
-        use_hashfrag=False,
-        use_chromosome_fallback=True,
         include_alt_alleles=True,
     )
     test_sets["in_dist"] = {

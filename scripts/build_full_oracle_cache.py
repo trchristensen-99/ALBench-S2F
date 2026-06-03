@@ -41,7 +41,17 @@ def load_all_sequences():
     logger.info("Ref sequences: %d" % len(ref_seqs))
 
     # 2. Alt alleles from SNV pairs
-    snv_path = data_path / "test_sets" / "test_snv_pairs_hashfrag.tsv"
+    # The 856k cache was built from the hashfrag SNV file (35,226 alt rows). The
+    # Jun-2 hashfrag cleanup moved that file under deprecated_hashfrag/, so the
+    # cache-matching copy now lives there. Prefer the original path if present,
+    # then fall back to the deprecated copy — NOT the new chr-split rebuild
+    # (test_snv_pairs.tsv), which has a different row count and would misalign
+    # with the cached embeddings/labels.
+    snv_candidates = [
+        data_path / "test_sets" / "test_snv_pairs_hashfrag.tsv",
+        data_path / "test_sets" / "deprecated_hashfrag" / "test_snv_pairs_hashfrag.tsv",
+    ]
+    snv_path = next((p for p in snv_candidates if p.exists()), snv_candidates[0])
     if snv_path.exists():
         snv_df = pd.read_csv(snv_path, sep="\t")
         alt_seqs = snv_df["sequence_alt"].tolist()

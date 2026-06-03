@@ -363,9 +363,6 @@ def main():
     CELL_LABEL_COLS = {"k562": "K562_log2FC", "hepg2": "HepG2_log2FC", "sknsh": "SKNSH_log2FC"}
     label_col = CELL_LABEL_COLS.get(args.cell_line, "K562_log2FC")
     ds_kwargs = {"data_path": str(data_path), "label_column": label_col}
-    if args.chr_split:
-        ds_kwargs["use_hashfrag"] = False
-        ds_kwargs["use_chromosome_fallback"] = True
 
     for split in args.splits:
         ds = K562Dataset(split=split, **ds_kwargs)
@@ -398,8 +395,6 @@ def main():
                 data_path=str(data_path),
                 split="test",
                 label_column=label_col,
-                use_hashfrag=False,
-                use_chromosome_fallback=True,
             )
             in_dist_seqs = (
                 test_ds.sequences.tolist()

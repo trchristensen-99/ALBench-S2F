@@ -44,7 +44,6 @@ def load_k562_data(n_train: int, seed: int = 42):
         data_path=str(REPO / "data" / "k562"),
         split="train",
         label_column="K562_log2FC",
-        use_hashfrag=True,
     )
     all_seqs = list(ds.sequences)
     # Use ground truth labels (speed benchmark doesn't need oracle labels)
@@ -69,7 +68,6 @@ def load_k562_data(n_train: int, seed: int = 42):
         data_path=str(REPO / "data" / "k562"),
         split="val",
         label_column="K562_log2FC",
-        use_hashfrag=True,
     )
     val_seqs = list(val_ds.sequences)
     val_labels = val_ds.labels.astype(np.float32)

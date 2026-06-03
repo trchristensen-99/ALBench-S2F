@@ -7,11 +7,10 @@ Zenodo: https://zenodo.org/records/10698014
 Following benchmark paper preprocessing:
 - 200bp genomic sequences (pad shorter sequences with Ns)
 - 5 channels: ACGT + reverse complement flag
-- hashFrag-based orthogonal train/val/test splits
+- Chromosome-based train/val/test splits (val={19,21,X}, test={7,13})
 """
 
 import logging
-import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -19,7 +18,6 @@ import numpy as np
 import pandas as pd
 
 from .base import SequenceDataset
-from .hashfrag_splits import HashFragSplitter
 from .utils import one_hot_encode
 
 logger = logging.getLogger(__name__)
@@ -30,19 +28,15 @@ class K562Dataset(SequenceDataset):
     K562 human MPRA dataset.
 
     Dataset characteristics:
-    - 367,364 regulatory sequences (reference alleles only)
+    - ~367,364 regulatory sequences (reference alleles only)
     - 200bp genomic sequences
     - 5 input channels: ACGT + reverse complement flag
     - Expression values (log2 fold change)
 
-    Data splits (following the paper):
-    - train: ~320,000 sequences (all hashFrag training data; train+pool combined)
-    - val: 36,737 sequences (hashFrag-based validation set)
-    - test: 36,737 sequences (hashFrag-based test set)
-
-    Note: the historical 100K "train" / 220K "pool" subdivision is no longer
-    exposed.  Existing cache files with separate train_indices.npy and
-    pool_indices.npy are merged transparently on load.
+    Data splits (chromosome-based, matching the Malinois paper):
+    - test: chr7, chr13
+    - val: chr19, chr21, chrX
+    - train: all remaining chromosomes
     """
 
     SEQUENCE_LENGTH = 200  # Target sequence length (as per paper)
@@ -63,10 +57,6 @@ class K562Dataset(SequenceDataset):
         transform: Optional[any] = None,
         target_transform: Optional[any] = None,
         subset_size: Optional[int] = None,
-        use_hashfrag: bool = True,
-        hashfrag_threshold: int = 60,
-        hashfrag_cache_dir: Optional[str] = None,
-        use_chromosome_fallback: bool = False,
         label_column: str = "K562_log2FC",
         include_alt_alleles: bool = False,
         duplication_cutoff: Optional[float] = None,
@@ -83,10 +73,7 @@ class K562Dataset(SequenceDataset):
             transform: Optional transform to apply to sequences
             target_transform: Optional transform to apply to labels
             subset_size: Optional number of samples to use (for downsampling experiments)
-            use_hashfrag: If True, use HashFrag for orthogonal splits (default: True)
-            hashfrag_threshold: Smith-Waterman score threshold for homology (default: 60)
-            hashfrag_cache_dir: Directory to cache HashFrag splits (default: {data_path}/hashfrag_splits)
-            use_chromosome_fallback: If True, use chromosome-based splits as fallback (default: False)
+            label_column: Activity column to use as labels (default K562_log2FC)
             include_alt_alleles: If True, include both ref and alt alleles (default: False).
                 The original Malinois paper trained on all 798K oligos (ref+alt).
             duplication_cutoff: If set, duplicate training sequences whose label >= cutoff.
@@ -100,12 +87,11 @@ class K562Dataset(SequenceDataset):
                 window over the adapter-padded sequence so payload bases
                 never cross the boundary, and adapter context is exposed
                 on whichever side the window slides toward.
+            val_chrs: Custom validation chromosome set (default {19,21,X}).
+                Used by the chr-fold ensemble pipeline (one fold per val chr).
+            test_chrs: Custom test chromosome set (default {7,13}).
         """
         self.subset_size = subset_size
-        self.use_hashfrag = use_hashfrag
-        self.hashfrag_threshold = hashfrag_threshold
-        self.hashfrag_cache_dir = hashfrag_cache_dir
-        self.use_chromosome_fallback = use_chromosome_fallback
         self.label_column = label_column
         self.include_alt_alleles = include_alt_alleles
         self.duplication_cutoff = duplication_cutoff
@@ -119,15 +105,7 @@ class K562Dataset(SequenceDataset):
         super().__init__(data_path, split, transform, target_transform)
 
     def load_data(self) -> None:
-        """
-        Load K562 MPRA data with hashFrag-based train/pool/val/test splits.
-
-        Following the paper:
-        - Use hashFrag to generate orthogonal splits (80:10:10)
-        - From 80% training data: 100K train + 193K pool
-        - 10% validation (36,737 sequences)
-        - 10% test (36,737 sequences)
-        """
+        """Load K562 MPRA data with chromosome-based train/val/test splits."""
         data_dir = Path(self.data_path)
 
         # The actual filename from the Zenodo download
@@ -144,25 +122,8 @@ class K562Dataset(SequenceDataset):
         # Load and filter data
         all_sequences, all_labels, all_ids = self._load_and_filter_data(file_path)
 
-        # Get or create splits using HashFrag (or fallback to chromosome-based)
-        if self.use_hashfrag:
-            try:
-                splits = self._get_or_create_hashfrag_splits(all_sequences, all_labels, data_dir)
-            except RuntimeError as e:
-                if self.use_chromosome_fallback:
-                    logger.warning(f"HashFrag failed: {e}")
-                    logger.warning("Falling back to chromosome-based splits")
-                    splits = self._create_chromosome_splits(all_sequences, all_labels, all_ids)
-                else:
-                    raise
-        else:
-            if self.use_chromosome_fallback:
-                splits = self._create_chromosome_splits(all_sequences, all_labels, all_ids)
-            else:
-                raise ValueError(
-                    "use_hashfrag=False requires use_chromosome_fallback=True. "
-                    "Please enable fallback if you want chromosome-based splits."
-                )
+        # Chromosome-based splits — the only supported protocol
+        splits = self._create_chromosome_splits(all_sequences, all_labels, all_ids)
 
         # Extract requested split
         self.sequences, self.labels, self.indices = splits[self.split]
@@ -193,7 +154,6 @@ class K562Dataset(SequenceDataset):
                 )
 
         # Apply subset size if specified (for downsampling experiments)
-        # Use random sampling without replacement (seedless unless caller sets global seed)
         if self.subset_size is not None and self.subset_size < len(self.sequences):
             rng = np.random.default_rng()
             indices = rng.choice(len(self.sequences), size=self.subset_size, replace=False)
@@ -302,120 +262,6 @@ class K562Dataset(SequenceDataset):
 
         return sequences, labels, ids
 
-    def _get_or_create_hashfrag_splits(
-        self, all_sequences: np.ndarray, all_labels: np.ndarray, data_dir: Path
-    ) -> Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """
-        Get cached HashFrag splits or create new ones.
-
-        Returns:
-            Dict with 'train', 'val', 'test' keys.
-            Each value: (sequences, labels, indices)
-        """
-        # Set cache directory
-        # When no explicit override, derive the subdirectory name from filter
-        # settings so that differently-filtered datasets get separate caches.
-        # Quality filters (stderr < 1.0, outlier removal, project filter) are
-        # always active in _load_and_filter_data(), so the old unfiltered
-        # "hashfrag_splits/" cache is never used for new runs.
-        if self.hashfrag_cache_dir:
-            cache_dir = Path(self.hashfrag_cache_dir)
-        elif self.include_alt_alleles:
-            cache_dir = data_dir / "hashfrag_splits_qf_alt"
-        else:
-            cache_dir = data_dir / "hashfrag_splits_qf"
-
-        required_cache_files = {
-            "train": cache_dir / "train_indices.npy",
-            "val": cache_dir / "val_indices.npy",
-            "test": cache_dir / "test_indices.npy",
-        }
-        # Legacy: old caches have a separate pool_indices.npy that gets merged into train
-        legacy_pool_file = cache_dir / "pool_indices.npy"
-
-        # Check if cache exists
-        if all(f.exists() for f in required_cache_files.values()):
-            logger.info(f"Loading cached HashFrag splits from {cache_dir}")
-            return self._load_cached_splits(
-                all_sequences, all_labels, required_cache_files, legacy_pool_file
-            )
-
-        # Create new splits
-        logger.info("=" * 70)
-        logger.info("Creating new HashFrag splits")
-        logger.info("This will take several hours for the full K562 dataset...")
-        logger.info("=" * 70)
-
-        return self._create_new_hashfrag_splits(all_sequences, all_labels, cache_dir)
-
-    def _load_cached_splits(
-        self,
-        all_sequences: np.ndarray,
-        all_labels: np.ndarray,
-        cache_files: Dict[str, Path],
-        legacy_pool_file: Optional[Path] = None,
-    ) -> Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Load splits from cached indices.
-
-        If a legacy pool_indices.npy exists alongside train_indices.npy, the two
-        are merged so that 'train' contains all hashFrag training sequences (~320K).
-        """
-        splits = {}
-        for split_name, cache_file in cache_files.items():
-            indices = np.load(cache_file)
-            splits[split_name] = (all_sequences[indices], all_labels[indices], indices)
-            logger.info(f"  {split_name}: {len(indices):,} sequences")
-
-        # Merge legacy pool into train (backward-compat with old cache layout)
-        if legacy_pool_file is not None and legacy_pool_file.exists():
-            pool_idx = np.load(legacy_pool_file)
-            logger.info(f"  pool (legacy): {len(pool_idx):,} sequences — merging into train")
-            train_idx = splits["train"][2]
-            combined_idx = np.concatenate([train_idx, pool_idx])
-            splits["train"] = (
-                np.concatenate([splits["train"][0], all_sequences[pool_idx]]),
-                np.concatenate([splits["train"][1], all_labels[pool_idx]]),
-                combined_idx,
-            )
-            logger.info(f"  train (merged): {len(combined_idx):,} sequences")
-
-        return splits
-
-    def _create_new_hashfrag_splits(
-        self, all_sequences: np.ndarray, all_labels: np.ndarray, cache_dir: Path
-    ) -> Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Create new HashFrag splits and cache them."""
-        # Create splitter
-        splitter = HashFragSplitter(
-            work_dir=str(cache_dir / "hashfrag_work"), threshold=self.hashfrag_threshold
-        )
-
-        # Create 80/10/10 splits — 'train' gets the full 80%, no pool subdivision
-        raw_splits = splitter.create_splits_from_dataset(
-            sequences=all_sequences,
-            labels=all_labels,
-            train_ratio=0.8,
-            val_ratio=0.1,
-            test_ratio=0.1,
-            skip_revcomp=False,
-        )
-
-        splits = {
-            "train": raw_splits["train"],  # full 80% (~320K)
-            "val": raw_splits["val"],
-            "test": raw_splits["test"],
-        }
-
-        # Cache indices
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        for split_name, (_, _, indices) in splits.items():
-            cache_file = cache_dir / f"{split_name}_indices.npy"
-            np.save(cache_file, indices)
-            logger.info(f"Cached {split_name}: {len(indices):,} sequences")
-
-        logger.info("✓ HashFrag splits created and cached!")
-        return splits
-
     def _create_chromosome_splits(
         self, all_sequences: np.ndarray, all_labels: np.ndarray, all_ids: np.ndarray
     ) -> Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
@@ -424,7 +270,7 @@ class K562Dataset(SequenceDataset):
 
         Test: chr7, chr13
         Val: chr19, chr21, chrX
-        Train+Pool: remaining chromosomes
+        Train: remaining chromosomes
         """
         logger.info("Creating chromosome-based splits matching the Malinois paper allocation.")
 
@@ -440,17 +286,17 @@ class K562Dataset(SequenceDataset):
 
         val_mask = np.isin(chrs, list(val_chrs))
         test_mask = np.isin(chrs, list(test_chrs))
-        train_pool_mask = ~(val_mask | test_mask)
+        train_mask = ~(val_mask | test_mask)
 
-        train_pool_indices = np.where(train_pool_mask)[0]
+        train_indices = np.where(train_mask)[0]
         val_indices = np.where(val_mask)[0]
         test_indices = np.where(test_mask)[0]
 
         splits = {
             "train": (
-                all_sequences[train_pool_indices],
-                all_labels[train_pool_indices],
-                train_pool_indices,
+                all_sequences[train_indices],
+                all_labels[train_indices],
+                train_indices,
             ),
             "val": (all_sequences[val_indices], all_labels[val_indices], val_indices),
             "test": (all_sequences[test_indices], all_labels[test_indices], test_indices),
@@ -458,7 +304,7 @@ class K562Dataset(SequenceDataset):
 
         logger.info(f"Generated test  {len(test_indices):,} seqs (chr {sorted(test_chrs)})")
         logger.info(f"Generated val   {len(val_indices):,} seqs (chr {sorted(val_chrs)})")
-        logger.info(f"Generated train {len(train_pool_indices):,} seqs (all non-val/test)")
+        logger.info(f"Generated train {len(train_indices):,} seqs (all non-val/test)")
 
         return splits
 

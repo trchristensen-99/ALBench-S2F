@@ -133,7 +133,7 @@ def main() -> None:
     summary: dict[str, dict] = {}
 
     # In-distribution test set
-    tsv = test_set_dir / "test_in_distribution_hashfrag.tsv"
+    tsv = test_set_dir / "test_chr7_13_ref_only.tsv"
     if tsv.exists():
         df = pd.read_csv(tsv, sep="\t")
         seqs = df["sequence"].astype(str).tolist()
@@ -156,7 +156,7 @@ def main() -> None:
         print(f"  in_dist: {len(seqs):,} seqs, Pearson r={r:.4f} ({elapsed:.1f}s)")
 
     # SNV test set
-    tsv = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    tsv = test_set_dir / "test_snv_pairs.tsv"
     if tsv.exists():
         df = pd.read_csv(tsv, sep="\t")
         ref_seqs = df["sequence_ref"].astype(str).tolist()
@@ -240,7 +240,7 @@ def main() -> None:
 
     # In-distribution
     in_dist_pl = output_dir / "test_in_dist_oracle_labels.npz"
-    in_dist_tsv = test_set_dir / "test_in_distribution_hashfrag.tsv"
+    in_dist_tsv = test_set_dir / "test_chr7_13_ref_only.tsv"
     if in_dist_pl.exists() and in_dist_tsv.exists():
         pl = dict(np.load(in_dist_pl))
         df = pd.read_csv(in_dist_tsv, sep="\t")
@@ -255,7 +255,7 @@ def main() -> None:
 
     # SNV
     snv_pl = output_dir / "test_snv_oracle_labels.npz"
-    snv_tsv = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    snv_tsv = test_set_dir / "test_snv_pairs.tsv"
     if snv_pl.exists() and snv_tsv.exists():
         pl = dict(np.load(snv_pl))
         df = pd.read_csv(snv_tsv, sep="\t")

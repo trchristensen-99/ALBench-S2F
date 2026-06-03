@@ -143,11 +143,13 @@ HP_GRIDS_LARGE_N = {
 }
 
 # S2 config: which encoder blocks to unfreeze
-# Changed from [4,5] to all blocks — matching hashfrag S2 that achieved 0.916.
-# With only blocks [4,5], S2 barely improves over S1 (+0.1-0.5%).
+# Matches the proven s2c config used by train_stage2_k562_hashfrag.py for
+# outputs/oracle_full_856k/s2/* — achieved mean OOD=0.7724 across 10 folds.
+# Unfreezing all [0..5] blocks gives marginally better in_dist (+0.005) but
+# tanks OOD by ~0.07 due to encoder over-specialization.
 S2_CONFIG = {
     "k562": {
-        "unfreeze_blocks": [0, 1, 2, 3, 4, 5],  # ALL downres blocks
+        "unfreeze_blocks": [4, 5],  # top 2 downres blocks only (~41.5M of 90M params)
         "head_lr": 1e-3,
         "weight_decay": 1e-6,
         "max_shift": 15,
@@ -257,8 +259,6 @@ def _load_pool_sequences(
             data_path=str(REPO / "data" / "k562"),
             split="train",
             label_column=label_column,
-            use_hashfrag=not chr_split,
-            use_chromosome_fallback=chr_split,
             include_alt_alleles=include_alt_alleles,
             duplication_cutoff=duplication_cutoff,
         )
@@ -310,8 +310,6 @@ def _evaluate_ground_truth_test(
             data_path=str(REPO / "data" / "k562"),
             split="test",
             label_column=label_column,
-            use_hashfrag=not chr_split,
-            use_chromosome_fallback=chr_split,
             include_alt_alleles=include_alt_alleles,
         )
         sequences = list(ds.sequences)
@@ -332,13 +330,20 @@ def _evaluate_ground_truth_test(
     # Check cell-specific dir first, then fall back to K562 dir
     test_dir = REPO / "data" / "k562" / "test_sets"
     cell_test_dir = REPO / "data" / cell / "test_sets"
-    snv_path = cell_test_dir / "test_snv_pairs_hashfrag.tsv"
-    if not snv_path.exists():
-        snv_path = test_dir / "test_snv_pairs_hashfrag.tsv"
+    # Prefer chr-split SNV file (test_snv_pairs.tsv, already filtered to chr 7+13)
+    # when chr_split=True. Falls back to hashfrag file if unavailable.
+    if chr_split:
+        snv_path = cell_test_dir / "test_snv_pairs.tsv"
+        if not snv_path.exists():
+            snv_path = test_dir / "test_snv_pairs.tsv"
+    else:
+        snv_path = cell_test_dir / "test_snv_pairs_hashfrag.tsv"
+        if not snv_path.exists():
+            snv_path = test_dir / "test_snv_pairs_hashfrag.tsv"
     if snv_path.exists():
         try:
             snv_df = pd.read_csv(snv_path, sep="\t")
-            # For chr-split, filter to test chromosomes only (chr7+13)
+            # For chr-split, ensure chr 7+13 only (file should already be filtered)
             if chr_split and "IDs_ref" in snv_df.columns:
                 test_chrs = {"7", "13", "chr7", "chr13"}
                 chroms = snv_df["IDs_ref"].str.split(":", expand=True)[0]
@@ -1573,6 +1578,12 @@ def _train_ag_s2_student(
     epochs = s2_cfg["epochs"]
     patience = s2_cfg["early_stop_patience"]
     warmup_epochs = s2_cfg["warmup_epochs"]
+    if (_hlr := os.environ.get("S2_HEAD_LR")):
+        head_lr = float(_hlr)
+        logger.info(f"  S2: head_lr overridden to {head_lr} (from S2_HEAD_LR env)")
+    if (_we := os.environ.get("S2_WARMUP_EPOCHS")):
+        warmup_epochs = int(_we)
+        logger.info(f"  S2: warmup_epochs overridden to {warmup_epochs} (from S2_WARMUP_EPOCHS env)")
 
     task_cfg = TASK_CONFIGS[task]
     head_name = f"s2f_exp1_s2_{task}_{seed}"
@@ -1702,16 +1713,42 @@ def _train_ag_s2_student(
 
     param_labels = jax.tree_util.tree_map_with_path(_label_fn, model._params)
 
+    # S2 optional opt-tuning env vars:
+    #   S2_COSINE_LR=1 — wrap LR in cosine decay (over post-warmup steps)
+    #   S2_GRAD_CLIP=<val> — global-norm grad clipping (e.g., 1.0)
+    cosine_lr = bool(int(os.environ.get('S2_COSINE_LR', '0') or 0))
+    grad_clip = float(os.environ.get('S2_GRAD_CLIP', '0') or 0.0)
+    if cosine_lr:
+        # Total post-warmup steps for decay: (epochs - warmup) * steps/epoch
+        steps_per_epoch = max(1, n_train // batch_size)
+        post_warmup_steps = max(1, (epochs - warmup_epochs)) * steps_per_epoch
+        logger.info(f"  S2: cosine LR enabled, decay over {post_warmup_steps} steps")
+    if grad_clip > 0:
+        logger.info(f"  S2: gradient clipping enabled (global_norm={grad_clip})")
+
     # During warmup: encoder gets zero updates
-    def _make_optimizer(enc_lr: float):
-        return optax.multi_transform(
+    def _make_optimizer(enc_lr_val: float):
+        if cosine_lr and enc_lr_val > 0:
+            enc_schedule = optax.cosine_decay_schedule(
+                init_value=enc_lr_val, decay_steps=post_warmup_steps, alpha=0.0
+            )
+            head_schedule = optax.cosine_decay_schedule(
+                init_value=head_lr, decay_steps=post_warmup_steps, alpha=0.0
+            )
+        else:
+            enc_schedule = enc_lr_val
+            head_schedule = head_lr
+        opt = optax.multi_transform(
             {
-                "head": optax.adamw(learning_rate=head_lr, weight_decay=wd),
-                "encoder": optax.adamw(learning_rate=enc_lr, weight_decay=wd),
+                "head": optax.adamw(learning_rate=head_schedule, weight_decay=wd),
+                "encoder": optax.adamw(learning_rate=enc_schedule, weight_decay=wd),
                 "frozen": optax.set_to_zero(),
             },
             param_labels,
         )
+        if grad_clip > 0:
+            opt = optax.chain(optax.clip_by_global_norm(grad_clip), opt)
+        return opt
 
     optimizer = _make_optimizer(0.0)  # start with frozen encoder (warmup)
     opt_state = optimizer.init(model._params)
@@ -1760,6 +1797,15 @@ def _train_ag_s2_student(
     logger.info(f"  Encoding {len(sequences):,} sequences to one-hot...")
     all_onehot = np.stack([_encode_one(s) for s in sequences])
 
+    # L2 anchor penalty (anti-catastrophic-forgetting). Adds:
+    #   loss = MSE + lambda * sum((p - p_ref)^2) over UNFROZEN params (frozen ones
+    #   contribute 0 since their LR is 0 via multi_transform).
+    # Reference params are the S1-merged params at S2 start.
+    l2_anchor_lambda = float(os.environ.get('S2_L2_ANCHOR_LAMBDA', '0') or 0.0)
+    if l2_anchor_lambda > 0:
+        ref_params = jax.tree.map(lambda x: x, model._params)
+        logger.info(f"  S2: L2-anchor regularization enabled (lambda={l2_anchor_lambda})")
+
     @jax.jit
     def train_step(params, current_opt_state, seqs, targets):
         def loss_func(p):
@@ -1773,11 +1819,15 @@ def _train_ag_s2_student(
                 strand_reindexing=None,
             )[head_name]
             if task == "yeast" and preds.ndim == 2 and preds.shape[-1] > 1:
-                # Yeast multi-track: mean-pool to scalar (matches S1 behavior)
                 pred = jnp.mean(preds, axis=-1)
             else:
                 pred = jnp.squeeze(preds, axis=-1) if preds.ndim > 1 else preds
-            return jnp.mean((pred - targets) ** 2)
+            mse = jnp.mean((pred - targets) ** 2)
+            if l2_anchor_lambda > 0:
+                diffs = jax.tree.map(lambda c, r: jnp.sum((c - r) ** 2), p, ref_params)
+                l2 = jax.tree_util.tree_reduce(lambda x, y: x + y, diffs, 0.0)
+                return mse + l2_anchor_lambda * l2
+            return mse
 
         loss, grads = jax.value_and_grad(loss_func)(params)
         updates, next_opt_state = optimizer.update(grads, current_opt_state, params)
@@ -1905,6 +1955,25 @@ def _train_ag_s2_student(
 
         if epoch % 5 == 0 or epoch == epochs - 1:
             logger.info(f"  S2 epoch {epoch + 1}: val_pearson={val_pearson:.4f}")
+
+        # Periodic snapshot saving for stopping-point analysis. Triggered by
+        # AG_S2_SNAPSHOT_DIR + AG_S2_SNAPSHOT_EVERY env vars. Snapshots written
+        # to {AG_S2_SNAPSHOT_DIR}/epoch_{N}/checkpoint.
+        _snap_dir = os.environ.get('AG_S2_SNAPSHOT_DIR')
+        _snap_every = int(os.environ.get('AG_S2_SNAPSHOT_EVERY', '0') or 0)
+        if _snap_dir and _snap_every > 0 and (epoch + 1) % _snap_every == 0:
+            import orbax.checkpoint as ocp
+            from pathlib import Path as _Path
+            _snap_path = _Path(_snap_dir) / f'epoch_{epoch + 1}'
+            _snap_path.mkdir(parents=True, exist_ok=True)
+            _ckpt_path = (_snap_path / 'checkpoint').resolve()
+            try:
+                _cur_params = jax.device_get(model._params)
+                _ckpter = ocp.StandardCheckpointer()
+                _ckpter.save(_ckpt_path, _cur_params, force=True)
+                logger.info(f"  S2 snapshot saved: {_ckpt_path} (val={val_pearson:.4f})")
+            except Exception as _e:
+                logger.warning(f"  S2 snapshot save failed at epoch {epoch + 1}: {_e}")
 
     logger.info(f"  S2 best val Pearson: {best_val_pearson:.4f}")
 
@@ -2755,8 +2824,6 @@ def run_scaling_experiment(
                 data_path=str(REPO / "data" / "k562"),
                 split="val",
                 label_column=val_label_col,
-                use_hashfrag=False,
-                use_chromosome_fallback=True,
                 include_alt_alleles=include_alt_alleles,
             )
             train_seqs = list(sequences)
@@ -2812,8 +2879,6 @@ def run_scaling_experiment(
                     data_path=str(REPO / "data" / "k562"),
                     split="train",
                     label_column=col,
-                    use_hashfrag=not chr_split,
-                    use_chromosome_fallback=chr_split,
                     include_alt_alleles=include_alt_alleles,
                 )
                 mt_labels[cl] = cl_ds.labels.astype(np.float32)
@@ -2958,15 +3023,20 @@ def run_scaling_experiment(
                             pred_arrays = {}
                             test_dir = REPO / task_cfg["test_set_dir"]
                             if task == "k562":
-                                in_df = pd.read_csv(
-                                    test_dir / "test_in_distribution_hashfrag.tsv", sep="\t"
+                                # Prefer chr-split files when chr_split=True.
+                                in_file = (
+                                    test_dir / "test_chr7_13_all.tsv" if chr_split
+                                    else test_dir / "test_in_distribution_hashfrag.tsv"
                                 )
+                                snv_file = (
+                                    test_dir / "test_snv_pairs.tsv" if chr_split
+                                    else test_dir / "test_snv_pairs_hashfrag.tsv"
+                                )
+                                in_df = pd.read_csv(in_file, sep="\t")
                                 pred_arrays["in_dist_pred"] = student.predict(
                                     in_df["sequence"].tolist()
                                 )
-                                snv_df = pd.read_csv(
-                                    test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t"
-                                )
+                                snv_df = pd.read_csv(snv_file, sep="\t")
                                 pred_arrays["snv_ref_pred"] = student.predict(
                                     snv_df["sequence_ref"].tolist()
                                 )

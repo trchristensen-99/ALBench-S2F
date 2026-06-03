@@ -390,8 +390,6 @@ def load_data(
     from data.k562 import K562Dataset
 
     _kw = dict(
-        use_hashfrag=False,
-        use_chromosome_fallback=True,
         val_chrs=val_chrs,
         test_chrs=test_chrs,
     )

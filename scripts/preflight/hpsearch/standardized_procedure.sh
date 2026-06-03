@@ -55,7 +55,7 @@ if [ "$SMOKE" = "1" ]; then
     N_STAGE1_TRIALS=${N_STAGE1_TRIALS:-8}
     AUTORESEARCH_CONFIGS=${AUTORESEARCH_CONFIGS:-12}
     AUG_SWEEP_CONFIGS=${AUG_SWEEP_CONFIGS:-6}
-    SEED_VAR_REPS=${SEED_VAR_REPS:-2}
+    SEED_VAR_REPS=${SEED_VAR_REPS:-5}
     MAX_EPOCHS=${MAX_EPOCHS:-25}
     PATIENCE=${PATIENCE:-6}
     VAL_SUBSAMPLE=${VAL_SUBSAMPLE:-5000}
@@ -73,9 +73,15 @@ else
     # throughput at negligible best-val cost.
     PATIENCE=${PATIENCE:-10}
     VAL_SUBSAMPLE=${VAL_SUBSAMPLE:-0}
-    # k_parallel=3 for Stages 2-3 (k=4 OOMed on widest configs like width=2000
-    # + dense_dims=[512,256] when paired with rc_shift_evoaug).
-    K_PARALLEL=${K_PARALLEL:-3}
+    # k_parallel=3 for small/medium D. Auto-lower to 2 at D>=50k since LegNet
+    # trials OOM on V100 (32GB) with k=3 (peak ~28GB at D=100k width=2000).
+    # k=4 also OOMed on widest configs (width=2000 + dense_dims=[512,256]
+    # paired with rc_shift_evoaug).
+    if [ "$D_TRAIN" -ge 50000 ]; then
+        K_PARALLEL=${K_PARALLEL:-2}
+    else
+        K_PARALLEL=${K_PARALLEL:-3}
+    fi
     STAGE_TIME=${STAGE_TIME:-08:00:00}
     TAG=""
 fi

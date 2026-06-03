@@ -163,9 +163,6 @@ def _load_pool_sequences(task: str, chr_split: bool = False, include_alt_alleles
         from data.k562 import K562Dataset
 
         kwargs = {"data_path": str(REPO / "data" / "k562"), "split": "train"}
-        if chr_split:
-            kwargs["use_hashfrag"] = False
-            kwargs["use_chromosome_fallback"] = True
         if include_alt_alleles:
             kwargs["include_alt_alleles"] = True
         ds = K562Dataset(**kwargs)

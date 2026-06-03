@@ -66,7 +66,7 @@ SHARED_RANGES: dict[str, Any] = {
     "aug": ("choice", ["rev_complement", "rc_shift", "rc_shift_evoaug"]),
     "max_shift": ("choice", [0, 5, 15, 25]),
     # 0 = no EvoAug applied; positive values control mutation intensity.
-    "evoaug_intensity": ("choice", [0, 1, 2, 4]),
+    "evoaug_intensity": ("choice", [0, 1, 2, 3, 4]),
 }
 
 ARCH_RANGES: dict[str, dict[str, Any]] = {

@@ -192,9 +192,6 @@ def _load_multitask_labels(
             "split": split,
             "include_alt_alleles": include_alt_alleles,
         }
-        if chr_split:
-            ds_kwargs["use_hashfrag"] = False
-            ds_kwargs["use_chromosome_fallback"] = True
         ds = K562Dataset(**ds_kwargs)
         all_labels.append(ds.labels.astype(np.float32))
 
@@ -261,8 +258,6 @@ def evaluate_test_sets_cached_multitask(
                 data_path=str(data_path),
                 split="test",
                 label_column=fc_col,
-                use_hashfrag=False,
-                use_chromosome_fallback=True,
                 include_alt_alleles=include_alt_alleles,
             )
             in_true = test_ds.labels.astype(np.float32)

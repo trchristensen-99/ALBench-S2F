@@ -173,12 +173,12 @@ def main() -> None:
     # ── Load test sets ───────────────────────────────────────────────────────
     test_dir = data_dir / "test_sets"
 
-    in_dist_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
+    in_dist_df = pd.read_csv(test_dir / "test_chr7_13_ref_only.tsv", sep="\t")
     in_dist_seqs = in_dist_df["sequence"].astype(str).tolist()
     in_dist_labels = in_dist_df["K562_log2FC"].to_numpy(dtype=np.float32)
     in_dist_x = _encode_sequences(np.array(in_dist_seqs))
 
-    snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
+    snv_df = pd.read_csv(test_dir / "test_snv_pairs.tsv", sep="\t")
     snv_ref_seqs = snv_df["sequence_ref"].astype(str).tolist()
     snv_alt_seqs = snv_df["sequence_alt"].astype(str).tolist()
     snv_delta_labels = snv_df["delta_log2FC"].to_numpy(dtype=np.float32)

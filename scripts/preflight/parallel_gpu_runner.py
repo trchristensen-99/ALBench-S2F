@@ -166,9 +166,13 @@ def main():
                 "--output_dir",
                 str(out_dir),
             ]
-            # Optional EvoAug args
-            if cfg.get("evoaug_intensity"):
-                cmd.extend(["--evoaug_intensity", str(cfg["evoaug_intensity"])])
+            # Optional EvoAug args — map int level 1/2/4 → light/medium/heavy
+            # to match run_single.py choices (only int 0 = disabled / no flag).
+            _ei = cfg.get("evoaug_intensity")
+            if _ei and _ei not in (0, "0", None):
+                if isinstance(_ei, int) or (isinstance(_ei, str) and _ei.isdigit()):
+                    _ei = {1: "light", 2: "medium", 4: "heavy"}.get(int(_ei), "light")
+                cmd.extend(["--evoaug_intensity", str(_ei)])
             if "evoaug_prob" in cfg:
                 cmd.extend(["--evoaug_prob", str(cfg["evoaug_prob"])])
             # Optional chr-fold args (MPAC-style ensemble: each fold's val
@@ -227,8 +231,38 @@ def main():
                 completed.append(cfg)
                 print(f"  ✓ [done +{elapsed:.0f}s] {label}")
             else:
-                failed.append((cfg, ret))
-                print(f"  ✗ [FAILED +{elapsed:.0f}s] {label} (exit {ret})")
+                # NEW: classify failure by scanning last 50 stdout lines
+                cause = "unknown"
+                tail = ""
+                try:
+                    with open(log_path) as _lf:
+                        tail = "".join(_lf.readlines()[-50:])
+                    if "CUDA out of memory" in tail or "OutOfMemoryError" in tail:
+                        cause = "oom"
+                    elif "nan" in tail.lower() or "NaN" in tail:
+                        cause = "nan"
+                    elif ret == -9 or ret == 137 or "Killed" in tail:
+                        cause = "sigkill"
+                    elif "AssertionError" in tail or "ValueError" in tail:
+                        cause = "assert"
+                    elif ret == 1:
+                        cause = "exit1"
+                    else:
+                        cause = f"exit{ret}"
+                except Exception:
+                    pass
+                # Write failure marker
+                try:
+                    fmark = out_dir / "failure.json"
+                    import json as _json
+                    fmark.write_text(_json.dumps({
+                        "label": label, "exit_code": ret, "cause": cause,
+                        "tail": tail[-2000:],
+                    }, indent=2))
+                except Exception:
+                    pass
+                failed.append((cfg, ret, cause))
+                print(f"  ✗ [FAILED +{elapsed:.0f}s] {label} (exit {ret}, cause={cause})")
         time.sleep(5)
 
     elapsed = time.time() - t_start
@@ -236,8 +270,17 @@ def main():
     print(f"  completed: {len(completed)}/{len(configs)}")
     print(f"  failed:    {len(failed)}")
     if failed:
-        for cfg, ret in failed:
-            print(f"    - {cfg.get('label', '?')}: exit {ret}")
+        # Tally failure causes
+        cause_counts = {}
+        for entry in failed:
+            cause = entry[2] if len(entry) > 2 else "unknown"
+            cause_counts[cause] = cause_counts.get(cause, 0) + 1
+        print(f"  failure causes: {cause_counts}")
+        for entry in failed:
+            label = entry[0].get("label", "?")
+            ret = entry[1]
+            cause = entry[2] if len(entry) > 2 else "?"
+            print(f"    - {label}: exit {ret} ({cause})")
     sys.exit(1 if failed else 0)
 
 

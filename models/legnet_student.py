@@ -36,6 +36,9 @@ class TrainConfig:
     max_shift: int = 15
     evoaug_intensity: str | None = None  # None | "light" | "medium" | "heavy"
     evoaug_prob: float = 0.5  # per-sample apply probability
+    optimizer: str = "adamw"  # {"adam", "adamw", "muon"} — see fit() for muon wiring
+    use_compile: bool = True  # torch.compile (set False for fast HP search with varied shapes)
+    use_reverse_complement: bool = False  # if True, train averages fwd+rc loss and predictions
 
 
 class _InMemorySequenceDataset(Dataset):
@@ -65,6 +68,9 @@ class LegNetStudent(SequenceModel):
         ks: int = 5,
         multitask: bool = False,
         dropout: float = 0.0,
+        conv_dropout: float | None = None,
+        dense_dropout: float = 0.0,
+        block_class: str = "eff",
     ) -> None:
         self.in_channels = in_channels
         self.sequence_length = sequence_length
@@ -82,6 +88,9 @@ class LegNetStudent(SequenceModel):
                 task_mode=task_mode,
                 multitask=multitask,
                 dropout=dropout,
+                conv_dropout=conv_dropout,
+                dense_dropout=dense_dropout,
+                block_class=block_class,
             ).to(self.device)
             for _ in range(ensemble_size)
         ]
@@ -209,11 +218,38 @@ class LegNetStudent(SequenceModel):
         )
 
         for model in self.models:
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=self.train_config.lr,
-                weight_decay=self.train_config.weight_decay,
-            )
+            opt_name = getattr(self.train_config, "optimizer", "adamw").lower()
+            if opt_name == "muon":
+                from muon import SingleDeviceMuonWithAuxAdam
+
+                params_2d = [p for p in model.parameters() if p.ndim >= 2 and p.requires_grad]
+                params_1d = [p for p in model.parameters() if p.ndim < 2 and p.requires_grad]
+                optimizer = SingleDeviceMuonWithAuxAdam(
+                    [
+                        dict(
+                            params=params_2d,
+                            use_muon=True,
+                            lr=self.train_config.lr,
+                            weight_decay=self.train_config.weight_decay,
+                            momentum=0.95,
+                        ),
+                        dict(
+                            params=params_1d,
+                            use_muon=False,
+                            lr=self.train_config.lr,
+                            weight_decay=self.train_config.weight_decay,
+                            betas=(0.9, 0.95),
+                            eps=1e-10,
+                        ),
+                    ]
+                )
+            else:
+                opt_cls = torch.optim.Adam if opt_name == "adam" else torch.optim.AdamW
+                optimizer = opt_cls(
+                    model.parameters(),
+                    lr=self.train_config.lr,
+                    weight_decay=self.train_config.weight_decay,
+                )
             steps_per_epoch = len(loader)
             total_steps = steps_per_epoch * self.train_config.epochs
             scheduler = torch.optim.lr_scheduler.OneCycleLR(
@@ -221,6 +257,7 @@ class LegNetStudent(SequenceModel):
                 max_lr=self.train_config.lr,
                 total_steps=total_steps,
                 pct_start=self.train_config.pct_start,
+                cycle_momentum=(opt_name != "muon"),
             )
             if self.task_mode == "yeast":
                 criterion: nn.Module = YeastKLLoss()
@@ -250,11 +287,11 @@ class LegNetStudent(SequenceModel):
                 device=self.device,
                 scheduler=scheduler,
                 checkpoint_dir=None,
-                use_reverse_complement=False,  # LegNet uses 4-channel input, no RC flag
+                use_reverse_complement=bool(getattr(self.train_config, "use_reverse_complement", False)),
                 early_stopping_patience=self.train_config.early_stopping_patience,
                 metric_for_best="pearson_r",
                 use_amp=True,
-                use_compile=True,
+                use_compile=self.train_config.use_compile,
                 shift_aug=self.train_config.shift_aug,
                 max_shift=self.train_config.max_shift,
                 multitask=self.multitask,
