@@ -69,7 +69,7 @@ DEFAULT_CONFIG = {
     "num_workers": 4,
     "rc_aug": True,
     "cell_line": "k562",
-    "chr_split": False,
+    "chr_split": True,  # chr-split is the only supported mode (hashFrag deprecated May 23 2026)
     "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
     "duplication_cutoff": None,  # If set, duplicate training sequences with label >= cutoff
 }
@@ -174,7 +174,7 @@ def evaluate_test_sets_cached(
     data_path: Path,
     device: torch.device,
     cell_line: str = "k562",
-    chr_split: bool = False,
+    chr_split: bool = True,
     include_alt_alleles: bool = False,
 ) -> tuple[dict[str, dict[str, float]], dict[str, np.ndarray]]:
     """Evaluate on test sets using cached embeddings (RC-averaged).
@@ -217,8 +217,6 @@ def evaluate_test_sets_cached(
             data_path=str(data_path),
             split="test",
             label_column=fc_col,
-            use_hashfrag=False,
-            use_chromosome_fallback=True,
             include_alt_alleles=include_alt_alleles,
         )
         in_true = test_ds.labels.astype(np.float32)
@@ -238,7 +236,7 @@ def evaluate_test_sets_cached(
                 f"Falling back to hashfrag TSV labels.",
                 flush=True,
             )
-            in_df = pd.read_csv(test_dir / "test_chr7_13_ref_only.tsv", sep="\t")
+            in_df = pd.read_csv(test_dir / "test_chr7_13_all.tsv", sep="\t")
             in_true = in_df[fc_col].to_numpy(dtype=np.float32)
             metrics["in_dist"] = {
                 "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
@@ -249,7 +247,7 @@ def evaluate_test_sets_cached(
             predictions["in_dist_true"] = in_true
     else:
         # HashFrag: use TSV labels
-        in_df = pd.read_csv(test_dir / "test_chr7_13_ref_only.tsv", sep="\t")
+        in_df = pd.read_csv(test_dir / "test_chr7_13_all.tsv", sep="\t")
         in_pred = _predict_cached("test_in_dist")
         in_true = in_df[fc_col].to_numpy(dtype=np.float32)
         metrics["in_distribution"] = {
@@ -357,16 +355,13 @@ def train(cfg: dict):
     # Load labels (cell-line-specific)
     cell_line = cfg.get("cell_line", "k562")
     label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
-    chr_split = cfg.get("chr_split", False)
+    chr_split = cfg.get("chr_split", True)
     include_alt = cfg.get("include_alt_alleles")
     if include_alt is None:
         include_alt = chr_split  # default: True for chr_split to match Malinois paper
     elif isinstance(include_alt, str):
         include_alt = include_alt.lower() in ("true", "1", "yes")
     ds_kwargs: dict = {"data_path": str(data_path), "label_column": label_col}
-    if chr_split:
-        ds_kwargs["use_hashfrag"] = False
-        ds_kwargs["use_chromosome_fallback"] = True
     ds_kwargs["include_alt_alleles"] = include_alt
     # Optional chr-fold split for the SNV-eval 10-fold ensemble.
     val_chrs_cfg = cfg.get("val_chrs")

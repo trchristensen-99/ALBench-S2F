@@ -75,7 +75,7 @@ DEFAULT_CONFIG = {
     "rc_mode": "flip",  # "flip" = random 50% RC per batch, "interleave" = double dataset with RC (boda2 style)
     "pretrained_weights": None,
     "cell_line": "k562",
-    "chr_split": False,
+    "chr_split": True,  # chr-split is the only supported mode (hashFrag deprecated May 23 2026)
     "include_alt_alleles": None,  # None = auto (True when chr_split, False otherwise)
     "duplication_cutoff": None,  # If set, duplicate training sequences with label >= cutoff
     "multitask": False,  # If True, train with 3 cell-type outputs (K562, HepG2, SknSh)
@@ -526,7 +526,7 @@ def evaluate_test_sets(
     Returns (metrics_dict, predictions_dict).
     """
     cell_line = cfg.get("cell_line", "k562")
-    in_path = test_set_dir / "test_chr7_13_ref_only.tsv"
+    in_path = test_set_dir / "test_chr7_13_all.tsv"
     snv_path = test_set_dir / "test_snv_pairs.tsv"
     ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
     if not ood_path.exists():
@@ -646,7 +646,7 @@ def train_malinois(cfg: dict):
     # Data
     cell_line = cfg.get("cell_line", "k562")
     label_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
-    chr_split = cfg.get("chr_split", False)
+    chr_split = cfg.get("chr_split", True)
     include_alt = cfg.get("include_alt_alleles")
     if include_alt is None:
         include_alt = chr_split  # default: True for chr_split to match Malinois paper
@@ -665,8 +665,6 @@ def train_malinois(cfg: dict):
     ds_kwargs = dict(
         data_path=str(data_path),
         label_column=label_col,
-        use_hashfrag=False,
-        use_chromosome_fallback=chr_split,
         include_alt_alleles=include_alt,
         val_chrs=val_chrs_list,
         test_chrs=test_chrs_list,
