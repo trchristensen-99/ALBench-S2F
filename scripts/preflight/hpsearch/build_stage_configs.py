@@ -125,6 +125,72 @@ def stage2_ablate(top_anchors: list[dict]) -> list[dict]:
     return _to_run_configs(proposals)
 
 
+
+def stage2_explore(all_trials: list[dict], top_anchors: list[dict]) -> list[dict]:
+    """Exploration configs: probe under-sampled regions + medium-tier wildcards.
+
+    Produces 12 configs:
+      - 4 from medium-tier (50-75th percentile by val_loss) with 1-axis perturbation
+      - 8 fresh Latin Hypercube samples covering under-sampled lr × width × depth
+
+    Counteracts Stage 2 ablate's tendency to stay near top-5 local optimum.
+    """
+    import random
+    proposals = []
+    # 1. Medium-tier perturbations
+    sorted_trials = sorted(all_trials, key=lambda t: t.get("val_loss", float("inf")))
+    n = len(sorted_trials)
+    mid_lo, mid_hi = int(n * 0.5), int(n * 0.75)
+    mid_pool = sorted_trials[mid_lo:mid_hi] if mid_hi > mid_lo else sorted_trials[:4]
+    rng = random.Random(42)
+    for i, mid in enumerate(rng.sample(mid_pool, min(4, len(mid_pool)))):
+        try:
+            base = _trim_hp(mid["hp"], mid.get("aug", "rev_complement"))
+        except Exception:
+            continue
+        # Random 1-axis perturbation (lr×0.5/×2, swap block_class, or new aug)
+        choice = rng.choice(["lr_up", "lr_down", "depth_up", "width_up", "aug_flip"])
+        p = dict(base)
+        if choice == "lr_up":
+            p["lr"] = min(1e-2, p["lr"] * 2.0)
+        elif choice == "lr_down":
+            p["lr"] = max(1e-6, p["lr"] * 0.5)
+        elif choice == "depth_up":
+            bs = list(p["block_sizes"])
+            bs.append(bs[-1] if bs else 256)
+            p["block_sizes"] = bs[:7]
+        elif choice == "width_up":
+            bs = list(p["block_sizes"])
+            p["block_sizes"] = [min(2000, int(w * 1.5)) for w in bs]
+        elif choice == "aug_flip":
+            p["aug"] = "rc_shift_evoaug" if p["aug"] != "rc_shift_evoaug" else "rc_shift"
+        proposals.append((f"s2_explore_mid_{i}_{choice}", p))
+
+    # 2. Latin Hypercube samples (8 fresh in under-sampled space)
+    lr_grid = [1e-5, 5e-5, 2e-4, 8e-4, 3e-3, 8e-3]  # 6 log-spaced
+    width_grid = [128, 256, 512, 1024]
+    depth_grid = [2, 3, 4, 5, 6]
+    block_classes = ["eff", "plain", "ag"]
+    aug_grid = ["rev_complement", "rc_shift", "rc_shift_evoaug"]
+    # Use a seeded RNG for reproducibility
+    rng2 = random.Random(123)
+    for j in range(8):
+        # use a base from top-1 to inherit dropouts etc, then override
+        base = _trim_hp(top_anchors[0]["hp"], top_anchors[0].get("aug", "rev_complement"))
+        p = dict(base)
+        p["lr"] = rng2.choice(lr_grid)
+        w = rng2.choice(width_grid)
+        d = rng2.choice(depth_grid)
+        p["block_sizes"] = [w] * d
+        p["block_class"] = rng2.choice(block_classes)
+        p["aug"] = rng2.choice(aug_grid)
+        p["weight_decay"] = rng2.choice([1e-6, 1e-5, 1e-4, 1e-3, 1e-2])
+        p["conv_dropout"] = rng2.choice([0.0, 0.1, 0.2])
+        proposals.append((f"s2_explore_lhs_{j}", p))
+
+    return _to_run_configs(proposals)
+
+
 def stage3_aug(top_anchors: list[dict]) -> list[dict]:
     """9 augmentation variants per anchor — full aug × max_shift × intensity grid."""
     grid = [
@@ -201,7 +267,7 @@ def _to_run_configs(proposals: list[tuple]) -> list[dict]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--stage", required=True, choices=["stage2_ablate", "stage3_aug", "stage4_seeds"]
+        "--stage", required=True, choices=["stage2_ablate", "stage2_explore", "stage3_aug", "stage4_seeds"]
     )
     ap.add_argument(
         "--in_dirs",
@@ -228,6 +294,8 @@ def main():
     top_anchors = rows[: args.top_k]
     if args.stage == "stage2_ablate":
         configs = stage2_ablate(top_anchors)
+    elif args.stage == "stage2_explore":
+        configs = stage2_explore(rows, top_anchors)
     elif args.stage == "stage3_aug":
         configs = stage3_aug(top_anchors)
     else:

@@ -198,7 +198,6 @@ def run_one_config(
         data_path=str(REPO / "data" / "k562"),
         split="val",
         label_column="K562_log2FC",
-        use_chromosome_fallback=True,
     )
     val_seqs = list(ds_val.sequences)
     val_labels = ds_val.labels.astype(np.float32)
@@ -237,8 +236,7 @@ def run_one_config(
             data_path=str(REPO / "data" / "k562"),
             split="test",
             label_column="K562_log2FC",
-            use_chromosome_fallback=True,
-        )
+            )
         test_seqs = list(ds_test.sequences)
         test_labels_real = ds_test.labels.astype(np.float32)
         test_preds = student.predict(test_seqs)

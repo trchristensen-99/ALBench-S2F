@@ -300,11 +300,11 @@ def main(cfg: DictConfig) -> None:
     # ── Test sets ─────────────────────────────────────────────────────────────
     test_dir = Path(k562_data_path) / "test_sets"
 
-    in_dist_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
+    in_dist_df = pd.read_csv(test_dir / "test_chr7_13_ref_only.tsv", sep="\t")
     in_dist_seqs = in_dist_df["sequence"].tolist()
     in_dist_labels = in_dist_df["K562_log2FC"].to_numpy(dtype=np.float32)
 
-    snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
+    snv_df = pd.read_csv(test_dir / "test_snv_pairs.tsv", sep="\t")
     snv_ref_seqs = snv_df["sequence_ref"].tolist()
     snv_alt_seqs = snv_df["sequence_alt"].tolist()
     snv_alt_labels = snv_df["K562_log2FC_alt"].to_numpy(dtype=np.float32)

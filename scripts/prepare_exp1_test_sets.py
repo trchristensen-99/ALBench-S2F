@@ -78,7 +78,7 @@ NUCLEOTIDES = np.array(list("ACGT"))
 
 def _prepare_k562_genomic(out_dir: Path) -> None:
     """Repackage in-distribution hashFrag test set with oracle labels."""
-    tsv = K562_DATA / "test_sets" / "test_in_distribution_hashfrag.tsv"
+    tsv = K562_DATA / "test_sets" / "test_chr7_13_ref_only.tsv"
     df = pd.read_csv(tsv, sep="\t")
 
     pl = dict(np.load(K562_ORACLE_DIR / "test_in_dist_oracle_labels.npz"))
@@ -96,7 +96,7 @@ def _prepare_k562_genomic(out_dir: Path) -> None:
 
 def _prepare_k562_snv(out_dir: Path) -> None:
     """Repackage SNV pairs with oracle labels for both ref and alt."""
-    tsv = K562_DATA / "test_sets" / "test_snv_pairs_hashfrag.tsv"
+    tsv = K562_DATA / "test_sets" / "test_snv_pairs.tsv"
     df = pd.read_csv(tsv, sep="\t")
 
     pl = dict(np.load(K562_ORACLE_DIR / "test_snv_oracle_labels.npz"))

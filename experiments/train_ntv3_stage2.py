@@ -425,7 +425,7 @@ def evaluate_all_test_sets(
 
     _pred_kw = dict(species_token=species_token, jit_predict_fn=jit_predict_fn)
 
-    in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
+    in_path = test_set_dir / "test_chr7_13_ref_only.tsv"
     if in_path.exists():
         df = pd.read_csv(in_path, sep="\t")
         pred = _predict_test_sequences(
@@ -446,7 +446,7 @@ def evaluate_all_test_sets(
             "n": int(len(true)),
         }
 
-    snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    snv_path = test_set_dir / "test_snv_pairs.tsv"
     if snv_path.exists():
         df = pd.read_csv(snv_path, sep="\t")
         ref_pred = _predict_test_sequences(
@@ -533,7 +533,7 @@ def _save_ntv3_s2_predictions(
     )
     arrays = {}
 
-    in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
+    in_path = test_set_dir / "test_chr7_13_ref_only.tsv"
     if in_path.exists():
         df = pd.read_csv(in_path, sep="\t")
         arrays["in_dist_pred"] = _predict_test_sequences(
@@ -541,7 +541,7 @@ def _save_ntv3_s2_predictions(
         )
         arrays["in_dist_true"] = df["K562_log2FC"].to_numpy(dtype=np.float32)
 
-    snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    snv_path = test_set_dir / "test_snv_pairs.tsv"
     if snv_path.exists():
         df = pd.read_csv(snv_path, sep="\t")
         arrays["snv_ref_pred"] = _predict_test_sequences(

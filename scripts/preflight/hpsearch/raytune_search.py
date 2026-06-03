@@ -267,7 +267,11 @@ def main():
     (out / "trial_summary.json").write_text(json.dumps(rows, indent=2))
     print(f"\n=== Search done. Best 3 trials by val_loss:")
     for r in rows[:3]:
-        print(f"  val={r['val_loss']:.4f} test={r['test_loss']:.4f}  cfg={r['config']}")
+        v = r.get('val_loss')
+        t = r.get('test_loss')
+        v_str = f"{v:.4f}" if isinstance(v, (int, float)) else str(v)
+        t_str = f"{t:.4f}" if isinstance(t, (int, float)) else str(t)
+        print(f"  val={v_str} test={t_str}  cfg={r['config']}")
 
 
 if __name__ == "__main__":

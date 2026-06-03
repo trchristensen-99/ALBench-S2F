@@ -438,7 +438,7 @@ def _evaluate_chr_split_test(
     fc_col = CELL_LINE_LABEL_COLS.get(cell_line, "K562_log2FC")
 
     # SNV (filter to chr7+13 for chr-split)
-    snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    snv_path = test_set_dir / "test_snv_pairs.tsv"
     if snv_path.exists():
         snv_df = pd.read_csv(snv_path, sep="\t")
         # Filter to test chromosomes if chr column exists
@@ -526,8 +526,8 @@ def evaluate_test_sets(
     Returns (metrics_dict, predictions_dict).
     """
     cell_line = cfg.get("cell_line", "k562")
-    in_path = test_set_dir / "test_in_distribution_hashfrag.tsv"
-    snv_path = test_set_dir / "test_snv_pairs_hashfrag.tsv"
+    in_path = test_set_dir / "test_chr7_13_ref_only.tsv"
+    snv_path = test_set_dir / "test_snv_pairs.tsv"
     ood_path = test_set_dir / f"test_ood_designed_{cell_line}.tsv"
     if not ood_path.exists():
         ood_path = test_set_dir / "test_ood_designed_k562.tsv"
@@ -665,7 +665,7 @@ def train_malinois(cfg: dict):
     ds_kwargs = dict(
         data_path=str(data_path),
         label_column=label_col,
-        use_hashfrag=not chr_split,
+        use_hashfrag=False,
         use_chromosome_fallback=chr_split,
         include_alt_alleles=include_alt,
         val_chrs=val_chrs_list,

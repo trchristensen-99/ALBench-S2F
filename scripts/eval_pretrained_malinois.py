@@ -98,8 +98,6 @@ def evaluate_pretrained(
                         data_path="data/k562",
                         split="test",
                         label_column=label_col,
-                        use_hashfrag=False,
-                        use_chromosome_fallback=True,
                         include_alt_alleles=True,
                     )
                 )

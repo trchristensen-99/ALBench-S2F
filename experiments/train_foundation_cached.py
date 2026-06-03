@@ -238,7 +238,7 @@ def evaluate_test_sets_cached(
                 f"Falling back to hashfrag TSV labels.",
                 flush=True,
             )
-            in_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
+            in_df = pd.read_csv(test_dir / "test_chr7_13_ref_only.tsv", sep="\t")
             in_true = in_df[fc_col].to_numpy(dtype=np.float32)
             metrics["in_dist"] = {
                 "pearson_r": _safe_corr(in_pred, in_true, pearsonr),
@@ -249,7 +249,7 @@ def evaluate_test_sets_cached(
             predictions["in_dist_true"] = in_true
     else:
         # HashFrag: use TSV labels
-        in_df = pd.read_csv(test_dir / "test_in_distribution_hashfrag.tsv", sep="\t")
+        in_df = pd.read_csv(test_dir / "test_chr7_13_ref_only.tsv", sep="\t")
         in_pred = _predict_cached("test_in_dist")
         in_true = in_df[fc_col].to_numpy(dtype=np.float32)
         metrics["in_distribution"] = {
@@ -261,7 +261,7 @@ def evaluate_test_sets_cached(
         predictions["in_dist_true"] = in_true
 
     # SNV pairs
-    snv_df = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
+    snv_df = pd.read_csv(test_dir / "test_snv_pairs.tsv", sep="\t")
     # For chr_split, filter to chr7+13 only
     if chr_split and "IDs_ref" in snv_df.columns:
         test_chrs = {"7", "13", "chr7", "chr13"}
@@ -275,7 +275,7 @@ def evaluate_test_sets_cached(
     # For chr_split, we need to filter predictions to match filtered SNV df
     if chr_split and "IDs_ref" in snv_df.columns:
         # The cached predictions are for ALL SNV pairs; we need the filtered subset
-        snv_full = pd.read_csv(test_dir / "test_snv_pairs_hashfrag.tsv", sep="\t")
+        snv_full = pd.read_csv(test_dir / "test_snv_pairs.tsv", sep="\t")
         chroms_full = snv_full["IDs_ref"].str.split(":", expand=True)[0]
         chr_mask_full = chroms_full.isin(test_chrs)
         ref_pred = ref_pred[chr_mask_full.to_numpy()]

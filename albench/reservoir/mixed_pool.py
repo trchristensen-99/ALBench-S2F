@@ -44,6 +44,17 @@ class MixedPoolSampler(ReservoirSampler):
         if abs(total - 1.0) > 0.01:
             raise ValueError(f"Component fractions must sum to 1.0, got {total}")
 
+    def sample(
+        self,
+        candidates: list[str],
+        n_samples: int,
+        metadata: list[dict[str, Any]] | None = None,
+    ) -> list[int]:
+        """Uniform selection over candidates; mixing is handled in ``generate``."""
+        if n_samples > len(candidates):
+            raise ValueError("n_samples cannot exceed number of candidates")
+        return self._rng.choice(len(candidates), size=n_samples, replace=False).tolist()
+
     def generate(
         self,
         n_sequences: int,

@@ -74,7 +74,6 @@ def load_pool_data(pool_path: str, n_train: int, seed: int = 42):
             data_path=str(REPO / "data" / "k562"),
             split="train",
             label_column="K562_log2FC",
-            use_hashfrag=True,
         )
         sequences = list(ds.sequences)
         labels = ds.labels.astype(np.float32)
