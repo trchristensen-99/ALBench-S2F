@@ -11,9 +11,9 @@
 #   ./copy_to_koo_shared.sh            # uses the default koo lentiMPRA path
 #   ./copy_to_koo_shared.sh <koo-shared-datasets-dir>   # override the parent dir
 #
-# This is the Gosai et al. 2023 lentiMPRA (Malinois training data), a DIFFERENT
+# This is the Gosai et al. 2024 lentiMPRA (Malinois training data), a DIFFERENT
 # dataset from the existing lentimpra/agarwal_2025/ — so it lands in a sibling
-# subdir: <parent>/gosai_2023/.
+# subdir: <parent>/gosai_2024/.
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ set -euo pipefail
 DEST="${1:-/grid/koo/home/shared/data/lentimpra}"
 SRC="/grid/wsbs/home_norepl/christen/ALBench-S2F"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-BUNDLE="$DEST/gosai_2023"
+BUNDLE="$DEST/gosai_2024"
 
 if [ ! -d "$DEST" ]; then
   echo "ERROR: destination '$DEST' does not exist or is not writable to you." >&2
