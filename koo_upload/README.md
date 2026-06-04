@@ -1,14 +1,14 @@
 # Malinois / lentiMPRA Dataset — Koo Lab Shared Copy
 
-> **Placement:** this bundle is the **Gosai et al. 2023** lentiMPRA (the data
+> **Placement:** this bundle is the **Gosai et al. 2024** lentiMPRA (the data
 > used to train Malinois). It is a **different** dataset from the
 > `lentimpra/agarwal_2025/` already in koo shared storage, so it lives in a
-> sibling directory: `/grid/koo/home/shared/data/lentimpra/gosai_2023/`.
+> sibling directory: `/grid/koo/home/shared/data/lentimpra/gosai_2024/`.
 
 ## Overview
 
 Large-scale **lentiMPRA** dataset from the Malinois / Boda2 work
-(Gosai et al., *Nature* 2023 — "Machine-guided design of
+(Gosai et al., *Nature* 2024 — "Machine-guided design of
 cell-type-targeting cis-regulatory elements"). It measures cis-regulatory
 activity of **798,064** 200-bp sequences across three human cell lines:
 
@@ -38,18 +38,27 @@ symlinks back to this file).
 | `sequence` | **200-bp** element sequence (ACGT) |
 
 ### 2. Controls & SNV pairs (`controls/`)
-> Note: the control files below are **Agarwal-2025-derived** (sourced from our
-> repo's `data/agarwal_2025/`), distinct from the core Gosai 2023 lentiMPRA.
-> They are bundled here because the Malinois pipeline uses them for
-> control/variant-effect evaluation.
+
+**2a. Negative/shuffled controls — Agarwal et al. 2025.** These three files come
+from the **Agarwal 2025** K562 lentiMPRA (sourced from our repo's
+`data/agarwal_2025/`), a *different* paper from the core Gosai dataset. They are
+bundled here only because the Malinois pipeline uses them as negative/calibration
+controls:
 - `k562_all_controls_200bp.tsv` — 500 control elements (`name`, `category`, `sequence`).
 - `k562_shuffled_controls_200bp.tsv` — 250 shuffled-sequence negative controls (`name`, `sequence`).
 - `k562_dinucleotide_shuffled_controls.csv` — 250 dinucleotide-preserving shuffled
   controls **with measured activity** (`sequence_230nt`, `element_200nt`,
   `log2_rep1..3`, `log2_mean`).
+
+**2b. SNV variant-effect pairs — derived from the Gosai dataset itself.**
 - `train_snv_pairs_clean.tsv` — 14,356 ref/alt SNV pairs for variant-effect (SNV
   delta) evaluation (`variant_key`, `ref_idx`, `alt_idx`, `ref_log2fc`,
-  `alt_log2fc`, `delta_log2fc`).
+  `alt_log2fc`, `delta_log2fc`). These are built **from `DATA-Table_S2`**, not
+  from Agarwal: `scripts/create_k562_test_sets.py` parses the `IDs` column
+  (`chr:pos:ref:alt:allele:tag`), keeps reference (`allele R`) + alt (`allele A`)
+  rows that are true SNVs, drops duplicate `variant_key`s (poly-/multi-allelic
+  loci), and merges ref↔alt on `variant_key`. Same provenance as the core
+  dataset — Gosai et al. 2024.
 
 ### 3. Trained Malinois model (`model/`)
 `malinois_artifacts__20211113_021200__287348.tar.gz` — 51 MB. Contains:
@@ -89,7 +98,8 @@ centered to the model's window length.
 
 ## Provenance
 
-- Source repo: `ALBench-S2F` (CSHL) — files pulled from `data/k562/`,
-  `data/agarwal_2025/`, and `data/`.
-- Dataset citation: Gosai et al., *Nature* 2023 (Boda2 / Malinois lentiMPRA).
+- Source repo: `ALBench-S2F` (CSHL) — core dataset + SNV pairs from `data/k562/`,
+  Agarwal negative/shuffled controls from `data/agarwal_2025/`, model from `data/`.
+- Core dataset + SNV pairs: Gosai et al., *Nature* 2024 (Boda2 / Malinois lentiMPRA).
+- Negative/shuffled controls (`controls/` 2a only): Agarwal et al. 2025 K562 lentiMPRA.
 - Flank constants: `boda2-main/boda/common/constants.py`.
