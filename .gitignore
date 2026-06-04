@@ -20,4 +20,14 @@ results/
 *.tar.gz
 external/
 boda2.tar.gz
+boda2-main/
 data/neg_aug_breakthrough/breakthrough_500k.tsv
+
+# local agent config + temp artifacts
+.claude/
+_tmp_proposals.json
+
+# figure outputs (regenerated from analysis scripts)
+scripts/analysis/acquisition_plots/
+scripts/analysis/hp_sweep_plots/
+scripts/analysis/model_comparison_plots/
