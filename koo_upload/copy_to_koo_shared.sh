@@ -8,19 +8,20 @@
 # so any non-wsbs user can read them — no pre-staging copy is needed.
 #
 # USAGE:
-#   ./copy_to_koo_shared.sh <koo-shared-datasets-dir>
-# e.g.
-#   ./copy_to_koo_shared.sh /grid/koo/home/<your-shared-datasets-path>
+#   ./copy_to_koo_shared.sh            # uses the default koo lentiMPRA path
+#   ./copy_to_koo_shared.sh <koo-shared-datasets-dir>   # override the parent dir
 #
-# (The exact koo shared-datasets path is not visible from christen's account —
-#  /grid/koo/home denies 'other' entirely — so set it to your lab's convention.)
+# This is the Gosai et al. 2023 lentiMPRA (Malinois training data), a DIFFERENT
+# dataset from the existing lentimpra/agarwal_2025/ — so it lands in a sibling
+# subdir: <parent>/gosai_2023/.
 
 set -euo pipefail
 
-DEST="${1:?Usage: $0 <koo-shared-datasets-dir>}"
+# Parent dir under koo shared storage; default is the known lentiMPRA folder.
+DEST="${1:-/grid/koo/home/shared/data/lentimpra}"
 SRC="/grid/wsbs/home_norepl/christen/ALBench-S2F"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-BUNDLE="$DEST/malinois_lentimpra"
+BUNDLE="$DEST/gosai_2023"
 
 if [ ! -d "$DEST" ]; then
   echo "ERROR: destination '$DEST' does not exist or is not writable to you." >&2

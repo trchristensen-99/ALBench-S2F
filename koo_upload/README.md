@@ -1,9 +1,14 @@
 # Malinois / lentiMPRA Dataset — Koo Lab Shared Copy
 
+> **Placement:** this bundle is the **Gosai et al. 2023** lentiMPRA (the data
+> used to train Malinois). It is a **different** dataset from the
+> `lentimpra/agarwal_2025/` already in koo shared storage, so it lives in a
+> sibling directory: `/grid/koo/home/shared/data/lentimpra/gosai_2023/`.
+
 ## Overview
 
 Large-scale **lentiMPRA** dataset from the Malinois / Boda2 work
-(Gosai, Castro, et al., *Nature* 2024 — "Machine-guided design of
+(Gosai et al., *Nature* 2023 — "Machine-guided design of
 cell-type-targeting cis-regulatory elements"). It measures cis-regulatory
 activity of **798,064** 200-bp sequences across three human cell lines:
 
@@ -33,6 +38,10 @@ symlinks back to this file).
 | `sequence` | **200-bp** element sequence (ACGT) |
 
 ### 2. Controls & SNV pairs (`controls/`)
+> Note: the control files below are **Agarwal-2025-derived** (sourced from our
+> repo's `data/agarwal_2025/`), distinct from the core Gosai 2023 lentiMPRA.
+> They are bundled here because the Malinois pipeline uses them for
+> control/variant-effect evaluation.
 - `k562_all_controls_200bp.tsv` — 500 control elements (`name`, `category`, `sequence`).
 - `k562_shuffled_controls_200bp.tsv` — 250 shuffled-sequence negative controls (`name`, `sequence`).
 - `k562_dinucleotide_shuffled_controls.csv` — 250 dinucleotide-preserving shuffled
@@ -82,5 +91,5 @@ centered to the model's window length.
 
 - Source repo: `ALBench-S2F` (CSHL) — files pulled from `data/k562/`,
   `data/agarwal_2025/`, and `data/`.
-- Dataset citation: Gosai, Castro, et al., *Nature* 2024 (Boda2 / Malinois lentiMPRA).
+- Dataset citation: Gosai et al., *Nature* 2023 (Boda2 / Malinois lentiMPRA).
 - Flank constants: `boda2-main/boda/common/constants.py`.
