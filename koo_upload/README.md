@@ -1,13 +1,13 @@
-# Malinois / lentiMPRA Dataset — Koo Lab Shared Copy
+# Malinois / Gosai episomal-MPRA Dataset — Koo Lab Shared Copy
 
-> **Placement:** this bundle is the **Gosai et al. 2024** lentiMPRA (the data
-> used to train Malinois). It is a **different** dataset from the
-> `lentimpra/agarwal_2025/` already in koo shared storage, so it lives in a
-> sibling directory: `/grid/koo/home/shared/data/lentimpra/gosai_2024/`.
+> **Placement:** this bundle is the **Gosai et al. 2024** *episomal* MPRA (the
+> data used to train Malinois). It is a **different assay** from the
+> `lentimpra/agarwal_2025/` lentiMPRA already in koo shared storage, so it lives
+> under a sibling assay dir: `/grid/koo/home/shared/data/episomal_mpra/gosai_2024/`.
 
 ## Overview
 
-Large-scale **lentiMPRA** dataset from the Malinois / Boda2 work
+Large-scale **episomal MPRA** dataset from the Malinois / Boda2 work
 (Gosai et al., *Nature* 2024 — "Machine-guided design of
 cell-type-targeting cis-regulatory elements"). It measures cis-regulatory
 activity of **798,064** 200-bp sequences across three human cell lines:
@@ -100,6 +100,6 @@ centered to the model's window length.
 
 - Source repo: `ALBench-S2F` (CSHL) — core dataset + SNV pairs from `data/k562/`,
   Agarwal negative/shuffled controls from `data/agarwal_2025/`, model from `data/`.
-- Core dataset + SNV pairs: Gosai et al., *Nature* 2024 (Boda2 / Malinois lentiMPRA).
+- Core dataset + SNV pairs: Gosai et al., *Nature* 2024 (Boda2 / Malinois episomal MPRA).
 - Negative/shuffled controls (`controls/` 2a only): Agarwal et al. 2025 K562 lentiMPRA.
 - Flank constants: `boda2-main/boda/common/constants.py`.

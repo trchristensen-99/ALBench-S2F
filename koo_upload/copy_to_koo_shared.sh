@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copy the Malinois / lentiMPRA dataset bundle into the koo lab shared storage.
+# Copy the Malinois / Gosai episomal-MPRA dataset bundle into koo lab shared storage.
 #
 # WHY THIS SCRIPT EXISTS: christen is NOT in the 'koo lab staff' group, so cannot
 # write anywhere under /grid/koo. Run this from an account that DOES have koo
@@ -8,17 +8,18 @@
 # so any non-wsbs user can read them — no pre-staging copy is needed.
 #
 # USAGE:
-#   ./copy_to_koo_shared.sh            # uses the default koo lentiMPRA path
+#   ./copy_to_koo_shared.sh            # uses the default koo episomal-MPRA path
 #   ./copy_to_koo_shared.sh <koo-shared-datasets-dir>   # override the parent dir
 #
-# This is the Gosai et al. 2024 lentiMPRA (Malinois training data), a DIFFERENT
-# dataset from the existing lentimpra/agarwal_2025/ — so it lands in a sibling
-# subdir: <parent>/gosai_2024/.
+# This is the Gosai et al. 2024 *episomal* MPRA (Malinois training data) — a
+# different assay from the existing lentimpra/agarwal_2025/ (a lentiMPRA), so it
+# lands under a sibling assay dir: <parent>/gosai_2024/, default parent
+# /grid/koo/home/shared/data/episomal_mpra.
 
 set -euo pipefail
 
-# Parent dir under koo shared storage; default is the known lentiMPRA folder.
-DEST="${1:-/grid/koo/home/shared/data/lentimpra}"
+# Parent dir under koo shared storage; default is the episomal-MPRA assay folder.
+DEST="${1:-/grid/koo/home/shared/data/episomal_mpra}"
 SRC="/grid/wsbs/home_norepl/christen/ALBench-S2F"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BUNDLE="$DEST/gosai_2024"
