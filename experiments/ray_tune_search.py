@@ -307,7 +307,7 @@ def run_ray_tune_search(args, scheduler_name: str):
     if scheduler_name not in RAY_STRATEGIES:
         raise ValueError(f"Unknown Ray scheduler: {scheduler_name}. Available: {RAY_STRATEGIES}")
 
-    out_dir = Path(args.out_dir)
+    out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"=== Ray Tune [{scheduler_name}] loading data (D={args.D}) ===", flush=True)
@@ -362,7 +362,19 @@ def run_ray_tune_search(args, scheduler_name: str):
         search_alg = TuneBOHB(metric="val_pearson", mode="max", seed=args.hp_seed)
         param_space = build_search_space()
 
-    ray.init(ignore_reinit_error=True, include_dashboard=False, log_to_driver=True)
+    # Ray walks/packages the driver CWD as the runtime-env working_dir even for a
+    # local instance. The repo root is ~470 GB (outputs/ + logs/), so packaging it
+    # stalls indefinitely. Point working_dir at a tiny empty dir; trial workers
+    # import via the absolute PYTHONPATH the job sets and receive data through the
+    # object store (tune.with_parameters), so no repo files need shipping.
+    ray_wd = out_dir / "_ray_wd"
+    ray_wd.mkdir(parents=True, exist_ok=True)
+    ray.init(
+        ignore_reinit_error=True,
+        include_dashboard=False,
+        log_to_driver=True,
+        runtime_env={"working_dir": str(ray_wd)},
+    )
 
     trainable = tune.with_parameters(
         _trainable,
