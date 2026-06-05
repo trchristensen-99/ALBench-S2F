@@ -3,7 +3,7 @@ workflow ('find the recipe once, deploy it at every dataset size').
 
 Two steps:
   STEP 1  FIND THE RECIPE (run once, at D in {30k,300k} x 3 reservoirs)
-    A  Strategy bake-off     — every strategy family, deep, GPU-seconds knee -> rounds/strategy
+    A  Strategy comparison   — every strategy family, deep, GPU-seconds knee -> rounds/strategy
     B  Recipe composition    — exhaustive all-subsets ElasticNetCV -> best strategy set @ knee
   STEP 2  DEPLOY PER DATASET SIZE
     run frozen recipe per D -> pick one global N* (size-matched) -> distill -> validate -> deploy
@@ -30,7 +30,7 @@ W, H = 17.0, 25.0
 # Phase palette
 S1_BG = "#eef4fc"  # step 1 panel  (blue tint)
 S2_BG = "#eef8f0"  # step 2 panel  (green tint)
-A_EDGE = "#2f6db5"  # blue   — bake-off
+A_EDGE = "#2f6db5"  # blue   — comparison
 B_EDGE = "#d97b29"  # orange — recipe composition
 C_EDGE = "#2f9e54"  # green  — deploy
 INK = "#1d1d1d"
@@ -129,11 +129,13 @@ def _knee_inset(fig, cx, cy, w, h, kind):
     ax.scatter([kx], [ky], color=col, zorder=5, s=46)
     ax.axvline(kx, color=col, ls=":", lw=1.6)
     ax.fill_between(x[x >= kx], y[x >= kx], ky, color=col, alpha=0.12)
-    ax.set_title(title, fontsize=13, color=col, fontweight="bold")
-    ax.set_xlabel(xlab, fontsize=11.5)
-    ax.set_ylabel("test R", fontsize=11.5)
-    ax.tick_params(labelsize=8.5)
+    ax.set_title(title, fontsize=13.5, color=col, fontweight="bold")
+    ax.set_xlabel(xlab, fontsize=12)
+    ax.set_ylabel("test R", fontsize=12)
+    # No numeric ticks: the curves are illustrative, and y-tick numbers used to
+    # bleed left into the neighbouring boxes/arrows.
     ax.set_xticks([])
+    ax.set_yticks([])
     ax.grid(alpha=0.25)
     return ax
 
@@ -157,7 +159,7 @@ def main() -> None:
         24.45,
         "HP-optimization → scaling-law deployment workflow",
         ha="center",
-        fontsize=25,
+        fontsize=27,
         fontweight="bold",
         color=INK,
     )
@@ -167,7 +169,7 @@ def main() -> None:
         "Goal: one consistent, size-matched set of N* model architectures per dataset size,\n"
         "reusable for ANY reservoir × acquisition combo — find the search recipe ONCE, deploy everywhere.",
         ha="center",
-        fontsize=14.5,
+        fontsize=15.5,
         color=GREY,
         style="italic",
     )
@@ -177,16 +179,16 @@ def main() -> None:
     ax.text(
         W / 2,
         22.88,
-        "HP-SEARCH STRATEGY FAMILIES  —  bake off ALL of them",
+        "HP-SEARCH STRATEGY FAMILIES  —  compare ALL of them",
         ha="center",
-        fontsize=14.5,
+        fontsize=15.5,
         fontweight="bold",
         color=INK,
         zorder=5,
     )
     fam_x = np.linspace(2.45, 14.55, len(FAM))
     for x, (name, col) in zip(fam_x, FAM.items()):
-        _box(ax, x, 22.0, 2.7, 0.95, name, col, "#ffffff", fs=11.5, tc=INK)
+        _box(ax, x, 22.0, 2.7, 0.95, name, col, "#ffffff", fs=12, tc=INK)
         ax.add_patch(
             FancyBboxPatch(
                 (x - 1.35, 22.0 - 0.475),
@@ -206,9 +208,9 @@ def main() -> None:
     ax.text(
         8.9,
         20.55,
-        "A  ·  STRATEGY BAKE-OFF — run every family deep, in isolation",
+        "A  ·  STRATEGY COMPARISON — run every family deep, in isolation",
         ha="center",
-        fontsize=16.5,
+        fontsize=17.5,
         fontweight="bold",
         color=A_EDGE,
     )
@@ -217,7 +219,7 @@ def main() -> None:
         20.0,
         "~50 rounds × multiple downsample + HP-init seeds, for every (D × reservoir) cell",
         ha="center",
-        fontsize=12.5,
+        fontsize=13.5,
         color=GREY,
     )
     _box(
@@ -229,7 +231,7 @@ def main() -> None:
         "TEST GRID\n\nD ∈ {30k, 300k}\n×\ngenomic\nmotif_planted_v2\ndinuc_shuffle",
         A_EDGE,
         "#ffffff",
-        fs=12.5,
+        fs=13,
     )
     _box(
         ax,
@@ -241,7 +243,7 @@ def main() -> None:
         "+ train_time_sec  +  LLM $ / latency   →   *_meta.json",
         A_EDGE,
         "#ffffff",
-        fs=12.5,
+        fs=13,
     )
     _box(
         ax,
@@ -254,7 +256,7 @@ def main() -> None:
         "→ OPTIMAL # ROUNDS per strategy",
         A_EDGE,
         "#dcebfb",
-        fs=12,
+        fs=12.5,
         weight="bold",
     )
     _arrow(ax, (5.15, 17.9), (6.0, 18.55), A_EDGE)
@@ -270,7 +272,7 @@ def main() -> None:
         15.05,
         "B  ·  RECIPE COMPOSITION — which strategies work best together",
         ha="center",
-        fontsize=16.5,
+        fontsize=17.5,
         fontweight="bold",
         color=B_EDGE,
     )
@@ -279,7 +281,7 @@ def main() -> None:
         14.5,
         "pool ALL harvested configs (best @ each strategy's knee), across strategies",
         ha="center",
-        fontsize=12.5,
+        fontsize=13.5,
         color=GREY,
     )
     _box(
@@ -292,7 +294,7 @@ def main() -> None:
         "fit on validation preds\nover m = 3, 4, 5, 6, … strategies",
         B_EDGE,
         "#ffffff",
-        fs=12,
+        fs=12.5,
     )
     # The recipe knee plot lives in the middle column (replaces the old text box,
     # so it has a clean, non-overlapping home).
@@ -306,7 +308,7 @@ def main() -> None:
         "FROZEN RECIPE\n{ winning strategies,\n# rounds each }\n\nreused at EVERY D",
         B_EDGE,
         "#ffffff",
-        fs=12.5,
+        fs=13,
         weight="bold",
     )
     _arrow(ax, (5.9, 12.75), (7.0, 12.75), B_EDGE)
@@ -318,7 +320,7 @@ def main() -> None:
         "→ re-tune knee criteria later",
         ha="center",
         va="center",
-        fontsize=10.5,
+        fontsize=11.5,
         color=GREY,
         style="italic",
     )
@@ -333,7 +335,7 @@ def main() -> None:
         10.0,
         "Run the frozen recipe at EACH D  →  freeze a size-matched architecture set",
         ha="center",
-        fontsize=16.5,
+        fontsize=17.5,
         fontweight="bold",
         color=C_EDGE,
     )
@@ -347,7 +349,7 @@ def main() -> None:
         "over representative reservoirs",
         C_EDGE,
         "#ffffff",
-        fs=12,
+        fs=12.5,
     )
     _box(
         ax,
@@ -359,7 +361,7 @@ def main() -> None:
         "→ pick ONE global N* near-knee\nACROSS all D\n(size-matched ⇒ fair scaling)",
         C_EDGE,
         "#d7eede",
-        fs=12,
+        fs=12.5,
         weight="bold",
     )
     _arrow(ax, (5.2, 8.4), (6.25, 8.4), C_EDGE)
@@ -377,7 +379,7 @@ def main() -> None:
         "• reservoir-TYPE coverage",
         C_EDGE,
         "#ffffff",
-        fs=12,
+        fs=12.5,
     )
     _box(
         ax,
@@ -390,7 +392,7 @@ def main() -> None:
         "(small gap ⇒ search 1 reservoir/D;\nalso used as a selection criterion)",
         C_EDGE,
         "#fff6e6",
-        fs=11.5,
+        fs=12,
     )
     _arrow(ax, (8.7, 7.5), (5.0, 6.5), C_EDGE)
     _arrow(ax, (8.7, 7.5), (11.0, 6.5), C_EDGE)
@@ -404,7 +406,7 @@ def main() -> None:
         "DELIVERABLE\nper-D table of N* frozen architectures",
         C_EDGE,
         "#d7eede",
-        fs=13,
+        fs=13.5,
         weight="bold",
     )
     _box(
@@ -417,7 +419,7 @@ def main() -> None:
         "+ ElasticNet-stack on every\nreservoir × acquisition × D — NO HP re-search",
         C_EDGE,
         "#d7eede",
-        fs=11.5,
+        fs=12,
         weight="bold",
     )
     _arrow(ax, (4.6, 4.7), (4.6, 3.65), C_EDGE)
@@ -430,7 +432,7 @@ def main() -> None:
         "All model selection on the ORACLE sequence-function landscape   •   "
         "D=30k prioritized; D=300k preemptible / resumable   •   one-time per D ⇒ budget can run high",
         ha="center",
-        fontsize=11.5,
+        fontsize=12.5,
         color=GREY,
         style="italic",
     )
