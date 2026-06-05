@@ -34,12 +34,37 @@ def _r(pred: np.ndarray, y: np.ndarray) -> float:
     return float(pearsonr(pred[m], y[m])[0])
 
 
+def knee_marginal_gain(xs, ys, eps: float = 0.002):
+    """First x where the per-step gain in y drops below eps (cost-aware stop).
+
+    xs, ys are monotone-in-x sample points (e.g. cumulative GPU-seconds vs ensemble R).
+    Returns the x at the knee (or the last x if the gain never falls below eps).
+    """
+    xs, ys = np.asarray(xs, float), np.asarray(ys, float)
+    for i in range(1, len(xs)):
+        if ys[i] - ys[i - 1] < eps:
+            return float(xs[i - 1])
+    return float(xs[-1])
+
+
+def knee_kneedle(xs, ys):
+    """Geometric (Kneedle) knee: point of max distance to the chord between the
+    first and last points of the normalized increasing curve. Returns x at knee."""
+    xs, ys = np.asarray(xs, float), np.asarray(ys, float)
+    if len(xs) < 3:
+        return float(xs[-1])
+    xn = (xs - xs.min()) / (np.ptp(xs) or 1.0)
+    yn = (ys - ys.min()) / (np.ptp(ys) or 1.0)
+    dist = yn - xn  # distance above the y=x chord for a concave increasing curve
+    return float(xs[int(np.argmax(dist))])
+
+
 def aggregate_rounds_curve(cell_algo: Path) -> list[dict]:
     """Cumulative mean-ensemble val/test Pearson per round for one cell."""
     lz = np.load(cell_algo / "labels.npz")
     val_y, test_oracle, test_true = lz["val_labels"], lz["test_oracle"], lz["test_true"]
 
-    by_round: dict[int, list[Path]] = {}
+    by_round: dict[int, list[tuple[Path, float]]] = {}
     for m in sorted(cell_algo.glob("r*_meta.json")):
         meta = json.loads(m.read_text())
         if meta.get("error"):
@@ -47,25 +72,29 @@ def aggregate_rounds_curve(cell_algo: Path) -> list[dict]:
         npz = m.with_name(m.name.replace("_meta.json", ".npz"))
         if not npz.exists():
             continue
-        by_round.setdefault(int(meta["round"]), []).append(npz)
+        t = float(meta.get("train_time_sec", 0.0) or 0.0)
+        by_round.setdefault(int(meta["round"]), []).append((npz, t))
 
     val_preds: list[np.ndarray] = []
     test_preds: list[np.ndarray] = []
     best_single = float("-inf")
+    cum_gpu_sec = 0.0
     rows: list[dict] = []
     for rnd in sorted(by_round):
-        for npz in by_round[rnd]:
+        for npz, t in by_round[rnd]:
             d = np.load(npz)
             vp = d["val_pred"]
             val_preds.append(vp)
             test_preds.append(d["test_pred"])
             best_single = max(best_single, _r(vp, val_y))
+            cum_gpu_sec += t
         ens_val = np.mean(np.stack(val_preds), axis=0)
         ens_test = np.mean(np.stack(test_preds), axis=0)
         rows.append(
             {
                 "round": rnd,
                 "n_models": len(val_preds),
+                "cum_gpu_sec": cum_gpu_sec,
                 "ensemble_val_r": _r(ens_val, val_y),
                 "ensemble_test_oracle_r": _r(ens_test, test_oracle),
                 "ensemble_test_true_r": _r(ens_test, test_true),
@@ -115,6 +144,47 @@ def fig1_rounds_plateau(cells: dict[str, list[dict]], fig_dir: Path) -> None:
     fig.tight_layout()
     for ext in ("png", "pdf"):
         fig.savefig(fig_dir / f"fig1_rounds_plateau.{ext}", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def fig1b_efficiency_gpusec(cells: dict[str, list[dict]], fig_dir: Path) -> None:
+    """Ensemble quality vs cumulative GPU-seconds (the fair cost axis), with the
+    marginal-gain and Kneedle knees marked — the basis for 'optimal rounds'."""
+    fig, axes = plt.subplots(1, len(cells), figsize=(6.2 * len(cells), 4.6), squeeze=False)
+    for ax, (name, rows) in zip(axes[0], cells.items()):
+        gpu_h = [r["cum_gpu_sec"] / 3600.0 for r in rows]
+        yv = [r["ensemble_val_r"] for r in rows]
+        ax.plot(gpu_h, yv, "-o", ms=3, label="ensemble (val)")
+        ax.plot(
+            gpu_h,
+            [r["ensemble_test_true_r"] for r in rows],
+            "-s",
+            ms=3,
+            label="ensemble (test, real MPRA)",
+        )
+        if any(g > 0 for g in gpu_h):
+            k_mg = knee_marginal_gain(gpu_h, yv) / 1.0
+            k_kd = knee_kneedle(gpu_h, yv)
+            ax.axvline(k_mg, color="crimson", ls=":", lw=1.2, label="marginal-gain knee")
+            ax.axvline(k_kd, color="purple", ls="--", lw=1.0, label="Kneedle knee")
+            # round + n_models at the marginal-gain knee
+            knee_row = min(rows, key=lambda r: abs(r["cum_gpu_sec"] / 3600.0 - k_mg))
+            ax.annotate(
+                f"knee r{knee_row['round']} ({knee_row['n_models']} models)",
+                xy=(k_mg, knee_row["ensemble_val_r"]),
+                xytext=(k_mg, min(yv) + 0.02),
+                fontsize=8,
+                color="crimson",
+            )
+        ax.set_title(name)
+        ax.set_xlabel("cumulative GPU-hours")
+        ax.set_ylabel("Pearson R")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7, loc="lower right")
+    fig.suptitle("HP-search efficiency vs compute (fair cost axis): where to stop")
+    fig.tight_layout()
+    for ext in ("png", "pdf"):
+        fig.savefig(fig_dir / f"fig1b_efficiency_gpusec.{ext}", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -244,6 +314,7 @@ def main() -> None:
         cells[name] = aggregate_rounds_curve(algo)
     if cells:
         fig1_rounds_plateau(cells, fig_dir)
+        fig1b_efficiency_gpusec(cells, fig_dir)
 
     p2 = Path(args.phase2_rounds_summary)
     if p2.exists():
