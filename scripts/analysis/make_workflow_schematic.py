@@ -112,7 +112,7 @@ def _knee_inset(fig, rect, kind):
     else:  # ensemble size
         y = 0.66 + 0.13 * (1 - np.exp(-x * 5))
         kx = 0.28
-        xlab, title = "# strategies", "ensemble knee"
+        xlab, title = "# configs (N*)", "N* knee"
     ax.plot(x, y, color="#333333", lw=2)
     ky = np.interp(kx, x, y)
     ax.scatter([kx], [ky], color="#d7322e", zorder=5, s=28)
@@ -152,8 +152,8 @@ def main() -> None:
     ax.text(
         7,
         10.18,
-        "Goal: one consistent set of ~5 model architectures per dataset size, "
-        "reusable for ANY reservoir × acquisition combo — search once, deploy everywhere.",
+        "Goal: one consistent, size-matched set of N* model architectures per dataset size, "
+        "reusable for ANY reservoir × acquisition combo — search strategy ONCE, deploy everywhere.",
         ha="center",
         fontsize=9.5,
         color=GREY,
@@ -161,15 +161,15 @@ def main() -> None:
     )
 
     # ---- bands ----
-    _band(ax, 6.7, 9.9, A_BG, "A  STRATEGY BAKE-OFF")
-    _band(ax, 3.5, 6.4, B_BG, "B  ENSEMBLE COMPOSITION")
-    _band(ax, 0.25, 3.2, C_BG, "C  FREEZE & DEPLOY")
+    _band(ax, 6.7, 9.9, A_BG, "A  STRATEGY BAKE-OFF  (once)")
+    _band(ax, 3.5, 6.4, B_BG, "B  RECIPE COMPOSITION  (once)")
+    _band(ax, 0.25, 3.2, C_BG, "C  PER-D DEPLOY")
 
     # ===== Phase A =====
     ax.text(
         7.1,
         9.62,
-        "Run every strategy family in isolation — deep (~50 rounds, ~100 models each)",
+        "Run every strategy family in isolation — deep (~50 rounds) × multi-seed",
         ha="center",
         fontsize=9.5,
         color=A_EDGE,
@@ -221,7 +221,7 @@ def main() -> None:
         6.95,
         6.6,
         0.5,
-        "per-strategy efficiency curve vs GPU-hours  →  Kneedle + marginal-gain knee  →  harvest best @ knee",
+        "efficiency curve vs GPU-seconds (fair axis)  →  Kneedle + marginal-gain knee  →  optimal rounds / strategy",
         A_EDGE,
         "#dcebfb",
         fs=8.0,
@@ -233,7 +233,7 @@ def main() -> None:
     ax.text(
         7.1,
         6.12,
-        "Pool the harvested models — search the best ensemble of strategies",
+        "Pool harvested configs — find the best STRATEGY RECIPE (which strategies, how deep)",
         ha="center",
         fontsize=9.5,
         color=B_EDGE,
@@ -270,7 +270,7 @@ def main() -> None:
         5.35,
         2.6,
         0.95,
-        "OUTPUT:\nwinning strategy set\n+ per-strategy\nrounds budget",
+        "FROZEN RECIPE:\nwinning strategy set\n+ rounds / strategy\n(reused at every D)",
         B_EDGE,
         "#ffffff",
         fs=8.2,
@@ -315,7 +315,7 @@ def main() -> None:
         2.05,
         3.6,
         1.1,
-        "distill to N≈5 configs / D\nDUAL criteria:\n• HP/arch diversity\n• reservoir-TYPE coverage",
+        "distill to N* configs / D\nN* FIXED across D (fair scaling)\n• perf + HP/arch diversity\n• reservoir-TYPE coverage",
         C_EDGE,
         "#d7eede",
         fs=8.0,
@@ -328,11 +328,21 @@ def main() -> None:
         2.05,
         3.1,
         1.1,
-        "DELIVERABLE:\nper-D table of ~5\nfrozen architectures",
+        "DELIVERABLE:\nper-D table of N*\nfrozen architectures",
         C_EDGE,
         "#ffffff",
         fs=8.2,
         weight="bold",
+    )
+    ax.text(
+        7.0,
+        1.42,
+        "VALIDATE transfer penalty: configs searched on reservoir A, scored on B vs natively-searched on B "
+        "(small gap ⇒ search 1 reservoir/D) — also a selection criterion. All selection on ORACLE landscape.",
+        ha="center",
+        fontsize=8,
+        color=GREY,
+        style="italic",
     )
     # final deploy note
     _box(
@@ -341,7 +351,7 @@ def main() -> None:
         0.72,
         9.2,
         0.62,
-        "deploy: re-train (transfer configs, NOT weights) + ElasticNet-stack the frozen 5 "
+        "deploy: re-train (transfer configs, NOT weights) + ElasticNet-stack the frozen N* "
         "on EVERY reservoir × acquisition × D — no HP re-search",
         C_EDGE,
         "#d7eede",

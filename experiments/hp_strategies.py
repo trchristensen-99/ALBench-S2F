@@ -14,6 +14,7 @@ Strategies:
 
 All strategies share the same HP space defined in scaling_hp_search.HPConfig.
 """
+
 from __future__ import annotations
 
 import copy
@@ -63,6 +64,7 @@ class OptunaStrategy(Strategy):
     def __init__(self, seed: int = 0):
         super().__init__(seed)
         import optuna
+
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         self.study = optuna.create_study(
             direction="maximize",
@@ -73,13 +75,13 @@ class OptunaStrategy(Strategy):
 
     def _sample_one(self) -> tuple[Any, HPConfig]:
         import optuna
+
         trial = self.study.ask()
         n_layers = trial.suggest_int("n_layers", 2, 12)
         # width_jitter is sampled per-layer up to MAX. We use a fixed-dim suggest then truncate.
         max_layers = 12
         width_jitter = [
-            trial.suggest_float(f"width_jitter_{i}", 0.5, 2.0)
-            for i in range(max_layers)
+            trial.suggest_float(f"width_jitter_{i}", 0.5, 2.0) for i in range(max_layers)
         ][:n_layers]
         hp = HPConfig(
             lr=trial.suggest_float("lr", 1e-5, 1e-2, log=True),
@@ -137,7 +139,9 @@ class AutoResearchBase(Strategy):
     def suggest(self, n: int) -> list[HPConfig]:
         if not self.history:
             # No best yet — start with random
-            return [sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))) for _ in range(n)]
+            return [
+                sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))) for _ in range(n)
+            ]
         # Sample around current top-3 best
         top = sorted(self.history, key=lambda x: x[1], reverse=True)[:3]
         configs = []
@@ -161,53 +165,62 @@ class AutoResearchBase(Strategy):
             "dense_dropout": lambda v: float(np.clip(v + self.rng.uniform(-0.1, 0.1), 0.0, 0.5)),
             "n_layers": lambda v: int(np.clip(v + self.rng.choice([-2, -1, 0, 1, 2]), 2, 12)),
             "width_base": lambda v: int(self.rng.choice([16, 32, 64, 128, 256])),
-            "width_jitter": lambda v: [float(np.clip(x * 2 ** self.rng.uniform(-0.5, 0.5), 0.5, 2.0)) for x in v],
+            "width_jitter": lambda v: [
+                float(np.clip(x * 2 ** self.rng.uniform(-0.5, 0.5), 0.5, 2.0)) for x in v
+            ],
             "block_class": lambda v: str(self.rng.choice(["eff", "ag", "plain"])),
             "ks": lambda v: int(self.rng.choice([3, 5, 7, 9, 11])),
             "pct_start": lambda v: float(self.rng.choice([0.1, 0.2, 0.3, 0.4])),
             "optimizer": lambda v: str(self.rng.choice(["adam", "adamw", "muon"])),
-            "weight_decay": lambda v: float(np.clip(v * 10 ** self.rng.uniform(-0.5, 0.5), 1e-6, 1e-2)),
+            "weight_decay": lambda v: float(
+                np.clip(v * 10 ** self.rng.uniform(-0.5, 0.5), 1e-6, 1e-2)
+            ),
             "use_shift_aug": lambda v: not v,
             "shift_max": lambda v: int(self.rng.choice([5, 10, 15, 20])),
             "use_evoaug": lambda v: not v,
         }
         hp_names = list(perturbations.keys())
-        change_set = self.rng.choice(hp_names, size=min(self.n_changes, len(hp_names)), replace=False)
+        change_set = self.rng.choice(
+            hp_names, size=min(self.n_changes, len(hp_names)), replace=False
+        )
         for name in change_set:
             setattr(new, name, perturbations[name](getattr(new, name)))
         # If n_layers changed, resize width_jitter
         if len(new.width_jitter) != new.n_layers:
             if len(new.width_jitter) < new.n_layers:
                 # Pad with 1.0
-                new.width_jitter = list(new.width_jitter) + [1.0] * (new.n_layers - len(new.width_jitter))
+                new.width_jitter = list(new.width_jitter) + [1.0] * (
+                    new.n_layers - len(new.width_jitter)
+                )
             else:
-                new.width_jitter = list(new.width_jitter)[:new.n_layers]
+                new.width_jitter = list(new.width_jitter)[: new.n_layers]
         new.seed = int(self.rng.integers(2**31))
         return new
 
 
 class AutoResearchSingle(AutoResearchBase):
-    name = "autoresearch_single"
+    name = "evo_single"
     n_changes = 1
     temperature = 0.2
 
 
 class AutoResearchBatch(AutoResearchBase):
-    name = "autoresearch_batch"
+    name = "evo_batch"
     n_changes = 3
     temperature = 0.2
 
 
 class AutoResearchExplore(AutoResearchBase):
-    name = "autoresearch_explore"
+    name = "evo_explore"
     n_changes = 5
     temperature = 0.5
 
 
 class AutoResearchExploit(AutoResearchBase):
-    name = "autoresearch_exploit"
+    name = "evo_exploit"
     n_changes = 1
     temperature = 0.05
+
 
 class AutoResearchMassive(AutoResearchBase):
     """Massively parallel AutoResearch with history-aware exploration/exploitation.
@@ -217,7 +230,8 @@ class AutoResearchMassive(AutoResearchBase):
       - 30% pure random (explore), 70% perturb from top-3 history (exploit)
       - Avoids HP value ranges that appear consistently in bottom-quartile history
     """
-    name = "autoresearch_massive"
+
+    name = "evo_massive"
     n_changes = 5
     temperature = 0.3
 
@@ -231,7 +245,16 @@ class AutoResearchMassive(AutoResearchBase):
         avoid = {}
         # Look for HP values that appear in bottom but not in top
         from dataclasses import asdict
-        for hp_name in ["lr", "batch_size", "n_layers", "width_base", "ks", "optimizer", "pct_start"]:
+
+        for hp_name in [
+            "lr",
+            "batch_size",
+            "n_layers",
+            "width_base",
+            "ks",
+            "optimizer",
+            "pct_start",
+        ]:
             vals = [getattr(c, hp_name) for c in bottom if hasattr(c, hp_name)]
             if vals:
                 avoid[hp_name] = vals
@@ -239,7 +262,9 @@ class AutoResearchMassive(AutoResearchBase):
 
     def suggest(self, n: int) -> list[HPConfig]:
         if not self.history:
-            return [sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))) for _ in range(n)]
+            return [
+                sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))) for _ in range(n)
+            ]
         configs = []
         avoid = self._bottom_quartile_summary()
         top = sorted(self.history, key=lambda x: x[1], reverse=True)[:3]
@@ -277,6 +302,7 @@ class AutoResearchMassive(AutoResearchBase):
             elif isinstance(cur, float):
                 # Numeric: check if within log-1e ratio of any bad value
                 import math
+
                 for bv in bad_vals:
                     if bv > 0 and cur > 0:
                         try:
@@ -295,17 +321,22 @@ class OptunaParallel(Strategy):
     one-config-at-a-time, this asks Optuna for N configs in batch before
     seeing any results. This causes some redundancy but maximizes parallelism.
     """
+
     name = "optuna_parallel"
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
         import optuna
+
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         # Use multivariate TPE for better in-context learning
         self.study = optuna.create_study(
             direction="maximize",
             sampler=optuna.samplers.TPESampler(
-                seed=seed, multivariate=True, group=True, constant_liar=True,
+                seed=seed,
+                multivariate=True,
+                group=True,
+                constant_liar=True,
             ),
         )
         self._pending: list = []
@@ -315,8 +346,7 @@ class OptunaParallel(Strategy):
         n_layers = trial.suggest_int("n_layers", 2, 12)
         max_layers = 12
         width_jitter = [
-            trial.suggest_float(f"width_jitter_{i}", 0.5, 2.0)
-            for i in range(max_layers)
+            trial.suggest_float(f"width_jitter_{i}", 0.5, 2.0) for i in range(max_layers)
         ][:n_layers]
         hp = HPConfig(
             lr=trial.suggest_float("lr", 1e-5, 1e-2, log=True),
@@ -349,6 +379,7 @@ class OptunaParallel(Strategy):
     def update(self, configs, val_pearsons):
         super().update(configs, val_pearsons)
         from dataclasses import asdict
+
         new_pending = []
         for trial, hp in self._pending:
             matched = False
@@ -369,13 +400,10 @@ class AutoResearchAdaptive(AutoResearchMassive):
     between HP value and val performance. Biases sampling toward
     high-performing regions (e.g., 'lr above 1e-3 has been better — sample more there').
     """
-    name = "autoresearch_adaptive"
+
+    name = "evo_adaptive"
     n_changes = 4
     temperature = 0.25
-
-
-
-
 
 
 class AutoResearchKnowledgeable(AutoResearchAdaptive):
@@ -387,17 +415,20 @@ class AutoResearchKnowledgeable(AutoResearchAdaptive):
       3. ~30% perturbations from current session top
       4. ~20% pure random for exploration
     """
-    name = "autoresearch_knowledgeable"
+
+    name = "evo_knowledgeable"
     n_changes = 4
 
     def __init__(self, seed: int = 0, context_filter: dict | None = None):
         super().__init__(seed)
         from experiments.hp_knowledge_base import get_kb
+
         self.kb = get_kb()
         self.context_filter = context_filter or {}
 
     def suggest(self, n: int) -> list[HPConfig]:
         from dataclasses import asdict
+
         configs = []
         n_kb = int(n * 0.5)
         n_perturb = int(n * 0.3)
@@ -405,7 +436,9 @@ class AutoResearchKnowledgeable(AutoResearchAdaptive):
 
         # KB-biased samples (informed prior)
         for _ in range(n_kb):
-            kb_dict = self.kb.informed_sample(self.rng, HPConfig, context_filter=self.context_filter, bias_strength=0.7)
+            kb_dict = self.kb.informed_sample(
+                self.rng, HPConfig, context_filter=self.context_filter, bias_strength=0.7
+            )
             if kb_dict is None:
                 # Not enough data, fall back to random
                 configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))))
@@ -434,21 +467,43 @@ class AutoResearchKnowledgeable(AutoResearchAdaptive):
             configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))))
         return configs
 
+
 STRATEGY_REGISTRY = {
     "random": RandomStrategy,
     "optuna_tpe": OptunaStrategy,
     "optuna_parallel": OptunaParallel,
-    "autoresearch_single": AutoResearchSingle,
-    "autoresearch_batch": AutoResearchBatch,
-    "autoresearch_explore": AutoResearchExplore,
-    "autoresearch_exploit": AutoResearchExploit,
-    "autoresearch_massive": AutoResearchMassive,
-    "autoresearch_adaptive": AutoResearchAdaptive,
-    "autoresearch_knowledgeable": AutoResearchKnowledgeable,
+    # Evolutionary / hill-climbing perturbation strategies. These were historically
+    # (mis)named "autoresearch_*"; "AutoResearch" is reserved for the LLM-iterative
+    # search in llm_autoresearch.py. Old names are kept as aliases below for
+    # backward-compat with existing launchers and on-disk *_meta.json.
+    "evo_single": AutoResearchSingle,
+    "evo_batch": AutoResearchBatch,
+    "evo_explore": AutoResearchExplore,
+    "evo_exploit": AutoResearchExploit,
+    "evo_massive": AutoResearchMassive,
+    "evo_adaptive": AutoResearchAdaptive,
+    "evo_knowledgeable": AutoResearchKnowledgeable,
+}
+
+# Deprecated -> canonical aliases (resolve old strings transparently).
+STRATEGY_ALIASES = {
+    "autoresearch_single": "evo_single",
+    "autoresearch_batch": "evo_batch",
+    "autoresearch_explore": "evo_explore",
+    "autoresearch_exploit": "evo_exploit",
+    "autoresearch_massive": "evo_massive",
+    "autoresearch_adaptive": "evo_adaptive",
+    "autoresearch_knowledgeable": "evo_knowledgeable",
 }
 
 
+def canonical_strategy(name: str) -> str:
+    """Map deprecated strategy names to their canonical form (evo_*)."""
+    return STRATEGY_ALIASES.get(name, name)
+
+
 def get_strategy(name: str, seed: int = 0) -> Strategy:
+    name = canonical_strategy(name)
     if name not in STRATEGY_REGISTRY:
         raise ValueError(f"Unknown strategy: {name}. Available: {list(STRATEGY_REGISTRY)}")
     return STRATEGY_REGISTRY[name](seed=seed)
