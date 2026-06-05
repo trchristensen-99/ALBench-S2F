@@ -149,8 +149,8 @@ def _trainable(config, *, data, epochs, seed):
     scheduler-terminated trial still leaves a recoverable best model."""
     import tempfile
 
-    from ray import train
-    from ray.train import Checkpoint
+    from ray import tune
+    from ray.tune import Checkpoint
 
     hp = _hp_from_config(config, seed=seed)
     student, block_sizes = _build_student(hp, epochs=epochs)
@@ -161,7 +161,7 @@ def _trainable(config, *, data, epochs, seed):
     def epoch_callback(epoch, val_metrics):
         vp = float(val_metrics.get("pearson_r", float("nan")))
         if not np.isfinite(vp):
-            train.report({"val_pearson": -1.0, "epoch": epoch})
+            tune.report({"val_pearson": -1.0, "epoch": epoch})
             return False
         improved = vp > best["vp"]
         if improved:
@@ -171,12 +171,12 @@ def _trainable(config, *, data, epochs, seed):
                 (Path(ckpt_dir) / "hp.json").write_text(
                     json.dumps({"hp": asdict(hp), "block_sizes": block_sizes})
                 )
-                train.report(
+                tune.report(
                     {"val_pearson": vp, "epoch": epoch},
                     checkpoint=Checkpoint.from_directory(ckpt_dir),
                 )
         else:
-            train.report({"val_pearson": vp, "epoch": epoch})
+            tune.report({"val_pearson": vp, "epoch": epoch})
         return False  # scheduler terminates externally; never self-stop
 
     student.fit(
