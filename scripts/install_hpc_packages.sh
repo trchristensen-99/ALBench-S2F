@@ -46,6 +46,15 @@ UV_LINK_MODE=copy uv pip install \
   h5py \
   pytz
 
+echo "=== Step 6: HP-search engines (Ray Tune ASHA/BOHB + Optuna) ==="
+# Ray Tune scheduler bake-off (experiments/ray_tune_search.py). hpbandster +
+# ConfigSpace are BOHB's backend (HyperBandForBOHB / TuneBOHB).
+UV_LINK_MODE=copy uv pip install \
+  "ray[tune]" \
+  hpbandster \
+  ConfigSpace \
+  optuna
+
 echo "=== Verification ==="
 .venv/bin/python -c "
 import alphagenome_research
@@ -58,5 +67,9 @@ import haiku
 import chex
 import orbax.checkpoint
 import pytz
+import ray
+from ray import tune
+from ray.tune.search.bohb import TuneBOHB
+import optuna
 print('ALL OK — venv ready for SLURM jobs.')
 "
