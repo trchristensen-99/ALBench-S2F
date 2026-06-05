@@ -45,20 +45,37 @@ from sklearn.linear_model import ElasticNetCV
 # Canonical mixed6 composition. Phase 2 uses the *_opus/*_sonnet names; the live
 # hp_search cells use bare llm_default/llm_diverse/llm_exploit. We match whichever set
 # of names is actually present in the pool.
+# Map deprecated autoresearch_* strategy names to canonical evo_* (terminology fix:
+# "AutoResearch" is reserved for the LLM-iterative search; these are evolutionary).
+_STRAT_ALIASES = {
+    "autoresearch_single": "evo_single",
+    "autoresearch_batch": "evo_batch",
+    "autoresearch_explore": "evo_explore",
+    "autoresearch_exploit": "evo_exploit",
+    "autoresearch_massive": "evo_massive",
+    "autoresearch_adaptive": "evo_adaptive",
+    "autoresearch_knowledgeable": "evo_knowledgeable",
+}
+
+
+def _canon_strat(name: str) -> str:
+    return _STRAT_ALIASES.get(name, name)
+
+
 MIXED6_PHASE2 = [
     "llm_default_opus",
     "llm_diverse_sonnet",
     "llm_exploit_sonnet",
-    "autoresearch_batch",
-    "autoresearch_massive",
+    "evo_batch",
+    "evo_massive",
     "random",
 ]
 MIXED6_HPSEARCH = [
     "llm_default",
     "llm_diverse",
     "llm_exploit",
-    "autoresearch_batch",
-    "autoresearch_massive",
+    "evo_batch",
+    "evo_massive",
     "random",
 ]
 
@@ -110,6 +127,7 @@ def load_pool(pool_dir: Path) -> tuple[dict[str, np.ndarray], dict[str, np.ndarr
         strat = meta.get("strategy")
         if not strat or strat == "llm_autoresearch":
             strat = m.parent.name
+        strat = _canon_strat(strat)
         try:
             d = np.load(npz)
             vp, tp = d["val_pred"], d["test_pred"]
