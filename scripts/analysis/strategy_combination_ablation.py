@@ -34,6 +34,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import zipfile
 from pathlib import Path
@@ -406,6 +407,136 @@ def analysis_budget_sweep(val_mats, test_mats, labels, mixed6, n_grid, n_boot, r
     return out
 
 
+def analysis_all_subsets(
+    val_mats,
+    test_mats,
+    labels,
+    n_boot,
+    rng,
+    max_k: int = 9,
+    knee_eps: float = 0.002,
+):
+    """Exhaustive recipe search: evaluate EVERY non-empty subset of strategies at a
+    common matched budget, so subsets of different sizes are directly comparable.
+
+    Answers "which strategies work best TOGETHER, and how many are enough?" — the
+    Step-1 Phase-B recipe-composition curve. Cost is 2^K * n_boot ElasticNetCV fits,
+    so K is capped at max_k (restrict to the top-max_k single strategies, always
+    keeping 'random' if present) and n_boot defaults low.
+    """
+    strategies = sorted(val_mats)
+    note = None
+    if len(strategies) > max_k:
+        # Rank singletons by oracle Pearson; keep the strongest max_k (+ random).
+        ranked = sorted(
+            strategies,
+            key=lambda s: metrics(
+                *(fit_ensemble(val_mats[s], labels["val_labels"], test_mats[s])[:1]),
+                labels["test_oracle"],
+                labels["test_true"],
+            )["test_oracle_pearson"],
+            reverse=True,
+        )
+        keep = ranked[:max_k]
+        if "random" in strategies and "random" not in keep:
+            keep[-1] = "random"
+        strategies = sorted(keep)
+        note = f"restricted to top-{max_k} strategies (2^K too large): {strategies}"
+
+    # Common budget so every subset (down to a singleton) can supply the same N.
+    budget = min(val_mats[s].shape[0] for s in strategies)
+
+    results = []
+    for m in range(1, len(strategies) + 1):
+        for combo in itertools.combinations(strategies, m):
+            ev = matched_budget_eval(val_mats, test_mats, labels, list(combo), budget, n_boot, rng)
+            results.append(
+                {
+                    "m": m,
+                    "strategies": list(combo),
+                    "test_oracle_pearson": ev["test_oracle_pearson"],
+                    "test_oracle_pearson_lo": ev["test_oracle_pearson_lo"],
+                    "test_oracle_pearson_hi": ev["test_oracle_pearson_hi"],
+                    "test_oracle_mse": ev["test_oracle_mse"],
+                    "n_models_drawn": ev["n_models_drawn"],
+                }
+            )
+
+    # Best subset per size + diminishing-returns knee on the best-of-size curve.
+    best_by_m = {}
+    for m in range(1, len(strategies) + 1):
+        same = [r for r in results if r["m"] == m]
+        best = max(same, key=lambda r: r["test_oracle_pearson"])
+        rs = [r["test_oracle_pearson"] for r in same]
+        best_by_m[m] = {
+            "best_strategies": best["strategies"],
+            "best_pearson": best["test_oracle_pearson"],
+            "median_pearson": float(np.median(rs)),
+            "min_pearson": float(np.min(rs)),
+            "max_pearson": float(np.max(rs)),
+            "n_subsets": len(same),
+        }
+
+    ms = sorted(best_by_m)
+    knee = ms[-1]
+    for i in range(1, len(ms)):
+        if best_by_m[ms[i]]["best_pearson"] - best_by_m[ms[i - 1]]["best_pearson"] < knee_eps:
+            knee = ms[i - 1]
+            break
+    overall_best = max(results, key=lambda r: r["test_oracle_pearson"])
+
+    return {
+        "note": note,
+        "budget_per_subset": int(budget),
+        "n_boot": n_boot,
+        "knee_eps": knee_eps,
+        "knee_size": int(knee),
+        "recipe_at_knee": best_by_m[knee]["best_strategies"],
+        "overall_best": {
+            "strategies": overall_best["strategies"],
+            "test_oracle_pearson": overall_best["test_oracle_pearson"],
+        },
+        "best_by_size": best_by_m,
+        "all_subsets": sorted(results, key=lambda r: -r["test_oracle_pearson"]),
+    }
+
+
+def plot_all_subsets(allsub: dict, out_png: Path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    by_m = allsub["best_by_size"]
+    ms = sorted(by_m)
+    best = [by_m[m]["best_pearson"] for m in ms]
+    med = [by_m[m]["median_pearson"] for m in ms]
+    lo = [by_m[m]["min_pearson"] for m in ms]
+    hi = [by_m[m]["max_pearson"] for m in ms]
+    fig, ax = plt.subplots(figsize=(8, 5.2))
+    ax.fill_between(ms, lo, hi, alpha=0.15, color="#d97b29", label="all subsets (min–max)")
+    ax.plot(ms, med, "--o", ms=4, color="#9aa0a6", label="median subset")
+    ax.plot(ms, best, "-o", ms=5, color="#d97b29", label="best subset of size m")
+    knee = allsub["knee_size"]
+    ax.axvline(knee, color="crimson", ls=":", lw=1.5)
+    ax.annotate(
+        f"knee = {knee}\n{', '.join(allsub['recipe_at_knee'])}",
+        xy=(knee, by_m[knee]["best_pearson"]),
+        xytext=(knee + 0.2, min(best) + 0.4 * (max(best) - min(best))),
+        fontsize=8,
+        color="crimson",
+    )
+    ax.set_xlabel("# strategies in recipe (m)")
+    ax.set_ylabel("test oracle Pearson R (matched budget)")
+    ax.set_title("Exhaustive recipe search: best ensemble vs # strategies")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=150)
+    plt.close(fig)
+    print(f"wrote {out_png}")
+
+
 # ---------------------------------------------------------------------------
 # Figure
 # ---------------------------------------------------------------------------
@@ -498,6 +629,13 @@ def main():
         help="comma-separated matched budgets N for the budget-sweep panel",
     )
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--all_subsets",
+        action="store_true",
+        help="run the exhaustive recipe search (2^K subsets); heavy, off by default",
+    )
+    ap.add_argument("--n_boot_subsets", type=int, default=15)
+    ap.add_argument("--max_subset_k", type=int, default=9)
     args = ap.parse_args()
     budget_grid = [int(x) for x in args.budget_grid.split(",")]
 
@@ -533,6 +671,18 @@ def main():
             val_mats, test_mats, labels, mixed6, budget_grid, args.n_boot_fit, rng
         ),
     }
+
+    if args.all_subsets:
+        allsub = analysis_all_subsets(
+            val_mats,
+            test_mats,
+            labels,
+            args.n_boot_subsets,
+            rng,
+            max_k=args.max_subset_k,
+        )
+        report["all_subsets"] = allsub
+        plot_all_subsets(allsub, out_dir / "all_subsets_recipe.png")
 
     (out_dir / "ablation_report.json").write_text(json.dumps(report, indent=2))
     print(f"wrote {out_dir / 'ablation_report.json'}")
