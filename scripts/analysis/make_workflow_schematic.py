@@ -25,7 +25,7 @@ import numpy as np
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 # Canvas size in data units (also used to map insets to figure fractions).
-W, H = 17.0, 23.0
+W, H = 17.0, 25.0
 
 # Phase palette
 S1_BG = "#eef4fc"  # step 1 panel  (blue tint)
@@ -46,7 +46,7 @@ FAM = {
 }
 
 
-def _box(ax, x, y, w, h, text, edge, fc, fs=12, weight="normal", tc=INK, lw=2.0):
+def _box(ax, x, y, w, h, text, edge, fc, fs=13, weight="normal", tc=INK, lw=2.0):
     ax.add_patch(
         FancyBboxPatch(
             (x - w / 2, y - h / 2),
@@ -86,7 +86,7 @@ def _panel(ax, x0, y0, x1, y1, color, label, edge):
         ha="center",
         va="center",
         rotation=90,
-        fontsize=16,
+        fontsize=18,
         fontweight="bold",
         color=edge,
         zorder=1,
@@ -129,10 +129,10 @@ def _knee_inset(fig, cx, cy, w, h, kind):
     ax.scatter([kx], [ky], color=col, zorder=5, s=46)
     ax.axvline(kx, color=col, ls=":", lw=1.6)
     ax.fill_between(x[x >= kx], y[x >= kx], ky, color=col, alpha=0.12)
-    ax.set_title(title, fontsize=11, color=col, fontweight="bold")
-    ax.set_xlabel(xlab, fontsize=9.5)
-    ax.set_ylabel("test R", fontsize=9.5)
-    ax.tick_params(labelsize=7)
+    ax.set_title(title, fontsize=13, color=col, fontweight="bold")
+    ax.set_xlabel(xlab, fontsize=11.5)
+    ax.set_ylabel("test R", fontsize=11.5)
+    ax.tick_params(labelsize=8.5)
     ax.set_xticks([])
     ax.grid(alpha=0.25)
     return ax
@@ -154,54 +154,44 @@ def main() -> None:
     # ---------- header ----------
     ax.text(
         W / 2,
-        22.45,
+        24.45,
         "HP-optimization → scaling-law deployment workflow",
         ha="center",
-        fontsize=22,
+        fontsize=25,
         fontweight="bold",
         color=INK,
     )
     ax.text(
         W / 2,
-        21.75,
+        23.6,
         "Goal: one consistent, size-matched set of N* model architectures per dataset size,\n"
         "reusable for ANY reservoir × acquisition combo — find the search recipe ONCE, deploy everywhere.",
         ha="center",
-        fontsize=13,
+        fontsize=14.5,
         color=GREY,
         style="italic",
     )
 
     # ---------- strategy-family palette ----------
-    _box(
-        ax,
-        W / 2,
-        20.05,
-        16.2,
-        1.45,
-        "",
-        "#b9c2cc",
-        "#f4f6f9",
-        lw=2.0,
-    )
+    _box(ax, W / 2, 22.35, 16.2, 1.55, "", "#b9c2cc", "#f4f6f9", lw=2.0)
     ax.text(
         W / 2,
-        20.55,
+        22.88,
         "HP-SEARCH STRATEGY FAMILIES  —  bake off ALL of them",
         ha="center",
-        fontsize=13,
+        fontsize=14.5,
         fontweight="bold",
         color=INK,
         zorder=5,
     )
-    fam_x = np.linspace(2.4, 14.6, len(FAM))
+    fam_x = np.linspace(2.45, 14.55, len(FAM))
     for x, (name, col) in zip(fam_x, FAM.items()):
-        _box(ax, x, 19.75, 2.65, 0.92, name, col, "#ffffff", fs=10.5, tc=INK)
+        _box(ax, x, 22.0, 2.7, 0.95, name, col, "#ffffff", fs=11.5, tc=INK)
         ax.add_patch(
             FancyBboxPatch(
-                (x - 1.325, 19.75 - 0.46),
-                0.13,
-                0.92,
+                (x - 1.35, 22.0 - 0.475),
+                0.14,
+                0.95,
                 boxstyle="square,pad=0",
                 linewidth=0,
                 facecolor=col,
@@ -210,246 +200,237 @@ def main() -> None:
         )
 
     # =================== STEP 1 ===================
-    _panel(ax, 0.35, 9.7, 16.65, 18.55, S1_BG, "STEP 1 — FIND THE RECIPE (run ONCE)", A_EDGE)
+    _panel(ax, 0.35, 11.3, 16.65, 21.1, S1_BG, "STEP 1 — FIND THE RECIPE (run ONCE)", A_EDGE)
 
     # ----- Phase A -----
     ax.text(
-        8.7,
-        18.05,
+        8.9,
+        20.55,
         "A  ·  STRATEGY BAKE-OFF — run every family deep, in isolation",
         ha="center",
-        fontsize=14,
+        fontsize=16.5,
         fontweight="bold",
         color=A_EDGE,
     )
     ax.text(
-        8.7,
-        17.55,
+        8.9,
+        20.0,
         "~50 rounds × multiple downsample + HP-init seeds, for every (D × reservoir) cell",
         ha="center",
-        fontsize=11,
+        fontsize=12.5,
         color=GREY,
     )
     _box(
         ax,
-        3.25,
-        15.85,
-        3.6,
-        2.0,
+        3.3,
+        17.9,
+        3.7,
+        2.3,
         "TEST GRID\n\nD ∈ {30k, 300k}\n×\ngenomic\nmotif_planted_v2\ndinuc_shuffle",
         A_EDGE,
         "#ffffff",
-        fs=11.5,
+        fs=12.5,
     )
     _box(
         ax,
-        9.1,
-        16.55,
-        6.2,
-        1.05,
+        9.2,
+        18.75,
+        6.4,
+        1.15,
         "train each config  →  save val/test preds\n"
         "+ train_time_sec  +  LLM $ / latency   →   *_meta.json",
         A_EDGE,
         "#ffffff",
-        fs=11.5,
+        fs=12.5,
     )
     _box(
         ax,
-        9.1,
-        14.95,
-        6.2,
-        1.25,
+        9.2,
+        16.95,
+        6.4,
+        1.55,
         "efficiency curve vs cumulative GPU-SECONDS  (fair cost axis)\n"
         "→ Kneedle + marginal-gain knee, bootstrapped over seeds\n"
         "→ OPTIMAL # ROUNDS per strategy",
         A_EDGE,
         "#dcebfb",
-        fs=11,
+        fs=12,
         weight="bold",
     )
-    _arrow(ax, (5.05, 15.85), (6.0, 16.4), A_EDGE)
-    _arrow(ax, (9.1, 16.02), (9.1, 15.58), A_EDGE)
-    _knee_inset(fig, 14.0, 15.7, 3.0, 1.9, "rounds")
+    _arrow(ax, (5.15, 17.9), (6.0, 18.55), A_EDGE)
+    _arrow(ax, (9.2, 18.17), (9.2, 17.73), A_EDGE)
+    _knee_inset(fig, 14.25, 17.85, 3.0, 2.0, "rounds")
+
+    # A -> B connector (routed in the clear gap above the Phase-B header)
+    _arrow(ax, (9.2, 16.17), (9.2, 15.55), B_EDGE, lw=2.8)
 
     # ----- Phase B -----
     ax.text(
-        8.7,
-        13.75,
+        8.9,
+        15.05,
         "B  ·  RECIPE COMPOSITION — which strategies work best together",
         ha="center",
-        fontsize=14,
+        fontsize=16.5,
         fontweight="bold",
         color=B_EDGE,
     )
     ax.text(
-        8.7,
-        13.28,
+        8.9,
+        14.5,
         "pool ALL harvested configs (best @ each strategy's knee), across strategies",
         ha="center",
-        fontsize=11,
+        fontsize=12.5,
         color=GREY,
     )
     _box(
         ax,
-        3.45,
-        11.6,
-        4.7,
-        1.85,
+        3.5,
+        12.75,
+        4.8,
+        1.95,
         "EXHAUSTIVE all-subsets search\nElasticNetCV(positive=True, cv=5)\n"
         "fit on validation preds\nover m = 3, 4, 5, 6, … strategies",
         B_EDGE,
         "#ffffff",
-        fs=11,
+        fs=12,
     )
+    # The recipe knee plot lives in the middle column (replaces the old text box,
+    # so it has a clean, non-overlapping home).
+    _knee_inset(fig, 8.8, 12.85, 3.3, 1.7, "recipe")
     _box(
         ax,
-        8.7,
-        11.6,
-        4.0,
-        1.85,
-        "curve: test R vs # strategies\n→ knee = 'enough'\n(diminishing returns)\n"
-        "→ best recipe AT the knee",
-        B_EDGE,
-        "#fbe3cd",
-        fs=11,
-        weight="bold",
-    )
-    _box(
-        ax,
-        13.6,
-        11.6,
-        4.0,
-        1.85,
+        13.55,
+        12.75,
+        4.1,
+        1.95,
         "FROZEN RECIPE\n{ winning strategies,\n# rounds each }\n\nreused at EVERY D",
         B_EDGE,
         "#ffffff",
-        fs=11.5,
+        fs=12.5,
         weight="bold",
     )
-    _arrow(ax, (5.85, 11.6), (6.65, 11.6), B_EDGE)
-    _arrow(ax, (10.75, 11.6), (11.55, 11.6), B_EDGE)
-    _arrow(ax, (9.1, 14.3), (9.1, 12.6), B_EDGE, lw=2.8)
-    _knee_inset(fig, 8.7, 10.35, 3.0, 1.35, "recipe")
+    _arrow(ax, (5.9, 12.75), (7.0, 12.75), B_EDGE)
+    _arrow(ax, (10.5, 12.75), (11.5, 12.75), B_EDGE)
     ax.text(
-        13.6,
-        10.35,
-        "persist every intermediate point\n(per-round preds, costs, all subset\n"
-        "scores) → re-tune knee criteria later",
+        8.9,
+        11.6,
+        "persist every intermediate point (per-round preds, costs, all subset scores) "
+        "→ re-tune knee criteria later",
         ha="center",
         va="center",
-        fontsize=9.5,
+        fontsize=10.5,
         color=GREY,
         style="italic",
     )
 
-    # big step transition arrow
-    _arrow(ax, (8.5, 9.6), (8.5, 9.12), C_EDGE, lw=3.4)
+    # big step transition arrow (clear gap between the two panels)
+    _arrow(ax, (8.5, 11.25), (8.5, 10.65), C_EDGE, lw=3.6)
 
     # =================== STEP 2 ===================
-    _panel(ax, 0.35, 0.4, 16.65, 9.0, S2_BG, "STEP 2 — DEPLOY PER DATASET SIZE", C_EDGE)
+    _panel(ax, 0.35, 0.5, 16.65, 10.55, S2_BG, "STEP 2 — DEPLOY PER DATASET SIZE", C_EDGE)
     ax.text(
-        8.7,
-        8.55,
+        8.9,
+        10.0,
         "Run the frozen recipe at EACH D  →  freeze a size-matched architecture set",
         ha="center",
-        fontsize=14,
+        fontsize=16.5,
         fontweight="bold",
         color=C_EDGE,
     )
     _box(
         ax,
-        3.15,
-        7.0,
-        3.9,
-        1.7,
+        3.2,
+        8.4,
+        4.0,
+        1.8,
         "run FROZEN RECIPE per D\nD ∈ {10k, 30k, 100k,\n300k, 1M}   (+3M later)\n"
         "over representative reservoirs",
         C_EDGE,
         "#ffffff",
-        fs=11,
+        fs=12,
     )
     _box(
         ax,
-        8.6,
-        7.0,
-        4.8,
-        1.7,
+        8.7,
+        8.4,
+        4.9,
+        1.8,
         "forward-selection ElasticNet\ncurve per D\n"
         "→ pick ONE global N* near-knee\nACROSS all D\n(size-matched ⇒ fair scaling)",
         C_EDGE,
         "#d7eede",
-        fs=11,
+        fs=12,
         weight="bold",
     )
-    _arrow(ax, (5.15, 7.0), (6.15, 7.0), C_EDGE)
-    _knee_inset(fig, 13.7, 7.0, 3.0, 1.7, "Nstar")
+    _arrow(ax, (5.2, 8.4), (6.25, 8.4), C_EDGE)
+    _knee_inset(fig, 13.75, 8.4, 3.0, 1.8, "Nstar")
 
     _box(
         ax,
         4.6,
-        4.55,
         5.6,
-        1.6,
+        5.7,
+        1.8,
         "distill to N* configs / D — select by:\n"
         "• ORACLE test-Pearson  (consistent landscape)\n"
         "• HP / architecture diversity\n"
         "• reservoir-TYPE coverage",
         C_EDGE,
         "#ffffff",
-        fs=11,
+        fs=12,
     )
     _box(
         ax,
-        11.3,
-        4.55,
+        11.35,
         5.6,
-        1.6,
+        5.7,
+        1.8,
         "VALIDATE transfer penalty\nconfigs from reservoir A scored on B\n"
         "vs natively-searched on B\n"
         "(small gap ⇒ search 1 reservoir/D;\nalso used as a selection criterion)",
         C_EDGE,
         "#fff6e6",
-        fs=10.5,
+        fs=11.5,
     )
-    _arrow(ax, (8.6, 6.15), (4.9, 5.35), C_EDGE)
-    _arrow(ax, (8.6, 6.15), (11.0, 5.35), C_EDGE)
+    _arrow(ax, (8.7, 7.5), (5.0, 6.5), C_EDGE)
+    _arrow(ax, (8.7, 7.5), (11.0, 6.5), C_EDGE)
 
     _box(
         ax,
         4.6,
-        2.45,
-        5.6,
-        1.1,
+        3.0,
+        5.7,
+        1.25,
         "DELIVERABLE\nper-D table of N* frozen architectures",
         C_EDGE,
         "#d7eede",
-        fs=12,
+        fs=13,
         weight="bold",
     )
     _box(
         ax,
-        11.3,
-        2.45,
-        5.6,
-        1.1,
+        11.35,
+        3.0,
+        5.7,
+        1.25,
         "DEPLOY: re-train (transfer CONFIGS, not weights)\n"
         "+ ElasticNet-stack on every\nreservoir × acquisition × D — NO HP re-search",
         C_EDGE,
         "#d7eede",
-        fs=10.5,
+        fs=11.5,
         weight="bold",
     )
-    _arrow(ax, (4.6, 3.75), (4.6, 3.0), C_EDGE)
-    _arrow(ax, (11.3, 3.75), (11.3, 3.0), C_EDGE)
-    _arrow(ax, (7.4, 2.45), (8.5, 2.45), C_EDGE)
+    _arrow(ax, (4.6, 4.7), (4.6, 3.65), C_EDGE)
+    _arrow(ax, (11.35, 4.7), (11.35, 3.65), C_EDGE)
+    _arrow(ax, (7.45, 3.0), (8.5, 3.0), C_EDGE)
 
     ax.text(
-        8.7,
-        1.05,
+        8.9,
+        1.3,
         "All model selection on the ORACLE sequence-function landscape   •   "
         "D=30k prioritized; D=300k preemptible / resumable   •   one-time per D ⇒ budget can run high",
         ha="center",
-        fontsize=10.5,
+        fontsize=11.5,
         color=GREY,
         style="italic",
     )
