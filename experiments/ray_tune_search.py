@@ -78,6 +78,40 @@ def build_search_space():
     }
 
 
+def _patch_configspace_for_bohb():
+    """Make Ray 2.54's BOHB adapter work with ConfigSpace>=1.0 without a venv
+    downgrade.
+
+    Ray's bohb_search.resolve_value() calls UniformFloat/IntegerHyperparameter
+    with a `q=` (quantization) kwarg that ConfigSpace>=1.0 removed, so BOHB dies
+    with `TypeError: __init__() got an unexpected keyword argument 'q'`. Our
+    search space uses no quantization, so Ray always passes q=None here; wrap the
+    two affected constructors to drop a None q. A non-None q would be silently
+    lost, so refuse it loudly rather than corrupt the space.
+    """
+    import ConfigSpace as CS
+
+    for name in ("UniformFloatHyperparameter", "UniformIntegerHyperparameter"):
+        orig = getattr(CS, name, None)
+        if orig is None or getattr(orig, "_bohb_q_patched", False):
+            continue
+
+        def _make(orig):
+            def wrapper(*args, **kwargs):
+                q = kwargs.pop("q", None)
+                if q is not None:
+                    raise ValueError(
+                        f"ConfigSpace shim: non-None q={q} for {orig.__name__}; "
+                        "the BOHB search space now uses quantization — update the shim."
+                    )
+                return orig(*args, **kwargs)
+
+            wrapper._bohb_q_patched = True
+            return wrapper
+
+        setattr(CS, name, _make(orig))
+
+
 def _hp_from_config(config: dict, seed: int) -> HPConfig:
     """Materialise a full HPConfig from a Ray trial config + a deterministic seed
     (used only for the width_jitter vector, so arch is reproducible)."""
@@ -353,6 +387,7 @@ def run_ray_tune_search(args, scheduler_name: str):
         from ray.tune.schedulers.hb_bohb import HyperBandForBOHB
         from ray.tune.search.bohb import TuneBOHB
 
+        _patch_configspace_for_bohb()
         scheduler = HyperBandForBOHB(
             metric="val_pearson",
             mode="max",
