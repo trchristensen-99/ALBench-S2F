@@ -295,7 +295,7 @@ def run_ray_tune_search(args, scheduler_name: str):
     engine's total trial budget so the GPU-seconds efficiency comparison is fair).
     """
     import ray
-    from ray import train, tune
+    from ray import tune
     from ray.tune.schedulers import ASHAScheduler
 
     from experiments.scaling_hp_search import (
@@ -392,10 +392,12 @@ def run_ray_tune_search(args, scheduler_name: str):
             search_alg=search_alg,
             num_samples=num_samples,
         ),
-        run_config=train.RunConfig(
+        # tune.RunConfig (verbose default None), NOT train.RunConfig whose verbose
+        # defaults to the string "DEPRECATED" and crashes get_air_verbosity().
+        run_config=tune.RunConfig(
             name=f"{scheduler_name}_D{args.D}_s{args.hp_seed}",
             storage_path=str((out_dir / "ray_results").resolve()),
-            checkpoint_config=train.CheckpointConfig(
+            checkpoint_config=tune.CheckpointConfig(
                 num_to_keep=1,
                 checkpoint_score_attribute="val_pearson",
                 checkpoint_score_order="max",
