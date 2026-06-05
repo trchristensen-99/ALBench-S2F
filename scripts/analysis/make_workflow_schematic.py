@@ -46,7 +46,7 @@ FAM = {
 }
 
 
-def _box(ax, x, y, w, h, text, edge, fc, fs=13, weight="normal", tc=INK, lw=2.0):
+def _box(ax, x, y, w, h, text, edge, fc, fs=14, weight="normal", tc=INK, lw=2.0):
     ax.add_patch(
         FancyBboxPatch(
             (x - w / 2, y - h / 2),
@@ -86,7 +86,7 @@ def _panel(ax, x0, y0, x1, y1, color, label, edge):
         ha="center",
         va="center",
         rotation=90,
-        fontsize=18,
+        fontsize=20,
         fontweight="bold",
         color=edge,
         zorder=1,
@@ -129,11 +129,11 @@ def _knee_inset(fig, cx, cy, w, h, kind):
     ax.scatter([kx], [ky], color=col, zorder=5, s=46)
     ax.axvline(kx, color=col, ls=":", lw=1.6)
     ax.fill_between(x[x >= kx], y[x >= kx], ky, color=col, alpha=0.12)
-    ax.set_title(title, fontsize=13.5, color=col, fontweight="bold")
-    ax.set_xlabel(xlab, fontsize=12)
-    ax.set_ylabel("test R", fontsize=12)
-    # No numeric ticks: the curves are illustrative, and y-tick numbers used to
-    # bleed left into the neighbouring boxes/arrows.
+    ax.set_title(title, fontsize=15.5, color=col, fontweight="bold")
+    ax.set_xlabel(xlab, fontsize=14)
+    # No ylabel and no numeric ticks: the curves are illustrative, and the
+    # "test R" label / y-tick numbers used to bleed left into neighbouring
+    # boxes and arrows. The title already names each curve.
     ax.set_xticks([])
     ax.set_yticks([])
     ax.grid(alpha=0.25)
@@ -188,7 +188,7 @@ def main() -> None:
     )
     fam_x = np.linspace(2.45, 14.55, len(FAM))
     for x, (name, col) in zip(fam_x, FAM.items()):
-        _box(ax, x, 22.0, 2.7, 0.95, name, col, "#ffffff", fs=12, tc=INK)
+        _box(ax, x, 22.0, 2.7, 0.95, name, col, "#ffffff", fs=12.5, tc=INK)
         ax.add_patch(
             FancyBboxPatch(
                 (x - 1.35, 22.0 - 0.475),
@@ -256,7 +256,7 @@ def main() -> None:
         "→ OPTIMAL # ROUNDS per strategy",
         A_EDGE,
         "#dcebfb",
-        fs=12.5,
+        fs=13.5,
         weight="bold",
     )
     _arrow(ax, (5.15, 17.9), (6.0, 18.55), A_EDGE)
@@ -294,7 +294,7 @@ def main() -> None:
         "fit on validation preds\nover m = 3, 4, 5, 6, … strategies",
         B_EDGE,
         "#ffffff",
-        fs=12.5,
+        fs=13.5,
     )
     # The recipe knee plot lives in the middle column (replaces the old text box,
     # so it has a clean, non-overlapping home).
@@ -349,7 +349,7 @@ def main() -> None:
         "over representative reservoirs",
         C_EDGE,
         "#ffffff",
-        fs=12.5,
+        fs=13.5,
     )
     _box(
         ax,
@@ -361,7 +361,7 @@ def main() -> None:
         "→ pick ONE global N* near-knee\nACROSS all D\n(size-matched ⇒ fair scaling)",
         C_EDGE,
         "#d7eede",
-        fs=12.5,
+        fs=13.5,
         weight="bold",
     )
     _arrow(ax, (5.2, 8.4), (6.25, 8.4), C_EDGE)
@@ -379,7 +379,7 @@ def main() -> None:
         "• reservoir-TYPE coverage",
         C_EDGE,
         "#ffffff",
-        fs=12.5,
+        fs=13.5,
     )
     _box(
         ax,
@@ -392,7 +392,7 @@ def main() -> None:
         "(small gap ⇒ search 1 reservoir/D;\nalso used as a selection criterion)",
         C_EDGE,
         "#fff6e6",
-        fs=12,
+        fs=13,
     )
     _arrow(ax, (8.7, 7.5), (5.0, 6.5), C_EDGE)
     _arrow(ax, (8.7, 7.5), (11.0, 6.5), C_EDGE)
@@ -419,7 +419,7 @@ def main() -> None:
         "+ ElasticNet-stack on every\nreservoir × acquisition × D — NO HP re-search",
         C_EDGE,
         "#d7eede",
-        fs=12,
+        fs=13,
         weight="bold",
     )
     _arrow(ax, (4.6, 4.7), (4.6, 3.65), C_EDGE)
