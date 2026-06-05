@@ -88,6 +88,10 @@ LLM_VARIANTS = [
 
 
 def _ray_available() -> bool:
+    # Jobs run via `uv run` (venv has ray); the login node where this submitter
+    # runs may not. STEP1_FORCE_RAY=1 bypasses the login-node import probe.
+    if os.environ.get("STEP1_FORCE_RAY") == "1":
+        return True
     try:
         import ray  # noqa: F401
 
