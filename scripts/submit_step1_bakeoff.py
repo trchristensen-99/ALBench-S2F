@@ -195,6 +195,7 @@ export HP_FAST=1
 export HP_CACHE_DIR="$PWD/outputs/tensor_cache"
 export TORCHDYNAMO_DISABLE=1
 export PYTHONUNBUFFERED=1
+export TQDM_DISABLE=1
 {llm_env}
 ATTEMPT=0
 while true; do
