@@ -304,6 +304,14 @@ def _call_claude_cli(system: str, user: str, model: str) -> str:
             f"claude CLI returned usage-limit text: {result.stdout[:300]}",
             retry_after=_parse_reset_seconds(result.stdout),
         )
+    # rc==0 with no JSON array and not a known limit message: log the raw text so
+    # the downstream "No JSON recoverable" failure is diagnosable (e.g. opus arm).
+    if "[" not in result.stdout:
+        print(
+            f"  [cli rc=0 no-JSON] model={model!r} "
+            f"stdout={result.stdout[:800]!r} stderr={result.stderr[:300]!r}",
+            flush=True,
+        )
     return result.stdout
 
 
