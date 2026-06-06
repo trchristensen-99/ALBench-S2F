@@ -17,6 +17,7 @@ Configurable knobs (via env vars at SLURM time):
   LLM_MODEL        = "claude-sonnet-4-6" (or claude-opus-4-7, claude-haiku-4-5)
   LLM_MAX_TOKENS   = 4000
 """
+
 from __future__ import annotations
 
 import json
@@ -30,8 +31,8 @@ from typing import Any
 REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
 sys.path.insert(0, str(REPO))
 
-from experiments.hp_strategies import Strategy
-from experiments.scaling_hp_search import HPConfig
+from experiments.hp_strategies import Strategy  # noqa: E402
+from experiments.scaling_hp_search import HPConfig  # noqa: E402
 
 
 class RateLimitExceeded(Exception):
@@ -58,12 +59,16 @@ _RATE_LIMIT_MARKERS = (
     "rate_limit",
     "ratelimit",
     "rate-limit",
+    "session limit",
+    "hit your session",
     "too many requests",
     "429",
     "overloaded",
     "529",
     "quota",
     "resets at",
+    "· resets",
+    "resets ",
     "will reset",
     "try again later",
     "usage limit reached",
@@ -178,23 +183,19 @@ You have:
 Apply your judgement and taste. Don't just sample uniformly — use the patterns. Be willing to try bold combinations that you think SHOULD work even if untested. Mix exploitation (refine current best) with smart exploration (probe under-explored regions of the space). Aim for a mix of GLOBAL optima search (probe far-from-best regions) and LOCAL refinement (small perturbations around the best).
 
 OUTPUT FORMAT: A single JSON array with {n} HP config dicts. Each dict must have ALL the keys in HP_SPACE_SPEC. No commentary outside the JSON.""",
-
     "explore": """You are a creative HP search assistant. Propose {n} BOLD, DIVERSE new HP configurations for LegNet on K562. Many should explore regions the existing experiments have NOT tried. Don't just refine the current best — surprise me with combinations that might unlock new performance regimes.
 
 EXPLOIT THE FULL SEARCH SPACE: use non-uniform width_jitter, try all 3 block_classes, try all 3 optimizers, vary conv vs dense dropout asymmetrically. Aggressive depths (10-12 layers) and unusual width_base values are under-explored. The advanced guidance below has specific suggestions.
 
 OUTPUT: JSON array of {n} HP config dicts. No extra text.""",
-
     "exploit": """You are a precision HP tuner. Propose {n} new HP configurations that are SMALL VARIATIONS around the current best configs. Be surgical — change one or two HPs at a time, by small amounts, to find local optimums. Preserve the best (block_class, optimizer) combo; vary lr, weight_decay, conv_dropout, dense_dropout, width_jitter slightly.
 
 OUTPUT: JSON array of {n} HP config dicts. No extra text.""",
-
     "critic": """You are a meta-learner analyzing HP search history. First, internally reason about why some configs underperformed (e.g. wrong optimizer-block combo, too-aggressive lr, dropout placement). Then propose {n} new configs that AVOID the failure modes you identified while building on what works.
 
 Look especially for: combinations that diverged (val NaN or very high val_loss), HP regions consistently producing weak results, and structural issues (e.g. block_class+optimizer interactions).
 
 OUTPUT: JSON array of {n} HP config dicts. No extra text.""",
-
     "diverse": """You are an ensemble-aware HP search assistant. The downstream user will ElasticNetCV ensemble all proposed configs. Propose {n} HP configurations that are likely INDIVIDUALLY DECENT but ALSO MAXIMALLY DIVERSE from each other — different architectures (eff/ag/plain), different optimizers (adam/adamw/muon), different regularization regimes (dropout asymmetry, weight_decay span), different depths and width schedules. The goal is a complementary ensemble that collectively covers the loss surface.
 
 OUTPUT: JSON array of {n} HP config dicts. No extra text.""",
@@ -227,7 +228,9 @@ def summarize_kb(kb_summary: dict) -> str:
     lines = []
     for hp_name, info in kb_summary.items():
         if info["type"] == "numeric":
-            lines.append(f"  {hp_name:<18}: median={info['median']:.4g}, IQR=[{info['q25']:.4g}, {info['q75']:.4g}] (n={info['n']})")
+            lines.append(
+                f"  {hp_name:<18}: median={info['median']:.4g}, IQR=[{info['q25']:.4g}, {info['q75']:.4g}] (n={info['n']})"
+            )
         else:
             top = list(info["frequencies"].items())[:3]
             top_str = ", ".join(f"{k}:{v}" for k, v in top)
@@ -235,7 +238,9 @@ def summarize_kb(kb_summary: dict) -> str:
     return "\n".join(lines)
 
 
-def build_prompt(n: int, history: list[tuple], kb_summary: dict, style: str = "default") -> tuple[str, str]:
+def build_prompt(
+    n: int, history: list[tuple], kb_summary: dict, style: str = "default"
+) -> tuple[str, str]:
     """Return (system_prompt, user_prompt)."""
     system = PROMPT_STYLES.get(style, PROMPT_STYLES["default"]).format(n=n)
     user = f"""{HP_SPACE_SPEC}
@@ -244,8 +249,8 @@ def build_prompt(n: int, history: list[tuple], kb_summary: dict, style: str = "d
 CURRENT SESSION TOP {min(30, len(history))} OBSERVATIONS (sorted by val_pearson, descending):
 {summarize_history(history, max_items=30)}
 
-GLOBAL KB SUMMARY (top-quartile across {kb_summary.get('_n_total', '?')} prior records):
-{summarize_kb({k: v for k, v in kb_summary.items() if not k.startswith('_')})}
+GLOBAL KB SUMMARY (top-quartile across {kb_summary.get("_n_total", "?")} prior records):
+{summarize_kb({k: v for k, v in kb_summary.items() if not k.startswith("_")})}
 
 Propose {n} new HP configs. Output ONLY a valid JSON array, no extra text. Each dict must have these keys (in this order):
   lr, batch_size, conv_dropout, dense_dropout, n_layers, width_base, width_jitter, block_class, ks, pct_start, optimizer, weight_decay, use_shift_aug, shift_max, use_evoaug
@@ -270,7 +275,9 @@ def _call_claude_cli(system: str, user: str, model: str) -> str:
     try:
         result = subprocess.run(
             [claude_bin, "-p", prompt, "--model", cli_model],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
     except subprocess.TimeoutExpired as e:
         # Transient; treat like a short throttle so the retry loop waits + retries
@@ -307,14 +314,20 @@ def _call_claude_api(system: str, user: str, model: str, max_tokens: int) -> str
     client = anthropic.Anthropic()  # uses ANTHROPIC_API_KEY
     try:
         resp = client.messages.create(
-            model=model, max_tokens=max_tokens, system=system,
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
             messages=[{"role": "user", "content": user}],
         )
     except anthropic.RateLimitError as e:  # HTTP 429
-        raise RateLimitExceeded(f"anthropic 429 rate limit: {e}", retry_after=_retry_after_from_exc(e))
+        raise RateLimitExceeded(
+            f"anthropic 429 rate limit: {e}", retry_after=_retry_after_from_exc(e)
+        )
     except anthropic.APIStatusError as e:
         if getattr(e, "status_code", None) == 529 or "overloaded" in str(e).lower():
-            raise RateLimitExceeded(f"anthropic 529 overloaded: {e}", retry_after=_retry_after_from_exc(e))
+            raise RateLimitExceeded(
+                f"anthropic 529 overloaded: {e}", retry_after=_retry_after_from_exc(e)
+            )
         raise
     except anthropic.APIConnectionError as e:
         raise RateLimitExceeded(f"anthropic connection error: {e}", retry_after=30)
@@ -444,12 +457,18 @@ def dict_to_hpconfig(d: dict, seed: int) -> HPConfig:
         n_layers=max(2, min(12, n_layers)),
         width_base=int(d.get("width_base", 64)),
         width_jitter=width_jitter,
-        block_class=(str(d.get("block_class", "eff")).lower()
-                     if str(d.get("block_class", "eff")).lower() in ("eff", "ag", "plain") else "eff"),
+        block_class=(
+            str(d.get("block_class", "eff")).lower()
+            if str(d.get("block_class", "eff")).lower() in ("eff", "ag", "plain")
+            else "eff"
+        ),
         ks=int(d.get("ks", 5)),
         pct_start=float(d.get("pct_start", 0.3)),
-        optimizer=(str(d.get("optimizer", "adamw")).lower()
-                   if str(d.get("optimizer", "adamw")).lower() in ("adam", "adamw", "muon") else "adamw"),
+        optimizer=(
+            str(d.get("optimizer", "adamw")).lower()
+            if str(d.get("optimizer", "adamw")).lower() in ("adam", "adamw", "muon")
+            else "adamw"
+        ),
         weight_decay=max(1e-6, min(1e-2, float(d.get("weight_decay", 1e-4)))),
         use_shift_aug=bool(d.get("use_shift_aug", False)),
         shift_max=int(d.get("shift_max", 15)),
@@ -473,6 +492,7 @@ class LLMAutoResearch(Strategy):
       LLM_MODEL        (claude-opus-4-7, claude-sonnet-4-5, etc.)
       LLM_USE_KB       (1 = include KB summary in prompt, 0 = session-only)
     """
+
     name = "llm_autoresearch"
 
     def __init__(self, seed: int = 0):
@@ -488,6 +508,7 @@ class LLMAutoResearch(Strategy):
         if self.use_kb:
             try:
                 from experiments.hp_knowledge_base import get_kb
+
                 kb = get_kb()
                 recs = kb.load_all()
                 kb_summary = kb.summary(recs) if recs else {}
@@ -532,6 +553,7 @@ class LLMAutoResearch(Strategy):
 # Auto-register in hp_strategies.STRATEGY_REGISTRY when imported
 def _register():
     from experiments import hp_strategies
+
     hp_strategies.STRATEGY_REGISTRY["llm_autoresearch"] = LLMAutoResearch
 
 
