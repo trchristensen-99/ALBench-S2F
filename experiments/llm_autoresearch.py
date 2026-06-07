@@ -20,6 +20,7 @@ Configurable knobs (via env vars at SLURM time):
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -435,12 +436,21 @@ def parse_response(text: str, n: int) -> list[dict]:
                     end = i + 1
                     break
         if end >= 0:
+            slice_ = text[start:end]
             try:
-                parsed = json.loads(text[start:end])
+                parsed = json.loads(slice_)
                 if isinstance(parsed, list):
                     return parsed[:n]
             except json.JSONDecodeError:
-                pass  # fall through to object-level recovery
+                # Some models (e.g. opus-4-7) emit Python-literal booleans
+                # (True/False/None) instead of JSON true/false/null. Parse the
+                # array as a Python literal — faithful values, no execution.
+                try:
+                    parsed = ast.literal_eval(slice_)
+                    if isinstance(parsed, list):
+                        return parsed[:n]
+                except (ValueError, SyntaxError):
+                    pass  # fall through to object-level recovery
     # Fallback: array slice missing or unparseable — recover individual objects.
     objs = _extract_json_objects(text)
     if not objs:
