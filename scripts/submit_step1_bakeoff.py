@@ -140,6 +140,10 @@ def out_dir(reservoir: str, D: int, variant: str, ds: int, hs: int) -> Path:
 def is_complete(od: Path, strategy: str) -> bool:
     if not od.exists():
         return False
+    # A cell that ran all rounds and exited rc=0 is complete even if a few
+    # trainings NaN-failed (so it sits a model or two below the target count).
+    if (od / ".bakeoff_done").exists():
+        return True
     return len(list(od.glob("*_meta.json"))) >= expected_models(strategy)
 
 
@@ -206,7 +210,7 @@ while true; do
     --epochs {EPOCHS} --early_stop_patience {PATIENCE} \\
     --out_dir {od}
   rc=$?
-  if [ $rc -eq 0 ]; then echo "=== DONE rc=0 ==="; break; fi
+  if [ $rc -eq 0 ]; then touch {od}/.bakeoff_done; echo "=== DONE rc=0 ==="; break; fi
   ATTEMPT=$((ATTEMPT+1))
   if [ $rc -eq 42 ]; then
     if [ $ATTEMPT -ge 12 ]; then echo "=== too many rate-limit stops; giving up ==="; exit 42; fi

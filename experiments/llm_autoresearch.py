@@ -531,6 +531,7 @@ class LLMAutoResearch(Strategy):
             if need <= 0:
                 break
             system, user = build_prompt(need, self.history, kb_summary, style=self.style)
+            response = None
             try:
                 response = call_claude(system, user, model=self.model)
                 parsed = parse_response(response, need)
@@ -547,6 +548,12 @@ class LLMAutoResearch(Strategy):
                     f"(attempt {attempt}/{self.parse_retries}): {e}",
                     flush=True,
                 )
+                if response is not None:
+                    print(
+                        f"  [parse-fail raw response] model={self.model!r} "
+                        f"len={len(response)} repr={response[:1500]!r}",
+                        flush=True,
+                    )
 
         if len(configs) < n:
             raise RuntimeError(
