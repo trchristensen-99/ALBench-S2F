@@ -360,13 +360,14 @@ def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 3000, sharey: bo
     # See note in make_exp0: drop points where mean Pearson ≤ 0; clip IQR
     # band edges at the floor so the band stays bounded on a log axis.
     LOG_PEARSON_FLOOR = 0.001
+    # Poster style/order: Genomic / SNV Effect / High-Activity.
     panels = [
-        ("in_dist", "A. Genomic Sequences"),
-        ("ood", "B. High-Activity Designed Sequences"),
-        ("snv_delta", "C. SNV Effect (Genomic Sequence − SNV Sequence)"),
+        ("in_dist", "Genomic Reference (held-out chromosomes)"),
+        ("snv_delta", "SNV Effect (Δ log2FC)"),
+        ("ood", "High-Activity Designed"),
     ]
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=sharey)
-    for ax, (ts_key, title) in zip(axes, panels):
+    for i, (ax, (ts_key, title)) in enumerate(zip(axes, panels)):
         for strat, (label, color, ls, lw) in EXP1_STRATS.items():
             if strat not in raw:
                 continue
@@ -395,7 +396,7 @@ def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 3000, sharey: bo
                 sizes,
                 means,
                 color=color,
-                label=label if "A." in title else "",
+                label=label if i == 0 else "",
                 linewidth=lw,
                 linestyle=ls,
                 marker="o",
@@ -405,10 +406,14 @@ def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 3000, sharey: bo
                 ax.fill_between(sizes, lows, highs, alpha=0.18, color=color)
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.set_xlabel("N Training Sequences")
+        ax.set_xlabel("Training set size (log scale)")
+        ax.set_xticks([3_000, 10_000, 30_000, 100_000, 300_000])
+        ax.set_xticklabels(
+            ["3,000", "10,000", "30,000", "100,000", "300,000"], rotation=30, ha="right"
+        )
         if metric == "pearson_r" and sharey:
             ax.set_ylim(0.01, 1.0)
-        if "A." in title:
+        if i == 0:
             ax.set_ylabel(ylabel)
             ax.legend(fontsize=12, loc="upper right" if metric == "mse" else "lower right")
         ax.set_title(title, fontweight="bold", fontsize=14)
