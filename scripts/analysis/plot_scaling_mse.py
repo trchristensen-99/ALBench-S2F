@@ -438,8 +438,17 @@ def main():
     )
     args = ap.parse_args()
     out_dir = REPO / "results" / "scaling"
+    # LegNet-only: give real vs oracle distinct hues (red vs blue), not just linestyle.
+    _LEGNET_COLORS = {
+        "LegNet (real labels)": "#D62728",
+        "LegNet (oracle labels)": "#1F77B4",
+    }
     curves = (
-        {k: v for k, v in EXP0_CURVES.items() if k.startswith("LegNet")}
+        {
+            k: {**v, "color": _LEGNET_COLORS[k]}
+            for k, v in EXP0_CURVES.items()
+            if k.startswith("LegNet")
+        }
         if args.legnet_only
         else None
     )
