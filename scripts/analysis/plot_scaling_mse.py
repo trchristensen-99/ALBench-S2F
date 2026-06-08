@@ -30,6 +30,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -183,10 +184,12 @@ def _clip_for_log(arr: np.ndarray, floor: float) -> np.ndarray:
     return out
 
 
-def make_exp0(out_path: Path, metric: str = "mse"):
+def make_exp0(out_path: Path, metric: str = "mse", curves: dict | None = None):
+    curves = curves or EXP0_CURVES
     ylabel, metric_short = _METRIC_LABELS[metric]
-    print(f"Loading Exp 0 (AG vs LegNet) result.json files [{metric}]…")
-    model_data = {name: load_exp0_model(cfg["model"]) for name, cfg in EXP0_CURVES.items()}
+    model_label = " vs ".join(sorted({n.split(" (")[0] for n in curves}))
+    print(f"Loading Exp 0 ({model_label}) result.json files [{metric}]…")
+    model_data = {name: load_exp0_model(cfg["model"]) for name, cfg in curves.items()}
     for name, d in model_data.items():
         print(f"  {name}: sizes={sorted(d.keys())}")
 
@@ -203,7 +206,7 @@ def make_exp0(out_path: Path, metric: str = "mse"):
     ]
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=True)
     for ax, (ts_key, title) in zip(axes, panels):
-        for name, cfg in EXP0_CURVES.items():
+        for name, cfg in curves.items():
             sizes, means, lows, highs = extract_metric(model_data[name], ts_key, metric)
             if not len(sizes):
                 continue
@@ -244,8 +247,9 @@ def make_exp0(out_path: Path, metric: str = "mse"):
         # them so each panel is independently readable.
         ax.tick_params(axis="y", labelleft=True)
 
+    suptitle_model = model_label.replace("AG", "AlphaGenome")
     fig.suptitle(
-        f"Data Scaling — {metric_short}: AlphaGenome vs LegNet (K562 MPRA)\n"
+        f"Data Scaling — {metric_short}: {suptitle_model} (K562 MPRA)\n"
         "shaded band = IQR-style across seeds (3 seeds: avg-of-2 lowest…avg-of-2 highest; "
         "≥4 seeds: 25th–75th percentile)",
         fontsize=12,
@@ -426,11 +430,25 @@ def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 5000):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--legnet_only",
+        action="store_true",
+        help="Exp-0: plot only the two LegNet curves (real vs oracle labels); drop AlphaGenome.",
+    )
+    args = ap.parse_args()
     out_dir = REPO / "results" / "scaling"
+    curves = (
+        {k: v for k, v in EXP0_CURVES.items() if k.startswith("LegNet")}
+        if args.legnet_only
+        else None
+    )
+    tag = "_legnet" if args.legnet_only else ""
     for metric in ("mse", "pearson_r"):
         suffix = "mse" if metric == "mse" else "pearson"
-        make_exp0(out_dir / f"exp0_scaling_3panel_{suffix}", metric=metric)
-        make_exp1(out_dir / f"exp1_scaling_3panel_{suffix}", metric=metric)
+        make_exp0(out_dir / f"exp0_scaling_3panel{tag}_{suffix}", metric=metric, curves=curves)
+        if not args.legnet_only:
+            make_exp1(out_dir / f"exp1_scaling_3panel_{suffix}", metric=metric)
 
 
 if __name__ == "__main__":
