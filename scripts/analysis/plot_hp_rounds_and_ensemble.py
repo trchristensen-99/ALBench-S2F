@@ -34,16 +34,36 @@ def _r(pred: np.ndarray, y: np.ndarray) -> float:
     return float(pearsonr(pred[m], y[m])[0])
 
 
-def knee_marginal_gain(xs, ys, eps: float = 0.002):
-    """First x where the per-step gain in y drops below eps (cost-aware stop).
+def knee_marginal_gain(
+    xs, ys, eps: float = 0.002, rounds=None, warmup_rounds: int = 8, persist: int = 3
+):
+    """Cost-aware stop: first x where the per-step gain in y stays below eps for
+    `persist` consecutive steps, floored so the knee is never earlier than
+    `warmup_rounds` HP-search rounds.
 
-    xs, ys are monotone-in-x sample points (e.g. cumulative GPU-seconds vs ensemble R).
-    Returns the x at the knee (or the last x if the gain never falls below eps).
+    xs, ys are monotone-in-x per-round sample points (e.g. cumulative GPU-seconds
+    vs ensemble R). `rounds`, if given, is the HP-search round index for each
+    sample so the warm-up floor is expressed in true rounds (the evo mechanisms
+    only fully engage after ~8 rounds of bottom-quartile history); when omitted
+    the sample position is used as a proxy. The persistence requirement avoids
+    stopping on a single noisy flat step before the search has truly plateaued.
+    Returns the x at the knee (or the last x if no sustained plateau is found).
     """
     xs, ys = np.asarray(xs, float), np.asarray(ys, float)
-    for i in range(1, len(xs)):
+    n = len(xs)
+    if n < 2:
+        return float(xs[-1])
+    rnd = np.asarray(rounds, float) if rounds is not None else np.arange(1, n + 1, dtype=float)
+    floor_idx = int(np.argmax(rnd >= warmup_rounds)) if np.any(rnd >= warmup_rounds) else n - 1
+
+    run = 0
+    for i in range(1, n):
         if ys[i] - ys[i - 1] < eps:
-            return float(xs[i - 1])
+            run += 1
+            if run >= persist:
+                return float(xs[max(floor_idx, i - persist)])
+        else:
+            run = 0
     return float(xs[-1])
 
 
@@ -163,7 +183,7 @@ def fig1b_efficiency_gpusec(cells: dict[str, list[dict]], fig_dir: Path) -> None
             label="ensemble (test, real MPRA)",
         )
         if any(g > 0 for g in gpu_h):
-            k_mg = knee_marginal_gain(gpu_h, yv) / 1.0
+            k_mg = knee_marginal_gain(gpu_h, yv, rounds=[r["round"] for r in rows])
             k_kd = knee_kneedle(gpu_h, yv)
             ax.axvline(k_mg, color="crimson", ls=":", lw=1.2, label="marginal-gain knee")
             ax.axvline(k_kd, color="purple", ls="--", lw=1.0, label="Kneedle knee")
