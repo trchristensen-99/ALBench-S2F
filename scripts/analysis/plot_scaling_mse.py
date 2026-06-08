@@ -190,7 +190,12 @@ def _clip_for_log(arr: np.ndarray, floor: float) -> np.ndarray:
     return out
 
 
-def make_exp0(out_path: Path, metric: str = "mse", curves: dict | None = None):
+def make_exp0(
+    out_path: Path,
+    metric: str = "mse",
+    curves: dict | None = None,
+    sharey: bool = True,
+):
     curves = curves or EXP0_CURVES
     ylabel, metric_short = _METRIC_LABELS[metric]
     model_label = " vs ".join(sorted({n.split(" (")[0] for n in curves}))
@@ -210,7 +215,7 @@ def make_exp0(out_path: Path, metric: str = "mse", curves: dict | None = None):
         ("ood", "B. High-Activity Designed Sequences"),
         ("snv_delta", "C. SNV Effect (Genomic Sequence − SNV Sequence)"),
     ]
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=sharey)
     for ax, (ts_key, title) in zip(axes, panels):
         for name, cfg in curves.items():
             sizes, means, lows, highs = extract_metric(model_data[name], ts_key, metric)
@@ -240,7 +245,7 @@ def make_exp0(out_path: Path, metric: str = "mse", curves: dict | None = None):
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("N Training Sequences")
-        if metric == "pearson_r":
+        if metric == "pearson_r" and sharey:
             ax.set_ylim(0.01, 1.0)
         if "A." in title:
             ax.set_ylabel(ylabel)
@@ -282,12 +287,8 @@ def make_exp0(out_path: Path, metric: str = "mse", curves: dict | None = None):
 # N (≤2k), LegNet with the consistent lr=5e-4 occasionally diverges and
 # produces near-random predictions — those runs pollute IQR bands.
 EXP1_GLOBS = [
-    "outputs/exp1_1_definitive/k562/legnet_ag_s2/*/n*/rep*/result.json",
-    "outputs/exp1_1_definitive/k562/legnet_ag_s2/*/n*/hp*/seed*/result.json",
-    "outputs/exp1_1_final/k562/legnet_ag_s2/*/n*/rep*/result.json",
-    "outputs/exp1_1_final/k562/legnet_ag_s2/*/n*/hp*/seed*/result.json",
-    "outputs/exp1_1_new_oracle/k562/legnet_ag_s2/*/n*/rep*/result.json",
-    "outputs/exp1_1_new_oracle/k562/legnet_ag_s2/*/n*/hp*/seed*/result.json",
+    "outputs/exp1_1/k562/legnet_ag_s2/*/n*/rep*/result.json",
+    "outputs/exp1_1/k562/legnet_ag_s2/*/n*/hp*/seed*/result.json",
 ]
 
 # Drop runs whose val_pearson_r is below this — these are training failures
@@ -345,7 +346,7 @@ def load_exp1(max_n: int = 500_000):
     return by_strat
 
 
-def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 5000):
+def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 3000, sharey: bool = False):
     ylabel, metric_short = _METRIC_LABELS[metric]
     print(f"Loading Exp 1 (strategy scaling) result.json files [{metric}]…")
     raw = load_exp1()
@@ -364,7 +365,7 @@ def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 5000):
         ("ood", "B. High-Activity Designed Sequences"),
         ("snv_delta", "C. SNV Effect (Genomic Sequence − SNV Sequence)"),
     ]
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=sharey)
     for ax, (ts_key, title) in zip(axes, panels):
         for strat, (label, color, ls, lw) in EXP1_STRATS.items():
             if strat not in raw:
@@ -405,7 +406,7 @@ def make_exp1(out_path: Path, metric: str = "mse", min_n: int = 5000):
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("N Training Sequences")
-        if metric == "pearson_r":
+        if metric == "pearson_r" and sharey:
             ax.set_ylim(0.01, 1.0)
         if "A." in title:
             ax.set_ylabel(ylabel)
@@ -461,8 +462,18 @@ def main():
     tag = "_legnet" if args.legnet_only else ""
     for metric in ("mse", "pearson_r"):
         suffix = "mse" if metric == "mse" else "pearson"
-        make_exp0(out_dir / f"exp0_scaling_3panel{tag}_{suffix}", metric=metric, curves=curves)
+        # Exp-0: emit both a shared-y version (cross-panel comparable) and a
+        # free-y version (each panel autoscaled, "_freey").
+        for shared in (True, False):
+            ytag = "" if shared else "_freey"
+            make_exp0(
+                out_dir / f"exp0_scaling_3panel{tag}{ytag}_{suffix}",
+                metric=metric,
+                curves=curves,
+                sharey=shared,
+            )
         if not args.legnet_only:
+            # Exp-1: free-y by default, starts at D=3k.
             make_exp1(out_dir / f"exp1_scaling_3panel_{suffix}", metric=metric)
 
 
