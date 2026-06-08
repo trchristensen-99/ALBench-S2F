@@ -48,19 +48,26 @@ def knee_idx(ys, frac=0.90):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--d", default="30000", help="D tier to aggregate")
+    ap.add_argument(
+        "--d",
+        default="30000",
+        help="D tier(s) to aggregate, comma-sep (e.g. 30000 or 30000,300000)",
+    )
     ap.add_argument("--frac", type=float, default=0.90)
     ap.add_argument("--majority", type=float, default=0.5)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    files = sorted(
-        glob.glob(
-            str(REPO / f"outputs/hp_step1_bakeoff/*_d{args.d}/seed*/ablation/greedy_deploy.json")
+    ds_list = [x.strip() for x in args.d.split(",") if x.strip()]
+    files = []
+    for dd in ds_list:
+        files += sorted(
+            glob.glob(
+                str(REPO / f"outputs/hp_step1_bakeoff/*_d{dd}/seed*/ablation/greedy_deploy.json")
+            )
         )
-    )
     if not files:
-        raise SystemExit(f"no greedy_deploy.json found for D={args.d}")
+        raise SystemExit(f"no greedy_deploy.json found for D in {ds_list}")
 
     per_pool = []
     recipe_votes = Counter()
@@ -120,7 +127,7 @@ def main():
     )
 
     out = {
-        "d": args.d,
+        "d": ds_list,
         "n_pools": n_pool,
         "method": {
             "knee_frac": args.frac,
@@ -143,11 +150,11 @@ def main():
     out_path = (
         Path(args.out)
         if args.out
-        else REPO / f"outputs/hp_step1_bakeoff/deploy_spec_d{args.d}.json"
+        else REPO / f"outputs/hp_step1_bakeoff/deploy_spec_d{'_'.join(ds_list)}.json"
     )
     out_path.write_text(json.dumps(out, indent=2))
 
-    print(f"=== greedy deploy aggregation | D={args.d} | {n_pool} pools ===")
+    print(f"=== greedy deploy aggregation | D={ds_list} | {n_pool} pools ===")
     print(f"global N* (mean-frac knee): {global_knee}   median per-pool knee: {median_knee}")
     print(f"per-pool knees: {pool_knees}")
     print(f"\nRECIPE (strategies in >= {min_votes}/{n_pool} pools at/before knee):")
