@@ -230,7 +230,9 @@ def main():
 
     for metric, sharey, ytag in jobs:
         fig = plt.figure(figsize=(21, 6))
-        gs = fig.add_gridspec(1, 3, wspace=0.12)
+        # Free-y panels each carry their own y-tick labels, so they need more
+        # horizontal breathing room than the shared-y case.
+        gs = fig.add_gridspec(1, 3, wspace=0.12 if sharey else 0.26)
         axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
         # Compress plot area; legend placed manually outside on the right
         fig.subplots_adjust(left=0.055, right=0.90, bottom=0.18, top=0.90)
