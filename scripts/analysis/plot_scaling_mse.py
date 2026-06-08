@@ -130,7 +130,13 @@ _MIN_PANEL_PEARSON_FOR_MSE = 0.05
 def extract_metric(data, ts_key: str, metric: str = "mse"):
     """Pull ``metric`` from ``data[n][i][<test_set_alias>]`` and aggregate.
 
-    Returns (sizes, means, low_band, high_band) as numpy arrays. The
+    Returns (sizes, centrals, low_band, high_band) as numpy arrays. The
+    central marker is the **median** across seeds (not the mean) so it stays
+    consistent with the robust IQR-style band: at small N a single bad-init
+    seed can balloon the mean MSE and push the marker outside its own band,
+    whereas the median tracks the body of the seed distribution.
+
+    The
     test-set keys vary across older/newer runs (``in_dist`` vs
     ``in_distribution``, optional ``_real`` suffix when both leaked + real
     metrics are saved).
@@ -165,7 +171,7 @@ def extract_metric(data, ts_key: str, metric: str = "mse"):
         if vals:
             lo, hi = robust_band(vals)
             sizes.append(n)
-            means.append(float(np.mean(vals)))
+            means.append(float(np.median(vals)))
             lows.append(lo)
             highs.append(hi)
     return np.array(sizes), np.array(means), np.array(lows), np.array(highs)
