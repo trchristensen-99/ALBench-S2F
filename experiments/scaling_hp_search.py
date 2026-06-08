@@ -332,6 +332,20 @@ def train_one_model(
     val_r = float(pearsonr(val_pred, val_labels)[0])
     val_mse = float(((val_pred - val_labels) ** 2).mean())
 
+    # Epoch diagnostics from the (single-member) training history
+    epoch_diag = {}
+    if student.histories:
+        h = student.histories[0]
+        vp = h.get("val_pearson_r", [])
+        if vp:
+            best_ep = int(np.argmax(vp))
+            epoch_diag = {
+                "best_epoch": best_ep,
+                "epochs_trained": len(vp),
+                "early_stopped": len(vp) < epochs,
+                "best_val_pearson": float(vp[best_ep]),
+            }
+
     result = {
         "val_pred": val_pred,
         "test_pred": test_pred,  # backward-compat: this is the genomic test set
@@ -340,6 +354,7 @@ def train_one_model(
         "train_time_sec": train_time,
         "hp": asdict(hp),
         "block_sizes": block_sizes,
+        **epoch_diag,
     }
 
     # Predict on all extra test sets (comprehensive eval battery)
@@ -524,7 +539,7 @@ def run_search(args):
                 f"layers={hp.n_layers} width={hp.width_base} opt={hp.optimizer}"
             )
             try:
-                esp = getattr(args, "early_stop_patience", None) or 8
+                esp = getattr(args, "early_stop_patience", None) or 10
                 result = train_one_model(
                     hp,
                     train_seqs,
@@ -613,7 +628,7 @@ def main():
     ap.add_argument("--D", type=int, default=10_000)
     ap.add_argument("--ref_only", action="store_true")
     ap.add_argument("--out_dir", required=True)
-    ap.add_argument("--epochs", type=int, default=20)
+    ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--hp_seed", type=int, default=0)
     ap.add_argument("--data_seed", type=int, default=0)
     ap.add_argument(
@@ -636,7 +651,7 @@ def main():
         "--early_stop_patience",
         type=int,
         default=None,
-        help="Override LegNet train_config.early_stopping_patience (default 8). "
+        help="Override early stopping patience (default 10). "
         "Use lower (e.g. 5) for fair-budget fixed-cost scaling runs.",
     )
     args = ap.parse_args()

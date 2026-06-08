@@ -94,6 +94,7 @@ class LegNetStudent(SequenceModel):
             ).to(self.device)
             for _ in range(ensemble_size)
         ]
+        self.histories: list[dict] = []
 
     def _encode_sequences(self, sequences: Sequence[str]) -> torch.Tensor:
         """Encode sequence strings to (N, 4, L) tensor."""
@@ -277,7 +278,7 @@ class LegNetStudent(SequenceModel):
                     target_length=self.sequence_length,
                 )
 
-            train_model_optimized(
+            history = train_model_optimized(
                 model=model,
                 train_loader=loader,
                 val_loader=val_loader,
@@ -287,7 +288,9 @@ class LegNetStudent(SequenceModel):
                 device=self.device,
                 scheduler=scheduler,
                 checkpoint_dir=None,
-                use_reverse_complement=bool(getattr(self.train_config, "use_reverse_complement", False)),
+                use_reverse_complement=bool(
+                    getattr(self.train_config, "use_reverse_complement", False)
+                ),
                 early_stopping_patience=self.train_config.early_stopping_patience,
                 metric_for_best="pearson_r",
                 use_amp=True,
@@ -298,3 +301,4 @@ class LegNetStudent(SequenceModel):
                 epoch_callback=epoch_callback,
                 extra_augment=extra_aug,
             )
+            self.histories.append(history)
