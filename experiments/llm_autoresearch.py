@@ -13,8 +13,9 @@ Independent SLURM-submittable: this strategy plugs into the standard
 scaling_hp_search.py pipeline. Requires ANTHROPIC_API_KEY env var.
 
 Configurable knobs (via env vars at SLURM time):
-  LLM_PROMPT_STYLE = "default" | "explore" | "exploit" | "critic" | "diverse"
+  LLM_PROMPT_STYLE = "default" | "explore" | "exploit" | "critic" | "diverse" | "neutral"
   LLM_MODEL        = "claude-sonnet-4-6" (or claude-opus-4-7, claude-haiku-4-5)
+  LLM_TEMPERATURE  = float (API path only; sample low/high pairs to probe explore/exploit)
   LLM_MAX_TOKENS   = 4000
 """
 
@@ -200,6 +201,13 @@ OUTPUT: JSON array of {n} HP config dicts. No extra text.""",
     "diverse": """You are an ensemble-aware HP search assistant. The downstream user will ElasticNetCV ensemble all proposed configs. Propose {n} HP configurations that are likely INDIVIDUALLY DECENT but ALSO MAXIMALLY DIVERSE from each other — different architectures (eff/ag/plain), different optimizers (adam/adamw/muon), different regularization regimes (dropout asymmetry, weight_decay span), different depths and width schedules. The goal is a complementary ensemble that collectively covers the loss surface.
 
 OUTPUT: JSON array of {n} HP config dicts. No extra text.""",
+    # Deliberately minimal: states the task and objective only. No advice on which
+    # HP regions to favor, no editorializing ("ag is best", "non-uniform is better"),
+    # and (paired with neutral build_prompt) no cross-experiment KB priors. Used to
+    # test whether the other styles' suggestions bias which HP regions get explored.
+    "neutral": """You are a hyperparameter optimization assistant for LegNet on K562 MPRA oracle labels. Propose {n} new HP configurations to minimize validation MSE (lower is better). Each config must specify every key in the HP space below.
+
+OUTPUT FORMAT: A single JSON array with {n} HP config dicts. No commentary outside the JSON.""",
 }
 
 
@@ -242,24 +250,48 @@ def summarize_kb(kb_summary: dict) -> str:
 def build_prompt(
     n: int, history: list[tuple], kb_summary: dict, style: str = "default"
 ) -> tuple[str, str]:
-    """Return (system_prompt, user_prompt)."""
+    """Return (system_prompt, user_prompt).
+
+    The ``neutral`` style strips every prior that could steer which HP regions
+    the model explores: the ADVANCED_GUIDANCE block, the cross-experiment KB
+    summary, and the editorial closing lines ("ag is theoretically best",
+    "non-uniform schedules are often better"). It keeps the HP-space spec and
+    the run's OWN observations (the search signal) only.
+    """
     system = PROMPT_STYLES.get(style, PROMPT_STYLES["default"]).format(n=n)
-    user = f"""{HP_SPACE_SPEC}
-{ADVANCED_GUIDANCE}
+    neutral = style == "neutral"
 
-CURRENT SESSION TOP {min(30, len(history))} OBSERVATIONS (sorted by val_pearson, descending):
-{summarize_history(history, max_items=30)}
+    parts = [HP_SPACE_SPEC]
+    if not neutral:
+        parts.append(ADVANCED_GUIDANCE)
+    parts.append(
+        f"\nCURRENT SESSION TOP {min(30, len(history))} OBSERVATIONS "
+        f"(sorted by val_pearson, descending):\n{summarize_history(history, max_items=30)}"
+    )
+    if not neutral and kb_summary:
+        parts.append(
+            f"\nGLOBAL KB SUMMARY (top-quartile across {kb_summary.get('_n_total', '?')} "
+            f"prior records):\n"
+            f"{summarize_kb({k: v for k, v in kb_summary.items() if not k.startswith('_')})}"
+        )
 
-GLOBAL KB SUMMARY (top-quartile across {kb_summary.get("_n_total", "?")} prior records):
-{summarize_kb({k: v for k, v in kb_summary.items() if not k.startswith("_")})}
-
-Propose {n} new HP configs. Output ONLY a valid JSON array, no extra text. Each dict must have these keys (in this order):
-  lr, batch_size, conv_dropout, dense_dropout, n_layers, width_base, width_jitter, block_class, ks, pct_start, optimizer, weight_decay, use_shift_aug, shift_max, use_evoaug
-
-`width_jitter` should be a list of length n_layers. Non-uniform schedules (e.g. wider middle, narrower end) are often better — don't default everything to 1.0.
-`block_class` is genuinely uncertain — try all three across your proposals. "ag" is theoretically best for regulatory genomics but rarely tested in this codebase. "eff" is the safe default. "plain" is the baseline.
-"""
-    return system, user
+    closing = (
+        f"\nPropose {n} new HP configs. Output ONLY a valid JSON array, no extra text. "
+        "Each dict must have these keys (in this order):\n"
+        "  lr, batch_size, conv_dropout, dense_dropout, n_layers, width_base, width_jitter, "
+        "block_class, ks, pct_start, optimizer, weight_decay, use_shift_aug, shift_max, use_evoaug\n"
+        "`width_jitter` should be a list of length n_layers."
+    )
+    if not neutral:
+        closing += (
+            " Non-uniform schedules (e.g. wider middle, narrower end) are often better — "
+            "don't default everything to 1.0.\n"
+            "`block_class` is genuinely uncertain — try all three across your proposals. "
+            '"ag" is theoretically best for regulatory genomics but rarely tested in this '
+            'codebase. "eff" is the safe default. "plain" is the baseline.'
+        )
+    parts.append(closing)
+    return system, "\n".join(parts)
 
 
 def _call_claude_cli(system: str, user: str, model: str) -> str:
@@ -316,17 +348,23 @@ def _call_claude_cli(system: str, user: str, model: str) -> str:
     return result.stdout
 
 
-def _call_claude_api(system: str, user: str, model: str, max_tokens: int) -> str:
+def _call_claude_api(
+    system: str, user: str, model: str, max_tokens: int, temperature: float | None = None
+) -> str:
     """One API attempt. Raises RateLimitExceeded on 429/529/conn, else propagates."""
     import anthropic
 
     client = anthropic.Anthropic()  # uses ANTHROPIC_API_KEY
+    kwargs = {}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
     try:
         resp = client.messages.create(
             model=model,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
+            **kwargs,
         )
     except anthropic.RateLimitError as e:  # HTTP 429
         raise RateLimitExceeded(
@@ -348,6 +386,7 @@ def call_claude(
     user: str,
     model: str = None,
     max_tokens: int = 4000,
+    temperature: float | None = None,
     max_wait_seconds: float | None = None,
     base_backoff: float = 60.0,
 ) -> str:
@@ -372,8 +411,10 @@ def call_claude(
         attempt += 1
         try:
             if use_cli:
+                # The Claude CLI path does not expose a temperature knob; temperature
+                # only affects the anthropic-API path. LLM_USE_CLI=0 to force the API.
                 return _call_claude_cli(system, user, model)
-            return _call_claude_api(system, user, model, max_tokens)
+            return _call_claude_api(system, user, model, max_tokens, temperature=temperature)
         except RateLimitExceeded as e:
             remaining = deadline - time.time()
             if remaining <= 0:
@@ -506,9 +547,14 @@ class LLMAutoResearch(Strategy):
     is unfair vs. un-throttled strategies.
 
     Configurable via env vars:
-      LLM_PROMPT_STYLE (default | explore | exploit | critic | diverse)
+      LLM_PROMPT_STYLE (default | explore | exploit | critic | diverse | neutral)
       LLM_MODEL        (claude-opus-4-7, claude-sonnet-4-5, etc.)
       LLM_USE_KB       (1 = include KB summary in prompt, 0 = session-only)
+      LLM_TEMPERATURE  (float; API path only — sample low/high pairs to probe
+                        explore/exploit. Unset = backend default)
+
+    The ``neutral`` style forces KB off regardless of LLM_USE_KB (it is the
+    no-prior probe), so it never gets cross-experiment hints.
     """
 
     name = "llm_autoresearch"
@@ -517,7 +563,10 @@ class LLMAutoResearch(Strategy):
         super().__init__(seed)
         self.style = os.environ.get("LLM_PROMPT_STYLE", "default")
         self.model = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
-        self.use_kb = os.environ.get("LLM_USE_KB", "1") == "1"
+        # neutral is the no-prior probe: never feed it the cross-experiment KB.
+        self.use_kb = os.environ.get("LLM_USE_KB", "1") == "1" and self.style != "neutral"
+        _temp = os.environ.get("LLM_TEMPERATURE")
+        self.temperature = float(_temp) if _temp not in (None, "") else None
         self.parse_retries = int(os.environ.get("LLM_PARSE_RETRIES", "3"))
 
     def suggest(self, n: int) -> list[HPConfig]:
@@ -543,7 +592,7 @@ class LLMAutoResearch(Strategy):
             system, user = build_prompt(need, self.history, kb_summary, style=self.style)
             response = None
             try:
-                response = call_claude(system, user, model=self.model)
+                response = call_claude(system, user, model=self.model, temperature=self.temperature)
                 parsed = parse_response(response, need)
                 configs.extend(
                     dict_to_hpconfig(d, seed=int(self.rng.integers(2**31))) for d in parsed
