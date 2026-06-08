@@ -50,7 +50,24 @@ for ((pass=1; pass<=MAX_PASSES; pass++)); do
     "$PY" "$REPO/scripts/submit_step1_bakeoff.py" 2>&1 | tail -3 || true
     remaining=$(squeue --me -h -o %j 2>/dev/null | grep -c '_d300000')
     if [ "$remaining" -le 0 ]; then
-      echo "=== ALL D=300k BAKE-OFF CELLS COMPLETE — watchdog exiting $(date) ==="
+      echo "=== ALL D=300k BAKE-OFF CELLS COMPLETE $(date) ==="
+      # Auto-fire deploy-spec finalization (idempotent): greedy per-model select
+      # on all 9 d300k pools, then aggregate to the cross-D global N*. Guard with
+      # a sentinel so a requeued watchdog doesn't re-submit.
+      if [ ! -f "$REPO/outputs/hp_step1_bakeoff/.deploy_finalize_fired" ]; then
+        echo "=== firing greedy_deploy_d300k array + finalize_deploy_spec ==="
+        AID=$(sbatch --parsable "$REPO/scripts/slurm/greedy_deploy_array_d300k.sh" 2>/dev/null)
+        if [ -n "${AID:-}" ]; then
+          sbatch --dependency=afterany:"$AID" "$REPO/scripts/slurm/finalize_deploy_spec.sh" 2>/dev/null \
+            && touch "$REPO/outputs/hp_step1_bakeoff/.deploy_finalize_fired" \
+            && echo "  submitted greedy array $AID + finalize (afterany)"
+        else
+          echo "  WARN: greedy array submit failed; not firing finalize (will retry next pass)"
+        fi
+      else
+        echo "  deploy finalize already fired (sentinel present) — skipping"
+      fi
+      echo "=== watchdog exiting $(date) ==="
       exit 0
     fi
   fi
