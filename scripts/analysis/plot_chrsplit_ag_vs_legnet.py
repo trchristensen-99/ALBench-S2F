@@ -123,16 +123,11 @@ def aggregate(runs, panel_key, target, use_calibrated_mse=True):
     one_minus_r2 = 1.0 - rs**2
 
     def _band(vals):
-        """Median-consistent band edges. n=3: mean of 2 lowest / 2 highest;
-        n>=4: 25th/75th percentile; n<=1: degenerate (lo=hi=value)."""
-        v = np.sort(vals)
-        if len(v) <= 1:
-            return float(v[0]), float(v[0])
-        if len(v) == 2:
-            return float(v[0]), float(v[1])
-        if len(v) == 3:
-            return float(v[:2].mean()), float(v[1:].mean())
-        return float(np.percentile(v, 25)), float(np.percentile(v, 75))
+        """Symmetric band centered on the MEDIAN: median ± SEM.
+        Even on both sides for visual consistency; SEM = std(ddof=1)/sqrt(n)."""
+        med = float(np.median(vals))
+        sem = float(vals.std(ddof=1) / np.sqrt(len(vals))) if len(vals) > 1 else 0.0
+        return med - sem, med + sem
 
     pr_lo, pr_hi = _band(rs)
     mse_lo, mse_hi = _band(ms)
@@ -221,22 +216,29 @@ def main():
             f"  {c['label'].replace(chr(10), ' '):<30}  {len(curves_data[c['key']])} N values, {n_total} total runs"
         )
 
-    for metric in ["pearson", "mse", "one_minus_r2"]:
+    suffix_map = {"pearson": "", "mse": "_mse", "one_minus_r2": "_1minusR2"}
+    ylabel_map = {
+        "pearson": "Pearson R",
+        "mse": "MSE (log scale)",
+        "one_minus_r2": "1 − R² (log scale)",
+    }
+    # Pearson: shared y only. MSE / 1-R²: emit BOTH shared (consty) and free (freey).
+    jobs = [("pearson", True, "")]
+    for metric in ["mse", "one_minus_r2"]:
+        jobs.append((metric, True, "_consty"))
+        jobs.append((metric, False, "_freey"))
+
+    for metric, sharey, ytag in jobs:
         fig = plt.figure(figsize=(21, 6))
         gs = fig.add_gridspec(1, 3, wspace=0.12)
         axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
         # Compress plot area; legend placed manually outside on the right
         fig.subplots_adjust(left=0.055, right=0.90, bottom=0.18, top=0.90)
-        if metric == "pearson":
+        if sharey:
             for a in axes[1:]:
                 a.sharey(axes[0])
         for i, (panel_key, panel_label) in enumerate(PANELS):
             plot_panel(axes[i], curves_data, panel_key, panel_label, metric, curves=curves)
-        ylabel_map = {
-            "pearson": "Pearson R",
-            "mse": "MSE (log scale)",
-            "one_minus_r2": "1 − R² (log scale)",
-        }
         axes[0].set_ylabel(ylabel_map[metric], fontsize=15)
         if metric == "pearson":
             axes[0].set_ylim(0, 1.0)
@@ -254,8 +256,7 @@ def main():
             borderpad=0.6,
             handletextpad=0.5,
         )
-        suffix_map = {"pearson": "", "mse": "_mse", "one_minus_r2": "_1minusR2"}
-        suffix = suffix_map[metric]
+        suffix = suffix_map[metric] + ytag
         fig.savefig(OUT / f"main{name_tag}{suffix}.png", dpi=200, bbox_inches="tight")
         fig.savefig(OUT / f"main{name_tag}{suffix}.pdf", bbox_inches="tight")
         plt.close(fig)

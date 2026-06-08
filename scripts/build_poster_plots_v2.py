@@ -27,7 +27,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 DS = [300, 1_000, 3_000, 10_000, 30_000, 100_000, 300_000, 1_000_000]
-DS_VISIBLE_MIN = 1_000  # hide D=300 from plots (high-variance, distracting)
+DS_VISIBLE_MIN = 3_000  # hide D=300 and D=1k from plots (high-variance, distracting)
 FIT_DS_MIN = 3_000  # exclude D < 3k from the power-law fit
 RESERVOIRS_MAIN = [
     # (key, label, color, marker) — Okabe-Ito colorblind-safe palette + maximally distinct shapes
