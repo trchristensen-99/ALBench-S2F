@@ -10,6 +10,7 @@ legend strip.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -120,23 +121,47 @@ def aggregate(runs, panel_key, target, use_calibrated_mse=True):
     rs, ms = np.array(rs), np.array(ms)
     # 1-R² = fraction of variance unexplained (robust to scale shifts)
     one_minus_r2 = 1.0 - rs**2
+
+    def _band(vals):
+        """Median-consistent band edges. n=3: mean of 2 lowest / 2 highest;
+        n>=4: 25th/75th percentile; n<=1: degenerate (lo=hi=value)."""
+        v = np.sort(vals)
+        if len(v) <= 1:
+            return float(v[0]), float(v[0])
+        if len(v) == 2:
+            return float(v[0]), float(v[1])
+        if len(v) == 3:
+            return float(v[:2].mean()), float(v[1:].mean())
+        return float(np.percentile(v, 25)), float(np.percentile(v, 75))
+
+    pr_lo, pr_hi = _band(rs)
+    mse_lo, mse_hi = _band(ms)
+    r2_lo, r2_hi = _band(one_minus_r2)
     return {
         "pearson_median": float(np.median(rs)),
-        "pearson_sem": float(rs.std(ddof=1) / np.sqrt(len(rs))) if len(rs) > 1 else 0.0,
+        "pearson_lo": pr_lo,
+        "pearson_hi": pr_hi,
         "mse_median": float(np.median(ms)),
-        "mse_sem": float(ms.std(ddof=1) / np.sqrt(len(ms))) if len(ms) > 1 else 0.0,
+        "mse_lo": mse_lo,
+        "mse_hi": mse_hi,
         "one_minus_r2_median": float(np.median(one_minus_r2)),
-        "one_minus_r2_sem": float(one_minus_r2.std(ddof=1) / np.sqrt(len(one_minus_r2)))
-        if len(one_minus_r2) > 1
-        else 0.0,
+        "one_minus_r2_lo": r2_lo,
+        "one_minus_r2_hi": r2_hi,
         "n_seeds": len(rs),
     }
 
 
-def plot_panel(ax, curves_data, panel_key, panel_label, metric):
-    for c in CURVES:
+# LegNet-only variant: real vs oracle as distinct hues (red vs blue), both solid.
+LEGNET_ONLY_CURVES = [
+    {**CURVES[0], "label": "LegNet\n(real labels)", "color": "#D62728", "linestyle": "-"},
+    {**CURVES[1], "label": "LegNet\n(oracle labels)", "color": "#1F77B4", "linestyle": "-"},
+]
+
+
+def plot_panel(ax, curves_data, panel_key, panel_label, metric, curves=None):
+    for c in curves or CURVES:
         by_n = curves_data.get(c["key"], {})
-        xs, ys, errs = [], [], []
+        xs, ys, los, his = [], [], [], []
         for N in sorted(by_n.keys()):
             # evaluate against the labels the model trained on
             agg = aggregate(by_n[N], panel_key, target=c["label_source"])
@@ -144,11 +169,12 @@ def plot_panel(ax, curves_data, panel_key, panel_label, metric):
                 continue
             xs.append(N)
             ys.append(agg[f"{metric}_median"])
-            errs.append(agg[f"{metric}_sem"])
+            los.append(agg[f"{metric}_lo"])
+            his.append(agg[f"{metric}_hi"])
         if not xs:
             continue
-        xs, ys, errs = np.array(xs), np.array(ys), np.array(errs)
-        ax.fill_between(xs, ys - errs, ys + errs, color=c["color"], alpha=0.15, edgecolor="none")
+        xs, ys, los, his = np.array(xs), np.array(ys), np.array(los), np.array(his)
+        ax.fill_between(xs, los, his, color=c["color"], alpha=0.15, edgecolor="none")
         ax.plot(
             xs,
             ys,
@@ -176,9 +202,19 @@ def plot_panel(ax, curves_data, panel_key, panel_label, metric):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--legnet_only",
+        action="store_true",
+        help="Plot only the two LegNet curves, real vs oracle as red vs blue.",
+    )
+    args = ap.parse_args()
+    curves = LEGNET_ONLY_CURVES if args.legnet_only else CURVES
+    name_tag = "_legnet" if args.legnet_only else ""
+
     OUT.mkdir(parents=True, exist_ok=True)
     curves_data = {}
-    for c in CURVES:
+    for c in curves:
         curves_data[c["key"]] = load_curve(c["base"], c["label_source"])
         n_total = sum(len(v) for v in curves_data[c["key"]].values())
         print(
@@ -195,7 +231,7 @@ def main():
             for a in axes[1:]:
                 a.sharey(axes[0])
         for i, (panel_key, panel_label) in enumerate(PANELS):
-            plot_panel(axes[i], curves_data, panel_key, panel_label, metric)
+            plot_panel(axes[i], curves_data, panel_key, panel_label, metric, curves=curves)
         ylabel_map = {
             "pearson": "Pearson R",
             "mse": "MSE (log scale)",
@@ -220,10 +256,10 @@ def main():
         )
         suffix_map = {"pearson": "", "mse": "_mse", "one_minus_r2": "_1minusR2"}
         suffix = suffix_map[metric]
-        fig.savefig(OUT / f"main{suffix}.png", dpi=200, bbox_inches="tight")
-        fig.savefig(OUT / f"main{suffix}.pdf", bbox_inches="tight")
+        fig.savefig(OUT / f"main{name_tag}{suffix}.png", dpi=200, bbox_inches="tight")
+        fig.savefig(OUT / f"main{name_tag}{suffix}.pdf", bbox_inches="tight")
         plt.close(fig)
-        print(f"  saved main{suffix}")
+        print(f"  saved main{name_tag}{suffix}")
 
 
 if __name__ == "__main__":
