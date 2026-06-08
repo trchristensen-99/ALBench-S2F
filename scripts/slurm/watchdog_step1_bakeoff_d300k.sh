@@ -27,8 +27,14 @@ REPO=/grid/wsbs/home_norepl/christen/ALBench-S2F
 PY="$REPO/.venv/bin/python"
 cd "$REPO" || exit 1
 
-export STEP1_FORCE_RAY=1   # CPU node has no ray; force-include ray cells anyway
 export STEP1_DS=300000     # D=300k tier
+# LEAN D=300k confirmation set: recipe is already frozen at D=30k, so we only
+# re-run the strategies needed to CONFIRM it + the random baseline. optuna_tpe /
+# ray_asha / ray_bohb are dropped (0-1 knee votes at D=30k, expensive) so the
+# launcher never resubmits them for dinuc/motif. Genomic's optuna/ray already
+# completed (own .bakeoff_done) and are unaffected. ROUNDS/PER_ROUND unchanged
+# (50x2) so evo search dynamics stay identical to D=30k -> no search bias.
+export STEP1_STRATS=random,evo_single,evo_batch,evo_explore,evo_exploit,evo_massive,evo_adaptive,evo_knowledgeable,llm_default,llm_diverse,llm_exploit
 
 INTERVAL=1200          # 20 min between launcher passes
 MAX_PASSES=504         # 7 days / 20 min — hard stop matching walltime
