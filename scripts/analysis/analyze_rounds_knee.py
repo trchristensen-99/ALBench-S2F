@@ -213,7 +213,10 @@ def mean_fraction_curve(curves: list[dict]):
         y = np.asarray(c["val"], float)
         y0, gain = y[0], float(y.max() - y[0])
         norm.append((rnd, (y - y0) / gain if gain > 1e-9 else np.ones_like(y)))
-    gmax = int(min(r.max() for r, _ in norm))
+    # Grid to the MEDIAN horizon (not min): a single short/incomplete curve must
+    # not truncate the common grid. np.interp clamps shorter curves to their final
+    # fraction (1.0) past their last round, so the mean still converges to ~1.0.
+    gmax = int(np.median([r.max() for r, _ in norm]))
     grid = np.arange(0, gmax + 1)
     stack = np.vstack([np.interp(grid, r, f) for r, f in norm])
     return grid, stack.mean(axis=0), stack.std(axis=0)
@@ -256,8 +259,8 @@ def main() -> None:
             sens_cens[i, j] = float(np.mean([x["censored"] for x in rb]))
 
     grid, mfrac, sfrac = mean_fraction_curve([c for c in curves if c["source"] == "bakeoff"])
-    r90 = int(grid[next(i for i, v in enumerate(mfrac) if v >= 0.90)])
-    r95 = int(grid[next(i for i, v in enumerate(mfrac) if v >= 0.95)])
+    r90 = int(grid[next((i for i, v in enumerate(mfrac) if v >= 0.90), len(grid) - 1)])
+    r95 = int(grid[next((i for i, v in enumerate(mfrac) if v >= 0.95), len(grid) - 1)])
     r99 = int(grid[next((i for i, v in enumerate(mfrac) if v >= 0.99), len(grid) - 1)])
 
     summary = {
