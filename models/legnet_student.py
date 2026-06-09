@@ -15,10 +15,22 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from albench.model import SequenceModel
-from models.legnet import LegNet, one_hot_encode_batch
+from models.legnet import LegNet, QuickGELU, one_hot_encode_batch
 from models.loss_utils import NaNMaskedMSELoss, YeastKLLoss
 from models.training import train_model_optimized
 from models.training_base import create_optimizer_and_scheduler
+
+
+def _resolve_activation(name: str):
+    """Map an activation name to an nn.Module class (default SiLU = LegNet default)."""
+    return {
+        "silu": nn.SiLU,
+        "relu": nn.ReLU,
+        "gelu": nn.GELU,
+        "quickgelu": QuickGELU,
+        "mish": nn.Mish,
+        "elu": nn.ELU,
+    }.get(str(name).lower(), nn.SiLU)
 
 
 @dataclass
@@ -40,6 +52,8 @@ class TrainConfig:
     optimizer: str = "adamw"  # {"adam", "adamw", "muon"} — see fit() for muon wiring
     use_compile: bool = True  # torch.compile (set False for fast HP search with varied shapes)
     use_reverse_complement: bool = False  # if True, train averages fwd+rc loss and predictions
+    loss: str = "mse"  # {"mse", "huber", "smoothl1"} — single-task regression criterion
+    huber_delta: float = 1.0  # delta for huber/smoothl1 loss
 
 
 class _InMemorySequenceDataset(Dataset):
@@ -72,6 +86,8 @@ class LegNetStudent(SequenceModel):
         conv_dropout: float | None = None,
         dense_dropout: float = 0.0,
         block_class: str = "eff",
+        activation: str = "silu",
+        se_reduction: int = 4,
     ) -> None:
         self.in_channels = in_channels
         self.sequence_length = sequence_length
@@ -81,11 +97,14 @@ class LegNetStudent(SequenceModel):
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.train_config = train_config or TrainConfig()
 
+        act_cls = _resolve_activation(activation)
         self.models = [
             LegNet(
                 in_channels=in_channels,
                 block_sizes=block_sizes,
                 ks=ks,
+                activation=act_cls,
+                se_reduction=se_reduction,
                 task_mode=task_mode,
                 multitask=multitask,
                 dropout=dropout,
@@ -283,7 +302,11 @@ class LegNetStudent(SequenceModel):
             elif self.multitask:
                 criterion = NaNMaskedMSELoss()
             else:
-                criterion = nn.MSELoss()
+                loss_name = getattr(self.train_config, "loss", "mse")
+                if loss_name in ("huber", "smoothl1"):
+                    criterion = nn.HuberLoss(delta=getattr(self.train_config, "huber_delta", 1.0))
+                else:
+                    criterion = nn.MSELoss()
             # Build optional training-time EvoAug transform
             extra_aug = None
             if getattr(self.train_config, "evoaug_intensity", None):

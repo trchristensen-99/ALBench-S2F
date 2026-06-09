@@ -17,6 +17,8 @@ Configurable knobs (via env vars at SLURM time):
   LLM_MODEL        = "claude-sonnet-4-6" (or claude-opus-4-7, claude-haiku-4-5)
   LLM_TEMPERATURE  = float (API path only; sample low/high pairs to probe explore/exploit)
   LLM_MAX_TOKENS   = 4000
+  LLM_ALLOW_NOVEL_AXES = "0" (default) | "1" — let the LLM propose off-menu axes
+                     in an "extra" object (recognized ones applied, others recorded)
 """
 
 from __future__ import annotations
@@ -34,7 +36,27 @@ REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
 sys.path.insert(0, str(REPO))
 
 from experiments.hp_strategies import Strategy  # noqa: E402
-from experiments.scaling_hp_search import HPConfig  # noqa: E402
+from experiments.scaling_hp_search import EXPERIMENTAL_KNOBS_DOC, HPConfig  # noqa: E402
+
+# The 15 core axes; anything else the LLM emits is gathered into HPConfig.extra
+# (only when novel-axes mode is on).
+_CORE_KEYS = {
+    "lr",
+    "batch_size",
+    "conv_dropout",
+    "dense_dropout",
+    "n_layers",
+    "width_base",
+    "width_jitter",
+    "block_class",
+    "ks",
+    "pct_start",
+    "optimizer",
+    "weight_decay",
+    "use_shift_aug",
+    "shift_max",
+    "use_evoaug",
+}
 
 
 class RateLimitExceeded(Exception):
@@ -248,7 +270,11 @@ def summarize_kb(kb_summary: dict) -> str:
 
 
 def build_prompt(
-    n: int, history: list[tuple], kb_summary: dict, style: str = "default"
+    n: int,
+    history: list[tuple],
+    kb_summary: dict,
+    style: str = "default",
+    allow_novel: bool = False,
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt).
 
@@ -257,6 +283,9 @@ def build_prompt(
     summary, and the editorial closing lines ("ag is theoretically best",
     "non-uniform schedules are often better"). It keeps the HP-space spec and
     the run's OWN observations (the search signal) only.
+
+    When ``allow_novel`` is True, the prompt invites optional off-menu axes
+    inside an "extra" object (default mode is byte-identical to before).
     """
     system = PROMPT_STYLES.get(style, PROMPT_STYLES["default"]).format(n=n)
     neutral = style == "neutral"
@@ -264,6 +293,8 @@ def build_prompt(
     parts = [HP_SPACE_SPEC]
     if not neutral:
         parts.append(ADVANCED_GUIDANCE)
+    if allow_novel:
+        parts.append(f"\n{EXPERIMENTAL_KNOBS_DOC}")
     parts.append(
         f"\nCURRENT SESSION TOP {min(30, len(history))} OBSERVATIONS "
         f"(sorted by val_pearson, descending):\n{summarize_history(history, max_items=30)}"
@@ -289,6 +320,10 @@ def build_prompt(
             "`block_class` is genuinely uncertain — try all three across your proposals. "
             '"ag" is theoretically best for regulatory genomics but rarely tested in this '
             'codebase. "eff" is the safe default. "plain" is the baseline.'
+        )
+    if allow_novel:
+        closing += (
+            '\nOptionally add an "extra" object per dict for the experimental axes described above.'
         )
     parts.append(closing)
     return system, "\n".join(parts)
@@ -499,8 +534,10 @@ def parse_response(text: str, n: int) -> list[dict]:
     return objs[:n]
 
 
-def dict_to_hpconfig(d: dict, seed: int) -> HPConfig:
-    """Coerce LLM-proposed dict to a valid HPConfig."""
+def dict_to_hpconfig(d: dict, seed: int, allow_novel: bool = False) -> HPConfig:
+    """Coerce LLM-proposed dict to a valid HPConfig. When allow_novel is True,
+    any key outside the 15 core axes (plus an explicit "extra" object) is gathered
+    into HPConfig.extra for downstream validation/recording."""
     # Defaults if missing
     n_layers = int(d.get("n_layers", 6))
     width_jitter = d.get("width_jitter", [1.0] * n_layers)
@@ -508,6 +545,15 @@ def dict_to_hpconfig(d: dict, seed: int) -> HPConfig:
         width_jitter = [1.0] * n_layers
     # Clip widths to valid range
     width_jitter = [max(0.5, min(2.0, float(x))) for x in width_jitter]
+    extra: dict = {}
+    if allow_novel:
+        nested = d.get("extra")
+        if isinstance(nested, dict):
+            extra.update(nested)
+        # Also catch off-menu keys placed at the top level instead of under "extra".
+        for k, v in d.items():
+            if k not in _CORE_KEYS and k not in ("extra", "seed"):
+                extra[k] = v
     return HPConfig(
         lr=max(1e-5, min(1e-2, float(d.get("lr", 1e-3)))),
         batch_size=int(d.get("batch_size", 256)),
@@ -533,6 +579,7 @@ def dict_to_hpconfig(d: dict, seed: int) -> HPConfig:
         shift_max=int(d.get("shift_max", 15)),
         use_evoaug=bool(d.get("use_evoaug", False)),
         seed=seed,
+        extra=extra,
     )
 
 
@@ -568,6 +615,9 @@ class LLMAutoResearch(Strategy):
         _temp = os.environ.get("LLM_TEMPERATURE")
         self.temperature = float(_temp) if _temp not in (None, "") else None
         self.parse_retries = int(os.environ.get("LLM_PARSE_RETRIES", "3"))
+        # Off-menu axes: only when explicitly enabled (default OFF keeps behavior
+        # identical to the core-15-axis search).
+        self.allow_novel = os.environ.get("LLM_ALLOW_NOVEL_AXES", "0") == "1"
 
     def suggest(self, n: int) -> list[HPConfig]:
         # Build context
@@ -589,13 +639,18 @@ class LLMAutoResearch(Strategy):
             need = n - len(configs)
             if need <= 0:
                 break
-            system, user = build_prompt(need, self.history, kb_summary, style=self.style)
+            system, user = build_prompt(
+                need, self.history, kb_summary, style=self.style, allow_novel=self.allow_novel
+            )
             response = None
             try:
                 response = call_claude(system, user, model=self.model, temperature=self.temperature)
                 parsed = parse_response(response, need)
                 configs.extend(
-                    dict_to_hpconfig(d, seed=int(self.rng.integers(2**31))) for d in parsed
+                    dict_to_hpconfig(
+                        d, seed=int(self.rng.integers(2**31)), allow_novel=self.allow_novel
+                    )
+                    for d in parsed
                 )
             except RateLimitExceeded:
                 # Propagate — caller checkpoints + stops/resumes. NEVER random.
