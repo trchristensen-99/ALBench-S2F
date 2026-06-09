@@ -203,6 +203,26 @@ class RunResult:
     test_metrics: dict
     wall_seconds: float
     output_dir: str
+    # Stopping diagnostics (max across ensemble members): epochs_trained tells if the
+    # epoch budget was hit; best_epoch tells where val peaked. None if unavailable.
+    best_epoch: int | None = None
+    epochs_trained: int | None = None
+
+
+def _extract_epoch_stats(student) -> tuple[int | None, int | None]:
+    """Pull (best_epoch, epochs_trained) from a trained student's per-member histories.
+
+    Returns the max over ensemble members so a partially-converged member doesn't hide
+    the fact that some member ran to the budget. None when histories are unavailable
+    (e.g. AG_S1 linear-probe students that don't expose epoch curves)."""
+    histories = getattr(student, "histories", None)
+    if not histories:
+        return None, None
+    best = [h["best_epoch"] for h in histories if isinstance(h, dict) and "best_epoch" in h]
+    trained = [
+        h["epochs_trained"] for h in histories if isinstance(h, dict) and "epochs_trained" in h
+    ]
+    return (max(best) if best else None, max(trained) if trained else None)
 
 
 # ---------------------------------------------------------------------------
@@ -3086,6 +3106,7 @@ def run_scaling_experiment(
 
                     wall_s = time.perf_counter() - run_start
 
+                    best_epoch, epochs_trained = _extract_epoch_stats(student)
                     result = RunResult(
                         reservoir=reservoir_name,
                         task=task,
@@ -3097,6 +3118,8 @@ def run_scaling_experiment(
                         test_metrics=test_metrics,
                         wall_seconds=wall_s,
                         output_dir=str(run_dir),
+                        best_epoch=best_epoch,
+                        epochs_trained=epochs_trained,
                     )
                     results.append(result)
 

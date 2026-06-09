@@ -540,4 +540,8 @@ def train_model_optimized(
             str(final_path), epoch=num_epochs - 1, optimizer_state_dict=optimizer.state_dict()
         )
 
+    # Surface stopping diagnostics so callers can tell "stopped early at the optimum"
+    # from "hit the epoch budget" (1-indexed best_epoch; epochs_trained = epochs run).
+    history["best_epoch"] = best_epoch + 1
+    history["epochs_trained"] = len(history["val_pearson_r"])
     return history
