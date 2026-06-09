@@ -1,6 +1,7 @@
 #!/bin/bash
-# Re-score genomic / SNV / OOD / ctrl_neg test sets with the new chr-split AG_S2
-# ensemble. Overwrites data/k562/test_sets_ag_s2_chrsplit/{genomic,snv,ood,ctrl_neg}_oracle.npz.
+# Re-score genomic / SNV / OOD / ctrl_neg test sets with the canonical full-pool
+# random 10-fold AG_S2 oracle (full856k_clean), overriding AG_S2_ORACLE_DIR.
+# Overwrites data/k562/test_sets_ag_s2_chrsplit/{genomic,snv,ood,ctrl_neg}_oracle.npz.
 #
 # Submit (auto-trigger after retrain):
 #   /cm/shared/apps/slurm/current/bin/sbatch \
@@ -26,16 +27,21 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 source scripts/slurm/setup_hpc_deps.sh
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_enable_command_buffer="
 
-echo "=== rescore_tests node=${SLURMD_NODENAME} $(date) ==="
+# Score the WHOLE battery with the canonical full-pool random 10-fold oracle
+# (full856k_clean) so provenance matches the stamp. Set explicitly for every
+# Python step below rather than relying on _load_oracle's default.
+export AG_S2_ORACLE_DIR="${AG_S2_ORACLE_DIR:-$PWD/outputs/oracle_full856k_clean/s2}"
 
-# Safety: ensure all 10 chr-split folds are in place
-CHR_SPLIT_DIR="outputs/oracle_chrsplit_natural/s2"
-N_FOLDS=$(find "${CHR_SPLIT_DIR}" -maxdepth 3 -type d -path "*/best_model/checkpoint" 2>/dev/null | wc -l)
+echo "=== rescore_tests node=${SLURMD_NODENAME} $(date) ==="
+echo "Oracle: ${AG_S2_ORACLE_DIR}"
+
+# Safety: ensure all 10 canonical-oracle folds are in place
+N_FOLDS=$(find "${AG_S2_ORACLE_DIR}" -maxdepth 3 -type d -path "*/best_model/checkpoint" 2>/dev/null | wc -l)
 if [ "${N_FOLDS}" -lt 10 ]; then
-    echo "ERROR: chr-split oracle only has ${N_FOLDS}/10 folds — aborting"
+    echo "ERROR: canonical oracle only has ${N_FOLDS}/10 folds at ${AG_S2_ORACLE_DIR} — aborting"
     exit 2
 fi
-echo "Confirmed chr-split AG_S2: ${N_FOLDS}/10 folds"
+echo "Confirmed canonical AG_S2: ${N_FOLDS}/10 folds"
 
 # Back up the hashfrag-labeled test set files
 TEST_DIR="data/k562/test_sets_ag_s2_chrsplit"
