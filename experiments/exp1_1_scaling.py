@@ -57,6 +57,10 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
+# Oracle inference chunk size. Default 128 is tuned for H100 80GB; set
+# AG_ORACLE_CHUNK smaller (e.g. 32) when labeling on a V100 32GB to avoid OOM.
+ORACLE_CHUNK = int(os.environ.get("AG_ORACLE_CHUNK", "128"))
+
 DEFAULT_TRAINING_SIZES = [1000, 5000, 10000, 20000, 50000, 100000, 200000, 500000]
 
 LEGNET_ARCH_VARIANTS = {
@@ -579,9 +583,9 @@ def _load_k562_ag_oracle():
             all_p = []
             for params in params_list:
                 pf, pr = [], []
-                for i in range(0, n, 128):
-                    cf = jnp.array(x_fwd[i : i + 128])
-                    cr = jnp.array(x_rev[i : i + 128])
+                for i in range(0, n, ORACLE_CHUNK):
+                    cf = jnp.array(x_fwd[i : i + ORACLE_CHUNK])
+                    cr = jnp.array(x_rev[i : i + ORACLE_CHUNK])
                     pf.append(np.array(predict_step(params, model_state, cf)).reshape(-1))
                     pr.append(np.array(predict_step(params, model_state, cr)).reshape(-1))
                 all_p.append((np.concatenate(pf) + np.concatenate(pr)) / 2.0)
@@ -1136,9 +1140,9 @@ def _load_k562_ag_s2_oracle():
             all_p = []
             for params in params_list:
                 pf, pr = [], []
-                for i in range(0, n, 128):
-                    cf = jnp.array(x_fwd[i : i + 128])
-                    cr = jnp.array(x_rev[i : i + 128])
+                for i in range(0, n, ORACLE_CHUNK):
+                    cf = jnp.array(x_fwd[i : i + ORACLE_CHUNK])
+                    cr = jnp.array(x_rev[i : i + ORACLE_CHUNK])
                     pf.append(np.array(predict_step(params, model_state, cf)).reshape(-1))
                     pr.append(np.array(predict_step(params, model_state, cr)).reshape(-1))
                 all_p.append((np.concatenate(pf) + np.concatenate(pr)) / 2.0)
