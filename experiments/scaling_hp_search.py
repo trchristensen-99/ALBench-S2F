@@ -352,10 +352,17 @@ def train_one_model(
     import sys
 
     sys.path.insert(0, str(REPO))
+    import random as _random
+
     from models.legnet_student import LegNetStudent, TrainConfig
 
+    # Seed every RNG the training path can touch so a (hp, seed) pair is
+    # reproducible: CPU torch, all CUDA devices (shift-aug draws from CUDA RNG in
+    # training.py), global numpy, and stdlib random.
     torch.manual_seed(hp.seed)
+    torch.cuda.manual_seed_all(hp.seed)
     np.random.seed(hp.seed)
+    _random.seed(hp.seed)
     width_jitter = hp.width_jitter if hp.width_jitter else [1.0] * hp.n_layers
     block_sizes = build_block_sizes(hp.n_layers, hp.width_base, width_jitter)
     train_cfg = TrainConfig(
