@@ -313,6 +313,9 @@ def train_model_optimized(
     best_metric = -float("inf") if metric_for_best != "loss" else float("inf")
     best_epoch = 0
     patience_counter = 0
+    # In-memory snapshot of the best-val weights so the deployed model is the best
+    # epoch — NOT the stopping/final epoch — even when checkpoint_dir is None.
+    best_state = None
 
     print(f"Training on device: {device}")
     print(f"Number of parameters: {sum(p.numel() for p in model.parameters())}")
@@ -441,6 +444,10 @@ def train_model_optimized(
             best_metric = current_metric
             best_epoch = epoch
             patience_counter = 0
+            # Snapshot best weights to CPU (uncompiled module holds the shared params)
+            best_state = {
+                k: v.detach().cpu().clone() for k, v in original_model.state_dict().items()
+            }
 
             if checkpoint_dir is not None:
                 best_path = checkpoint_dir / "best_model.pt"
@@ -497,6 +504,14 @@ def train_model_optimized(
                 )
 
         print("-" * 60)
+
+    # Restore best-val weights so the returned/deployed model is the best epoch,
+    # not the stopping/final epoch (works regardless of checkpoint_dir).
+    if best_state is not None:
+        original_model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+        print(
+            f"Restored best-val weights from epoch {best_epoch + 1} ({metric_for_best}: {best_metric:.4f})"
+        )
 
     # Save final model
     if checkpoint_dir is not None:
