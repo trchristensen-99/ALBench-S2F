@@ -47,6 +47,58 @@ def _atomic_savez(path: Path, **arrays) -> None:
     os.replace(tmp, path)
 
 
+# ── Regime stamping (no-mixing guarantee) ──────────────────────────────────────
+# Bump when the meaning of a stamped field changes so old results can be told apart.
+REGIME_SCHEMA_VERSION = "v1"
+BATTERY_DIR = REPO / "data/k562/test_sets_ag_s2_chrsplit"
+
+
+def load_battery_provenance() -> dict:
+    """Read the oracle/test-set provenance stamp written by the re-scoring pipeline.
+
+    Returns {'oracle_id', 'test_set_version'}. Defaults to 'unstamped' until the
+    battery has been re-scored + stamped (see PROVENANCE.json in BATTERY_DIR).
+    Surfacing these here lets every HP result record exactly which oracle and
+    test-set version produced its labels."""
+    prov_path = BATTERY_DIR / "PROVENANCE.json"
+    if prov_path.exists():
+        try:
+            p = json.loads(prov_path.read_text())
+            return {
+                "oracle_id": str(p.get("oracle_id", "unstamped")),
+                "test_set_version": str(p.get("test_set_version", "unstamped")),
+            }
+        except Exception:
+            pass
+    return {"oracle_id": "unstamped", "test_set_version": "unstamped"}
+
+
+def build_regime(args, patience: int, min_delta: float, battery_prov: dict) -> dict:
+    """The training/eval regime every result in an out_dir is stamped with.
+
+    Two runs whose regimes differ (e.g. epochs=15 vs 100, or a different oracle)
+    MUST NOT be mixed in one out_dir or one deploy aggregation — their rankings
+    are not comparable. The out-dir-level guard in run_search and the per-meta
+    stamp downstream both key off this dict."""
+    return {
+        "schema_version": REGIME_SCHEMA_VERSION,
+        "epochs": int(args.epochs),
+        "early_stop_patience": int(patience),
+        "min_delta": float(min_delta),
+        "metric_for_best": "pearson_r",
+        "val_protocol": "chr_val" if getattr(args, "chr_val", False) else "per_combo_10pct",
+        "oracle_id": battery_prov["oracle_id"],
+        "test_set_version": battery_prov["test_set_version"],
+    }
+
+
+def regime_key(regime: dict | None) -> str:
+    """Stable string key for comparing two regimes. None/empty → 'legacy_unstamped'."""
+    if not regime:
+        return "legacy_unstamped"
+    return json.dumps(regime, sort_keys=True)
+
+
 # ── Data loading (cached) ─────────────────────────────────────────────────────
 
 
@@ -397,15 +449,22 @@ def train_one_model(
 # ── Multi-strategy driver ─────────────────────────────────────────────────────
 
 
-def _preload_history(out_dir: Path, strategies: dict) -> int:
+def _preload_history(out_dir: Path, strategies: dict, expected_regime_key: str) -> int:
     """Seed each strategy's history from already-saved *_meta.json so a resumed
-    run's suggest() calls see all prior results. Returns count of records loaded."""
+    run's suggest() calls see all prior results. Returns count of records loaded.
+
+    Only metas whose stamped regime matches expected_regime_key are preloaded —
+    a stray result from a different epoch/oracle regime must never seed history."""
     n = 0
+    skipped_regime = 0
     per_strat: dict[str, tuple[list, list]] = {name: ([], []) for name in strategies}
     for meta_path in sorted(out_dir.glob("r*_meta.json")):
         try:
             meta = json.loads(meta_path.read_text())
         except Exception:
+            continue
+        if regime_key(meta.get("regime")) != expected_regime_key:
+            skipped_regime += 1
             continue
         name = meta.get("strategy")
         if name not in per_strat or "val_pearson" not in meta:
@@ -420,6 +479,11 @@ def _preload_history(out_dir: Path, strategies: dict) -> int:
         if cs:
             strategies[name].update(cs, vs)
             print(f"  [resume] preloaded {len(cs)} prior results into '{name}' history")
+    if skipped_regime:
+        print(
+            f"  [resume] skipped {skipped_regime} prior result(s) from a DIFFERENT regime "
+            f"(not preloaded — out_dir should hold a single regime)"
+        )
     return n
 
 
@@ -442,6 +506,32 @@ def run_search(args):
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Regime stamp + no-mixing guard ──────────────────────────────────────
+    # Resolve the effective patience/min_delta ONCE (same values used per-model
+    # below) and stamp the whole run. If this out_dir already holds results from
+    # a different regime, refuse to continue — mixing epoch/oracle regimes in one
+    # dir silently corrupts rankings. Use a fresh out_dir per regime.
+    esp = getattr(args, "early_stop_patience", None) or 15
+    min_delta = getattr(args, "min_delta", 1e-3)
+    battery_prov = load_battery_provenance()
+    regime = build_regime(args, esp, min_delta, battery_prov)
+    rk = regime_key(regime)
+    regime_path = out_dir / "regime.json"
+    if regime_path.exists():
+        try:
+            prior_regime = json.loads(regime_path.read_text())
+        except Exception:
+            prior_regime = None
+        if regime_key(prior_regime) != rk:
+            raise SystemExit(
+                f"out_dir {out_dir} was created under a DIFFERENT regime:\n"
+                f"  existing: {prior_regime}\n  current:  {regime}\n"
+                f"Refusing to mix regimes in one dir — use a fresh --out_dir."
+            )
+    else:
+        _atomic_write_text(regime_path, json.dumps(regime, indent=2))
+    print(f"=== Regime: {regime} ===")
 
     print(
         f"=== Loading data (D={args.D}, ref_only={args.ref_only}, reservoir_cache={getattr(args, 'reservoir_cache', None)}, chr_val={getattr(args, 'chr_val', False)}) ==="
@@ -470,6 +560,9 @@ def run_search(args):
     }
     for set_name, (_, oracle_labels) in all_test_sets.items():
         label_dict[f"oracle_{set_name}"] = oracle_labels
+    # Stamp the labels archive with the regime so any consumer can verify which
+    # oracle/test-set version produced these labels.
+    label_dict["regime_json"] = np.array(json.dumps(regime))
     _atomic_savez(out_dir / "labels.npz", **label_dict)
 
     # Build strategies
@@ -481,7 +574,7 @@ def run_search(args):
     print(f"=== Strategies: {list(strategies)} ===")
 
     # Resume: seed strategy history from any results already on disk.
-    n_preloaded = _preload_history(out_dir, strategies)
+    n_preloaded = _preload_history(out_dir, strategies, rk)
     if n_preloaded:
         print(f"=== Resume: preloaded {n_preloaded} prior model results ===")
 
@@ -548,7 +641,20 @@ def run_search(args):
         for i, (strat_name, hp) in enumerate(round_configs):
             model_id = f"r{rd:02d}_{strat_name}_{i:02d}"
             # Skip already-completed models (resume): meta file present = attempted.
-            if (out_dir / f"{model_id}_meta.json").exists():
+            # But a meta from a DIFFERENT regime must not be counted as done — that
+            # would leave a stale-regime result masquerading as current. The out-dir
+            # guard above already blocks the common case; this is defense-in-depth.
+            meta_path = out_dir / f"{model_id}_meta.json"
+            if meta_path.exists():
+                try:
+                    prior_meta = json.loads(meta_path.read_text())
+                except Exception:
+                    prior_meta = {}
+                if regime_key(prior_meta.get("regime")) != rk:
+                    raise SystemExit(
+                        f"{meta_path} exists under a different regime than the current run. "
+                        f"Use a fresh --out_dir for this regime."
+                    )
                 print(f"  [resume] skip {model_id} (already done)")
                 total += 1
                 continue
@@ -557,7 +663,6 @@ def run_search(args):
                 f"layers={hp.n_layers} width={hp.width_base} opt={hp.optimizer}"
             )
             try:
-                esp = getattr(args, "early_stop_patience", None) or 15
                 result = train_one_model(
                     hp,
                     train_seqs,
@@ -568,7 +673,7 @@ def run_search(args):
                     epochs=args.epochs,
                     use_compile=False,
                     early_stopping_patience=esp,
-                    min_delta=getattr(args, "min_delta", 1e-3),
+                    min_delta=min_delta,
                     extra_test_sets=all_test_sets,
                 )
             except Exception as e:
@@ -577,6 +682,7 @@ def run_search(args):
             result["model_id"] = model_id
             result["strategy"] = strat_name
             result["round"] = rd
+            result["regime"] = regime
             _atomic_savez(
                 out_dir / f"{model_id}.npz",
                 **{k: v for k, v in result.items() if isinstance(v, np.ndarray)},
@@ -630,6 +736,7 @@ def run_search(args):
         "D": args.D,
         "ref_only": args.ref_only,
         "epochs": args.epochs,
+        "regime": regime,
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(f"\n=== Done. {total} models trained. Run aggregate_ensemble.py on {out_dir} ===")
