@@ -14,7 +14,7 @@ import argparse
 import json
 import os
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -279,6 +279,86 @@ class HPConfig:
     shift_max: int
     use_evoaug: bool
     seed: int
+    # Free-form, off-menu axes proposed by the LLM AutoResearch strategy when
+    # LLM_ALLOW_NOVEL_AXES=1. Empty for all core-15-axis configs. Recognized keys
+    # (see EXPERIMENTAL_KNOBS) are applied to training/model; unrecognized keys
+    # are recorded in the meta for human review but are inert.
+    extra: dict = field(default_factory=dict)
+
+
+# ── Experimental / novel HP knobs ───────────────────────────────────────────
+# Axes NOT in the core 15-D HPConfig that the LLM AutoResearch strategy may
+# propose (inside an "extra" object) when LLM_ALLOW_NOVEL_AXES=1, to widen the
+# diversity of trained models. Each recognized knob is validated + APPLIED to
+# training/model. Any unrecognized key is RECORDED in the meta (hp.extra) for
+# later human review / promotion into the formal space, but stays inert — the
+# LLM cannot introduce executable code, only declarative values.
+_ACTIVATIONS = {"silu", "relu", "gelu", "quickgelu", "mish", "elu"}
+_LOSSES = {"mse", "huber", "smoothl1"}
+
+
+def _clipf(v, lo, hi, default):
+    try:
+        return max(lo, min(hi, float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+# name -> (target_group, validator).  target_group in {"train", "model", "loss"}
+EXPERIMENTAL_KNOBS = {
+    "use_reverse_complement": ("train", lambda v: bool(v)),
+    "evoaug_intensity": (
+        "train",
+        lambda v: str(v).lower() if str(v).lower() in {"light", "medium", "heavy"} else "medium",
+    ),
+    "evoaug_prob": ("train", lambda v: _clipf(v, 0.05, 1.0, 0.5)),
+    "activation": ("model", lambda v: str(v).lower() if str(v).lower() in _ACTIVATIONS else "silu"),
+    "se_reduction": ("model", lambda v: int(max(2, min(16, int(v))))),
+    "loss": ("loss", lambda v: str(v).lower() if str(v).lower() in _LOSSES else "mse"),
+    "huber_delta": ("loss", lambda v: _clipf(v, 0.1, 5.0, 1.0)),
+}
+
+# Injected into the LLM prompt only under novel-axes mode (keeps the default
+# prompt byte-identical when the feature is off).
+EXPERIMENTAL_KNOBS_DOC = """OPTIONAL EXPERIMENTAL AXES (beyond the 15 above) — put any of these in an "extra" object:
+  use_reverse_complement : bool   — average fwd+reverse-complement loss & predictions
+  evoaug_intensity       : "light"|"medium"|"heavy"  (only matters if use_evoaug=true)
+  evoaug_prob            : float [0.05, 1.0]  — per-sample EvoAug apply probability
+  activation             : "silu"|"relu"|"gelu"|"quickgelu"|"mish"|"elu"
+  se_reduction           : int [2, 16]  — squeeze-excite bottleneck reduction factor
+  loss                   : "mse"|"huber"|"smoothl1"
+  huber_delta            : float [0.1, 5.0]  (only if loss is huber/smoothl1)
+You MAY also invent entirely new keys inside "extra" if you have a strong, well-
+reasoned idea — they will be recorded for review even though they are not yet
+wired into training. Use "extra" to push model diversity further, NOT to restate
+any of the 15 core axes."""
+
+
+def apply_experimental_knobs(extra: dict):
+    """Split a free-form `extra` dict into validated overrides.
+
+    Returns (train_overrides, model_overrides, loss_overrides, applied, recorded_only)
+    where `applied` is a list of "key=value" strings and `recorded_only` lists keys
+    that were kept in the meta but not acted on (unknown to this code version)."""
+    train_o, model_o, loss_o, applied, recorded = {}, {}, {}, [], []
+    for k, v in (extra or {}).items():
+        spec = EXPERIMENTAL_KNOBS.get(k)
+        if spec is None:
+            recorded.append(k)
+            continue
+        target, validate = spec
+        val = validate(v)
+        {"train": train_o, "model": model_o, "loss": loss_o}[target][k] = val
+        applied.append(f"{k}={val}")
+    return train_o, model_o, loss_o, applied, recorded
+
+
+def _hp_to_dict(hp) -> dict:
+    """asdict(hp), dropping an empty `extra` so core-axis metas stay byte-identical."""
+    d = asdict(hp)
+    if not d.get("extra"):
+        d.pop("extra", None)
+    return d
 
 
 def sample_random_hp(rng: np.random.Generator, seed: int) -> HPConfig:
@@ -355,7 +435,20 @@ def train_one_model(
     _random.seed(hp.seed)
     width_jitter = hp.width_jitter if hp.width_jitter else [1.0] * hp.n_layers
     block_sizes = build_block_sizes(hp.n_layers, hp.width_base, width_jitter)
-    train_cfg = TrainConfig(
+    # Off-menu novel axes (empty unless LLM_ALLOW_NOVEL_AXES was set when proposing).
+    tr_over, md_over, ls_over, applied_knobs, recorded_knobs = apply_experimental_knobs(
+        getattr(hp, "extra", {}) or {}
+    )
+    if not hp.use_evoaug:
+        # Don't let an evoaug_intensity override silently enable EvoAug.
+        tr_over.pop("evoaug_intensity", None)
+    if applied_knobs or recorded_knobs:
+        print(
+            f"  [novel-axes] applied={applied_knobs or '—'} "
+            f"recorded-only(inert)={recorded_knobs or '—'}",
+            flush=True,
+        )
+    tcfg_kwargs = dict(
         lr=hp.lr,
         batch_size=hp.batch_size,
         weight_decay=hp.weight_decay,
@@ -370,6 +463,9 @@ def train_one_model(
         early_stopping_patience=early_stopping_patience,
         min_delta=min_delta,
     )
+    tcfg_kwargs.update(tr_over)  # use_reverse_complement / evoaug_intensity / evoaug_prob
+    tcfg_kwargs.update(ls_over)  # loss / huber_delta
+    train_cfg = TrainConfig(**tcfg_kwargs)
     student = LegNetStudent(
         task_mode="k562",
         ensemble_size=1,
@@ -381,6 +477,7 @@ def train_one_model(
         in_channels=4,
         conv_dropout=hp.conv_dropout,
         dense_dropout=hp.dense_dropout,
+        **md_over,  # activation / se_reduction
     )
     t0 = time.time()
     student.fit(train_seqs, train_labels, val_sequences=val_seqs, val_labels=val_labels)
@@ -419,10 +516,12 @@ def train_one_model(
         "val_pearson": val_r,
         "val_mse": val_mse,
         "train_time_sec": train_time,
-        "hp": asdict(hp),
+        "hp": _hp_to_dict(hp),
         "block_sizes": block_sizes,
         **epoch_diag,
     }
+    if applied_knobs or recorded_knobs:
+        result["novel_axes"] = {"applied": applied_knobs, "recorded_only": recorded_knobs}
 
     # Predict on all extra test sets (comprehensive eval battery)
     if extra_test_sets:
@@ -627,7 +726,7 @@ def run_search(args):
             _atomic_write_text(
                 proposals_path,
                 json.dumps(
-                    [{"strategy": n_, "hp": asdict(c)} for n_, c in round_configs], indent=2
+                    [{"strategy": n_, "hp": _hp_to_dict(c)} for n_, c in round_configs], indent=2
                 ),
             )
 
@@ -684,7 +783,12 @@ def run_search(args):
                 )
             except Exception as e:
                 print(f"    ERROR: {e}")
-                result = {"hp": asdict(hp), "error": str(e), "strategy": strat_name, "round": rd}
+                result = {
+                    "hp": _hp_to_dict(hp),
+                    "error": str(e),
+                    "strategy": strat_name,
+                    "round": rd,
+                }
             result["model_id"] = model_id
             result["strategy"] = strat_name
             result["round"] = rd
