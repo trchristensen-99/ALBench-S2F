@@ -294,6 +294,7 @@ def train_one_model(
     device: str = "cuda",
     use_compile: bool = False,
     early_stopping_patience: int = 8,
+    min_delta: float = 1e-3,
     extra_test_sets: dict | None = None,
 ):
     import sys
@@ -318,6 +319,7 @@ def train_one_model(
         num_workers=4,
         use_compile=use_compile,
         early_stopping_patience=early_stopping_patience,
+        min_delta=min_delta,
     )
     student = LegNetStudent(
         task_mode="k562",
@@ -352,6 +354,14 @@ def train_one_model(
                 "epochs_trained": len(vp),
                 "early_stopped": len(vp) < epochs,
                 "best_val_pearson": float(vp[best_ep]),
+                # Full per-epoch val trajectory so the stopping point can be re-examined
+                # post-hoc (Pearson vs MSE criterion, plateau shape, recalibration).
+                "val_trajectory": {
+                    "val_pearson_r": [float(x) for x in vp],
+                    "val_loss": [float(x) for x in h.get("val_loss", [])],
+                    "val_spearman_r": [float(x) for x in h.get("val_spearman_r", [])],
+                    "train_loss": [float(x) for x in h.get("train_loss", [])],
+                },
             }
 
     result = {
@@ -547,7 +557,7 @@ def run_search(args):
                 f"layers={hp.n_layers} width={hp.width_base} opt={hp.optimizer}"
             )
             try:
-                esp = getattr(args, "early_stop_patience", None) or 10
+                esp = getattr(args, "early_stop_patience", None) or 15
                 result = train_one_model(
                     hp,
                     train_seqs,
@@ -558,6 +568,7 @@ def run_search(args):
                     epochs=args.epochs,
                     use_compile=False,
                     early_stopping_patience=esp,
+                    min_delta=getattr(args, "min_delta", 1e-3),
                     extra_test_sets=all_test_sets,
                 )
             except Exception as e:
@@ -636,7 +647,7 @@ def main():
     ap.add_argument("--D", type=int, default=10_000)
     ap.add_argument("--ref_only", action="store_true")
     ap.add_argument("--out_dir", required=True)
-    ap.add_argument("--epochs", type=int, default=60)
+    ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--hp_seed", type=int, default=0)
     ap.add_argument("--data_seed", type=int, default=0)
     ap.add_argument(
@@ -659,8 +670,15 @@ def main():
         "--early_stop_patience",
         type=int,
         default=None,
-        help="Override early stopping patience (default 10). "
+        help="Override early stopping patience (default 15). "
         "Use lower (e.g. 5) for fair-budget fixed-cost scaling runs.",
+    )
+    ap.add_argument(
+        "--min_delta",
+        type=float,
+        default=1e-3,
+        help="Minimum val-metric improvement to reset the patience timer (default 1e-3). "
+        "Filters noise-level wiggles so early stopping triggers on true plateaus.",
     )
     args = ap.parse_args()
 

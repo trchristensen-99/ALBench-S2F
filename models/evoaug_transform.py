@@ -25,22 +25,43 @@ from albench.reservoir.evoaug_structural import EvoAugStructuralSampler
 
 INTENSITY_PRESETS = {
     "light": dict(
-        p_deletion=0.2, p_insertion=0.2, p_inversion=0.1,
-        p_translocation=0.05, p_tandem_dup=0.05, p_point_mutation=0.2,
-        max_indel_size=10, max_inversion_size=15,
-        point_mutation_rate=0.01, min_events=1, max_events=1,
+        p_deletion=0.2,
+        p_insertion=0.2,
+        p_inversion=0.1,
+        p_translocation=0.05,
+        p_tandem_dup=0.05,
+        p_point_mutation=0.2,
+        max_indel_size=10,
+        max_inversion_size=15,
+        point_mutation_rate=0.01,
+        min_events=1,
+        max_events=1,
     ),
     "medium": dict(
-        p_deletion=0.3, p_insertion=0.3, p_inversion=0.2,
-        p_translocation=0.15, p_tandem_dup=0.1, p_point_mutation=0.3,
-        max_indel_size=20, max_inversion_size=30,
-        point_mutation_rate=0.02, min_events=1, max_events=3,
+        p_deletion=0.3,
+        p_insertion=0.3,
+        p_inversion=0.2,
+        p_translocation=0.15,
+        p_tandem_dup=0.1,
+        p_point_mutation=0.3,
+        max_indel_size=20,
+        max_inversion_size=30,
+        point_mutation_rate=0.02,
+        min_events=1,
+        max_events=3,
     ),
     "heavy": dict(
-        p_deletion=0.4, p_insertion=0.4, p_inversion=0.3,
-        p_translocation=0.2, p_tandem_dup=0.15, p_point_mutation=0.5,
-        max_indel_size=30, max_inversion_size=50,
-        point_mutation_rate=0.05, min_events=2, max_events=5,
+        p_deletion=0.4,
+        p_insertion=0.4,
+        p_inversion=0.3,
+        p_translocation=0.2,
+        p_tandem_dup=0.15,
+        p_point_mutation=0.5,
+        max_indel_size=30,
+        max_inversion_size=50,
+        point_mutation_rate=0.05,
+        min_events=2,
+        max_events=5,
     ),
 }
 
@@ -108,8 +129,11 @@ class EvoAugTransform:
         device = batch.device
         x = batch.detach().cpu().numpy()
         channels_first = x.shape[1] == 4
+        # The augmented sequence is written back into new_x[i], so its one-hot width
+        # MUST equal the incoming batch width. shift_aug runs before this transform and
+        # crops L to L-2*max_shift, so self.target_length (the uncropped length) would
+        # be wrong here and broadcast-fail. Always re-pad/crop to the actual batch width.
         target_len = x.shape[2] if channels_first else x.shape[1]
-        target_len = self.target_length or target_len
         new_x = x.copy()
         for i in range(x.shape[0]):
             if np.random.rand() >= self.apply_prob:

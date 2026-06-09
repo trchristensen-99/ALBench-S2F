@@ -242,6 +242,7 @@ def train_model_optimized(
     checkpoint_dir: Optional[Path] = None,
     use_reverse_complement: bool = True,
     early_stopping_patience: Optional[int] = None,
+    min_delta: float = 0.0,
     metric_for_best: str = "pearson_r",
     use_amp: bool = True,
     use_compile: bool = True,
@@ -266,6 +267,10 @@ def train_model_optimized(
         checkpoint_dir: Directory to save checkpoints
         use_reverse_complement: Whether to average predictions with reverse complement
         early_stopping_patience: Stop if no improvement for this many epochs
+        min_delta: Minimum change in the monitored metric to count as an improvement.
+            A new epoch only resets patience if it beats the best by more than min_delta
+            (lower by min_delta for 'loss', higher by min_delta otherwise). The best-weights
+            snapshot still tracks the true argmax — min_delta only governs the patience timer.
         metric_for_best: Metric to use for saving best model ('pearson_r', 'spearman_r', or 'loss')
         use_amp: Whether to use automatic mixed precision (FP16) training
         use_compile: Whether to use torch.compile() for optimization
@@ -313,6 +318,10 @@ def train_model_optimized(
     best_metric = -float("inf") if metric_for_best != "loss" else float("inf")
     best_epoch = 0
     patience_counter = 0
+    # Separate reference for the patience timer: only advances on a min_delta-sized
+    # improvement, so a sustained slow climb (each step < min_delta but adding up)
+    # keeps resetting patience instead of being mistaken for a plateau.
+    patience_ref = best_metric
     # In-memory snapshot of the best-val weights so the deployed model is the best
     # epoch — NOT the stopping/final epoch — even when checkpoint_dir is None.
     best_state = None
@@ -355,6 +364,8 @@ def train_model_optimized(
                 best_epoch = ckpt["best_epoch"]
             if "patience_counter" in ckpt:
                 patience_counter = ckpt["patience_counter"]
+            # Older checkpoints predate patience_ref → fall back to best_metric.
+            patience_ref = ckpt.get("patience_ref", best_metric)
 
             print(f"✓ Resumed successfully from epoch {start_epoch}")
         except Exception as e:
@@ -432,18 +443,27 @@ def train_model_optimized(
             f"Spearman R: {val_metrics['spearman_r']:.4f}"
         )
 
-        # Check if this is the best model
+        # Check if this is the best model. Two distinct notions:
+        #   is_best        – strictly beats the running best (drives the weights snapshot)
+        #   is_improvement – beats it by more than min_delta (drives the patience timer)
         if metric_for_best == "loss":
             current_metric = val_metrics["loss"]
             is_best = current_metric < best_metric
+            is_improvement = current_metric < patience_ref - min_delta
         else:
             current_metric = val_metrics[metric_for_best]
             is_best = current_metric > best_metric
+            is_improvement = current_metric > patience_ref + min_delta
+
+        if is_improvement:
+            patience_counter = 0
+            patience_ref = current_metric
+        else:
+            patience_counter += 1
 
         if is_best:
             best_metric = current_metric
             best_epoch = epoch
-            patience_counter = 0
             # Snapshot best weights to CPU (uncompiled module holds the shared params)
             best_state = {
                 k: v.detach().cpu().clone() for k, v in original_model.state_dict().items()
@@ -461,8 +481,6 @@ def train_model_optimized(
                     val_metrics=val_metrics,
                 )
                 print(f"  → Saved best model (val {metric_for_best}: {best_metric:.4f})")
-        else:
-            patience_counter += 1
 
         # Epoch callback (e.g., for Optuna pruning)
         if epoch_callback is not None:
@@ -490,6 +508,7 @@ def train_model_optimized(
                 "best_metric": best_metric,
                 "best_epoch": best_epoch,
                 "patience_counter": patience_counter,
+                "patience_ref": patience_ref,
             }
             if scheduler is not None:
                 extra_state["scheduler_state_dict"] = scheduler.state_dict()
