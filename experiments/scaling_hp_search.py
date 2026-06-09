@@ -655,9 +655,18 @@ def run_search(args):
                         f"{meta_path} exists under a different regime than the current run. "
                         f"Use a fresh --out_dir for this regime."
                     )
-                print(f"  [resume] skip {model_id} (already done)")
-                total += 1
-                continue
+                # A meta counts as DONE only if it carries a real result (val_pearson).
+                # An error-stub meta (written by the except branch on a transient
+                # OOM/CUDA/preemption failure) must be RETRIED on resume, not treated
+                # as complete — otherwise a single flake permanently drops that config.
+                if "val_pearson" in prior_meta:
+                    print(f"  [resume] skip {model_id} (already done)")
+                    total += 1
+                    continue
+                print(
+                    f"  [resume] retry {model_id} (prior attempt errored: "
+                    f"{str(prior_meta.get('error', '?'))[:80]})"
+                )
             print(
                 f"\n  Training {model_id}: lr={hp.lr:.1e} bs={hp.batch_size} "
                 f"layers={hp.n_layers} width={hp.width_base} opt={hp.optimizer}"
