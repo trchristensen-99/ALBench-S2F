@@ -160,6 +160,12 @@ def load_all_test_sets() -> dict:
     snv_alt sets if the file is present.
     """
     test_dir = REPO / "data/k562/test_sets_ag_s2_chrsplit"
+    # Eager, loud SNV guard: a present-but-wrong SNV file must halt the run, not be
+    # silently skipped by the tolerant per-set loop below (which only tolerates a
+    # *missing* set during incremental rollout).
+    snv_path = test_dir / "snv_oracle.npz"
+    if snv_path.exists():
+        assert_mono_snv(np.load(snv_path, allow_pickle=True), snv_path)
     out = {}
     for name in TEST_SET_NAMES:
         path = test_dir / f"{name}_oracle.npz"
@@ -175,7 +181,6 @@ def load_all_test_sets() -> dict:
                 # paired ref/alt schema → split into 2 sets
                 if "ref_sequences" not in z.files:
                     continue
-                assert_mono_snv(z, path)
                 ref_seqs = [str(s) for s in z["ref_sequences"]]
                 alt_seqs = [str(s) for s in z["alt_sequences"]]
                 ref_lab = z["ref_mean"].astype(np.float32)
