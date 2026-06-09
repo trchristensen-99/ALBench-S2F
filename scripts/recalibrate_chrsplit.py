@@ -12,12 +12,16 @@ Writes back into outputs/{legnet,ag}_chrsplit_scaling/*/summary.json
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 from scipy.stats import pearsonr
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+from experiments.test_set_guards import assert_mono_snv  # noqa: E402
 
 CHR_VAL = REPO / "outputs/chr_split_cache/chr_val_ref_only.npz"
 TEST_GENOMIC = REPO / "data/k562/test_sets_ag_s2_chrsplit/genomic_oracle.npz"
@@ -83,6 +87,7 @@ def recalibrate_cell(cell_dir: Path, label_source: str):
     ood_oracle = ood_z["oracle_mean"].astype(np.float32)
     ood_real = ood_z["true_label"].astype(np.float32)
     snv_z = np.load(TEST_SNV, allow_pickle=True)
+    assert_mono_snv(snv_z, TEST_SNV)
     snv_delta_oracle = snv_z["delta_mean"].astype(np.float32)
     snv_delta_real = snv_z["true_delta"].astype(np.float32)
 

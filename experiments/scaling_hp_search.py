@@ -21,6 +21,8 @@ import numpy as np
 import torch
 from scipy.stats import pearsonr
 
+from experiments.test_set_guards import assert_mono_snv
+
 REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
 CACHE = REPO / "outputs/chr_split_cache"
 
@@ -173,6 +175,7 @@ def load_all_test_sets() -> dict:
                 # paired ref/alt schema → split into 2 sets
                 if "ref_sequences" not in z.files:
                     continue
+                assert_mono_snv(z, path)
                 ref_seqs = [str(s) for s in z["ref_sequences"]]
                 alt_seqs = [str(s) for s in z["alt_sequences"]]
                 ref_lab = z["ref_mean"].astype(np.float32)

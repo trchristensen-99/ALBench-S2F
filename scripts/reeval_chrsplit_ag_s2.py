@@ -31,6 +31,8 @@ from scipy.stats import pearsonr, spearmanr
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+from experiments.test_set_guards import assert_mono_snv  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -104,6 +106,7 @@ def evaluate_model(model, device, test_dir):
     f = test_dir / "snv_oracle.npz"
     if f.exists():
         d = np.load(f, allow_pickle=True)
+        assert_mono_snv(d, f)
         ref_seqs = d["ref_sequences"].tolist()
         alt_seqs = d["alt_sequences"].tolist()
         alt_oracle = d["alt_mean"]
