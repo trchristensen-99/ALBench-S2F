@@ -46,6 +46,26 @@ def knee_idx(ys, frac=0.90):
     return len(ys) - 1
 
 
+def _assert_single_regime(report_files):
+    """Refuse to aggregate curves spanning >1 training/eval regime.
+
+    Each curve lives at <reservoir>_d{D}/seed*/ablation/greedy_deploy.json; the
+    per-pool HP run stamps regime.json in the seed dir. Mixing regimes across an
+    aggregation makes the global N*/recipe meaningless."""
+    regimes = {}
+    for f in report_files:
+        seed_dir = Path(f).parents[1]
+        rp = seed_dir / "regime.json"
+        regimes[str(seed_dir)] = rp.read_text() if rp.exists() else "MISSING"
+    distinct = set(regimes.values())
+    if len(distinct) > 1:
+        lines = "\n".join(f"  {k}: {v[:120]}" for k, v in sorted(regimes.items()))
+        raise SystemExit(
+            f"Curves span {len(distinct)} distinct regimes — refusing to aggregate "
+            f"across regimes:\n{lines}"
+        )
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -68,6 +88,7 @@ def main():
         )
     if not files:
         raise SystemExit(f"no greedy_deploy.json found for D in {ds_list}")
+    _assert_single_regime(files)
 
     per_pool = []
     recipe_votes = Counter()

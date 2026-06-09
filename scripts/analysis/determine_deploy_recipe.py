@@ -61,6 +61,26 @@ def pick_budget_curve(budget_sweep):
     return "random_only", budget_sweep.get("random_only", [])
 
 
+def _assert_single_regime(report_files):
+    """Refuse to aggregate reports spanning >1 training/eval regime.
+
+    Each report lives at <cell>_d{D}/seed*/ablation/<name>.json; the per-cell HP
+    run stamps regime.json in the seed dir. Mixing regimes (e.g. epochs=15 vs 100,
+    or a different oracle) across an aggregation makes the recipe/N* meaningless."""
+    regimes = {}
+    for f in report_files:
+        seed_dir = Path(f).parents[1]
+        rp = seed_dir / "regime.json"
+        regimes[str(seed_dir)] = rp.read_text() if rp.exists() else "MISSING"
+    distinct = set(regimes.values())
+    if len(distinct) > 1:
+        lines = "\n".join(f"  {k}: {v[:120]}" for k, v in sorted(regimes.items()))
+        raise SystemExit(
+            f"Reports span {len(distinct)} distinct regimes — refusing to aggregate "
+            f"across regimes:\n{lines}"
+        )
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -88,6 +108,7 @@ def main():
         )
     if not reports:
         raise SystemExit(f"no ablation_report.json found for D in {ds_list}")
+    _assert_single_regime(reports)
 
     per_report = []
     recipe_votes = Counter()  # strategy -> # reports where it's at/before knee
