@@ -45,8 +45,9 @@ GPU = os.environ.get("RSC_GPU", "h100").lower()
 # run) — enough to see the plateau. Tunable before the controller fires.
 ROUNDS = int(os.environ.get("HP_ROUNDS", "50"))
 PER_ROUND = int(os.environ.get("HP_PER_ROUND", "2"))
-EPOCHS = 15
-PATIENCE = 5
+EPOCHS = 100
+PATIENCE = 15
+MIN_DELTA = 1e-3
 DATA_SEED = 42
 HP_SEED = 0
 POOL_D = 1_000_000
@@ -80,7 +81,8 @@ def expected_models(strategies: str) -> int:
     return n_strategies(strategies) * ROUNDS * PER_ROUND
 
 
-OUT_ROOT = f"{REPO}/outputs/hp_rounds_scaling"
+# Fresh root for the epochs=100 regime (no-mixing guard); override via HP_OUT_ROOT.
+OUT_ROOT = os.environ.get("HP_OUT_ROOT", f"{REPO}/outputs/hp_rounds_scaling_e100")
 
 
 def val_protocol() -> str:
@@ -168,6 +170,7 @@ export HP_FAST=1
 export HP_CACHE_DIR="$PWD/outputs/tensor_cache"
 export TORCHDYNAMO_DISABLE=1
 export PYTHONUNBUFFERED=1
+export TQDM_DISABLE=1
 {llm_env}
 ATTEMPT=0
 while true; do
@@ -176,7 +179,7 @@ while true; do
     --D {D} --ref_only {chr_val_arg} \\
     --reservoir_cache {cache_path} \\
     --data_seed {DATA_SEED} --hp_seed {HP_SEED} \\
-    --epochs {EPOCHS} --early_stop_patience {PATIENCE} \\
+    --epochs {EPOCHS} --early_stop_patience {PATIENCE} --min_delta {MIN_DELTA} \\
     --out_dir {od}
   rc=$?
   if [ $rc -eq 0 ]; then echo "=== DONE rc=0 ==="; break; fi

@@ -10,7 +10,7 @@ Design: 2 independent reps. Each rep uses a fresh (reservoir_seed, hp_seed):
 For each rep, submit all 6 mixed6 strategies. Each job uses slow_nice qos
 (D=1M → 48h walltime cap). Per-rep cache is generated first.
 
-Outputs land in outputs/random_d1M_verify/seed{S}/{strategy}/ — analyzable
+Outputs land in outputs/random_d1M_verify_e100/seed{S}/{strategy}/ — analyzable
 the same way as the main full_sweep cells.
 """
 
@@ -30,8 +30,9 @@ TASK = "k562"
 ORACLE = "ag_s2"
 ROUNDS = 2
 PER_ROUND = 3
-EPOCHS = 15
-PATIENCE = 5
+EPOCHS = 100
+PATIENCE = 15
+MIN_DELTA = 1e-3
 
 MIXED6 = [
     (
@@ -95,7 +96,7 @@ def search_sh(
     seed: int, strat: str, env: dict, sub: str, cache_path: str, dep_jobid: str | None
 ) -> tuple[str, str]:
     label = f"randv_d{D}_seed{seed}_{sub}"
-    out_dir = f"{REPO}/outputs/random_d1M_verify/seed{seed}/{sub}"
+    out_dir = f"{REPO}/outputs/random_d1M_verify_e100/seed{seed}/{sub}"
     env_lines = "\n".join(f'export {k}="{v}"' for k, v in env.items())
     dep_line = f"#SBATCH --dependency=afterok:{dep_jobid}" if dep_jobid else ""
     return (
@@ -118,11 +119,12 @@ module load EB5 2>/dev/null || true
 cd {REPO}
 source .venv/bin/activate
 export PYTHONPATH="$PWD"
+export TQDM_DISABLE=1
 {env_lines}
 uv run --no-sync python experiments/scaling_hp_search.py \\
   --strategies {strat} --rounds {ROUNDS} --per_strategy_per_round {PER_ROUND} \\
   --D {D} --ref_only --epochs {EPOCHS} \\
-  --early_stop_patience {PATIENCE} \\
+  --early_stop_patience {PATIENCE} --min_delta {MIN_DELTA} \\
   --hp_seed {seed} \\
   --reservoir_cache {cache_path} \\
   --out_dir {out_dir}

@@ -49,8 +49,11 @@ RESERVOIRS = os.environ.get("HP_RESERVOIRS", DEFAULT_RESERVOIRS).split(",")
 DS = [int(x) for x in os.environ.get("HP_DS", "3000,10000,30000,100000,300000,1000000").split(",")]
 ROUNDS = int(os.environ.get("HP_ROUNDS", "4"))
 PER_ROUND = int(os.environ.get("HP_PER_ROUND", "2"))
-EPOCHS = 15
-PATIENCE = 5
+# Definitive-run budget (2026-06-09): the prior epochs=15/patience=5 study measured
+# "fastest learner in 15 epochs" (median optimal best_epoch≈36), not best model.
+EPOCHS = 100
+PATIENCE = 15
+MIN_DELTA = 1e-3
 DATA_SEED = 42
 HP_SEED = 0
 POOL_D = 1_000_000
@@ -100,7 +103,9 @@ def qos_walltime(D: int, is_llm: bool) -> tuple[str, str]:
     return "slow_nice", "2-00:00:00"
 
 
-OUT_ROOT = f"{REPO}/outputs/hp_search"
+# Fresh root for the epochs=100 regime so it never mixes with the epochs=15 results
+# (the regime no-mixing guard would otherwise hard-fail). Override via HP_OUT_ROOT.
+OUT_ROOT = os.environ.get("HP_OUT_ROOT", f"{REPO}/outputs/hp_search_e100")
 
 
 def val_protocol() -> str:
@@ -171,6 +176,7 @@ export HP_FAST=1
 export HP_CACHE_DIR="$PWD/outputs/tensor_cache"
 export TORCHDYNAMO_DISABLE=1
 export PYTHONUNBUFFERED=1
+export TQDM_DISABLE=1
 {llm_env}
 ATTEMPT=0
 while true; do
@@ -179,7 +185,7 @@ while true; do
     --D {D} --ref_only {chr_val_arg} \\
     --reservoir_cache {cache_path} \\
     --data_seed {DATA_SEED} --hp_seed {HP_SEED} \\
-    --epochs {EPOCHS} --early_stop_patience {PATIENCE} \\
+    --epochs {EPOCHS} --early_stop_patience {PATIENCE} --min_delta {MIN_DELTA} \\
     --out_dir {od}
   rc=$?
   if [ $rc -eq 0 ]; then echo "=== DONE rc=0 ==="; break; fi
