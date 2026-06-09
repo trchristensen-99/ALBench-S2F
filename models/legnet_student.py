@@ -31,6 +31,7 @@ class TrainConfig:
     weight_decay: float = 0.01
     pct_start: float = 0.3
     early_stopping_patience: int | None = None
+    min_delta: float = 0.0
     num_workers: int = 2
     shift_aug: bool = False
     max_shift: int = 15
@@ -292,6 +293,7 @@ class LegNetStudent(SequenceModel):
                     getattr(self.train_config, "use_reverse_complement", False)
                 ),
                 early_stopping_patience=self.train_config.early_stopping_patience,
+                min_delta=self.train_config.min_delta,
                 metric_for_best="pearson_r",
                 use_amp=True,
                 use_compile=self.train_config.use_compile,
