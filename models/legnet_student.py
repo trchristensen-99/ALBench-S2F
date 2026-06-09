@@ -201,6 +201,21 @@ class LegNetStudent(SequenceModel):
         train_dataset = _InMemorySequenceDataset(x, y)
         val_dataset = _InMemorySequenceDataset(x_val, y_val)
         nw = self.train_config.num_workers
+        # Deterministic shuffle + per-worker seeding: torch.initial_seed() reflects
+        # the seed set by the caller (train_one_model does torch.manual_seed(hp.seed)),
+        # so the shuffle order and any worker-side RNG are reproducible for a given
+        # hp.seed and differ across seeds (ensemble diversity).
+        base_seed = int(torch.initial_seed() % (2**31 - 1))
+        loader_gen = torch.Generator()
+        loader_gen.manual_seed(base_seed)
+
+        def _worker_init(worker_id: int) -> None:
+            import random as _random
+
+            s = (base_seed + worker_id) % (2**31 - 1)
+            np.random.seed(s)
+            _random.seed(s)
+
         loader = DataLoader(
             train_dataset,
             batch_size=self.train_config.batch_size,
@@ -209,6 +224,8 @@ class LegNetStudent(SequenceModel):
             num_workers=nw,
             persistent_workers=nw > 0,
             drop_last=True,
+            generator=loader_gen,
+            worker_init_fn=_worker_init if nw > 0 else None,
         )
         val_loader = DataLoader(
             val_dataset,
@@ -219,7 +236,7 @@ class LegNetStudent(SequenceModel):
             persistent_workers=nw > 0,
         )
 
-        for model in self.models:
+        for member_idx, model in enumerate(self.models):
             opt_name = getattr(self.train_config, "optimizer", "adamw").lower()
             if opt_name == "muon":
                 from muon import SingleDeviceMuonWithAuxAdam
@@ -272,10 +289,13 @@ class LegNetStudent(SequenceModel):
             if getattr(self.train_config, "evoaug_intensity", None):
                 from models.evoaug_transform import EvoAugTransform
 
+                # Seed from the run seed (+ member index) so augmentation is
+                # reproducible per hp.seed and diverse across ensemble members,
+                # instead of a fixed seed that made every run see identical augs.
                 extra_aug = EvoAugTransform(
                     intensity=self.train_config.evoaug_intensity,
                     apply_prob=self.train_config.evoaug_prob,
-                    seed=42,
+                    seed=(base_seed + member_idx) % (2**31 - 1),
                     target_length=self.sequence_length,
                 )
 

@@ -94,6 +94,9 @@ class EvoAugTransform:
         params = INTENSITY_PRESETS[intensity]
         # Each batch uses a fresh sampler with shared seed (so different ops across batches)
         self._sampler = EvoAugStructuralSampler(seed=seed, **params)
+        # Dedicated RNG for the per-sample apply decision so it is reproducible
+        # for a given seed and independent of the process-global numpy RNG state.
+        self._rng = np.random.default_rng(seed)
 
     def _onehot_to_str(self, oh: np.ndarray) -> str:
         """(C, L) or (L, C) one-hot → ACGT string. Handles channels-first or last."""
@@ -136,7 +139,7 @@ class EvoAugTransform:
         target_len = x.shape[2] if channels_first else x.shape[1]
         new_x = x.copy()
         for i in range(x.shape[0]):
-            if np.random.rand() >= self.apply_prob:
+            if self._rng.random() >= self.apply_prob:
                 continue
             seq = self._onehot_to_str(x[i])
             # Apply EvoAug operations
