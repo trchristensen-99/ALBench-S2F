@@ -46,7 +46,8 @@ BIN = "/cm/shared/apps/slurm/current/bin"
 SBATCH = f"{BIN}/sbatch"
 SQUEUE = f"{BIN}/squeue"
 
-OUT_ROOT = f"{REPO}/outputs/hp_step1_bakeoff"
+# Fresh root for the epochs=100 regime (no-mixing guard); override via STEP1_OUT_ROOT.
+OUT_ROOT = os.environ.get("STEP1_OUT_ROOT", f"{REPO}/outputs/hp_step1_bakeoff_e100")
 
 # 3 reservoirs for the methodology search (design: strategy-TYPE coverage, not 10).
 # "genomic" = the chr genomic train pool (no reservoir_cache); the others use caches.
@@ -55,8 +56,9 @@ RESERVOIRS = os.environ.get("STEP1_RESERVOIRS", DEFAULT_RESERVOIRS).split(",")
 DS = [int(x) for x in os.environ.get("STEP1_DS", "30000").split(",")]  # 300k deferred
 ROUNDS = int(os.environ.get("STEP1_ROUNDS", "50"))
 PER_ROUND = int(os.environ.get("STEP1_PER_ROUND", "2"))
-EPOCHS = 15
-PATIENCE = 5
+EPOCHS = 100
+PATIENCE = 15
+MIN_DELTA = 1e-3
 POOL_D = 1_000_000
 DATA_SEED_REF = 42  # reservoir-cache seed in the cache filename
 
@@ -207,7 +209,7 @@ while true; do
     --strategies {strategy} --rounds {ROUNDS} --per_strategy_per_round {PER_ROUND} \\
     --D {D} --ref_only {chr_val_arg} {cache_arg} \\
     --data_seed {ds} --hp_seed {hs} \\
-    --epochs {EPOCHS} --early_stop_patience {PATIENCE} \\
+    --epochs {EPOCHS} --early_stop_patience {PATIENCE} --min_delta {MIN_DELTA} \\
     --out_dir {od}
   rc=$?
   if [ $rc -eq 0 ]; then touch {od}/.bakeoff_done; echo "=== DONE rc=0 ==="; break; fi
