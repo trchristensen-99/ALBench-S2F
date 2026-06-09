@@ -936,31 +936,23 @@ def _load_k562_ag_s2_oracle():
         oracle_dir = Path(_override)
         logger.info("AG_S2 oracle dir overridden via AG_S2_ORACLE_DIR=%s", oracle_dir)
     else:
-        # Prefer the chr-split natural ensemble (the only valid AG_S2 oracle for
-        # the chr-split protocol). Only use it once all 10 folds have landed —
-        # a partial ensemble would silently bias downstream pseudo-labels.
-        chr_split_dir = REPO / "outputs" / "oracle_chrsplit_natural" / "s2"
-        chr_split_folds = (
-            sorted(
-                p
-                for p in chr_split_dir.glob("fold_*")
-                if (p / "best_model" / "checkpoint").exists()
+        # Canonical AG_S2 oracle = full856k_clean (random 10-fold CV, seed=42,
+        # 90/10 per fold over the full pool). No silent fallback: a partial or
+        # missing ensemble would bias every downstream pseudo-label, so we
+        # hard-fail rather than quietly substitute a legacy/hashfrag oracle.
+        oracle_dir = REPO / "outputs" / "oracle_full856k_clean" / "s2"
+        n_folds = (
+            len(
+                [p for p in oracle_dir.glob("fold_*") if (p / "best_model" / "checkpoint").exists()]
             )
-            if chr_split_dir.exists()
-            else []
+            if oracle_dir.exists()
+            else 0
         )
-        if len(chr_split_folds) >= 10:
-            oracle_dir = chr_split_dir
-        else:
-            # Fall back to the legacy stage2_k562_oracle (hashfrag-trained) until
-            # the chr-split retrain completes. Log a warning so downstream callers
-            # know the oracle is provisional.
-            oracle_dir = REPO / "outputs" / "stage2_k562_oracle"
-            logger.warning(
-                "AG_S2 chr-split ensemble only has %d/10 folds — falling back to "
-                "legacy %s. Re-run after chr-split retrain completes.",
-                len(chr_split_folds),
-                oracle_dir,
+        if n_folds < 10:
+            raise FileNotFoundError(
+                f"Canonical AG_S2 oracle {oracle_dir} has {n_folds}/10 folds. "
+                "Refusing to fall back to a legacy oracle — set AG_S2_ORACLE_DIR "
+                "explicitly to use a different ensemble."
             )
     ckpt_paths = sorted(
         [
@@ -990,8 +982,33 @@ def _load_k562_ag_s2_oracle():
     f5_enc = _encode_flanks(flank_5)
     f3_enc = _encode_flanks(flank_3)
 
+    # ── Load all fold checkpoints ────────────────────────────────────────
+    # S2 checkpoints contain the FULL model (encoder + head), so we load
+    # them directly (no _merge needed, unlike S1 head-only checkpoints).
+    checkpointer = ocp.StandardCheckpointer()
+    params_list = []
+    for ckpt_path in ckpt_paths:
+        loaded_params, _ = checkpointer.restore(ckpt_path)
+        params_list.append(jax.device_put(loaded_params))
+
     # ── Build model with the S2 oracle head ──────────────────────────────
-    head_name = "alphagenome_k562_head_hashfrag_boda_flatten_512_512_v4"
+    # Detect the head module name from the checkpoint itself: the apply tree
+    # haiku builds is keyed by head_name, so it MUST equal the name the
+    # checkpoint was trained under. Hardcoding a stale name (e.g. the old
+    # hashfrag head) makes haiku look up params that don't exist and crash
+    # with "Unable to retrieve parameter 'scale' for module '.../~predict/norm'".
+    # Haiku params are a flat dict keyed by module path, e.g.
+    # "head/<head_name>/~predict/norm" -> {"scale": ..., "offset": ...}.
+    head_names = sorted(
+        {k.split("/")[1] for k in params_list[0] if k.startswith("head/") and "/" in k[5:]}
+    )
+    if len(head_names) != 1:
+        raise ValueError(
+            f"Expected exactly one head in AG_S2 oracle checkpoint {ckpt_paths[0]}, "
+            f"found {len(head_names)}: {head_names}"
+        )
+    head_name = head_names[0]
+    logger.info("AG_S2 oracle head detected from checkpoint: %s", head_name)
     register_s2f_head(
         head_name=head_name,
         arch="boda-flatten-512-512",
@@ -1023,14 +1040,6 @@ def _load_k562_ag_s2_oracle():
             strand_reindexing=None,
         )[head_name]
 
-    # ── Load all fold checkpoints ────────────────────────────────────────
-    # S2 checkpoints contain the FULL model (encoder + head), so we load
-    # them directly (no _merge needed, unlike S1 head-only checkpoints).
-    checkpointer = ocp.StandardCheckpointer()
-    params_list = []
-    for ckpt_path in ckpt_paths:
-        loaded_params, _ = checkpointer.restore(ckpt_path)
-        params_list.append(jax.device_put(loaded_params))
     model_state = model._state
 
     # ── Build pseudo-label lookup cache (optional, for speed) ────────────
@@ -1578,12 +1587,14 @@ def _train_ag_s2_student(
     epochs = s2_cfg["epochs"]
     patience = s2_cfg["early_stop_patience"]
     warmup_epochs = s2_cfg["warmup_epochs"]
-    if (_hlr := os.environ.get("S2_HEAD_LR")):
+    if _hlr := os.environ.get("S2_HEAD_LR"):
         head_lr = float(_hlr)
         logger.info(f"  S2: head_lr overridden to {head_lr} (from S2_HEAD_LR env)")
-    if (_we := os.environ.get("S2_WARMUP_EPOCHS")):
+    if _we := os.environ.get("S2_WARMUP_EPOCHS"):
         warmup_epochs = int(_we)
-        logger.info(f"  S2: warmup_epochs overridden to {warmup_epochs} (from S2_WARMUP_EPOCHS env)")
+        logger.info(
+            f"  S2: warmup_epochs overridden to {warmup_epochs} (from S2_WARMUP_EPOCHS env)"
+        )
 
     task_cfg = TASK_CONFIGS[task]
     head_name = f"s2f_exp1_s2_{task}_{seed}"
@@ -1716,11 +1727,15 @@ def _train_ag_s2_student(
     # S2 optional opt-tuning env vars:
     #   S2_COSINE_LR=1 — wrap LR in cosine decay (over post-warmup steps)
     #   S2_GRAD_CLIP=<val> — global-norm grad clipping (e.g., 1.0)
-    cosine_lr = bool(int(os.environ.get('S2_COSINE_LR', '0') or 0))
-    grad_clip = float(os.environ.get('S2_GRAD_CLIP', '0') or 0.0)
+    cosine_lr = bool(int(os.environ.get("S2_COSINE_LR", "0") or 0))
+    grad_clip = float(os.environ.get("S2_GRAD_CLIP", "0") or 0.0)
     if cosine_lr:
-        # Total post-warmup steps for decay: (epochs - warmup) * steps/epoch
-        steps_per_epoch = max(1, n_train // batch_size)
+        # Total post-warmup steps for decay: (epochs - warmup) * steps/epoch.
+        # Mirror the 90/10 train/val split below (n_val floored at 100) so the
+        # schedule length matches the actual training-set size.
+        _n_total = len(sequences)
+        _n_train = _n_total - max(int(_n_total * 0.1), 100)
+        steps_per_epoch = max(1, _n_train // batch_size)
         post_warmup_steps = max(1, (epochs - warmup_epochs)) * steps_per_epoch
         logger.info(f"  S2: cosine LR enabled, decay over {post_warmup_steps} steps")
     if grad_clip > 0:
@@ -1801,7 +1816,7 @@ def _train_ag_s2_student(
     #   loss = MSE + lambda * sum((p - p_ref)^2) over UNFROZEN params (frozen ones
     #   contribute 0 since their LR is 0 via multi_transform).
     # Reference params are the S1-merged params at S2 start.
-    l2_anchor_lambda = float(os.environ.get('S2_L2_ANCHOR_LAMBDA', '0') or 0.0)
+    l2_anchor_lambda = float(os.environ.get("S2_L2_ANCHOR_LAMBDA", "0") or 0.0)
     if l2_anchor_lambda > 0:
         ref_params = jax.tree.map(lambda x: x, model._params)
         logger.info(f"  S2: L2-anchor regularization enabled (lambda={l2_anchor_lambda})")
@@ -1959,14 +1974,16 @@ def _train_ag_s2_student(
         # Periodic snapshot saving for stopping-point analysis. Triggered by
         # AG_S2_SNAPSHOT_DIR + AG_S2_SNAPSHOT_EVERY env vars. Snapshots written
         # to {AG_S2_SNAPSHOT_DIR}/epoch_{N}/checkpoint.
-        _snap_dir = os.environ.get('AG_S2_SNAPSHOT_DIR')
-        _snap_every = int(os.environ.get('AG_S2_SNAPSHOT_EVERY', '0') or 0)
+        _snap_dir = os.environ.get("AG_S2_SNAPSHOT_DIR")
+        _snap_every = int(os.environ.get("AG_S2_SNAPSHOT_EVERY", "0") or 0)
         if _snap_dir and _snap_every > 0 and (epoch + 1) % _snap_every == 0:
-            import orbax.checkpoint as ocp
             from pathlib import Path as _Path
-            _snap_path = _Path(_snap_dir) / f'epoch_{epoch + 1}'
+
+            import orbax.checkpoint as ocp
+
+            _snap_path = _Path(_snap_dir) / f"epoch_{epoch + 1}"
             _snap_path.mkdir(parents=True, exist_ok=True)
-            _ckpt_path = (_snap_path / 'checkpoint').resolve()
+            _ckpt_path = (_snap_path / "checkpoint").resolve()
             try:
                 _cur_params = jax.device_get(model._params)
                 _ckpter = ocp.StandardCheckpointer()
@@ -3025,11 +3042,13 @@ def run_scaling_experiment(
                             if task == "k562":
                                 # Prefer chr-split files when chr_split=True.
                                 in_file = (
-                                    test_dir / "test_chr7_13_all.tsv" if chr_split
+                                    test_dir / "test_chr7_13_all.tsv"
+                                    if chr_split
                                     else test_dir / "test_in_distribution_hashfrag.tsv"
                                 )
                                 snv_file = (
-                                    test_dir / "test_snv_pairs.tsv" if chr_split
+                                    test_dir / "test_snv_pairs.tsv"
+                                    if chr_split
                                     else test_dir / "test_snv_pairs_hashfrag.tsv"
                                 )
                                 in_df = pd.read_csv(in_file, sep="\t")
