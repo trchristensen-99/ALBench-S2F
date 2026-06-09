@@ -21,7 +21,7 @@ import numpy as np
 import torch
 from scipy.stats import pearsonr
 
-from experiments.test_set_guards import assert_mono_snv
+from experiments.test_set_guards import assert_mono_snv, read_battery_provenance
 
 REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
 CACHE = REPO / "outputs/chr_split_cache"
@@ -60,17 +60,7 @@ def load_battery_provenance() -> dict:
     battery has been re-scored + stamped (see PROVENANCE.json in BATTERY_DIR).
     Surfacing these here lets every HP result record exactly which oracle and
     test-set version produced its labels."""
-    prov_path = BATTERY_DIR / "PROVENANCE.json"
-    if prov_path.exists():
-        try:
-            p = json.loads(prov_path.read_text())
-            return {
-                "oracle_id": str(p.get("oracle_id", "unstamped")),
-                "test_set_version": str(p.get("test_set_version", "unstamped")),
-            }
-        except Exception:
-            pass
-    return {"oracle_id": "unstamped", "test_set_version": "unstamped"}
+    return read_battery_provenance(BATTERY_DIR)
 
 
 def build_regime(args, patience: int, min_delta: float, battery_prov: dict) -> dict:

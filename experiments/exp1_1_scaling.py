@@ -49,6 +49,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from albench.model import SequenceModel  # noqa: E402
+from experiments.test_set_guards import assert_label_cache_oracle  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -2585,6 +2586,9 @@ def run_scaling_experiment(
             label_cache_dir = output_base / reservoir_name / f"n{n_train}"
             label_cache_path = label_cache_dir / "oracle_labels.npz"
             if label_cache_path.exists():
+                assert_label_cache_oracle(
+                    np.load(label_cache_path, allow_pickle=True), label_cache_path, resolved_oracle
+                )
                 continue
             pool_path = pool_base / reservoir_name / "pool.npz"
             if not pool_path.exists():
@@ -2600,6 +2604,7 @@ def run_scaling_experiment(
                 label_cache_path,
                 sequences=np.array(seqs, dtype=object),
                 labels=labels,
+                oracle_id=np.array(resolved_oracle),
             )
             logger.info(f"[cached-pool] Cached {len(seqs):,} labels to {label_cache_path}")
         # No oracle to free — skip directly to student training
@@ -2622,6 +2627,9 @@ def run_scaling_experiment(
         label_cache_dir = output_base / reservoir_name / f"n{n_train}"
         label_cache_path = label_cache_dir / "oracle_labels.npz"
         if label_cache_path.exists():
+            assert_label_cache_oracle(
+                np.load(label_cache_path, allow_pickle=True), label_cache_path, resolved_oracle
+            )
             continue  # Already cached
         logger.info(f"[pre-label] Generating + labeling n={n_train:,} for {reservoir_name}")
         label_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -2695,7 +2703,10 @@ def run_scaling_experiment(
         else:
             _labels = oracle.predict(_seqs)
         np.savez_compressed(
-            label_cache_path, sequences=np.array(_seqs, dtype=object), labels=_labels
+            label_cache_path,
+            sequences=np.array(_seqs, dtype=object),
+            labels=_labels,
+            oracle_id=np.array(resolved_oracle),
         )
         logger.info(f"[pre-label] Cached {len(_seqs):,} labels to {label_cache_path}")
         del _seqs, _labels, _res

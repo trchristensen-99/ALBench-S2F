@@ -27,6 +27,7 @@ from scaling_hp_search import (
     load_chr_test_genomic,
     train_one_model,
 )
+from test_set_guards import assert_battery_provenance, assert_mono_snv
 
 HP_FIXED = dict(
     lr=0.003,
@@ -92,13 +93,17 @@ def main():
     train_seqs, train_labels = subsample_chr_train(args.N, args.seed, args.label_source)
     val_seqs, val_labels = load_chr_val(args.label_source)
     test_seqs, test_oracle, test_real = load_chr_test_genomic()
-    # SNV + OOD extra test sets
-    snv = np.load(REPO / "data/k562/test_sets_ag_s2_chrsplit/snv_oracle.npz", allow_pickle=True)
+    # SNV + OOD extra test sets — gate on canonical battery provenance first so a
+    # stale / differently-scored battery can never be silently trained against.
+    battery_dir = REPO / "data/k562/test_sets_ag_s2_chrsplit"
+    assert_battery_provenance(battery_dir)
+    snv = np.load(battery_dir / "snv_oracle.npz", allow_pickle=True)
+    assert_mono_snv(snv, battery_dir / "snv_oracle.npz")
     snv_ref_seqs = list(snv["ref_sequences"])
     snv_alt_seqs = list(snv["alt_sequences"])
     snv_delta_oracle = snv["delta_mean"].astype(np.float32)
     snv_delta_real = snv["true_delta"].astype(np.float32)
-    ood = np.load(REPO / "data/k562/test_sets_ag_s2_chrsplit/ood_oracle.npz", allow_pickle=True)
+    ood = np.load(battery_dir / "ood_oracle.npz", allow_pickle=True)
     ood_seqs = list(ood["sequences"])
     ood_oracle_y = ood["oracle_mean"].astype(np.float32)
     ood_real_y = ood["true_label"].astype(np.float32)

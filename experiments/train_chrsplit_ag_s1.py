@@ -79,20 +79,24 @@ def main():
     val_seqs = [s for s, f in zip(val_seqs, finite_v) if f]
     val_labels = val_labels[finite_v]
 
+    # Gate on canonical battery provenance before loading any test set.
+    from experiments.test_set_guards import assert_battery_provenance, assert_mono_snv
+
+    battery_dir = REPO / "data/k562/test_sets_ag_s2_chrsplit"
+    assert_battery_provenance(battery_dir)
     # Test set with both oracle and real labels
-    test_z = np.load(
-        REPO / "data/k562/test_sets_ag_s2_chrsplit/genomic_oracle.npz", allow_pickle=True
-    )
+    test_z = np.load(battery_dir / "genomic_oracle.npz", allow_pickle=True)
     test_seqs = list(test_z["sequences"])
     test_oracle = test_z["oracle_mean"].astype(np.float32)
     test_real = test_z["true_label"].astype(np.float32)
     # SNV + OOD extras
-    snv = np.load(REPO / "data/k562/test_sets_ag_s2_chrsplit/snv_oracle.npz", allow_pickle=True)
+    snv = np.load(battery_dir / "snv_oracle.npz", allow_pickle=True)
+    assert_mono_snv(snv, battery_dir / "snv_oracle.npz")
     snv_ref_seqs = list(snv["ref_sequences"])
     snv_alt_seqs = list(snv["alt_sequences"])
     snv_delta_oracle = snv["delta_mean"].astype(np.float32)
     snv_delta_real = snv["true_delta"].astype(np.float32)
-    ood_z = np.load(REPO / "data/k562/test_sets_ag_s2_chrsplit/ood_oracle.npz", allow_pickle=True)
+    ood_z = np.load(battery_dir / "ood_oracle.npz", allow_pickle=True)
     ood_seqs = list(ood_z["sequences"])
     ood_oracle_y = ood_z["oracle_mean"].astype(np.float32)
     ood_real_y = ood_z["true_label"].astype(np.float32)
