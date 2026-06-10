@@ -288,15 +288,33 @@ class LegNetStudent(SequenceModel):
                     lr=self.train_config.lr,
                     weight_decay=self.train_config.weight_decay,
                 )
-            steps_per_epoch = len(loader)
-            total_steps = steps_per_epoch * self.train_config.epochs
-            scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                optimizer,
-                max_lr=self.train_config.lr,
-                total_steps=total_steps,
-                pct_start=self.train_config.pct_start,
-                cycle_momentum=(opt_name != "muon"),
-            )
+            # LR schedule. Default "plateau" (ReduceLROnPlateau, stepped per-epoch on
+            # val pearson): the correct pairing with early stopping — LR drops only when
+            # val plateaus, so best-val weights come from a properly annealed regime no
+            # matter which epoch the run stops at. OneCycle (sized to the FULL epoch
+            # budget) left early-stopped runs mid-ramp, so best weights never saw a low
+            # refined LR. Set train_config.lr_schedule="onecycle" to restore the old path.
+            lr_schedule = getattr(self.train_config, "lr_schedule", "plateau")
+            scheduler = None
+            epoch_scheduler = None
+            if lr_schedule == "onecycle":
+                steps_per_epoch = len(loader)
+                total_steps = steps_per_epoch * self.train_config.epochs
+                scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                    optimizer,
+                    max_lr=self.train_config.lr,
+                    total_steps=total_steps,
+                    pct_start=self.train_config.pct_start,
+                    cycle_momentum=(opt_name != "muon"),
+                )
+            else:
+                epoch_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer,
+                    mode="max",  # metric_for_best="pearson_r" below
+                    factor=getattr(self.train_config, "lr_plateau_factor", 0.5),
+                    patience=getattr(self.train_config, "lr_plateau_patience", 5),
+                    threshold=self.train_config.min_delta,
+                )
             if self.task_mode == "yeast":
                 criterion: nn.Module = YeastKLLoss()
             elif self.multitask:
@@ -331,6 +349,7 @@ class LegNetStudent(SequenceModel):
                 num_epochs=self.train_config.epochs,
                 device=self.device,
                 scheduler=scheduler,
+                epoch_scheduler=epoch_scheduler,
                 checkpoint_dir=None,
                 use_reverse_complement=bool(
                     getattr(self.train_config, "use_reverse_complement", False)

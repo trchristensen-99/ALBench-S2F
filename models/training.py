@@ -104,7 +104,11 @@ def train_epoch_optimized(
         optimizer: Optimizer
         criterion: Loss function
         device: Device to train on
-        scheduler: Optional learning rate scheduler (called after each batch)
+        scheduler: Optional per-batch LR scheduler (e.g. OneCycleLR)
+        epoch_scheduler: Optional per-epoch LR scheduler stepped on the val metric
+            (e.g. ReduceLROnPlateau). Correct pairing with early stopping: LR drops
+            only when val plateaus, so best-val weights come from a properly annealed
+            regime regardless of which epoch the run stops at.
         use_reverse_complement: Whether to average predictions with reverse complement
         use_amp: Whether to use automatic mixed precision
         shift_aug: Whether to apply random shift augmentation
@@ -239,6 +243,7 @@ def train_model_optimized(
     num_epochs: int,
     device: torch.device,
     scheduler: Optional[Any] = None,
+    epoch_scheduler: Optional[Any] = None,
     checkpoint_dir: Optional[Path] = None,
     use_reverse_complement: bool = True,
     early_stopping_patience: Optional[int] = None,
@@ -461,6 +466,10 @@ def train_model_optimized(
         else:
             patience_counter += 1
 
+        # Per-epoch LR schedule (e.g. ReduceLROnPlateau) steps on the val metric.
+        if epoch_scheduler is not None:
+            epoch_scheduler.step(current_metric)
+
         if is_best:
             best_metric = current_metric
             best_epoch = epoch
@@ -512,6 +521,8 @@ def train_model_optimized(
             }
             if scheduler is not None:
                 extra_state["scheduler_state_dict"] = scheduler.state_dict()
+            if epoch_scheduler is not None:
+                extra_state["epoch_scheduler_state_dict"] = epoch_scheduler.state_dict()
 
             # Use model's save_checkpoint method
             if hasattr(save_model, "save_checkpoint"):
