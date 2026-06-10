@@ -33,10 +33,11 @@ uv run --no-sync python scripts/generate_master_pool.py \
     --task k562 --reservoir prm_5pct \
     --target 4000 --n-shards 2 --shard 0 --mode seed --seed 42 --out-root "${ROOT}"
 
-# 2) index-mode (raw genomic, finite pool slice).
+# 2) index-mode (raw genomic). index slices the finite pool into n_shards equal
+#    parts (ignores --target), so use many shards to keep this smoke slice small.
 uv run --no-sync python scripts/generate_master_pool.py \
     --task k562 --reservoir genomic \
-    --target 4000 --n-shards 2 --shard 0 --mode index --seed 42 --out-root "${ROOT}"
+    --target 4000 --n-shards 80 --shard 0 --mode index --seed 42 --out-root "${ROOT}"
 
 # 3) verify shard schema + materialize a seeded subset cache from the prm shard.
 uv run --no-sync python - "${ROOT}" <<'PY'
