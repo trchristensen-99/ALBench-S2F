@@ -33,6 +33,77 @@ def _resolve_activation(name: str):
     }.get(str(name).lower(), nn.SiLU)
 
 
+# Per-batch schedulers step every optimizer step; everything else steps per epoch.
+# Anything not handled by name is treated as a per-epoch scheduler.
+_PER_BATCH_SCHEDULERS = {"OneCycleLR", "CyclicLR"}
+
+
+def build_lr_schedulers(optimizer, train_config, steps_per_epoch: int, opt_name: str):
+    """Build the LR schedule for a tunable `train_config.lr_schedule` axis.
+
+    Returns ``(scheduler, epoch_scheduler)`` where at most one is non-None:
+      * ``scheduler``       — stepped per optimizer step (OneCycle/Cyclic),
+      * ``epoch_scheduler`` — stepped per epoch (plateau on val metric, or epoch-based).
+
+    Named menu (LR_SCHEDULE_CHOICES): plateau, onecycle, cosine, cosine_warm, step,
+    exponential, constant. The LLM AutoResearch strategy may also pass an OFF-MENU name
+    (a torch.optim.lr_scheduler class name) plus extra["lr_schedule_kwargs"]; we build it
+    generically and, on any failure, fall back to ReduceLROnPlateau so a run never crashes.
+    """
+    sched = str(getattr(train_config, "lr_schedule", "plateau") or "plateau")
+    lr = train_config.lr
+    epochs = train_config.epochs
+    L = torch.optim.lr_scheduler
+
+    def _plateau():
+        return L.ReduceLROnPlateau(
+            optimizer,
+            mode="max",  # ranked on val pearson_r
+            factor=getattr(train_config, "lr_plateau_factor", 0.5),
+            patience=getattr(train_config, "lr_plateau_patience", 5),
+            threshold=getattr(train_config, "min_delta", 1e-3),
+        )
+
+    if sched == "plateau":
+        return None, _plateau()
+    if sched == "onecycle":
+        return (
+            L.OneCycleLR(
+                optimizer,
+                max_lr=lr,
+                total_steps=steps_per_epoch * epochs,
+                pct_start=getattr(train_config, "pct_start", 0.3),
+                cycle_momentum=(opt_name != "muon"),
+            ),
+            None,
+        )
+    if sched == "cosine":
+        return None, L.CosineAnnealingLR(optimizer, T_max=max(1, epochs))
+    if sched == "cosine_warm":
+        return None, L.CosineAnnealingWarmRestarts(optimizer, T_0=max(1, epochs // 4))
+    if sched == "step":
+        return None, L.StepLR(optimizer, step_size=max(1, epochs // 3), gamma=0.3)
+    if sched == "exponential":
+        return None, L.ExponentialLR(optimizer, gamma=0.95)
+    if sched in ("constant", "none"):
+        return None, None
+
+    # Off-menu: try to build a torch scheduler class by name with LLM-supplied kwargs.
+    kwargs = dict((getattr(train_config, "extra", None) or {}).get("lr_schedule_kwargs", {}))
+    cls = getattr(L, sched, None)
+    if cls is not None:
+        try:
+            obj = cls(optimizer, **kwargs)
+            if sched in _PER_BATCH_SCHEDULERS:
+                return obj, None
+            return None, obj
+        except Exception as e:  # noqa: BLE001 — never let an off-menu name crash a run
+            print(f"⚠ off-menu lr_schedule {sched!r} failed ({e}); falling back to plateau")
+    else:
+        print(f"⚠ unknown lr_schedule {sched!r}; falling back to plateau")
+    return None, _plateau()
+
+
 @dataclass
 class TrainConfig:
     """Training hyperparameters for one ensemble member."""
@@ -288,33 +359,11 @@ class LegNetStudent(SequenceModel):
                     lr=self.train_config.lr,
                     weight_decay=self.train_config.weight_decay,
                 )
-            # LR schedule. Default "plateau" (ReduceLROnPlateau, stepped per-epoch on
-            # val pearson): the correct pairing with early stopping — LR drops only when
-            # val plateaus, so best-val weights come from a properly annealed regime no
-            # matter which epoch the run stops at. OneCycle (sized to the FULL epoch
-            # budget) left early-stopped runs mid-ramp, so best weights never saw a low
-            # refined LR. Set train_config.lr_schedule="onecycle" to restore the old path.
-            lr_schedule = getattr(self.train_config, "lr_schedule", "plateau")
-            scheduler = None
-            epoch_scheduler = None
-            if lr_schedule == "onecycle":
-                steps_per_epoch = len(loader)
-                total_steps = steps_per_epoch * self.train_config.epochs
-                scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                    optimizer,
-                    max_lr=self.train_config.lr,
-                    total_steps=total_steps,
-                    pct_start=self.train_config.pct_start,
-                    cycle_momentum=(opt_name != "muon"),
-                )
-            else:
-                epoch_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                    optimizer,
-                    mode="max",  # metric_for_best="pearson_r" below
-                    factor=getattr(self.train_config, "lr_plateau_factor", 0.5),
-                    patience=getattr(self.train_config, "lr_plateau_patience", 5),
-                    threshold=self.train_config.min_delta,
-                )
+            # LR schedule is a tunable HP axis (train_config.lr_schedule). Returns at most
+            # one of (per-batch scheduler, per-epoch epoch_scheduler).
+            scheduler, epoch_scheduler = build_lr_schedulers(
+                optimizer, self.train_config, len(loader), opt_name
+            )
             if self.task_mode == "yeast":
                 criterion: nn.Module = YeastKLLoss()
             elif self.multitask:

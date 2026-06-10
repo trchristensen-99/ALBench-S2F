@@ -37,6 +37,7 @@ import torch
 from scipy.stats import pearsonr
 
 from experiments.scaling_hp_search import (
+    LR_SCHEDULE_CHOICES,
     REPO,
     HPConfig,
     _atomic_savez,
@@ -75,6 +76,7 @@ def build_search_space():
         "use_shift_aug": tune.choice([True, False]),
         "shift_max": tune.choice([5, 10, 15, 20]),
         "use_evoaug": tune.choice([True, False]),
+        "lr_schedule": tune.choice(LR_SCHEDULE_CHOICES),
     }
 
 
@@ -134,6 +136,7 @@ def _hp_from_config(config: dict, seed: int) -> HPConfig:
         use_shift_aug=bool(config["use_shift_aug"]),
         shift_max=int(config["shift_max"]),
         use_evoaug=bool(config["use_evoaug"]),
+        lr_schedule=str(config["lr_schedule"]),
         seed=seed,
     )
 

@@ -38,7 +38,7 @@ sys.path.insert(0, str(REPO))
 from experiments.hp_strategies import Strategy  # noqa: E402
 from experiments.scaling_hp_search import EXPERIMENTAL_KNOBS_DOC, HPConfig  # noqa: E402
 
-# The 15 core axes; anything else the LLM emits is gathered into HPConfig.extra
+# The core axes; anything else the LLM emits is gathered into HPConfig.extra
 # (only when novel-axes mode is on).
 _CORE_KEYS = {
     "lr",
@@ -56,6 +56,7 @@ _CORE_KEYS = {
     "use_shift_aug",
     "shift_max",
     "use_evoaug",
+    "lr_schedule",
 }
 
 
@@ -150,7 +151,13 @@ HP_SPACE_SPEC = """HP SEARCH SPACE for LegNet sequence-to-function predictor:
                      Peter: stronger inductive bias for reg-genomics
                    - "plain": vanilla 2-layer conv (baseline)
   ks             : kernel size, categorical {3, 5, 7, 9, 11}
-  pct_start      : OneCycleLR warmup fraction, categorical {0.1, 0.2, 0.3, 0.4}
+  pct_start      : OneCycleLR warmup fraction, categorical {0.1, 0.2, 0.3, 0.4} (only used if lr_schedule="onecycle")
+  lr_schedule    : categorical {"plateau","onecycle","cosine","cosine_warm","step","exponential","constant"}
+                   - "plateau": ReduceLROnPlateau on val pearson (default; correct with early stopping)
+                   - "onecycle": OneCycleLR over the full epoch budget (uses pct_start)
+                   - You MAY also propose an OFF-MENU torch.optim.lr_scheduler class name here
+                     (e.g. "PolynomialLR") and pass its args via extra.lr_schedule_kwargs — it
+                     will be built generically (falls back to plateau if it can't construct).
   optimizer      : categorical {"adam", "adamw", "muon"}
                    (muon = Keller Jordan's; orthogonalized momentum, often outperforms AdamW on conv stacks)
   weight_decay   : log-uniform in [1e-6, 1e-2]
@@ -310,7 +317,8 @@ def build_prompt(
         f"\nPropose {n} new HP configs. Output ONLY a valid JSON array, no extra text. "
         "Each dict must have these keys (in this order):\n"
         "  lr, batch_size, conv_dropout, dense_dropout, n_layers, width_base, width_jitter, "
-        "block_class, ks, pct_start, optimizer, weight_decay, use_shift_aug, shift_max, use_evoaug\n"
+        "block_class, ks, pct_start, optimizer, weight_decay, use_shift_aug, shift_max, use_evoaug, "
+        "lr_schedule\n"
         "`width_jitter` should be a list of length n_layers."
     )
     if not neutral:
@@ -578,6 +586,9 @@ def dict_to_hpconfig(d: dict, seed: int, allow_novel: bool = False) -> HPConfig:
         use_shift_aug=bool(d.get("use_shift_aug", False)),
         shift_max=int(d.get("shift_max", 15)),
         use_evoaug=bool(d.get("use_evoaug", False)),
+        # On-menu names build directly; an off-menu torch class name is allowed (built
+        # generically in LegNetStudent, falls back to plateau). Accept any string.
+        lr_schedule=str(d.get("lr_schedule", "plateau")) or "plateau",
         seed=seed,
         extra=extra,
     )
