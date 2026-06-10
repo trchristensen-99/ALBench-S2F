@@ -115,6 +115,17 @@ def load_chr_train_pool(
         cache_path = Path(reservoir_cache)
         z = np.load(cache_path, allow_pickle=True)
         fname = cache_path.name
+        # Contamination guard: refuse any reservoir cache not stamped with the
+        # canonical oracle. Re-score with scripts/rescore_reservoir_cache.py.
+        # Override only for deliberate ad-hoc runs via HP_ALLOW_UNSTAMPED=1.
+        if os.environ.get("HP_ALLOW_UNSTAMPED") != "1":
+            stamp = str(z["oracle_id"]) if "oracle_id" in z.files else "UNSTAMPED"
+            if stamp != "full856k_clean":
+                raise RuntimeError(
+                    f"reservoir cache {fname} has oracle_id={stamp!r}, expected "
+                    "'full856k_clean'. Re-score it (scripts/rescore_reservoir_cache.py) "
+                    "or set HP_ALLOW_UNSTAMPED=1 to bypass."
+                )
     else:
         fname = "chr_train_ref_only.npz" if ref_only else "chr_train_all_alleles.npz"
         z = np.load(CACHE / fname, allow_pickle=True)
