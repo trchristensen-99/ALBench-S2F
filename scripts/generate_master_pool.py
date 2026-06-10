@@ -113,7 +113,8 @@ def main() -> None:
         "label_mean": float(np.mean(labels)),
         "label_std": float(np.std(labels)),
     }
-    tmp = out.with_suffix(".npz.tmp")
+    # Temp name must end in .npz or np.savez_compressed appends a second .npz.
+    tmp = out.with_name(out.stem + ".tmp.npz")
     np.savez_compressed(
         tmp,
         sequences=np.array(seqs, dtype=object),
