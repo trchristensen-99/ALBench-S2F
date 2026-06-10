@@ -290,11 +290,29 @@ class HPConfig:
     shift_max: int
     use_evoaug: bool
     seed: int
+    # LR-schedule axis. One of LR_SCHEDULE_CHOICES; default "plateau" keeps configs
+    # that don't set it on the early-stop-correct schedule. The LLM may also put an
+    # off-menu scheduler name here (or a torch class name) + an optional
+    # extra["lr_schedule_kwargs"] dict — LegNetStudent builds it generically.
+    lr_schedule: str = "plateau"
     # Free-form, off-menu axes proposed by the LLM AutoResearch strategy when
-    # LLM_ALLOW_NOVEL_AXES=1. Empty for all core-15-axis configs. Recognized keys
+    # LLM_ALLOW_NOVEL_AXES=1. Empty for all core-axis configs. Recognized keys
     # (see EXPERIMENTAL_KNOBS) are applied to training/model; unrecognized keys
     # are recorded in the meta for human review but are inert.
     extra: dict = field(default_factory=dict)
+
+
+# LR-schedule menu the fixed-axis optimizers sample from. LegNetStudent also accepts
+# any other name (e.g. an off-menu torch scheduler class) and falls back to "plateau".
+LR_SCHEDULE_CHOICES = [
+    "plateau",  # ReduceLROnPlateau (default; correct under early stopping)
+    "onecycle",  # OneCycleLR over the full epoch budget (per-batch)
+    "cosine",  # CosineAnnealingLR over epochs
+    "cosine_warm",  # CosineAnnealingWarmRestarts
+    "step",  # StepLR
+    "exponential",  # ExponentialLR
+    "constant",  # no schedule
+]
 
 
 # ── Experimental / novel HP knobs ───────────────────────────────────────────
@@ -391,6 +409,7 @@ def sample_random_hp(rng: np.random.Generator, seed: int) -> HPConfig:
         use_shift_aug=bool(rng.random() < 0.5),
         shift_max=int(rng.choice([5, 10, 15, 20])),
         use_evoaug=bool(rng.random() < 0.3),
+        lr_schedule=str(rng.choice(LR_SCHEDULE_CHOICES)),
         seed=seed,
     )
 

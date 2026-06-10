@@ -466,9 +466,13 @@ def train_model_optimized(
         else:
             patience_counter += 1
 
-        # Per-epoch LR schedule (e.g. ReduceLROnPlateau) steps on the val metric.
+        # Per-epoch LR schedule. ReduceLROnPlateau steps on the val metric; epoch-based
+        # schedulers (cosine/step/exponential/…) step with no argument.
         if epoch_scheduler is not None:
-            epoch_scheduler.step(current_metric)
+            if isinstance(epoch_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                epoch_scheduler.step(current_metric)
+            else:
+                epoch_scheduler.step()
 
         if is_best:
             best_metric = current_metric

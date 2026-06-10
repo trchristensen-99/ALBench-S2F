@@ -24,7 +24,7 @@ from typing import Any
 
 import numpy as np
 
-from experiments.scaling_hp_search import HPConfig, sample_random_hp
+from experiments.scaling_hp_search import LR_SCHEDULE_CHOICES, HPConfig, sample_random_hp
 
 
 class Strategy:
@@ -99,6 +99,7 @@ class OptunaStrategy(Strategy):
             use_shift_aug=trial.suggest_categorical("use_shift_aug", [False, True]),
             shift_max=trial.suggest_categorical("shift_max", [5, 10, 15, 20]),
             use_evoaug=trial.suggest_categorical("use_evoaug", [False, True]),
+            lr_schedule=trial.suggest_categorical("lr_schedule", LR_SCHEDULE_CHOICES),
             seed=int(self.rng.integers(2**31)),
         )
         return trial, hp
@@ -178,6 +179,7 @@ class AutoResearchBase(Strategy):
             "use_shift_aug": lambda v: not v,
             "shift_max": lambda v: int(self.rng.choice([5, 10, 15, 20])),
             "use_evoaug": lambda v: not v,
+            "lr_schedule": lambda v: str(self.rng.choice(LR_SCHEDULE_CHOICES)),
         }
         hp_names = list(perturbations.keys())
         change_set = self.rng.choice(
@@ -364,6 +366,7 @@ class OptunaParallel(Strategy):
             use_shift_aug=trial.suggest_categorical("use_shift_aug", [False, True]),
             shift_max=trial.suggest_categorical("shift_max", [5, 10, 15, 20]),
             use_evoaug=trial.suggest_categorical("use_evoaug", [False, True]),
+            lr_schedule=trial.suggest_categorical("lr_schedule", LR_SCHEDULE_CHOICES),
             seed=int(self.rng.integers(2**31)),
         )
         return trial, hp
