@@ -20,9 +20,12 @@
 #SBATCH --partition=gpuq
 #SBATCH --qos=slow_nice
 #SBATCH --time=30:00:00
-#SBATCH --gres=gpu:v100:1
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=120G
+# gres is GPU-type-agnostic on purpose: V100s are the idle tier so most tasks land
+# there, but slow_nice (prio 100) also opportunistically grabs idle H100 fragments
+# without preempting the H100 HP sweep. AG_ORACLE_CHUNK=32 is safe on either GPU.
 
 set -euo pipefail
 set +u; source /etc/profile.d/modules.sh; set -u
