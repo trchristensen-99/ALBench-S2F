@@ -128,10 +128,12 @@ def job_script(reservoir, D, variant, model, style, novel, cache_path, ds, hs, q
 #SBATCH --mem=100G
 #SBATCH --exclude=bamgpu15,bamgpu25
 #SBATCH --export=ALL
+#SBATCH --requeue
 set -uo pipefail
 set +u; source /etc/profile.d/modules.sh; [ -f ~/.bash_profile ] && source ~/.bash_profile; set -u
 module load EB5 2>/dev/null || true
 cd {REPO}
+echo "=== job start (SLURM_RESTART_COUNT=${{SLURM_RESTART_COUNT:-0}}; resume preloads on-disk history) ==="
 source .venv/bin/activate
 export PYTHONPATH="$PWD:$PWD/experiments"
 export HP_FAST=1
