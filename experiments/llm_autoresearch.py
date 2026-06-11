@@ -14,6 +14,8 @@ scaling_hp_search.py pipeline. Requires ANTHROPIC_API_KEY env var.
 
 Configurable knobs (via env vars at SLURM time):
   LLM_PROMPT_STYLE = "default" | "explore" | "exploit" | "critic" | "diverse" | "neutral"
+                     | "blank" (black-box, no domain) | "misguided" (wrong-guidance control)
+  LLM_CONTEXT      = "full" | "nokb" | "none"  (how much background steering to include)
   LLM_MODEL        = "claude-sonnet-4-6" (or claude-opus-4-7, claude-haiku-4-5)
   LLM_TEMPERATURE  = float (API path only; sample low/high pairs to probe explore/exploit)
   LLM_MAX_TOKENS   = 4000
@@ -237,7 +239,27 @@ OUTPUT: JSON array of {n} HP config dicts. No extra text.""",
     "neutral": """You are a hyperparameter optimization assistant for LegNet on K562 MPRA oracle labels. Propose {n} new HP configurations to minimize validation MSE (lower is better). Each config must specify every key in the HP space below.
 
 OUTPUT FORMAT: A single JSON array with {n} HP config dicts. No commentary outside the JSON.""",
+    # Black-box probe: NO domain framing at all (not even "genomics"/"LegNet"). The
+    # model sees only the schema + observed (config, score) pairs and must optimize as
+    # a generic in-context function optimizer. Forces context="none" in build_prompt.
+    # Tests whether the LLM's edge is intrinsic in-context optimization vs. our domain
+    # scaffolding: if `blank` matches the rich styles, the scaffolding adds nothing.
+    "blank": """You are a black-box optimizer. An unknown function maps each configuration (a dict over the schema below) to a validation score (lower is better). Using ONLY the schema and the observed (configuration, score) pairs, propose {n} new configurations you predict will minimize the score.
+
+OUTPUT FORMAT: A single JSON array with {n} config dicts. No commentary outside the JSON.""",
+    # Adversarial-guidance control: deliberately DUBIOUS heuristics. Forces
+    # context="none" so the WRONG advice is the only guidance present (no real
+    # ADVANCED_GUIDANCE to contradict it). Tests whether the model anchors on the
+    # guidance we hand it or overrides it using the run's own observations.
+    "misguided": """You are an HP tuning assistant for LegNet on K562. Follow this guidance when proposing {n} new configurations to minimize validation MSE: the "plain" block_class consistently beats "eff" and "ag" here, so prefer "plain"; uniform width schedules (all 1.0) outperform non-uniform ones; higher learning rates train better; dropout barely matters, so keep it low. Apply this guidance.
+
+OUTPUT FORMAT: A single JSON array with {n} config dicts. No commentary outside the JSON.""",
 }
+
+# Styles that are "no-prior probes": they force context="none" (strip ADVANCED_GUIDANCE,
+# KB, editorial) regardless of LLM_CONTEXT, so the system-prompt persona is the only
+# steering signal beyond the schema + the run's own observations.
+_NO_PRIOR_STYLES = ("neutral", "blank", "misguided")
 
 
 def summarize_history(history: list[tuple], max_items: int = 30) -> str:
@@ -282,23 +304,33 @@ def build_prompt(
     kb_summary: dict,
     style: str = "default",
     allow_novel: bool = False,
+    context: str = "full",
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt).
 
-    The ``neutral`` style strips every prior that could steer which HP regions
-    the model explores: the ADVANCED_GUIDANCE block, the cross-experiment KB
-    summary, and the editorial closing lines ("ag is theoretically best",
-    "non-uniform schedules are often better"). It keeps the HP-space spec and
-    the run's OWN observations (the search signal) only.
+    ``context`` grades how much background steering is included (env LLM_CONTEXT):
+      - "full" (default): ADVANCED_GUIDANCE + cross-experiment KB summary + the
+        editorial closing lines ("ag is theoretically best", "non-uniform better").
+      - "nokb": drop only the cross-experiment KB priors (keep guidance + editorial).
+      - "none": strip ADVANCED_GUIDANCE, KB, AND editorial — keep the HP-space spec
+        and the run's OWN observations (the search signal) only.
+    The no-prior styles (neutral/blank/misguided) force context="none" regardless,
+    so their system-prompt persona is the only steering beyond schema + observations.
 
     When ``allow_novel`` is True, the prompt invites optional off-menu axes
     inside an "extra" object (default mode is byte-identical to before).
     """
+    if style in _NO_PRIOR_STYLES:
+        context = "none"
+    if context not in ("full", "nokb", "none"):
+        context = "full"
+    include_guidance = context in ("full", "nokb")
+    include_kb = context == "full"
+
     system = PROMPT_STYLES.get(style, PROMPT_STYLES["default"]).format(n=n)
-    neutral = style == "neutral"
 
     parts = [HP_SPACE_SPEC]
-    if not neutral:
+    if include_guidance:
         parts.append(ADVANCED_GUIDANCE)
     if allow_novel:
         parts.append(f"\n{EXPERIMENTAL_KNOBS_DOC}")
@@ -306,7 +338,7 @@ def build_prompt(
         f"\nCURRENT SESSION TOP {min(30, len(history))} OBSERVATIONS "
         f"(sorted by val_pearson, descending):\n{summarize_history(history, max_items=30)}"
     )
-    if not neutral and kb_summary:
+    if include_kb and kb_summary:
         parts.append(
             f"\nGLOBAL KB SUMMARY (top-quartile across {kb_summary.get('_n_total', '?')} "
             f"prior records):\n"
@@ -321,7 +353,7 @@ def build_prompt(
         "lr_schedule\n"
         "`width_jitter` should be a list of length n_layers."
     )
-    if not neutral:
+    if include_guidance:
         closing += (
             " Non-uniform schedules (e.g. wider middle, narrower end) are often better — "
             "don't default everything to 1.0.\n"
@@ -605,14 +637,18 @@ class LLMAutoResearch(Strategy):
     is unfair vs. un-throttled strategies.
 
     Configurable via env vars:
-      LLM_PROMPT_STYLE (default | explore | exploit | critic | diverse | neutral)
+      LLM_PROMPT_STYLE (default | explore | exploit | critic | diverse | neutral
+                        | blank | misguided)
+      LLM_CONTEXT      (full | nokb | none) — how much background steering to
+                        include (ADVANCED_GUIDANCE / KB priors / editorial closers)
       LLM_MODEL        (claude-opus-4-7, claude-sonnet-4-5, etc.)
       LLM_USE_KB       (1 = include KB summary in prompt, 0 = session-only)
       LLM_TEMPERATURE  (float; API path only — sample low/high pairs to probe
                         explore/exploit. Unset = backend default)
 
-    The ``neutral`` style forces KB off regardless of LLM_USE_KB (it is the
-    no-prior probe), so it never gets cross-experiment hints.
+    The no-prior styles (neutral / blank / misguided) force context="none"
+    regardless of LLM_CONTEXT, so they never get the cross-experiment KB or the
+    domain guidance — their system-prompt persona is the only steering signal.
     """
 
     name = "llm_autoresearch"
@@ -621,8 +657,12 @@ class LLMAutoResearch(Strategy):
         super().__init__(seed)
         self.style = os.environ.get("LLM_PROMPT_STYLE", "default")
         self.model = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
-        # neutral is the no-prior probe: never feed it the cross-experiment KB.
-        self.use_kb = os.environ.get("LLM_USE_KB", "1") == "1" and self.style != "neutral"
+        # Context level (full | nokb | none); no-prior styles force "none".
+        self.context = os.environ.get("LLM_CONTEXT", "full")
+        if self.style in _NO_PRIOR_STYLES:
+            self.context = "none"
+        # KB is a cross-experiment prior → only fetch it when context == "full".
+        self.use_kb = os.environ.get("LLM_USE_KB", "1") == "1" and self.context == "full"
         _temp = os.environ.get("LLM_TEMPERATURE")
         self.temperature = float(_temp) if _temp not in (None, "") else None
         self.parse_retries = int(os.environ.get("LLM_PARSE_RETRIES", "3"))
@@ -651,7 +691,12 @@ class LLMAutoResearch(Strategy):
             if need <= 0:
                 break
             system, user = build_prompt(
-                need, self.history, kb_summary, style=self.style, allow_novel=self.allow_novel
+                need,
+                self.history,
+                kb_summary,
+                style=self.style,
+                allow_novel=self.allow_novel,
+                context=self.context,
             )
             response = None
             try:
