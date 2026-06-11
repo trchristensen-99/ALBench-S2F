@@ -21,6 +21,17 @@ Configurable knobs (via env vars at SLURM time):
   LLM_MAX_TOKENS   = 4000
   LLM_ALLOW_NOVEL_AXES = "0" (default) | "1" — let the LLM propose off-menu axes
                      in an "extra" object (recognized ones applied, others recorded)
+
+Single-axis probes (default values leave the prompt byte-identical to before):
+  LLM_SHUFFLE_FEEDBACK = "0" (default) | "1" — permute the score<->config pairing
+                     in the history shown to the model (uninformative-feedback control:
+                     if best-single still climbs, apparent optimization is regression-
+                     to-better-sampling, not feedback use). Deterministic per seed.
+  LLM_SHUFFLE_SEED   = int (default 0) — seed for the feedback permutation.
+  LLM_HISTORY_MAX    = int (default 30) | "full"/"0"/"-1" for all — how many of the
+                     top observations to show (history depth probe).
+  LLM_HISTORY_ORDER  = "score" (default, best-first) | "chrono" (as-observed) —
+                     whether ranking/recency framing of the history matters.
 """
 
 from __future__ import annotations
@@ -262,14 +273,43 @@ OUTPUT FORMAT: A single JSON array with {n} config dicts. No commentary outside 
 _NO_PRIOR_STYLES = ("neutral", "blank", "misguided")
 
 
-def summarize_history(history: list[tuple], max_items: int = 30) -> str:
-    """Format recent history compactly for the LLM prompt."""
+def _probe_history(history: list[tuple]) -> tuple[list[tuple], int, str]:
+    """Apply env-gated single-axis probe transforms to history before it is shown.
+
+    Returns (history, max_items, order). All defaults leave behavior identical to
+    the historical path (top-30, best-first, true score<->config pairing).
+    """
+    raw_max = os.environ.get("LLM_HISTORY_MAX", "30").strip().lower()
+    if raw_max in ("full", "all", "0", "-1"):
+        max_items = len(history) or 1
+    else:
+        try:
+            max_items = int(raw_max)
+        except ValueError:
+            max_items = 30
+    order = os.environ.get("LLM_HISTORY_ORDER", "score").strip().lower()
+    if os.environ.get("LLM_SHUFFLE_FEEDBACK") == "1" and len(history) > 1:
+        import random as _random
+
+        seed = int(os.environ.get("LLM_SHUFFLE_SEED", "0")) + len(history)
+        scores = [m for _, m in history]
+        perm = list(range(len(scores)))
+        _random.Random(seed).shuffle(perm)
+        history = [(history[i][0], scores[perm[i]]) for i in range(len(history))]
+    return history, max_items, order
+
+
+def summarize_history(history: list[tuple], max_items: int = 30, order: str = "score") -> str:
+    """Format recent history compactly for the LLM prompt.
+
+    ``order`` = "score" (best-first by val_pearson) or "chrono" (as observed).
+    """
     if not history:
         return "  (no observations yet)"
-    # Sort by val_mse ascending if available, else by index
-    # history is list[(HPConfig, val_pearson)] but we want val_mse — convert
-    # For now using val_pearson (higher better); we'll switch if metric changes
-    sorted_h = sorted(history, key=lambda x: -x[1])  # higher val_r first
+    if order == "chrono":
+        sorted_h = list(history)
+    else:
+        sorted_h = sorted(history, key=lambda x: -x[1])  # higher val_r first
     lines = []
     for i, (hp, metric) in enumerate(sorted_h[:max_items]):
         d = asdict(hp)
@@ -334,9 +374,16 @@ def build_prompt(
         parts.append(ADVANCED_GUIDANCE)
     if allow_novel:
         parts.append(f"\n{EXPERIMENTAL_KNOBS_DOC}")
+    hist, max_items, order = _probe_history(history)
+    shown = min(max_items, len(hist))
+    order_desc = (
+        "in chronological order, as observed"
+        if order == "chrono"
+        else ("sorted by val_pearson, descending")
+    )
     parts.append(
-        f"\nCURRENT SESSION TOP {min(30, len(history))} OBSERVATIONS "
-        f"(sorted by val_pearson, descending):\n{summarize_history(history, max_items=30)}"
+        f"\nCURRENT SESSION TOP {shown} OBSERVATIONS "
+        f"({order_desc}):\n{summarize_history(hist, max_items=max_items, order=order)}"
     )
     if include_kb and kb_summary:
         parts.append(

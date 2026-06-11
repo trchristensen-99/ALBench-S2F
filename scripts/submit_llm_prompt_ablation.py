@@ -1,30 +1,34 @@
 """LLM PROMPT ABLATION — a focused follow-up to the Phase-0 prompt screen that
-isolates the two factors that confound the LLM family's bake-off comparison:
+isolates the factors that confound the LLM family's bake-off comparison.
 
-  (A) search GUIDANCE   — how (or whether) we tell the model to proceed, and
-  (B) background CONTEXT — how much domain steering it sees (ADVANCED_GUIDANCE,
-                           cross-experiment KB priors, editorial closers).
+Two families of single-axis probes, bundled so they RANK TOGETHER on one GPU-seconds
+axis (same model/seed/reservoir/depth as the screen):
 
-WHY scoped, not a full cross: per the screen's partial standings the well-sampled
-winners are the `default` and `exploit` styles, so we vary CONTEXT on THOSE only
-(full → nokb → none) and add two controls — `blank` (black-box: no domain framing
-at all) and `misguided` (deliberately wrong guidance). Held to ONE model + ONE seed
-+ genomic D=30k at SHALLOW depth (oracle-Pearson plateaus by round ~8-10), so the
-whole ablation is a handful of cells and cheap on the Claude cap.
+(A) CONTEXT SCAFFOLDING — how much domain steering the prompt carries
+    (ADVANCED_GUIDANCE, cross-experiment KB priors, editorial closers). The well-
+    sampled screen winners are `default` and `exploit`, so we vary CONTEXT on THOSE
+    only (full → nokb → none) plus two controls — `blank` (black-box: no domain
+    framing) and `misguided` (deliberately wrong guidance).
+      Interpretation: if `default/full` beats `blank`, the SCAFFOLDING is doing the
+      work — the LLM's edge over evo/random is partly human-injected domain knowledge
+      + prior-run KB those strategies don't get (a fairness confound). If `blank`
+      matches, the edge is intrinsic in-context optimization. `misguided` vs `blank`
+      tests whether the model anchors on bad guidance or overrides it from observations.
 
-Interpretation: if `default/full` (rich) beats `blank` (black-box), the SCAFFOLDING
-is doing the work — the LLM's bake-off edge over evo/random is partly human-injected
-domain knowledge + prior-run KB those strategies don't get (a fairness confound). If
-`blank` matches, the edge is intrinsic in-context optimization and the comparison is
-clean. `misguided` vs `blank` tests whether the model anchors on bad guidance or
-overrides it from its own observations.
+(B) PROPOSER MECHANICS — does the model actually USE the feedback loop, and how does
+    the way we present/consume it matter. Held at (default, none) so the run's OWN
+    observations are the only signal the probe manipulates:
+      - shuffle  : permute the score<->config pairing shown to the model. If best-
+                   single still climbs, the apparent optimization is regression-to-
+                   better-sampling, not feedback use. (LLM_SHUFFLE_FEEDBACK)
+      - hist5/histfull : show top-5 vs ALL observations instead of top-30 — does
+                   history DEPTH matter? (LLM_HISTORY_MAX)
+      - chrono   : present history as-observed instead of best-first — does RANKING/
+                   recency framing matter? (LLM_HISTORY_ORDER)
+      - n1 / n5  : 1 vs 5 proposals per call (baseline is n=2) — does batch width
+                   trade off against rounds of feedback?
 
-CELLS (style, context):
-  (default, full)  (default, nokb)  (default, none)
-  (exploit, full)  (exploit, nokb)  (exploit, none)
-  (blank, none)    (misguided, none)        # no-prior styles force context=none
-
-COST: every cell calls Claude (CONSUMES the usage cap). n_calls ≈ n_cells × ROUNDS.
+COST: every cell calls Claude (CONSUMES the usage cap). n_calls ≈ Σ rounds × per_round.
 Print the estimate; DRY_RUN=1 to plan only; SMOKE_ONLY=1 for 1 cell × 2 rounds.
 
 Usage:
@@ -37,6 +41,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO = "/grid/wsbs/home_norepl/christen/ALBench-S2F"
@@ -45,18 +50,6 @@ SBATCH = f"{BIN}/sbatch"
 SQUEUE = f"{BIN}/squeue"
 
 OUT_ROOT = os.environ.get("LLM_ABL_OUT_ROOT", f"{REPO}/outputs/hp_llm_ablation_e100")
-
-# Curated (style, context). No-prior styles (blank/misguided/neutral) force "none".
-CELLS: list[tuple[str, str]] = [
-    ("default", "full"),
-    ("default", "nokb"),
-    ("default", "none"),
-    ("exploit", "full"),
-    ("exploit", "nokb"),
-    ("exploit", "none"),
-    ("blank", "none"),
-    ("misguided", "none"),
-]
 
 MODEL = os.environ.get("LLM_ABL_MODEL", "claude-sonnet-4-6")
 NOVEL = os.environ.get("LLM_ABL_NOVEL", "0")  # hold off so CONTEXT alone controls background
@@ -74,29 +67,76 @@ MIN_DELTA = 1e-3
 SUBMIT_CAP = {"fast": 16, "default": 16, "slow_nice": 1000}
 
 
-def variant_label(style: str, context: str) -> str:
-    return f"llm_{style}_ctx{context}"
+@dataclass(frozen=True)
+class Cell:
+    """One ablation cell. ``label`` is the variant subdir (unique per cell).
+    ``per_round`` defaults to the global PER_ROUND; ``env`` holds extra probe
+    exports (LLM_SHUFFLE_FEEDBACK / LLM_HISTORY_MAX / LLM_HISTORY_ORDER / ...).
+    Total proposals shown to the model per cell = rounds × per_round."""
+
+    label: str
+    style: str
+    context: str
+    per_round: int = PER_ROUND
+    env: dict[str, str] = field(default_factory=dict)
 
 
-def out_dir(style: str, context: str) -> Path:
-    return Path(
-        f"{OUT_ROOT}/k562_{RESERVOIR}_d{D}/seed{DATA_SEED}_{HP_SEED}/{variant_label(style, context)}"
-    )
+# (A) CONTEXT SCAFFOLDING. No-prior styles (blank/misguided) force context="none".
+CONTEXT_CELLS = [
+    Cell("llm_default_ctxfull", "default", "full"),
+    Cell("llm_default_ctxnokb", "default", "nokb"),
+    Cell("llm_default_ctxnone", "default", "none"),
+    Cell("llm_exploit_ctxfull", "exploit", "full"),
+    Cell("llm_exploit_ctxnokb", "exploit", "nokb"),
+    Cell("llm_exploit_ctxnone", "exploit", "none"),
+    Cell("llm_blank_ctxnone", "blank", "none"),
+    Cell("llm_misguided_ctxnone", "misguided", "none"),
+]
+
+# (B) PROPOSER MECHANICS. Baseline = llm_default_ctxnone above (default style, context
+# none, n=2): each probe flips exactly ONE axis off that baseline so it ranks against it.
+PROBE_CELLS = [
+    # #1 shuffled-feedback control (uninformative pairing).
+    Cell("llm_default_ctxnone_shuffle", "default", "none", env={"LLM_SHUFFLE_FEEDBACK": "1"}),
+    # #2 history depth + ordering.
+    Cell("llm_default_ctxnone_hist5", "default", "none", env={"LLM_HISTORY_MAX": "5"}),
+    Cell("llm_default_ctxnone_histfull", "default", "none", env={"LLM_HISTORY_MAX": "full"}),
+    Cell("llm_default_ctxnone_chrono", "default", "none", env={"LLM_HISTORY_ORDER": "chrono"}),
+    # #3 proposals-per-call (1 and 5 vs the n=2 baseline). Rounds rescaled so total
+    # proposals (rounds × per_round) ~matches the baseline budget (20).
+    Cell("llm_default_ctxnone_n1", "default", "none", per_round=1),
+    Cell("llm_default_ctxnone_n5", "default", "none", per_round=5),
+]
+
+CELLS = CONTEXT_CELLS + PROBE_CELLS
 
 
-def is_complete(od: Path, rounds: int) -> bool:
+def out_dir(cell: Cell) -> Path:
+    return Path(f"{OUT_ROOT}/k562_{RESERVOIR}_d{D}/seed{DATA_SEED}_{HP_SEED}/{cell.label}")
+
+
+def cell_rounds(cell: Cell, rounds: int) -> int:
+    """Hold total proposals (rounds × per_round) ~constant across per_round so the
+    probe varies batch WIDTH at a fixed evaluation budget, not total compute."""
+    budget = rounds * PER_ROUND
+    return max(1, round(budget / cell.per_round))
+
+
+def is_complete(cell: Cell, rounds: int) -> bool:
+    od = out_dir(cell)
     if not od.exists():
         return False
     if (od / ".ablation_done").exists():
         return True
-    return len(list(od.glob("*_meta.json"))) >= rounds * PER_ROUND
+    return len(list(od.glob("*_meta.json"))) >= cell_rounds(cell, rounds) * cell.per_round
 
 
-def job_script(style: str, context: str, rounds: int, qos: str, wt: str) -> tuple[str, str]:
-    var = variant_label(style, context)
-    label = f"lpa_{RESERVOIR}_d{D}_{var}_s{DATA_SEED}_{HP_SEED}"
-    od = out_dir(style, context)
+def job_script(cell: Cell, rounds: int, qos: str, wt: str) -> tuple[str, str]:
+    label = f"lpa_{RESERVOIR}_d{D}_{cell.label}_s{DATA_SEED}_{HP_SEED}"
+    od = out_dir(cell)
+    rnds = cell_rounds(cell, rounds)
     temp_env = f'export LLM_TEMPERATURE="{TEMPERATURE}"\n' if TEMPERATURE else ""
+    probe_env = "".join(f'export {k}="{v}"\n' for k, v in sorted(cell.env.items()))
     script = f"""#!/bin/bash
 #SBATCH --job-name={label}
 #SBATCH --output={REPO}/logs/%x-%A.out
@@ -122,13 +162,13 @@ export TORCHDYNAMO_DISABLE=1
 export PYTHONUNBUFFERED=1
 export TQDM_DISABLE=1
 export LLM_MODEL="{MODEL}"
-export LLM_PROMPT_STYLE="{style}"
-export LLM_CONTEXT="{context}"
+export LLM_PROMPT_STYLE="{cell.style}"
+export LLM_CONTEXT="{cell.context}"
 export LLM_ALLOW_NOVEL_AXES="{NOVEL}"
-{temp_env}ATTEMPT=0
+{probe_env}{temp_env}ATTEMPT=0
 while true; do
   uv run --no-sync python experiments/scaling_hp_search.py \\
-    --strategies llm_autoresearch --rounds {rounds} --per_strategy_per_round {PER_ROUND} \\
+    --strategies llm_autoresearch --rounds {rnds} --per_strategy_per_round {cell.per_round} \\
     --D {D} --ref_only --chr_val \\
     --data_seed {DATA_SEED} --hp_seed {HP_SEED} \\
     --epochs {EPOCHS} --early_stop_patience {PATIENCE} --min_delta {MIN_DELTA} \\
@@ -162,14 +202,21 @@ def main() -> None:
     cells = CELLS[:1] if smoke else CELLS
     rounds = 2 if smoke else ROUNDS
 
-    est_calls = len(cells) * rounds
-    print(f"=== LLM prompt ablation: {len(cells)} cells × {rounds} rounds ===")
+    est_calls = sum(cell_rounds(c, rounds) for c in cells)
+    print(
+        f"=== LLM prompt ablation: {len(cells)} cells (base rounds={rounds}, per_round={PER_ROUND}) ==="
+    )
     print(
         f"=== model={MODEL} novel={NOVEL} reservoir={RESERVOIR} D={D} seed={DATA_SEED}:{HP_SEED} ==="
     )
     print(f"=== ~{est_calls} Claude CLI calls (CONSUMES the usage cap) ===")
-    for style, context in cells:
-        print(f"  {variant_label(style, context):28s} style={style} context={context}")
+    for c in cells:
+        rnds = cell_rounds(c, rounds)
+        extra = " ".join(f"{k}={v}" for k, v in sorted(c.env.items())) or "-"
+        print(
+            f"  {c.label:32s} style={c.style:9s} ctx={c.context:5s} "
+            f"n={c.per_round} rounds={rnds:2d} calls={rnds}  {extra}"
+        )
     if dry:
         print("=== DRY_RUN=1: nothing submitted ===")
         return
@@ -191,11 +238,9 @@ def main() -> None:
             qcount[q.strip()] += 1
 
     n_sub = n_skip = n_done = 0
-    for style, context in cells:
-        var = variant_label(style, context)
-        label = f"lpa_{RESERVOIR}_d{D}_{var}_s{DATA_SEED}_{HP_SEED}"
-        od = out_dir(style, context)
-        if is_complete(od, rounds):
+    for cell in cells:
+        label = f"lpa_{RESERVOIR}_d{D}_{cell.label}_s{DATA_SEED}_{HP_SEED}"
+        if is_complete(cell, rounds):
             n_done += 1
             continue
         if label in inflight:
@@ -206,7 +251,7 @@ def main() -> None:
         for qos, wt in [("default", "12:00:00"), ("slow_nice", "2-00:00:00")]:
             if qcount.get(qos, 0) >= SUBMIT_CAP.get(qos, 0):
                 continue
-            lbl, sh = job_script(style, context, rounds, qos, wt)
+            lbl, sh = job_script(cell, rounds, qos, wt)
             jid, err = sbatch(lbl, sh)
             if jid:
                 n_sub += 1
