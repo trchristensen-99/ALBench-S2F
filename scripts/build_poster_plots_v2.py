@@ -35,7 +35,7 @@ RESERVOIRS_MAIN = [
     ("random", "Random", "#000000", "s"),  # black, square
     ("prm_10pct", "PRM 10%", "#009E73", "^"),  # green, triangle-up
     ("evoaug_heavy", "EvoAug", "#D55E00", "D"),  # vermillion, diamond
-    ("motif_planted_v2", "Motif-shuffled", "#CC79A7", "*"),  # pink, star
+    ("motif_planted_v2", "Motif planted", "#CC79A7", "*"),  # pink, star
 ]
 
 RESERVOIRS_MOTIF = [

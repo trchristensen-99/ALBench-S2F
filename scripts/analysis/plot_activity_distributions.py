@@ -99,7 +99,7 @@ RES_DATA = [
     ),
     (
         "motif_planted_v2",
-        "Motif Planted v2 (Shuffled)",
+        "Motif Planted v2",
         REPO / "outputs/reservoir_cache/k562_motif_planted_v2_d1000000_seed42.npz",
         "oracle_labels",
     ),
