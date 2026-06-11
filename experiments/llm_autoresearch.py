@@ -30,8 +30,12 @@ Single-axis probes (default values leave the prompt byte-identical to before):
   LLM_SHUFFLE_SEED   = int (default 0) — seed for the feedback permutation.
   LLM_HISTORY_MAX    = int (default 30) | "full"/"0"/"-1" for all — how many of the
                      top observations to show (history depth probe).
-  LLM_HISTORY_ORDER  = "score" (default, best-first) | "chrono" (as-observed) —
-                     whether ranking/recency framing of the history matters.
+  LLM_HISTORY_ORDER  = "score" (default, best-first) | "chrono" (as-observed) |
+                     "worst" (ascending, failures first) — does ranking/recency framing
+                     or emphasizing failures matter.
+  LLM_HIDE_HISTORY   = "0" (default) | "1" — show NO observations at all (pure prior
+                     sampling; the strict bookend to LLM_SHUFFLE_FEEDBACK — removes the
+                     feedback channel entirely instead of just scrambling it).
 """
 
 from __future__ import annotations
@@ -308,6 +312,8 @@ def summarize_history(history: list[tuple], max_items: int = 30, order: str = "s
         return "  (no observations yet)"
     if order == "chrono":
         sorted_h = list(history)
+    elif order == "worst":
+        sorted_h = sorted(history, key=lambda x: x[1])  # lower val_r first (failures up top)
     else:
         sorted_h = sorted(history, key=lambda x: -x[1])  # higher val_r first
     lines = []
@@ -374,17 +380,22 @@ def build_prompt(
         parts.append(ADVANCED_GUIDANCE)
     if allow_novel:
         parts.append(f"\n{EXPERIMENTAL_KNOBS_DOC}")
-    hist, max_items, order = _probe_history(history)
-    shown = min(max_items, len(hist))
-    order_desc = (
-        "in chronological order, as observed"
-        if order == "chrono"
-        else ("sorted by val_pearson, descending")
-    )
-    parts.append(
-        f"\nCURRENT SESSION TOP {shown} OBSERVATIONS "
-        f"({order_desc}):\n{summarize_history(hist, max_items=max_items, order=order)}"
-    )
+    if os.environ.get("LLM_HIDE_HISTORY") == "1":
+        parts.append(
+            "\nCURRENT SESSION OBSERVATIONS: (hidden — no feedback is provided this run; "
+            "propose from the HP-space spec and your priors only)."
+        )
+    else:
+        hist, max_items, order = _probe_history(history)
+        shown = min(max_items, len(hist))
+        order_desc = {
+            "chrono": "in chronological order, as observed",
+            "worst": "sorted by val_pearson, ascending (worst first)",
+        }.get(order, "sorted by val_pearson, descending")
+        parts.append(
+            f"\nCURRENT SESSION TOP {shown} OBSERVATIONS "
+            f"({order_desc}):\n{summarize_history(hist, max_items=max_items, order=order)}"
+        )
     if include_kb and kb_summary:
         parts.append(
             f"\nGLOBAL KB SUMMARY (top-quartile across {kb_summary.get('_n_total', '?')} "

@@ -79,6 +79,8 @@ class Cell:
     context: str
     per_round: int = PER_ROUND
     env: dict[str, str] = field(default_factory=dict)
+    data_seed: int = DATA_SEED
+    hp_seed: int = HP_SEED
 
 
 # (A) CONTEXT SCAFFOLDING. No-prior styles (blank/misguided) force context="none".
@@ -106,13 +108,27 @@ PROBE_CELLS = [
     # proposals (rounds × per_round) ~matches the baseline budget (20).
     Cell("llm_default_ctxnone_n1", "default", "none", per_round=1),
     Cell("llm_default_ctxnone_n5", "default", "none", per_round=5),
+    # #4 no-history control — strict bookend to shuffle: removes the feedback channel
+    # entirely (pure prior sampling). If it matches baseline, feedback isn't being used.
+    Cell("llm_default_ctxnone_nohist", "default", "none", env={"LLM_HIDE_HISTORY": "1"}),
+    # #5 worst-first history — anti-elitist: failures up top. Does it learn from bad configs?
+    Cell("llm_default_ctxnone_worst", "default", "none", env={"LLM_HISTORY_ORDER": "worst"}),
+    # #6 determinism replicate — baseline at a fresh proposer seed (same data) to measure
+    # the LLM proposer's run-to-run noise floor (calibrates how big a probe gap must be).
+    Cell("llm_default_ctxnone_rep", "default", "none", hp_seed=1),
 ]
 
 CELLS = CONTEXT_CELLS + PROBE_CELLS
 
 
 def out_dir(cell: Cell) -> Path:
-    return Path(f"{OUT_ROOT}/k562_{RESERVOIR}_d{D}/seed{DATA_SEED}_{HP_SEED}/{cell.label}")
+    return Path(
+        f"{OUT_ROOT}/k562_{RESERVOIR}_d{D}/seed{cell.data_seed}_{cell.hp_seed}/{cell.label}"
+    )
+
+
+def job_label(cell: Cell) -> str:
+    return f"lpa_{RESERVOIR}_d{D}_{cell.label}_s{cell.data_seed}_{cell.hp_seed}"
 
 
 def cell_rounds(cell: Cell, rounds: int) -> int:
@@ -132,7 +148,7 @@ def is_complete(cell: Cell, rounds: int) -> bool:
 
 
 def job_script(cell: Cell, rounds: int, qos: str, wt: str) -> tuple[str, str]:
-    label = f"lpa_{RESERVOIR}_d{D}_{cell.label}_s{DATA_SEED}_{HP_SEED}"
+    label = job_label(cell)
     od = out_dir(cell)
     rnds = cell_rounds(cell, rounds)
     temp_env = f'export LLM_TEMPERATURE="{TEMPERATURE}"\n' if TEMPERATURE else ""
@@ -170,7 +186,7 @@ while true; do
   uv run --no-sync python experiments/scaling_hp_search.py \\
     --strategies llm_autoresearch --rounds {rnds} --per_strategy_per_round {cell.per_round} \\
     --D {D} --ref_only --chr_val \\
-    --data_seed {DATA_SEED} --hp_seed {HP_SEED} \\
+    --data_seed {cell.data_seed} --hp_seed {cell.hp_seed} \\
     --epochs {EPOCHS} --early_stop_patience {PATIENCE} --min_delta {MIN_DELTA} \\
     --out_dir {od}
   rc=$?
@@ -239,7 +255,7 @@ def main() -> None:
 
     n_sub = n_skip = n_done = 0
     for cell in cells:
-        label = f"lpa_{RESERVOIR}_d{D}_{cell.label}_s{DATA_SEED}_{HP_SEED}"
+        label = job_label(cell)
         if is_complete(cell, rounds):
             n_done += 1
             continue
