@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -43,6 +44,22 @@ def _needs_pool(reservoir: str) -> bool:
     return reservoir in _NEEDS_POOL or reservoir.startswith(_POOL_PREFIXES)
 
 
+def _load_background_cache(path: Path) -> tuple[list[str], np.ndarray | None]:
+    """Load background sequences (+ optional oracle labels) from an npz, for
+    generating a transform-matched *held-out* val cache from a disjoint pool
+    (e.g. chr19/21/X via outputs/chr_split_cache/chr_val_ref_only.npz)."""
+    z = np.load(path, allow_pickle=True)
+    if "sequences" not in z.files:
+        raise KeyError(f"{path} has no 'sequences' key (files={z.files})")
+    seqs = [str(s) for s in z["sequences"]]
+    labels = None
+    for k in ("oracle_labels", "oracle_mean", "labels"):
+        if k in z.files:
+            labels = np.asarray(z[k], dtype=np.float32)
+            break
+    return seqs, labels
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task", required=True, choices=["k562", "yeast"])
@@ -51,20 +68,44 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--oracle", default="ag_s2", choices=["ag", "ag_s2", "dream_rnn", "default"])
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument(
+        "--background_cache",
+        type=Path,
+        default=None,
+        help="npz of background sequences to transform instead of the genomic train "
+        "pool (e.g. chr_val_ref_only.npz) — for held-out, transform-matched val sets. "
+        "Also exported as RESERVOIR_BG_CACHE so self-loading samplers honor it.",
+    )
+    ap.add_argument(
+        "--oracle_id_stamp",
+        default=None,
+        help="oracle_id string written to the cache (default: the oracle type). Set "
+        "'full856k_clean' so the cache passes the HP-search contamination guard.",
+    )
     args = ap.parse_args()
+
+    # Self-loading samplers (e.g. MotifPlantedV2Sampler) read their backgrounds from
+    # a fixed path; point them at the held-out pool via env so val == same transform.
+    if args.background_cache is not None:
+        os.environ["RESERVOIR_BG_CACHE"] = str(args.background_cache)
 
     from experiments.exp1_1_scaling import _load_oracle
 
     oracle_type = args.oracle
     if oracle_type == "default":
         oracle_type = "ag" if args.task == "k562" else "dream_rnn"
+    oracle_id = args.oracle_id_stamp or oracle_type
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
 
     pool_seqs, pool_labels = None, None
     if _needs_pool(args.reservoir):
-        print(f"Loading genomic pool for {args.task}...", flush=True)
-        pool_seqs, pool_labels = _load_pool_sequences(args.task)
+        if args.background_cache is not None:
+            print(f"Loading background pool from {args.background_cache}...", flush=True)
+            pool_seqs, pool_labels = _load_background_cache(args.background_cache)
+        else:
+            print(f"Loading genomic pool for {args.task}...", flush=True)
+            pool_seqs, pool_labels = _load_pool_sequences(args.task)
         print(f"  pool: {len(pool_seqs):,} sequences", flush=True)
 
     print(f"Loading oracle {oracle_type}...", flush=True)
@@ -86,6 +127,7 @@ def main() -> None:
         "reservoir": args.reservoir,
         "D": int(args.D),
         "seed": int(args.seed),
+        "background_cache": str(args.background_cache) if args.background_cache else None,
         "label_mean": float(np.mean(labels)),
         "label_std": float(np.std(labels)),
     }
@@ -93,12 +135,12 @@ def main() -> None:
         args.out,
         sequences=np.array(seqs, dtype=object),
         oracle_labels=labels,
-        oracle_id=np.array(oracle_type),
+        oracle_id=np.array(oracle_id),
         metadata=json.dumps(metadata),
     )
     print(
         f"Wrote {args.out}  n={len(seqs):,}  mean={metadata['label_mean']:.3f} "
-        f"std={metadata['label_std']:.3f}  oracle_id={oracle_type}",
+        f"std={metadata['label_std']:.3f}  oracle_id={oracle_id}",
         flush=True,
     )
 
