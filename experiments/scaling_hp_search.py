@@ -76,7 +76,13 @@ def build_regime(args, patience: int, min_delta: float, battery_prov: dict) -> d
         "early_stop_patience": int(patience),
         "min_delta": float(min_delta),
         "metric_for_best": "pearson_r",
-        "val_protocol": "chr_val" if getattr(args, "chr_val", False) else "per_combo_10pct",
+        "val_protocol": (
+            "reservoir_val_chr_heldout"
+            if getattr(args, "reservoir_val_cache", None)
+            else "chr_val"
+            if getattr(args, "chr_val", False)
+            else "per_combo_10pct"
+        ),
         "oracle_id": battery_prov["oracle_id"],
         "test_set_version": battery_prov["test_set_version"],
     }
@@ -99,6 +105,7 @@ def load_chr_train_pool(
     seed: int = 0,
     reservoir_cache: str | Path | None = None,
     chr_val: bool = False,
+    reservoir_val_cache: str | Path | None = None,
 ):
     """Load chr-train pool with oracle labels; carve out val.
 
@@ -143,7 +150,37 @@ def load_chr_train_pool(
     elif D is not None and D > n:
         print(f"  WARN: D={D:,} > pool size {n:,}; using all available")
 
-    if chr_val:
+    if reservoir_val_cache is not None:
+        # Held-out, transform-matched val: same reservoir transform applied to the
+        # chr19/21/X backgrounds (disjoint from the chr-train pool), oracle-labeled.
+        # Subsample to val_frac*D so val stays proportional to the train size.
+        vpath = Path(reservoir_val_cache)
+        vz = np.load(vpath, allow_pickle=True)
+        if os.environ.get("HP_ALLOW_UNSTAMPED") != "1":
+            vstamp = str(vz["oracle_id"]) if "oracle_id" in vz.files else "UNSTAMPED"
+            if vstamp != "full856k_clean":
+                raise RuntimeError(
+                    f"reservoir_val_cache {vpath.name} has oracle_id={vstamp!r}, expected "
+                    "'full856k_clean'. Regenerate with --oracle_id_stamp full856k_clean."
+                )
+        vseqs = [str(s) for s in vz["sequences"]]
+        vlabels = vz["oracle_labels"].astype(np.float32)
+        vfin = np.isfinite(vlabels)
+        if not vfin.all():
+            vseqs = [s for s, ok in zip(vseqs, vfin) if ok]
+            vlabels = vlabels[vfin]
+        n_val = max(1, min(len(vseqs), int(val_frac * len(seqs))))
+        rng_v = np.random.default_rng(seed + 2)
+        vidx = rng_v.choice(len(vseqs), size=n_val, replace=False)
+        val_seqs = [vseqs[i] for i in vidx]
+        val_labels = vlabels[vidx]
+        train_seqs = [str(s) for s in seqs]
+        train_labels = labels.astype(np.float32)
+        print(
+            f"  Train={len(train_seqs):,}  Val(held-out transform-matched, "
+            f"{vpath.name})={len(val_seqs):,}"
+        )
+    elif chr_val:
         # Real chr19+21+X val with oracle labels — production-style holdout.
         cv = np.load(CACHE / "chr_val_ref_only.npz", allow_pickle=True)
         val_seqs = [str(s) for s in cv["sequences"]]
@@ -669,6 +706,7 @@ def run_search(args):
         seed=args.data_seed,
         reservoir_cache=getattr(args, "reservoir_cache", None),
         chr_val=getattr(args, "chr_val", False),
+        reservoir_val_cache=getattr(args, "reservoir_val_cache", None),
     )
     test_seqs, test_oracle, test_true = load_chr_test_genomic()
 
@@ -912,6 +950,16 @@ def main():
         help="Use real chr19+21+X as the validation set (loads from chr_val_ref_only.npz) "
         "instead of a 10%% random holdout from train. Use this for genomic-based "
         "strategies so val matches the production protocol.",
+    )
+    ap.add_argument(
+        "--reservoir_val_cache",
+        type=str,
+        default=None,
+        help="Path to a held-out, transform-matched val npz (sequences, oracle_labels) "
+        "for a non-genomic reservoir strategy — produced by applying the SAME transform "
+        "to chr19/21/X backgrounds (scripts/generate_reservoir_cache.py --background_cache "
+        "chr_val_ref_only.npz). Takes precedence over --chr_val / the 10%% holdout; "
+        "subsampled to val_frac*D so val stays ~proportional to the train size.",
     )
     ap.add_argument(
         "--early_stop_patience",

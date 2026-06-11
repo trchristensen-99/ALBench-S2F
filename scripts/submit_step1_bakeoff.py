@@ -161,6 +161,16 @@ def pool_cache(reservoir: str) -> str | None:
     return f"{REPO}/outputs/reservoir_cache/k562_{reservoir}_d{POOL_D}_seed{DATA_SEED_REF}.npz"
 
 
+def val_cache(reservoir: str) -> str | None:
+    """Held-out, transform-matched val cache (same transform on chr19/21/X backgrounds).
+    None for genomic (uses real --chr_val). Returns the path only if it exists on disk;
+    otherwise the run falls back to the per-combo 10%% holdout (with a launcher warning)."""
+    if reservoir == "genomic":
+        return None
+    p = f"{REPO}/outputs/reservoir_val_cache/k562_{reservoir}_val_seed{DATA_SEED_REF}.npz"
+    return p if Path(p).exists() else None
+
+
 def strat_budget(strategy: str) -> tuple[int, int]:
     """(rounds, per_round) such that rounds*per_round == MODEL_BUDGET (200 models/cell).
 
@@ -220,6 +230,10 @@ def job_script(reservoir, D, variant, strategy, model, style, cache_path, ds, hs
     # cache-based reservoirs use per-combo 10% holdout (no --chr_val).
     chr_val_arg = "--chr_val" if (reservoir == "genomic" and strategy != "random") else ""
     cache_arg = f"--reservoir_cache {cache_path}" if cache_path else ""
+    # Non-genomic reservoirs: held-out transform-matched val if its cache exists,
+    # else fall back to the per-combo 10% holdout (chr_val_arg stays empty).
+    vcache = val_cache(reservoir)
+    val_cache_arg = f"--reservoir_val_cache {vcache}" if vcache else ""
     llm_env = ""
     if is_llm:
         llm_env = f'export LLM_MODEL="{model}"\nexport LLM_PROMPT_STYLE="{style}"'
@@ -252,7 +266,7 @@ ATTEMPT=0
 while true; do
   uv run --no-sync python experiments/scaling_hp_search.py \\
     --strategies {strategy} --rounds {rounds} --per_strategy_per_round {per_round} \\
-    --D {D} --ref_only {chr_val_arg} {cache_arg} \\
+    --D {D} --ref_only {chr_val_arg} {cache_arg} {val_cache_arg} \\
     --data_seed {ds} --hp_seed {hs} \\
     --epochs {EPOCHS} --early_stop_patience {PATIENCE} --min_delta {MIN_DELTA} \\
     --out_dir {od}
