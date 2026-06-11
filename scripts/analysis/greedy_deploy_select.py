@@ -31,7 +31,8 @@ from pathlib import Path
 
 import numpy as np
 from scipy.stats import pearsonr
-from sklearn.linear_model import ElasticNetCV
+
+from albench.ensemble import fit_elasticnet_stack
 
 REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
 
@@ -124,9 +125,7 @@ def load_pool_models(pool_dir):
 
 def fit_stack(val_X, val_y, test_X):
     """ElasticNetCV(positive=True) on stacked val preds. val_X/test_X: (k, n)."""
-    enet = ElasticNetCV(positive=True, cv=5, n_alphas=50, max_iter=5000, n_jobs=1)
-    enet.fit(val_X.T, val_y)
-    return enet.predict(val_X.T), enet.predict(test_X.T)
+    return fit_elasticnet_stack(val_X, val_y, test_X)
 
 
 def greedy_select(models, labels, max_n, prefilter, diversity, rng):

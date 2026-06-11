@@ -41,7 +41,8 @@ from pathlib import Path
 
 import numpy as np
 from scipy.stats import pearsonr
-from sklearn.linear_model import ElasticNetCV
+
+from albench.ensemble import fit_elasticnet_stack
 
 # Canonical mixed6 composition. Phase 2 uses the *_opus/*_sonnet names; the live
 # hp_search cells use bare llm_default/llm_diverse/llm_exploit. We match whichever set
@@ -169,17 +170,7 @@ def fit_ensemble(
     Returns (test_pred, val_insample_pred, info). val_X / test_X are
     (n_models, n_points); transposed to (n_points, n_models) for sklearn.
     """
-    Xv, Xt = val_X.T, test_X.T
-    enet = ElasticNetCV(l1_ratio=L1_GRID, positive=True, cv=5, n_jobs=1, max_iter=5000)
-    enet.fit(Xv, val_y)
-    info = {
-        "n_models": int(val_X.shape[0]),
-        "n_kept": int(np.sum(enet.coef_ > 0)),
-        "alpha": float(enet.alpha_),
-        "l1_ratio": float(enet.l1_ratio_),
-        "coef": enet.coef_.tolist(),
-    }
-    return enet.predict(Xt), enet.predict(Xv), info
+    return fit_elasticnet_stack(val_X, val_y, test_X, l1_ratio=L1_GRID, return_info=True)
 
 
 def metrics(pred: np.ndarray, oracle: np.ndarray, true: np.ndarray) -> dict:
