@@ -23,15 +23,21 @@ STRATEGIES (every family):
   LLM AutoResearch (own job each, one model/style per process):
     llm_default (opus default), llm_diverse (sonnet diverse), llm_exploit (sonnet exploit)
 
-BUDGET — deep & one-time (override via env). ROUNDS=50 × PER_ROUND=2 → 100 models per
-strategy per cell; Ray engines get num_samples = ROUNDS*PER_ROUND = 100 trials.
-Multi-seed: SEEDS pairs (data_seed, hp_seed) for robust knees.
+BUDGET — EQUALIZE THE MODEL BUDGET (Phase-1 calibration, 2026-06-10): every strategy
+gets MODEL_BUDGET=200 models per cell (NOT a common round count), so Phase-2 pool sizes
+and attribution stay fair. Each strategy uses its NATURAL per-round step and rounds is
+derived (rounds = MODEL_BUDGET // per_round): per_round=1 for sequential/adaptive
+(random, optuna_tpe, evo_single/explore/exploit/adaptive/knowledgeable → 200 rounds, so
+they update after every eval); native batch for evo_batch=4 / evo_massive=10; ray engines
+get num_samples = rounds*per_round = 200 trials; LLM per_round=2 (1 Claude call → 2
+configs → 200 models in 100 calls). Strategies are compared on GPU-SECONDS so the unequal
+per_round is apples-to-apples. Multi-seed: SEEDS pairs (data_seed, hp_seed).
 
 PREREQUISITE: ray[tune]+hpbandster+ConfigSpace must be installed in the shared venv
 (one-time, login node: scripts/install_hpc_packages.sh). Ray variants are SKIPPED with
 a warning if `import ray` fails, so the rest of the bake-off still launches.
 
-Env overrides: STEP1_RESERVOIRS, STEP1_DS, STEP1_ROUNDS, STEP1_PER_ROUND,
+Env overrides: STEP1_RESERVOIRS, STEP1_DS, STEP1_MODEL_BUDGET (default 200),
 STEP1_SEEDS ("42:0,43:1,44:2"), STEP1_STRATS (comma subset), SMOKE_ONLY=1.
 """
 
@@ -54,8 +60,30 @@ OUT_ROOT = os.environ.get("STEP1_OUT_ROOT", f"{REPO}/outputs/hp_step1_bakeoff_e1
 DEFAULT_RESERVOIRS = "genomic,motif_planted_v2,dinuc_shuffle"
 RESERVOIRS = os.environ.get("STEP1_RESERVOIRS", DEFAULT_RESERVOIRS).split(",")
 DS = [int(x) for x in os.environ.get("STEP1_DS", "30000,300000").split(",")]  # plan: {30k,300k}
-ROUNDS = int(os.environ.get("STEP1_ROUNDS", "50"))
-PER_ROUND = int(os.environ.get("STEP1_PER_ROUND", "2"))
+
+# Phase-1 calibration (2026-06-10): equalize MODELS per strategy, not rounds. Each
+# strategy gets MODEL_BUDGET models; rounds = MODEL_BUDGET // per_round, where per_round
+# is the strategy's natural proposal step (sequential update each eval; batched evo and
+# LLM amortize). Keeps Phase-2 pool sizes fair; compare strategies on GPU-seconds.
+MODEL_BUDGET = int(os.environ.get("STEP1_MODEL_BUDGET", "200"))
+DEFAULT_PER_ROUND = {
+    # sequential / adaptive — update after every eval
+    "random": 1,
+    "optuna_tpe": 1,
+    "evo_single": 1,
+    "evo_explore": 1,
+    "evo_exploit": 1,
+    "evo_adaptive": 1,
+    "evo_knowledgeable": 1,
+    # batched evolutionary — native batch (design intent: batch vs massively-parallel)
+    "evo_batch": 4,
+    "evo_massive": 10,
+    # ray schedulers own the trial loop — num_samples = rounds*per_round = MODEL_BUDGET
+    "ray_asha": 1,
+    "ray_bohb": 1,
+    # LLM — one Claude call returns per_round configs (200 models in 100 calls)
+    "llm_autoresearch": 2,
+}
 EPOCHS = 100
 PATIENCE = 15
 MIN_DELTA = 1e-3
@@ -82,6 +110,8 @@ EVO_STRATS = [
 ]
 RAY_STRATS = ["ray_asha", "ray_bohb"]
 # (variant_label, strategy, llm_model, llm_style)
+# PENDING Phase-0 (outputs/hp_llm_screen_e100): swap these to the TOP-3 diverse winners
+# from the prompt-style screen before the Phase-1 launch. The 3 below are placeholders.
 LLM_VARIANTS = [
     ("llm_default", "llm_autoresearch", "claude-opus-4-7", "default"),
     ("llm_diverse", "llm_autoresearch", "claude-sonnet-4-6", "diverse"),
@@ -131,8 +161,20 @@ def pool_cache(reservoir: str) -> str | None:
     return f"{REPO}/outputs/reservoir_cache/k562_{reservoir}_d{POOL_D}_seed{DATA_SEED_REF}.npz"
 
 
+def strat_budget(strategy: str) -> tuple[int, int]:
+    """(rounds, per_round) such that rounds*per_round == MODEL_BUDGET (200 models/cell).
+
+    per_round is the strategy's natural proposal step; rounds is derived so every
+    strategy trains the same number of models (fair Phase-2 attribution).
+    """
+    per_round = DEFAULT_PER_ROUND.get(strategy, 1)
+    rounds = max(1, MODEL_BUDGET // per_round)
+    return rounds, per_round
+
+
 def expected_models(strategy: str) -> int:
-    return ROUNDS * PER_ROUND  # one strategy/engine per job
+    rounds, per_round = strat_budget(strategy)
+    return rounds * per_round  # one strategy/engine per job
 
 
 def out_dir(reservoir: str, D: int, variant: str, ds: int, hs: int) -> Path:
@@ -171,6 +213,7 @@ SUBMIT_CAP = {"fast": 16, "default": 16, "slow_nice": 1000}
 
 def job_script(reservoir, D, variant, strategy, model, style, cache_path, ds, hs, qos, wt):
     is_llm = bool(model)
+    rounds, per_round = strat_budget(strategy)
     label = f"s1_{reservoir}_d{D}_{variant}_s{ds}_{hs}"
     od = out_dir(reservoir, D, variant, ds, hs)
     # genomic non-random reservoirs validate on chr holdout to match production;
@@ -206,7 +249,7 @@ export TQDM_DISABLE=1
 ATTEMPT=0
 while true; do
   uv run --no-sync python experiments/scaling_hp_search.py \\
-    --strategies {strategy} --rounds {ROUNDS} --per_strategy_per_round {PER_ROUND} \\
+    --strategies {strategy} --rounds {rounds} --per_strategy_per_round {per_round} \\
     --D {D} --ref_only {chr_val_arg} {cache_arg} \\
     --data_seed {ds} --hp_seed {hs} \\
     --epochs {EPOCHS} --early_stop_patience {PATIENCE} --min_delta {MIN_DELTA} \\
@@ -260,12 +303,15 @@ def main():
             qcount[q.strip()] += 1
 
     n_sub = n_skip = n_done = n_full = 0
-    for reservoir in reservoirs:
-        cache_path = pool_cache(reservoir)
-        if cache_path is not None and not Path(cache_path).exists():
-            print(f"  SKIP {reservoir}: reservoir cache missing ({cache_path})")
-            continue
-        for D in ds_list:
+    for D in ds_list:
+        # Phase-2 assumes the 30k reservoir ranking transfers across D, so D=300k
+        # runs genomic ONLY (the cross-D cell); the cache reservoirs stay at 30k.
+        reservoirs_D = reservoirs if D <= 30_000 else [r for r in reservoirs if r == "genomic"]
+        for reservoir in reservoirs_D:
+            cache_path = pool_cache(reservoir)
+            if cache_path is not None and not Path(cache_path).exists():
+                print(f"  SKIP {reservoir}: reservoir cache missing ({cache_path})")
+                continue
             for ds, hs in seeds:
                 for variant, strategy, model, style in variants:
                     label = f"s1_{reservoir}_d{D}_{variant}_s{ds}_{hs}"
