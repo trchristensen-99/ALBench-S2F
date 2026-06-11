@@ -30,15 +30,14 @@ from pathlib import Path
 import numpy as np
 from greedy_deploy_select import knee_n, load_pool_models
 from scipy.stats import pearsonr
-from sklearn.linear_model import ElasticNetCV
+
+from albench.ensemble import fit_elasticnet_stack
 
 REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
 
 
 def fit_stack(val_X, val_y, test_X):
-    enet = ElasticNetCV(positive=True, cv=5, n_alphas=50, max_iter=5000, n_jobs=1)
-    enet.fit(val_X.T, val_y)
-    return enet.predict(val_X.T), enet.predict(test_X.T)
+    return fit_elasticnet_stack(val_X, val_y, test_X)
 
 
 def best_per_strategy(models, val_y):
