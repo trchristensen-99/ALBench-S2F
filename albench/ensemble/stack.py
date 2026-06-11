@@ -32,13 +32,16 @@ def fit_elasticnet_stack(
     l1_ratio=None,
     n_alphas: int = 50,
     return_info: bool = False,
+    return_estimator: bool = False,
 ):
     """Positive ElasticNetCV stack fit on this cell's own val predictions.
 
     val_X / test_X are (n_models, n_points); transposed to (n_points, n_models)
     for sklearn. Returns (val_pred, test_pred) by default. With return_info=True
     returns (test_pred, val_pred, info) — note the swapped order — where info holds
-    the fitted blend (n_kept, alpha, l1_ratio, coef) for provenance.
+    the fitted blend (n_kept, alpha, l1_ratio, coef, intercept) for provenance.
+    With return_estimator=True the fitted ElasticNetCV is appended to the returned
+    tuple so the SAME blend can be applied to extra test sets via enet.predict(X.T).
     """
     kw = dict(positive=True, cv=5, max_iter=5000, n_jobs=1)
     if l1_ratio is not None:
@@ -56,6 +59,11 @@ def fit_elasticnet_stack(
             "alpha": float(enet.alpha_),
             "l1_ratio": float(enet.l1_ratio_),
             "coef": enet.coef_.tolist(),
+            "intercept": float(enet.intercept_),
         }
-        return test_pred, val_pred, info
-    return val_pred, test_pred
+        out = (test_pred, val_pred, info)
+    else:
+        out = (val_pred, test_pred)
+    if return_estimator:
+        return (*out, enet)
+    return out
