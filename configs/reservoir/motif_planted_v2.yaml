@@ -1,0 +1,7 @@
+_target_: albench.reservoir.motif_planted_v2.MotifPlantedV2Sampler
+seed: ${seed}
+min_motifs: 3
+max_motifs: 7
+motif_set: auto
+include_rc_variants: true
+preserve_native_motifs: true
