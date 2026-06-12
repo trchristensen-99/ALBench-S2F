@@ -244,20 +244,23 @@ def summarize(per_variant: dict[str, list[dict]]) -> tuple[list[dict], float]:
     return recs, budget
 
 
-def pick_top3_diverse(recs: list[dict], k: int = 3) -> list[dict]:
+def pick_top3_diverse(recs: list[dict], k: int = 3, pick_model: str | None = None) -> list[dict]:
     """Greedy: walk the ranked list and take a variant only if its prompt STYLE is new,
     so the carried set spreads (not 3 near-identical). Backfill by pure rank if fewer
-    than k distinct styles exist."""
+    than k distinct styles exist. If pick_model is set, only that proposer model is
+    eligible (the deploy family is locked to one model — Sonnet downstream — while the
+    other model stays in the table purely as the comparison axis)."""
+    elig = [r for r in recs if pick_model is None or r["model"] == pick_model]
     chosen: list[dict] = []
     seen_styles: set[str] = set()
-    for r in recs:
+    for r in elig:
         if len(chosen) >= k:
             break
         if r["style"] not in seen_styles:
             chosen.append(r)
             seen_styles.add(r["style"])
     if len(chosen) < k:
-        for r in recs:
+        for r in elig:
             if len(chosen) >= k:
                 break
             if r not in chosen:
@@ -270,6 +273,11 @@ def main() -> None:
     ap.add_argument("--out_root", default=str(REPO / "outputs/hp_llm_screen_e100"))
     ap.add_argument("--cache_dir", default="")
     ap.add_argument("--report_dir", default=str(REPO / "outputs/analysis_figures/llm_screen"))
+    ap.add_argument(
+        "--pick_model",
+        default="sonnet",
+        help="lock the top-K to this proposer model (deploy is Sonnet-only); '' to allow any model",
+    )
     args = ap.parse_args()
 
     out_root = Path(args.out_root)
@@ -281,7 +289,7 @@ def main() -> None:
     if not per_variant:
         raise SystemExit(f"no usable variant trajectories under {out_root}")
     recs, budget = summarize(per_variant)
-    top3 = pick_top3_diverse(recs)
+    top3 = pick_top3_diverse(recs, pick_model=args.pick_model or None)
 
     n_complete = sum(r["complete"] for r in recs)
     print(f"=== LLM prompt-screen ranking ({len(recs)} variants; {n_complete} fully done) ===")
