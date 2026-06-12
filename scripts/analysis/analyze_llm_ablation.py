@@ -111,7 +111,11 @@ def main():
     base = row(BASELINE)
     base_or = base["ens_oracle"] if base else float("nan")
     rep = row("llm_default_ctxnone_rep")
-    noise = rep["ens_oracle_sd"] if rep else float("nan")
+    # With one seed per cell the within-cell SD is 0; the run-to-run noise SCALE is the
+    # baseline-vs-replicate gap (same config intent, different hp_seed). Use the larger of
+    # the cross-seed SD (when multi-seed) and that single-replicate gap.
+    rep_gap = abs(base_or - rep["ens_oracle"]) if (base and rep) else float("nan")
+    noise = max(rep["ens_oracle_sd"], rep_gap) if rep else float("nan")
 
     def emit(title, labels):
         print(f"\n=== {title} ===")
