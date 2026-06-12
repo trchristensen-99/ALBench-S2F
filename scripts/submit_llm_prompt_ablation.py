@@ -49,7 +49,15 @@ BIN = "/cm/shared/apps/slurm/current/bin"
 SBATCH = f"{BIN}/sbatch"
 SQUEUE = f"{BIN}/squeue"
 
-OUT_ROOT = os.environ.get("LLM_ABL_OUT_ROOT", f"{REPO}/outputs/hp_llm_ablation_e100")
+# Phase read at import so the follow-up writes to its OWN root by default — it runs an
+# EQUAL-pool (24-config) grid and must not reuse the main run's 20-config cells.
+PHASE = os.environ.get("LLM_ABL_PHASE", "main").strip().lower()
+_DEFAULT_ROOT = (
+    f"{REPO}/outputs/hp_llm_ablation_followup_e100"
+    if PHASE == "followup"
+    else f"{REPO}/outputs/hp_llm_ablation_e100"
+)
+OUT_ROOT = os.environ.get("LLM_ABL_OUT_ROOT", _DEFAULT_ROOT)
 
 MODEL = os.environ.get("LLM_ABL_MODEL", "claude-sonnet-4-6")
 NOVEL = os.environ.get("LLM_ABL_NOVEL", "0")  # hold off so CONTEXT alone controls background
@@ -127,6 +135,9 @@ CELLS = CONTEXT_CELLS + PROBE_CELLS
 # it. n=8 extends the proposals-per-call trend; diverse×{n2,n8} isolates the ensemble-aware
 # proposer and the combined lever. Includes a multi-seed default baseline (the 42:0 cell is
 # reused from the main ablation). Gated: LLM_ABL_PHASE=followup.
+# FOLLOWUP_BUDGET sets the per-cell pool size (24, divisible by both batch widths 2 and 8)
+# so every cell ensembles an EQUAL number of configs.
+FOLLOWUP_BUDGET = 24
 FOLLOWUP_SEEDS = [(42, 0), (43, 1), (44, 2)]
 FOLLOWUP_BASE = [
     ("llm_default_ctxnone", "default", "none", 2, {}),  # multi-seed baseline
@@ -235,10 +246,17 @@ def sbatch(label: str, script: str) -> tuple[str | None, str]:
 def main() -> None:
     smoke = os.environ.get("SMOKE_ONLY") == "1"
     dry = os.environ.get("DRY_RUN") == "1"
-    phase = os.environ.get("LLM_ABL_PHASE", "main").strip().lower()
-    base_cells = FOLLOWUP_CELLS if phase == "followup" else CELLS
+    base_cells = FOLLOWUP_CELLS if PHASE == "followup" else CELLS
     cells = base_cells[:1] if smoke else base_cells
-    rounds = 2 if smoke else ROUNDS
+    # Follow-up holds the pool at FOLLOWUP_BUDGET (24) configs so n=2 and n=8 yield EQUAL
+    # pools (24 = 12×2 = 3×8); 24 is divisible by both batch widths, unlike the main run's
+    # budget of 20. cell_rounds derives budget = rounds × PER_ROUND, so rounds = 12 → 24.
+    if smoke:
+        rounds = 2
+    elif PHASE == "followup":
+        rounds = FOLLOWUP_BUDGET // PER_ROUND
+    else:
+        rounds = ROUNDS
 
     est_calls = sum(cell_rounds(c, rounds) for c in cells)
     print(
