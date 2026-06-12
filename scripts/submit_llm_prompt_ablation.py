@@ -120,6 +120,26 @@ PROBE_CELLS = [
 
 CELLS = CONTEXT_CELLS + PROBE_CELLS
 
+# (C) PHASE-0 FOLLOW-UP. The single-seed ablation surfaced two strongest levers:
+# proposals-per-call (n1<n2<n5) and — for the ENSEMBLE metric — the "diverse" style
+# (ensemble-decorrelation proposer). Their single-seed deltas (~0.005-0.03) sit near the
+# ~0.008 run-to-run noise floor, so re-test the winners across 3 covaried seeds to clear
+# it. n=8 extends the proposals-per-call trend; diverse×{n2,n8} isolates the ensemble-aware
+# proposer and the combined lever. Includes a multi-seed default baseline (the 42:0 cell is
+# reused from the main ablation). Gated: LLM_ABL_PHASE=followup.
+FOLLOWUP_SEEDS = [(42, 0), (43, 1), (44, 2)]
+FOLLOWUP_BASE = [
+    ("llm_default_ctxnone", "default", "none", 2, {}),  # multi-seed baseline
+    ("llm_default_ctxnone_n8", "default", "none", 8, {}),  # wider batch
+    ("llm_diverse_ctxnone_n2", "diverse", "none", 2, {}),  # ensemble-aware proposer
+    ("llm_diverse_ctxnone_n8", "diverse", "none", 8, {}),  # ensemble-aware + wide batch
+]
+FOLLOWUP_CELLS = [
+    Cell(label, style, ctx, per_round=n, env=env, data_seed=ds, hp_seed=hs)
+    for (label, style, ctx, n, env) in FOLLOWUP_BASE
+    for (ds, hs) in FOLLOWUP_SEEDS
+]
+
 
 def out_dir(cell: Cell) -> Path:
     return Path(
@@ -215,7 +235,9 @@ def sbatch(label: str, script: str) -> tuple[str | None, str]:
 def main() -> None:
     smoke = os.environ.get("SMOKE_ONLY") == "1"
     dry = os.environ.get("DRY_RUN") == "1"
-    cells = CELLS[:1] if smoke else CELLS
+    phase = os.environ.get("LLM_ABL_PHASE", "main").strip().lower()
+    base_cells = FOLLOWUP_CELLS if phase == "followup" else CELLS
+    cells = base_cells[:1] if smoke else base_cells
     rounds = 2 if smoke else ROUNDS
 
     est_calls = sum(cell_rounds(c, rounds) for c in cells)
