@@ -62,8 +62,14 @@ def variant_curve(vdir: Path, cache_dir: Path) -> dict | None:
     (cell × seed × variant) dir, in trajectory order. Cached per-path so reruns are fast."""
     tag = "__".join(vdir.parts[-3:])
     cache = cache_dir / f"{tag}.json"
+    # Cache is keyed on the on-disk meta count: a variant that has trained MORE models
+    # since the cache was written (e.g. ranked mid-run, now complete) must be recomputed,
+    # else the ranking silently reflects a stale partial trajectory.
+    n_meta_now = len(list(vdir.glob("r*_meta.json")))
     if cache.exists():
-        return json.loads(cache.read_text())
+        cached = json.loads(cache.read_text())
+        if cached.get("n_meta") == n_meta_now:
+            return cached
 
     lab = vdir / "labels.npz"
     if not lab.exists():
@@ -123,7 +129,7 @@ def variant_curve(vdir: Path, cache_dir: Path) -> dict | None:
                 },
             }
         )
-    out = {"dir": str(vdir), "steps": steps}
+    out = {"dir": str(vdir), "n_meta": n_meta_now, "steps": steps}
     cache.write_text(json.dumps(out, indent=2))
     return out
 
