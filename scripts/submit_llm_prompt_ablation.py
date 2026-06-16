@@ -52,11 +52,12 @@ SQUEUE = f"{BIN}/squeue"
 # Phase read at import so the follow-up writes to its OWN root by default — it runs an
 # EQUAL-pool (24-config) grid and must not reuse the main run's 20-config cells.
 PHASE = os.environ.get("LLM_ABL_PHASE", "main").strip().lower()
-_DEFAULT_ROOT = (
-    f"{REPO}/outputs/hp_llm_ablation_followup_e100"
-    if PHASE == "followup"
-    else f"{REPO}/outputs/hp_llm_ablation_e100"
-)
+if PHASE == "confirm":
+    _DEFAULT_ROOT = f"{REPO}/outputs/hp_llm_ablation_confirm_e100"
+elif PHASE == "followup":
+    _DEFAULT_ROOT = f"{REPO}/outputs/hp_llm_ablation_followup_e100"
+else:
+    _DEFAULT_ROOT = f"{REPO}/outputs/hp_llm_ablation_e100"
 OUT_ROOT = os.environ.get("LLM_ABL_OUT_ROOT", _DEFAULT_ROOT)
 
 MODEL = os.environ.get("LLM_ABL_MODEL", "claude-sonnet-4-6")
@@ -85,6 +86,7 @@ class Cell:
     label: str
     style: str
     context: str
+    novel: str = NOVEL
     per_round: int = PER_ROUND
     env: dict[str, str] = field(default_factory=dict)
     data_seed: int = DATA_SEED
@@ -151,6 +153,28 @@ FOLLOWUP_CELLS = [
     for (ds, hs) in FOLLOWUP_SEEDS
 ]
 
+# (D) CONFIRMATORY DEPLOY BUNDLE + ROUNDS-PLATEAU (Jun 16). The THREE chosen deploy proposers,
+# each held at the novel-axis setting where it was actually validated (exploit/diverse won with
+# novel axes ON; critic won at nv0), all at ctxnone (fair bakeoff) on Sonnet. Goals: (1) confirm
+# the diverse/decorrelation win + the two top screen personas across 3 covaried seeds at a
+# DEPLOY-realistic batch width, and (2) run to a LONG round horizon to locate the true ensemble-
+# oracle plateau vs #rounds (the followup only reached 12). Gated: LLM_ABL_PHASE=confirm. Unlike
+# the followup, rounds are NOT rescaled to a fixed pool — every cell runs CONFIRM_ROUNDS rounds
+# so the per-round curve has a long, equal x-axis. Pool/cell = CONFIRM_ROUNDS × CONFIRM_PER_ROUND.
+CONFIRM_ROUNDS = int(os.environ.get("LLM_CONFIRM_ROUNDS", "25"))
+CONFIRM_PER_ROUND = int(os.environ.get("LLM_CONFIRM_PER_ROUND", "3"))
+CONFIRM_SEEDS = [(42, 0), (43, 1), (44, 2)]
+CONFIRM_BASE = [
+    ("llm_exploit_nv1", "exploit", "none", "1"),  # strongest screen persona (oracle@B 0.747)
+    ("llm_critic_nv0", "critic", "none", "0"),  # 2nd, distinct style (0.740), decorrelates
+    ("llm_diverse_nv0", "diverse", "none", "0"),  # ensemble-decorrelation win (+0.016, 3 seeds)
+]
+CONFIRM_CELLS = [
+    Cell(label, style, ctx, novel=nv, per_round=CONFIRM_PER_ROUND, data_seed=ds, hp_seed=hs)
+    for (label, style, ctx, nv) in CONFIRM_BASE
+    for (ds, hs) in CONFIRM_SEEDS
+]
+
 
 def out_dir(cell: Cell) -> Path:
     return Path(
@@ -164,7 +188,11 @@ def job_label(cell: Cell) -> str:
 
 def cell_rounds(cell: Cell, rounds: int) -> int:
     """Hold total proposals (rounds × per_round) ~constant across per_round so the
-    probe varies batch WIDTH at a fixed evaluation budget, not total compute."""
+    probe varies batch WIDTH at a fixed evaluation budget, not total compute.
+    EXCEPTION: the confirm phase fixes #rounds (not the pool) so the per-round plateau
+    curve has a long, equal x-axis — return rounds verbatim."""
+    if PHASE == "confirm":
+        return rounds
     budget = rounds * PER_ROUND
     return max(1, round(budget / cell.per_round))
 
@@ -211,7 +239,7 @@ export TQDM_DISABLE=1
 export LLM_MODEL="{MODEL}"
 export LLM_PROMPT_STYLE="{cell.style}"
 export LLM_CONTEXT="{cell.context}"
-export LLM_ALLOW_NOVEL_AXES="{NOVEL}"
+export LLM_ALLOW_NOVEL_AXES="{cell.novel}"
 {probe_env}{temp_env}ATTEMPT=0
 while true; do
   uv run --no-sync python experiments/scaling_hp_search.py \\
@@ -246,13 +274,20 @@ def sbatch(label: str, script: str) -> tuple[str | None, str]:
 def main() -> None:
     smoke = os.environ.get("SMOKE_ONLY") == "1"
     dry = os.environ.get("DRY_RUN") == "1"
-    base_cells = FOLLOWUP_CELLS if PHASE == "followup" else CELLS
+    if PHASE == "confirm":
+        base_cells = CONFIRM_CELLS
+    elif PHASE == "followup":
+        base_cells = FOLLOWUP_CELLS
+    else:
+        base_cells = CELLS
     cells = base_cells[:1] if smoke else base_cells
     # Follow-up holds the pool at FOLLOWUP_BUDGET (24) configs so n=2 and n=8 yield EQUAL
     # pools (24 = 12×2 = 3×8); 24 is divisible by both batch widths, unlike the main run's
     # budget of 20. cell_rounds derives budget = rounds × PER_ROUND, so rounds = 12 → 24.
     if smoke:
         rounds = 2
+    elif PHASE == "confirm":
+        rounds = CONFIRM_ROUNDS
     elif PHASE == "followup":
         rounds = FOLLOWUP_BUDGET // PER_ROUND
     else:
