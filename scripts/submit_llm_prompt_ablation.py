@@ -168,6 +168,13 @@ CONFIRM_BASE = [
     ("llm_exploit_nv1", "exploit", "none", "1"),  # strongest screen persona (oracle@B 0.747)
     ("llm_critic_nv0", "critic", "none", "0"),  # 2nd, distinct style (0.740), decorrelates
     ("llm_diverse_nv0", "diverse", "none", "0"),  # ensemble-decorrelation win (+0.016, 3 seeds)
+    ("llm_diverse_nv1", "diverse", "none", "1"),  # diverse @ nv1 (screen: +0.005 vs nv0, in-noise)
+    (
+        "llm_explore_nv1",
+        "explore",
+        "none",
+        "1",
+    ),  # 3rd-slot contender; HP-space coverage + novel axes ON
 ]
 CONFIRM_CELLS = [
     Cell(label, style, ctx, novel=nv, per_round=CONFIRM_PER_ROUND, data_seed=ds, hp_seed=hs)
