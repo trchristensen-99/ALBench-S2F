@@ -182,6 +182,64 @@ def run(pool: Path, model: str, out: Path):
     return result
 
 
+PERSONA_DESC = {
+    "diverse": "ensemble-aware: individually-decent + max-decorrelated (ElasticNet target)",
+    "exploit": "precision tuner: small local variations around the current best",
+    "critic": "meta-learner: diagnose failure modes, then avoid them",
+    "explore": "creative: bold, untried HP regions / new performance regimes",
+    "default": "expert generalist: mix local refinement + smart exploration",
+    "neutral": "minimal framing: task + objective only, no domain steering",
+}
+
+
+def make_roster(result, out_png: Path):
+    """List every LLM persona tried, with its one-line objective and solo best-atom r."""
+    solo = {
+        c["personas"][0]: (c["oracle_r_mean"], c["oracle_r_sd"])
+        for c in result["ranking"]
+        if c["size"] == 1
+    }
+    order = sorted(solo, key=lambda p: -solo[p][0])
+    fig, ax = plt.subplots(figsize=(14, 6.5))
+    y = np.arange(len(order))[::-1]
+    rs = [solo[p][0] for p in order]
+    sds = [solo[p][1] for p in order]
+    target = set(result["target_set"])
+    cols = ["#d62728" if p in target else "#4c72b0" for p in order]
+    ax.barh(y, rs, xerr=sds, color=cols, capsize=4)
+    for i, p in enumerate(order):
+        chosen = " ★" if p in target else ""
+        ax.text(
+            rs[i] + sds[i] + 0.0015,
+            y[i],
+            "{:.3f}{}".format(rs[i], chosen),
+            va="center",
+            fontsize=13,
+        )
+        ax.text(
+            0.003,
+            y[i],
+            PERSONA_DESC.get(p, ""),
+            va="center",
+            ha="left",
+            fontsize=11,
+            color="white",
+            fontweight="bold",
+        )
+    ax.set_yticks(y)
+    ax.set_yticklabels([p.upper() for p in order], fontsize=14)
+    ax.set_xlim(0, max(rs) + 0.03)
+    ax.set_xlabel("solo best-HP oracle-r  (single best model/persona, mean ± SD over 3 seeds)")
+    ax.set_title(
+        "LLM AutoResearch personas tried (screen, Sonnet) — red ★ = chosen deploy proposers\n"
+        "note: solo strength ≠ ensemble value (explore is weak solo but a strong ensemble complement)"
+    )
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=140)
+    plt.close(fig)
+    print("saved", out_png)
+
+
 def make_fig(result, out_png: Path):
     plt.rcParams.update(
         {
@@ -239,8 +297,12 @@ def main():
     ap.add_argument(
         "--fig", default="outputs/analysis_figures/exp0_strategy_choice/D_persona_combos.png"
     )
+    ap.add_argument(
+        "--roster", default="outputs/analysis_figures/exp0_strategy_choice/E_strategy_roster.png"
+    )
     args = ap.parse_args()
     res = run(Path(args.pool), args.model, Path(args.out))
+    make_roster(res, Path(args.roster))
     make_fig(res, Path(args.fig))
 
 
