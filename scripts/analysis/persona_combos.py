@@ -44,10 +44,26 @@ def parse_cell(name):
     return {"persona": p[1], "model": p[2], "nv": p[3]}
 
 
-def best_atom(cell: Path, val_y):
-    """Highest solo val-oracle model in a persona cell -> (val_pred, test_pred, solo_r)."""
+def meta_round(name):
+    """Round index parsed from the rNN_ prefix of a *_meta.json filename, else None."""
+    head = name.split("_", 1)[0]
+    if head.startswith("r") and head[1:].isdigit():
+        return int(head[1:])
+    return None
+
+
+def best_atom(cell: Path, val_y, max_round=None):
+    """Highest solo val-oracle model in a persona cell -> (val_pred, test_pred, solo_r).
+
+    With max_round set, only proposals from rounds <= max_round are eligible, so every
+    persona is compared at the same proposal budget (the matched-depth fair comparison).
+    """
     best = None
     for m in cell.glob("*_meta.json"):
+        if max_round is not None:
+            rnd = meta_round(m.name)
+            if rnd is not None and rnd > max_round:
+                continue
         z = np.load(cell / m.name.replace("_meta.json", ".npz"))
         vp, tp = z["val_pred"], z["test_pred"]
         mm = np.isfinite(vp) & np.isfinite(val_y)
@@ -57,7 +73,7 @@ def best_atom(cell: Path, val_y):
     return best
 
 
-def seed_atoms(seed_dir: Path, model: str):
+def seed_atoms(seed_dir: Path, model: str, max_round=None):
     """One best atom per persona (fixed model, best over nv variants)."""
     labels = None
     by_persona = {}
@@ -73,7 +89,7 @@ def seed_atoms(seed_dir: Path, model: str):
         if labels is None:
             labels = np.load(lab)
         val_y = labels["val_labels"]
-        atom = best_atom(cell, val_y)
+        atom = best_atom(cell, val_y, max_round=max_round)
         if atom is None:
             continue
         p = info["persona"]
@@ -103,14 +119,14 @@ def all_subsets(by_persona, labels):
     return rows
 
 
-def run(pool: Path, model: str, out: Path):
+def run(pool: Path, model: str, out: Path, max_round=None):
     seed_dirs = sorted(p for p in pool.iterdir() if p.is_dir() and p.name.startswith("seed"))
     per_seed = []
     agg_r = defaultdict(list)
     agg_valmse = defaultdict(list)
     sizes = {}
     for sd in seed_dirs:
-        by_persona, labels = seed_atoms(sd, model)
+        by_persona, labels = seed_atoms(sd, model, max_round=max_round)
         if labels is None or len(by_persona) < 2:
             continue
         rows = all_subsets(by_persona, labels)
@@ -146,6 +162,7 @@ def run(pool: Path, model: str, out: Path):
     result = {
         "pool": str(pool),
         "model": model,
+        "max_round": max_round,
         "seeds_used": [d["seed"] for d in per_seed],
         "n_combos": len(combos),
         "ranking": combos,
@@ -300,8 +317,14 @@ def main():
     ap.add_argument(
         "--roster", default="outputs/analysis_figures/exp0_strategy_choice/E_strategy_roster.png"
     )
+    ap.add_argument(
+        "--max-round",
+        type=int,
+        default=None,
+        help="Only count proposals from rounds <= this (matched-depth fair comparison).",
+    )
     args = ap.parse_args()
-    res = run(Path(args.pool), args.model, Path(args.out))
+    res = run(Path(args.pool), args.model, Path(args.out), max_round=args.max_round)
     make_roster(res, Path(args.roster))
     make_fig(res, Path(args.fig))
 
