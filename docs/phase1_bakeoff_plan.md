@@ -1,8 +1,38 @@
 # Phase 1 — Consolidated HP-Strategy Bake-off
 
-**Status:** active (anchor launching 2026-06-17). Supersedes the earlier two-step
+**Status:** active (anchor launched 2026-06-17). Supersedes the earlier two-step
 plan that calibrated optimal rounds (old "Phase 1") and *then* selected the strategy
 (old "Phase 2") as separate passes.
+
+## At a glance
+
+**Goal:** pick the most compute-efficient HP-search strategy (+ its optimal compute)
+for training LegNet students against the canonical `full856k_clean` oracle, then reuse
+**one** frozen recipe at every dataset size.
+
+- **Phase 0 — LLM prompt screen.** Rank Claude personas/prompt styles → deploy-K personas.
+- **Phase 1 — consolidated bake-off.** One deep run/cell (200 models, equal across
+  strategies), compared on **cumulative GPU-seconds**. Knee of each curve = optimal
+  compute; curve height/rank = strategy choice.
+  - **Anchor** (the decision): genomic / D=30k / random-acq, **all 12 algo+evo
+    strategies, 3 seeds** — *launched, running (jobs 2547499–2547534)*.
+  - **OFAT probes** (does it transfer?): perturb one axis off the anchor —
+    D→{100k,300k}, reservoir→{random, tf_planting}, acq→{uncertainty, diversity} —
+    top-K + 2 baselines, 2 seeds, check rank-correlation. *(Can run at ~120 models —
+    see the note under Budget axis on economizing the probes.)*
+  - **One corner** {300k, tf_planting, diversity}: interaction sanity check.
+- **Phase 2 — deploy.** Reuse the frozen `{strategies, compute}` recipe at all D.
+
+**Strategies (13):** `random` · `optuna_{tpe,cmaes,gp,qmc}` ·
+`evo_{single,batch,explore,exploit,massive,adaptive,knowledgeable}`; + `ray_{asha,bohb}`
+and LLM AutoResearch pending deps / Phase-0.
+
+**Student HP space (16 core axes):** `lr`, `batch_size`, `conv_dropout`,
+`dense_dropout`, `n_layers`, `width_base` + per-layer `width_jitter`, `block_class`,
+`ks`, `optimizer`, `weight_decay`, `lr_schedule`, OneCycle `pct_start`, shift/evo aug
+(`use_shift_aug`/`shift_max`/`use_evoaug`); + optional LLM-only novel axes (`extra`).
+
+**Budget cap:** walltime (`slow_nice`, 2 days); slow strategies checkpoint/resume.
 
 ## What changed and why
 
@@ -95,6 +125,28 @@ point estimates.
 (lr × weight_decay × dropouts) where the one-HP-at-a-time `evo_*` family is weakest;
 GP is more sample-efficient at small budgets; QMC is a fairer "no-model" floor than
 i.i.d. random.
+
+### Reading the algo-optimizer results fairly (dimensionality caveat)
+
+The Optuna search space is **~28 dims**, not 16: `width_jitter` is sampled as a fixed
+12-float vector then truncated to `n_layers` (`hp_strategies.py:_sample_one`), and two
+axes are **inert most of the time** — `pct_start` matters only under
+`lr_schedule=onecycle` (~1/7 of configs) and `shift_max` only when `use_shift_aug` is
+true (~1/2). These always-on-but-often-inactive dims inflate the surrogate's effective
+dimensionality. Consequences when ranking:
+
+- **`optuna_gp`** is the most penalized (GP is sample-hungry per dim) — do **not**
+  read a weak GP result as "GP lost"; it was handed a ~28-D space at a modest budget.
+- **`optuna_qmc`** falls back to `RandomSampler` on every categorical (batch_size,
+  optimizer, block_class, ks, the bool flags, lr_schedule), so it is effectively
+  quasi-random only on the ~4 continuous dims. Treat it as a **space-filling floor
+  near `random`**, not a contender.
+- **`optuna_cmaes`** uses `with_margin=True` to handle the discretized dims and is the
+  fair test of "can a continuous optimizer beat per-axis `evo_*` on lr×wd×dropout".
+
+The live space is **left untouched mid-bake-off** (gating the conditional dims or
+promoting `loss` to a core categorical would de-align the running anchor); these are
+documented handicaps to weight in the final read, not bugs.
 
 ## Acquisition strategies (do not block strategy selection on these)
 
