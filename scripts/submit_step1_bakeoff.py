@@ -17,8 +17,9 @@ DEEP independent run (own out_dir), runs in parallel, and is walltime-safe. All
 runs for a (reservoir × D) cell pool downstream for the ablation.
 
 STRATEGIES (every family):
-  algo / evo (one job each):  random, optuna_tpe, evo_single, evo_batch,
-    evo_explore, evo_exploit, evo_massive, evo_adaptive, evo_knowledgeable
+  algo / evo (one job each):  random, optuna_tpe, optuna_cmaes, optuna_gp,
+    optuna_qmc, evo_single, evo_batch, evo_explore, evo_exploit, evo_massive,
+    evo_adaptive, evo_knowledgeable
   Ray Tune schedulers (own engine, own job):  ray_asha, ray_bohb
   LLM AutoResearch (own job each, one model/style per process):
     llm_default (opus default), llm_diverse (sonnet diverse), llm_exploit (sonnet exploit)
@@ -70,6 +71,9 @@ DEFAULT_PER_ROUND = {
     # sequential / adaptive — update after every eval
     "random": 1,
     "optuna_tpe": 1,
+    "optuna_cmaes": 1,
+    "optuna_gp": 1,
+    "optuna_qmc": 1,
     "evo_single": 1,
     "evo_explore": 1,
     "evo_exploit": 1,
@@ -100,6 +104,9 @@ SEEDS = [
 EVO_STRATS = [
     "random",
     "optuna_tpe",
+    "optuna_cmaes",
+    "optuna_gp",
+    "optuna_qmc",
     "evo_single",
     "evo_batch",
     "evo_explore",
