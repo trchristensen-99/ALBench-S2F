@@ -7,6 +7,9 @@ Each strategy implements:
 Strategies:
   RandomStrategy         — uniform sampling (baseline)
   OptunaStrategy         — TPE Bayesian optimization (Optuna)
+  OptunaCmaEs            — CMA-ES over continuous dims (Optuna sampler)
+  OptunaGP               — Gaussian-process BO (Optuna BoTorch GPSampler)
+  OptunaQMC              — scrambled-Sobol space-filling baseline
   AutoResearchSingle     — single-HP-change around current best
   AutoResearchBatch      — K parallel HP changes around current best
   AutoResearchExplore    — high temperature, lots of variation
@@ -58,8 +61,17 @@ class RandomStrategy(Strategy):
         return [sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))) for _ in range(n)]
 
 
-class OptunaStrategy(Strategy):
-    name = "optuna_tpe"
+class _OptunaSamplerBase(Strategy):
+    """Shared Optuna ask/tell driver — subclasses only pick the sampler.
+
+    All Optuna-backed strategies map a trial onto the same HPConfig search space
+    and use identical ask/tell bookkeeping; they differ ONLY in `make_sampler`.
+    """
+
+    name = "optuna_base"
+
+    def make_sampler(self, seed: int):
+        raise NotImplementedError
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -68,14 +80,12 @@ class OptunaStrategy(Strategy):
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         self.study = optuna.create_study(
             direction="maximize",
-            sampler=optuna.samplers.TPESampler(seed=seed),
+            sampler=self.make_sampler(seed),
         )
         # Pending trials waiting for update()
         self._pending: list[Any] = []
 
     def _sample_one(self) -> tuple[Any, HPConfig]:
-        import optuna
-
         trial = self.study.ask()
         n_layers = trial.suggest_int("n_layers", 2, 12)
         # width_jitter is sampled per-layer up to MAX. We use a fixed-dim suggest then truncate.
@@ -126,6 +136,15 @@ class OptunaStrategy(Strategy):
             if not matched:
                 new_pending.append((trial, hp))
         self._pending = new_pending
+
+
+class OptunaStrategy(_OptunaSamplerBase):
+    name = "optuna_tpe"
+
+    def make_sampler(self, seed: int):
+        import optuna
+
+        return optuna.samplers.TPESampler(seed=seed)
 
 
 class AutoResearchBase(Strategy):
@@ -316,84 +335,75 @@ class AutoResearchMassive(AutoResearchBase):
         return matches >= 3  # avoid if 3+ HPs match bottom-quartile
 
 
-class OptunaParallel(Strategy):
+class OptunaParallel(_OptunaSamplerBase):
     """Optuna TPE in parallel-suggest mode (emits N configs per call).
 
     All N share the same history. Unlike the base OptunaStrategy which is
     one-config-at-a-time, this asks Optuna for N configs in batch before
     seeing any results. This causes some redundancy but maximizes parallelism.
+    Multivariate + constant_liar give better batch in-context learning.
     """
 
     name = "optuna_parallel"
 
-    def __init__(self, seed: int = 0):
-        super().__init__(seed)
+    def make_sampler(self, seed: int):
         import optuna
 
-        optuna.logging.set_verbosity(optuna.logging.WARNING)
-        # Use multivariate TPE for better in-context learning
-        self.study = optuna.create_study(
-            direction="maximize",
-            sampler=optuna.samplers.TPESampler(
-                seed=seed,
-                multivariate=True,
-                group=True,
-                constant_liar=True,
-            ),
+        return optuna.samplers.TPESampler(
+            seed=seed,
+            multivariate=True,
+            group=True,
+            constant_liar=True,
         )
-        self._pending: list = []
 
-    def _sample_one(self):
-        trial = self.study.ask()
-        n_layers = trial.suggest_int("n_layers", 2, 12)
-        max_layers = 12
-        width_jitter = [
-            trial.suggest_float(f"width_jitter_{i}", 0.5, 2.0) for i in range(max_layers)
-        ][:n_layers]
-        hp = HPConfig(
-            lr=trial.suggest_float("lr", 1e-5, 1e-2, log=True),
-            batch_size=trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512, 1024]),
-            conv_dropout=trial.suggest_float("conv_dropout", 0.0, 0.3),
-            dense_dropout=trial.suggest_float("dense_dropout", 0.0, 0.5),
-            n_layers=n_layers,
-            width_base=trial.suggest_categorical("width_base", [16, 32, 64, 128, 256]),
-            width_jitter=width_jitter,
-            block_class=trial.suggest_categorical("block_class", ["eff", "ag", "plain"]),
-            ks=trial.suggest_categorical("ks", [3, 5, 7, 9, 11]),
-            pct_start=trial.suggest_categorical("pct_start", [0.1, 0.2, 0.3, 0.4]),
-            optimizer=trial.suggest_categorical("optimizer", ["adam", "adamw", "muon"]),
-            weight_decay=trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True),
-            use_shift_aug=trial.suggest_categorical("use_shift_aug", [False, True]),
-            shift_max=trial.suggest_categorical("shift_max", [5, 10, 15, 20]),
-            use_evoaug=trial.suggest_categorical("use_evoaug", [False, True]),
-            lr_schedule=trial.suggest_categorical("lr_schedule", LR_SCHEDULE_CHOICES),
-            seed=int(self.rng.integers(2**31)),
+
+class OptunaCmaEs(_OptunaSamplerBase):
+    """CMA-ES: covariance-matrix evolution over the CONTINUOUS HP dims.
+
+    Strong on correlated continuous HPs (lr × weight_decay × dropouts), where the
+    one-HP-at-a-time evo_* family is weakest. CMA-ES cannot model categoricals, so
+    Optuna samples those (block_class, optimizer, schedules, …) with an independent
+    sampler; `with_margin=True` handles the integer/stepped dims.
+    """
+
+    name = "optuna_cmaes"
+
+    def make_sampler(self, seed: int):
+        import optuna
+
+        return optuna.samplers.CmaEsSampler(
+            seed=seed, with_margin=True, warn_independent_sampling=False
         )
-        return trial, hp
 
-    def suggest(self, n: int) -> list[HPConfig]:
-        configs = []
-        for _ in range(n):
-            trial, hp = self._sample_one()
-            self._pending.append((trial, hp))
-            configs.append(hp)
-        return configs
 
-    def update(self, configs, val_pearsons):
-        super().update(configs, val_pearsons)
-        from dataclasses import asdict
+class OptunaGP(_OptunaSamplerBase):
+    """Gaussian-process Bayesian optimization (Optuna's BoTorch-backed GPSampler).
 
-        new_pending = []
-        for trial, hp in self._pending:
-            matched = False
-            for c, v in zip(configs, val_pearsons):
-                if asdict(c) == asdict(hp) and v is not None:
-                    self.study.tell(trial, v)
-                    matched = True
-                    break
-            if not matched:
-                new_pending.append((trial, hp))
-        self._pending = new_pending
+    A true GP surrogate rather than TPE's density ratio — more sample-efficient at
+    the small (200-model) budgets that matter here, at higher per-suggest cost.
+    """
+
+    name = "optuna_gp"
+
+    def make_sampler(self, seed: int):
+        import optuna
+
+        return optuna.samplers.GPSampler(seed=seed)
+
+
+class OptunaQMC(_OptunaSamplerBase):
+    """Quasi-Monte-Carlo (scrambled Sobol) — a low-discrepancy space-filling baseline.
+
+    Covers the space more evenly than i.i.d. `random`, so it is the fairer
+    "no-model" floor for judging whether the adaptive methods actually learn.
+    """
+
+    name = "optuna_qmc"
+
+    def make_sampler(self, seed: int):
+        import optuna
+
+        return optuna.samplers.QMCSampler(seed=seed, scramble=True)
 
 
 class AutoResearchAdaptive(AutoResearchMassive):
@@ -475,6 +485,9 @@ STRATEGY_REGISTRY = {
     "random": RandomStrategy,
     "optuna_tpe": OptunaStrategy,
     "optuna_parallel": OptunaParallel,
+    "optuna_cmaes": OptunaCmaEs,
+    "optuna_gp": OptunaGP,
+    "optuna_qmc": OptunaQMC,
     # Evolutionary / hill-climbing perturbation strategies. These were historically
     # (mis)named "autoresearch_*"; "AutoResearch" is reserved for the LLM-iterative
     # search in llm_autoresearch.py. Old names are kept as aliases below for
