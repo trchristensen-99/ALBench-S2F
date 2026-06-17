@@ -318,7 +318,7 @@ class HPConfig:
     n_layers: int
     width_base: int
     width_jitter: list  # per-layer multiplier in [0.5, 2.0]
-    block_class: str  # {"eff", "local"}
+    block_class: str  # {"eff", "ag", "plain"}
     ks: int  # kernel size
     pct_start: float  # OneCycleLR warmup fraction
     optimizer: str
