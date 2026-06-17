@@ -123,6 +123,9 @@ so the bake-off runs the default **random** acquisition; acquisition-sensitivity
 
 ## Launch ledger
 
-- 2026-06-17: anchor algo+evo strategies (12) × genomic × 30k × 3 seeds launched.
+- 2026-06-17: anchor algo+evo strategies (12) × genomic × 30k × 3 seeds **launched**
+  (jobs 2547499–2547534; 16 on `default`, 20 on `slow_nice`). Strategies:
+  `random, optuna_tpe, optuna_cmaes, optuna_gp, optuna_qmc, evo_single, evo_batch,
+  evo_explore, evo_exploit, evo_massive, evo_adaptive, evo_knowledgeable`.
   Deferred: `ray_asha`/`ray_bohb` (need `ray[tune]`+`hpbandster`+`ConfigSpace` in the
   venv) and the LLM arms (pending the Phase-0 deploy-3 persona result).
