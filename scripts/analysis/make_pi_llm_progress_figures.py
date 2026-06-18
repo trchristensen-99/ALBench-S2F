@@ -1,11 +1,14 @@
-"""PI-update figures: LLM-AutoResearch progress (3 separate plots).
+"""PI-update figures: LLM-AutoResearch progress.
 
 Data sources (all REAL, no synthetic numbers):
-  - Plot 1: best ensemble oracle-r by number of personas (Phase-0 confirm,
-    persona_combos "best subset by size", k562_genomic_d30000, 3 seeds).
-  - Plots 2 & 3: per-model JSON metrics aggregated from the LIVE Phase-1 anchor
-    pool (outputs/hp_step1_bakeoff_e100/k562_genomic_d30000, 3 seeds) ->
-    /tmp/pi_agg.json. Metric = held-out genomic test pearson (per_set_metrics).
+  - personas-vs-perf: best ensemble oracle-r by number of personas (Phase-0
+    confirm, persona_combos "best subset by size", k562_genomic_d30000, 3 seeds).
+  - round-progress / models-vs-perf: per-model JSON metrics from the LIVE Phase-1
+    anchor pool (outputs/hp_step1_bakeoff_e100/k562_genomic_d30000) -> /tmp/pi_agg.json.
+  - *_confirm variants: same two plots from the previous full-depth LLM runs
+    (outputs/hp_llm_ablation_confirm_e100, 25 rounds, 75 models/persona/seed) ->
+    /tmp/pi_agg_confirm.json. These are the byte-identical atoms now reused.
+Metrics: val_pearson (chr-val) and per_set_metrics['genomic'] (held-out test).
 
 Writes PNG+PDF to ~/Downloads/pi_update_figures/.
 """
@@ -130,7 +133,9 @@ def _round_means(rows, key="genomic"):
     return np.array(rounds), mean, n
 
 
-def fig_round_progress(agg):
+def fig_round_progress(
+    agg, outname="pi_llm_round_progress", subtitle="live Phase-1, D=30k, 3 seeds"
+):
     pm = agg["per_model"]
     fig, ax = plt.subplots(figsize=(7.6, 5.0))
     for strat, (name, c) in PERSONAS.items():
@@ -162,14 +167,14 @@ def fig_round_progress(agg):
     ax.set_ylabel("mean model quality per round\n(held-out genomic test correlation)")
     ax.set_title(
         "Do later rounds propose better models?\n"
-        "per-round mean over proposed configs (live Phase-1, D=30k, 3 seeds)",
+        f"per-round mean over proposed configs ({subtitle})",
         fontsize=12,
     )
     ax.grid(True, ls=":", alpha=0.5)
     ax.legend(title="persona", fontsize=9, loc="lower right")
     fig.tight_layout()
     for ext in ("png", "pdf"):
-        fig.savefig(f"{OUT}/pi_llm_round_progress.{ext}", dpi=160, bbox_inches="tight")
+        fig.savefig(f"{OUT}/{outname}.{ext}", dpi=160, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -206,7 +211,12 @@ def _cumbest_seed42(rows, key):
     return np.arange(1, len(cb) + 1), cb
 
 
-def fig_models_vs_perf(agg):
+def fig_models_vs_perf(
+    agg,
+    outname="pi_llm_models_vs_perf",
+    subtitle="Live Phase-1 search progress (D=30k, genomic, random acq.)",
+    strat_style=STRAT_STYLE,
+):
     pm = agg["per_model"]
     panels = [
         ("val", "best chr-val correlation so far\n(metric the search selects on)"),
@@ -215,7 +225,7 @@ def fig_models_vs_perf(agg):
     fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.4))
     for ax, (key, ylab) in zip(axes, panels):
         ymins, ymaxs = [], []
-        for strat, (name, c, ls) in STRAT_STYLE.items():
+        for strat, (name, c, ls) in strat_style.items():
             rows = pm.get(strat, [])
             if not rows:
                 continue
@@ -232,7 +242,7 @@ def fig_models_vs_perf(agg):
                 lw=2.8 if is_llm else 1.5,
                 color=c,
                 alpha=0.95 if is_llm else 0.6,
-                marker="o" if is_llm else None,
+                marker="o" if (is_llm and len(x) <= 30) else None,
                 ms=3,
                 label=name,
                 zorder=3 if is_llm else 2,
@@ -246,14 +256,25 @@ def fig_models_vs_perf(agg):
         ax.grid(True, ls=":", alpha=0.5)
         ax.legend(fontsize=7.5, ncol=2, loc="lower right", framealpha=0.95)
     fig.suptitle(
-        "Live Phase-1 search progress (D=30k, genomic, random acq.)  "
-        "— cumulative-best single model vs models evaluated",
+        f"{subtitle}  — cumulative-best single model vs models evaluated",
         fontsize=12.5,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     for ext in ("png", "pdf"):
-        fig.savefig(f"{OUT}/pi_llm_models_vs_perf.{ext}", dpi=160, bbox_inches="tight")
+        fig.savefig(f"{OUT}/{outname}.{ext}", dpi=160, bbox_inches="tight")
     plt.close(fig)
+
+
+# LLM-only style map for the confirm-run trajectories (no algo/evo in that pool).
+LLM_STYLE = {
+    "llm_exploit_nv1": ("exploit", RED, "-"),
+    "llm_critic_nv0": ("critic", PURPLE, "-"),
+    "llm_diverse_nv1": ("diverse", GREEN, "-"),
+    "llm_explore_nv1": ("explore", ORANGE, "-"),
+}
+
+
+AGG_CONFIRM = "/tmp/pi_agg_confirm.json"
 
 
 def main():
@@ -262,8 +283,27 @@ def main():
     fig_personas_vs_perf()
     fig_round_progress(agg)
     fig_models_vs_perf(agg)
+    written = ["pi_llm_personas_vs_perf", "pi_llm_round_progress", "pi_llm_models_vs_perf"]
+
+    # Confirm-run (previous full-depth, 25-round) LLM trajectories — the data we are
+    # now reusing as bake-off atoms. LLM-only pool; full depth where the live arms barely started.
+    if os.path.exists(AGG_CONFIRM):
+        aggc = json.load(open(AGG_CONFIRM))
+        fig_round_progress(
+            aggc,
+            outname="pi_llm_round_progress_confirm",
+            subtitle="previous full-depth runs, 25 rounds, D=30k, 3 seeds",
+        )
+        fig_models_vs_perf(
+            aggc,
+            outname="pi_llm_models_vs_perf_confirm",
+            subtitle="Previous full-depth LLM runs (D=30k, genomic)",
+            strat_style=LLM_STYLE,
+        )
+        written += ["pi_llm_round_progress_confirm", "pi_llm_models_vs_perf_confirm"]
+
     print("wrote:")
-    for f in ("pi_llm_personas_vs_perf", "pi_llm_round_progress", "pi_llm_models_vs_perf"):
+    for f in written:
         print(f"  {OUT}/{f}.png")
 
 
