@@ -350,8 +350,20 @@ def main():
     agg = json.load(open(AGG))
     fig_personas_vs_perf()
     fig_round_progress(agg)
-    fig_models_vs_perf(agg)
-    written = ["pi_llm_personas_vs_perf", "pi_llm_round_progress", "pi_llm_models_vs_perf"]
+    fig_models_vs_perf(agg, subtitle="Live Phase-1 (without previous LLM runs)")
+    # Live, all seeds, mean + seed band (algo/evo have 2-3 seeds; live LLM = seed 42 only).
+    fig_models_vs_perf_multiseed(
+        agg,
+        outname="pi_llm_models_vs_perf_3seed",
+        subtitle="Live Phase-1 (without previous LLM runs)",
+        strat_style=STRAT_STYLE,
+    )
+    written = [
+        "pi_llm_personas_vs_perf",
+        "pi_llm_round_progress",
+        "pi_llm_models_vs_perf",
+        "pi_llm_models_vs_perf_3seed",
+    ]
 
     # Confirm-run (previous full-depth, 25-round) LLM trajectories — the data we are
     # now reusing as bake-off atoms. LLM-only pool; full depth where the live arms barely started.
@@ -377,6 +389,30 @@ def main():
             "pi_llm_round_progress_confirm",
             "pi_llm_models_vs_perf_confirm",
             "pi_llm_models_vs_perf_confirm_3seed",
+        ]
+
+        # "With previous LLM runs": live algo/evo + the full-depth confirm LLM atoms.
+        combined = {"per_model": {}}
+        for k, v in agg["per_model"].items():
+            if not k.startswith("llm_"):
+                combined["per_model"][k] = v
+        for k in LLM_STYLE:
+            if k in aggc["per_model"]:
+                combined["per_model"][k] = aggc["per_model"][k]
+        fig_models_vs_perf(
+            combined,
+            outname="pi_llm_models_vs_perf_withprev",
+            subtitle="Live Phase-1 + previous LLM runs (seed 42)",
+        )
+        fig_models_vs_perf_multiseed(
+            combined,
+            outname="pi_llm_models_vs_perf_withprev_3seed",
+            subtitle="Live Phase-1 + previous LLM runs",
+            strat_style=STRAT_STYLE,
+        )
+        written += [
+            "pi_llm_models_vs_perf_withprev",
+            "pi_llm_models_vs_perf_withprev_3seed",
         ]
 
     print("wrote:")
