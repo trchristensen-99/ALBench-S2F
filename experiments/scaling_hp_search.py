@@ -47,6 +47,26 @@ def _atomic_savez(path: Path, **arrays) -> None:
     os.replace(tmp, path)
 
 
+# Canonical seed for the reserved-eval partition split. Independent of any
+# data_seed so the SEARCH (load_chr_train_pool) and the fair-comparison retrain
+# harness agree on exactly which pool rows are held out vs searchable.
+POOL_RESERVE_SEED = 20260618
+
+
+def pool_partition(n: int, reserve_frac: float) -> tuple[np.ndarray, np.ndarray]:
+    """Split [0, n) into (searchable, reserved_eval) by the canonical permutation.
+
+    The reserved-eval rows are NEVER sampled by any search data_seed, so a retrain
+    drawing train+val from them is disjoint from all search data. Returns
+    (searchable_idx, reserved_eval_idx); reserve_frac<=0 → (all, empty).
+    """
+    if reserve_frac <= 0:
+        return np.arange(n), np.empty(0, dtype=int)
+    perm = np.random.default_rng(POOL_RESERVE_SEED).permutation(n)
+    n_reserve = int(reserve_frac * n)
+    return perm[n_reserve:], perm[:n_reserve]
+
+
 # ── Regime stamping (no-mixing guarantee) ──────────────────────────────────────
 # Bump when the meaning of a stamped field changes so old results can be told apart.
 REGIME_SCHEMA_VERSION = "v1"
@@ -141,14 +161,31 @@ def load_chr_train_pool(
     n = len(seqs)
     print(f"  Loaded {fname}: n={n:,}, μ={labels.mean():.3f} σ={labels.std():.3f}")
 
-    if D is not None and D < n:
+    # Reserved-eval partition (fair R×A comparison): carve a canonical tail of the
+    # pool — using a FIXED seed independent of data_seed — that the SEARCH never
+    # samples. The fair-comparison retrain (deployed menu / genomic-transferred /
+    # native, all locked) draws its fresh train+val from that reserved tail, so it
+    # is disjoint from every search seed's data (data_seed draws only overlap, they
+    # are not disjoint). Off by default (frac=0 → full pool searchable, legacy).
+    reserve_frac = float(os.environ.get("HP_POOL_RESERVE_EVAL_FRAC", "0") or 0)
+    universe, reserved = pool_partition(n, reserve_frac)
+    if reserve_frac > 0:
+        print(
+            f"  Reserved-eval partition: {len(reserved):,} held out "
+            f"(frac={reserve_frac}); searchable universe={len(universe):,}"
+        )
+
+    if D is not None and D < len(universe):
         rng = np.random.default_rng(seed)
-        idx = rng.choice(n, size=D, replace=False)
+        pick = rng.choice(len(universe), size=D, replace=False)
+        idx = universe[pick]
         seqs = seqs[idx]
         labels = labels[idx]
         print(f"  Subsampled to D={D:,}")
-    elif D is not None and D > n:
-        print(f"  WARN: D={D:,} > pool size {n:,}; using all available")
+    elif D is not None and D > len(universe):
+        seqs = seqs[universe]
+        labels = labels[universe]
+        print(f"  WARN: D={D:,} > searchable universe {len(universe):,}; using all searchable")
 
     if reservoir_val_cache is not None:
         # Held-out, transform-matched val: same reservoir transform applied to the
