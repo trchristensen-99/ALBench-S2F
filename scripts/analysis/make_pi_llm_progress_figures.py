@@ -39,17 +39,16 @@ plt.rcParams.update({"font.size": 11})
 # Plot 1 — ensemble performance vs number of personas
 # --------------------------------------------------------------------------
 def fig_personas_vs_perf():
-    # "best subset by size" from Phase-0 confirm (persona_combos, 3 seeds).
-    sizes = [1, 2, 3, 4, 5, 6]
-    best_r = [0.7009, 0.7319, 0.7423, 0.7456, 0.7467, 0.7472]
-    sd = [0.0130, 0.0135, 0.0140, 0.0146, 0.0138, 0.0132]
+    # "best subset by size" — matched-depth R=24 over the 4 deploy personas
+    # (persona_combos, 3 seeds, equal rounds per persona so depth is not a confound).
+    sizes = [1, 2, 3, 4]
+    best_r = [0.6955, 0.7181, 0.7232, 0.7257]
+    sd = [0.0130, 0.0070, 0.0026, 0.0030]
     labels = [
-        "diverse",
-        "+explore",
-        "+exploit",
-        "+default",
+        "explore",
         "+critic",
-        "+neutral",
+        "+diverse",
+        "+exploit",
     ]
 
     fig, ax = plt.subplots(figsize=(7.4, 5.0))
@@ -74,10 +73,10 @@ def fig_personas_vs_perf():
         )
 
     # diminishing-returns shading: knee ~ size 3
-    ax.axvspan(3, 6, color=GREEN, alpha=0.06)
+    ax.axvspan(3, 4, color=GREEN, alpha=0.06)
     ax.annotate(
         "diminishing returns\n(knee ~3 personas)",
-        (4.5, 0.7300),
+        (3.5, 0.7120),
         ha="center",
         fontsize=9.5,
         color=GREEN,
@@ -98,11 +97,11 @@ def fig_personas_vs_perf():
     ax.set_ylabel("ensemble oracle correlation  (mean ± SD, 3 seeds)")
     ax.set_title(
         "More search personas help — but saturate quickly\n"
-        "best persona subset at each size (Phase-0 confirm, D=30k)",
+        "best persona subset at each size (matched-depth R=24, 4 deploy personas, D=30k)",
         fontsize=12,
     )
     ax.set_xticks(sizes)
-    ax.set_ylim(0.695, 0.752)
+    ax.set_ylim(0.688, 0.730)
     ax.grid(True, axis="y", ls=":", alpha=0.5)
     fig.tight_layout()
     for ext in ("png", "pdf"):
