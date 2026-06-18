@@ -197,6 +197,36 @@ STRAT_STYLE = {
 }
 
 
+def _cumbest_one(rows, key):
+    """Cumulative-best of `key` over a single search trajectory (mtime order)."""
+    r = sorted(rows, key=lambda x: x["mtime"])
+    vals = [x[key] for x in r if x[key] is not None and np.isfinite(x[key])]
+    return np.maximum.accumulate(vals) if vals else np.array([])
+
+
+def _cumbest_by_seed(rows, key):
+    """Per-seed cumulative-best -> aligned mean and min/max across seeds vs model index."""
+    bys = defaultdict(list)
+    for x in rows:
+        bys[x["seed"]].append(x)
+    curves = [_cumbest_one(v, key) for v in bys.values()]
+    curves = [c for c in curves if len(c)]
+    if not curves:
+        return np.array([]), np.array([]), np.array([]), np.array([])
+    n = max(len(c) for c in curves)
+    x = np.arange(1, n + 1)
+    # at index i, average over seeds that have reached >= i+1 models
+    mean = np.full(n, np.nan)
+    lo = np.full(n, np.nan)
+    hi = np.full(n, np.nan)
+    for i in range(n):
+        pts = [c[i] for c in curves if len(c) > i]
+        mean[i] = np.mean(pts)
+        lo[i] = np.min(pts)
+        hi[i] = np.max(pts)
+    return x, mean, lo, hi
+
+
 def _cumbest_seed42(rows, key):
     r = [x for x in rows if x["seed"] == "seed42_0"]
     if not r:
@@ -274,6 +304,44 @@ LLM_STYLE = {
 }
 
 
+def fig_models_vs_perf_multiseed(agg, outname, subtitle, strat_style=LLM_STYLE, n_seeds=3):
+    """Cumulative-best vs models, mean across seeds + min-max band (per-seed runs)."""
+    pm = agg["per_model"]
+    panels = [
+        ("val", "best chr-val correlation so far\n(metric the search selects on)"),
+        ("genomic", "best held-out genomic TEST correlation so far\n(unbiased generalization)"),
+    ]
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.4))
+    for ax, (key, ylab) in zip(axes, panels):
+        ymins, ymaxs = [], []
+        for strat, (name, c, ls) in strat_style.items():
+            rows = pm.get(strat, [])
+            if not rows:
+                continue
+            x, mean, lo, hi = _cumbest_by_seed(rows, key)
+            if len(mean) == 0:
+                continue
+            ymins.append(np.nanmin(lo))
+            ymaxs.append(np.nanmax(hi))
+            ax.fill_between(x, lo, hi, color=c, alpha=0.13, zorder=2)
+            ax.plot(x, mean, ls=ls, lw=2.6, color=c, label=name, zorder=3)
+        lo_y, hi_y = min(ymins), max(ymaxs)
+        pad = max(0.005, (hi_y - lo_y) * 0.06)
+        ax.set_ylim(lo_y - pad, hi_y + pad)
+        ax.set_xlabel(f"number of models trained (search progress, mean of {n_seeds} seeds)")
+        ax.set_ylabel(ylab)
+        ax.grid(True, ls=":", alpha=0.5)
+        ax.legend(fontsize=8.5, loc="lower right", framealpha=0.95)
+    fig.suptitle(
+        f"{subtitle}  — cumulative-best vs models (mean of {n_seeds} seeds, band = seed min-max)",
+        fontsize=12.5,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{OUT}/{outname}.{ext}", dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
 AGG_CONFIRM = "/tmp/pi_agg_confirm.json"
 
 
@@ -300,7 +368,16 @@ def main():
             subtitle="Previous full-depth LLM runs (D=30k, genomic)",
             strat_style=LLM_STYLE,
         )
-        written += ["pi_llm_round_progress_confirm", "pi_llm_models_vs_perf_confirm"]
+        fig_models_vs_perf_multiseed(
+            aggc,
+            outname="pi_llm_models_vs_perf_confirm_3seed",
+            subtitle="Previous full-depth LLM runs (D=30k, genomic)",
+        )
+        written += [
+            "pi_llm_round_progress_confirm",
+            "pi_llm_models_vs_perf_confirm",
+            "pi_llm_models_vs_perf_confirm_3seed",
+        ]
 
     print("wrote:")
     for f in written:
