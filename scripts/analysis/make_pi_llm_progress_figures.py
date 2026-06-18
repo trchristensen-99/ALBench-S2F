@@ -196,6 +196,9 @@ STRAT_STYLE = {
     "llm_explore_nv1": ("LLM explore", "#E06666", "-"),
 }
 
+# Algo/evo only (drop the LLM curves so the rest is legible).
+ALGOEVO_STYLE = {k: v for k, v in STRAT_STYLE.items() if not k.startswith("llm_")}
+
 
 def _cumbest_one(rows, key):
     """Cumulative-best of `key` over a single search trajectory (mtime order)."""
@@ -205,7 +208,13 @@ def _cumbest_one(rows, key):
 
 
 def _cumbest_by_seed(rows, key):
-    """Per-seed cumulative-best -> aligned mean and min/max across seeds vs model index."""
+    """Per-seed cumulative-best -> aligned mean and min/max across seeds vs model index.
+
+    Each seed's running-max is forward-filled (held at its best-so-far) once its run
+    ends, so the cross-seed mean stays monotonic. Averaging only over seeds still
+    present would let a short high-scoring seed dropping out *lower* the mean, which
+    is an artifact, not a real regression (best config can always be reused).
+    """
     bys = defaultdict(list)
     for x in rows:
         bys[x["seed"]].append(x)
@@ -215,16 +224,8 @@ def _cumbest_by_seed(rows, key):
         return np.array([]), np.array([]), np.array([]), np.array([])
     n = max(len(c) for c in curves)
     x = np.arange(1, n + 1)
-    # at index i, average over seeds that have reached >= i+1 models
-    mean = np.full(n, np.nan)
-    lo = np.full(n, np.nan)
-    hi = np.full(n, np.nan)
-    for i in range(n):
-        pts = [c[i] for c in curves if len(c) > i]
-        mean[i] = np.mean(pts)
-        lo[i] = np.min(pts)
-        hi[i] = np.max(pts)
-    return x, mean, lo, hi
+    padded = np.array([np.concatenate([c, np.full(n - len(c), c[-1])]) for c in curves])
+    return x, padded.mean(axis=0), padded.min(axis=0), padded.max(axis=0)
 
 
 def _cumbest_seed42(rows, key):
@@ -358,11 +359,26 @@ def main():
         subtitle="Live Phase-1 (without previous LLM runs)",
         strat_style=STRAT_STYLE,
     )
+    # algo/evo only (no LLM) — clearer view of the remaining strategies.
+    fig_models_vs_perf(
+        agg,
+        outname="pi_models_vs_perf_noLLM",
+        subtitle="Live Phase-1, algo/evo only (seed 42)",
+        strat_style=ALGOEVO_STYLE,
+    )
+    fig_models_vs_perf_multiseed(
+        agg,
+        outname="pi_models_vs_perf_noLLM_3seed",
+        subtitle="Live Phase-1, algo/evo only",
+        strat_style=ALGOEVO_STYLE,
+    )
     written = [
         "pi_llm_personas_vs_perf",
         "pi_llm_round_progress",
         "pi_llm_models_vs_perf",
         "pi_llm_models_vs_perf_3seed",
+        "pi_models_vs_perf_noLLM",
+        "pi_models_vs_perf_noLLM_3seed",
     ]
 
     # Confirm-run (previous full-depth, 25-round) LLM trajectories — the data we are
