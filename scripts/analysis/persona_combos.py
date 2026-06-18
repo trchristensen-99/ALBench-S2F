@@ -37,11 +37,12 @@ TARGET = frozenset({"exploit", "critic", "diverse"})
 
 
 def parse_cell(name):
-    # llm_{persona}_{model}_nv{N}
+    # llm_{persona}_{model}_nv{N}  OR  llm_{persona}_nv{N} (model-agnostic, e.g. confirm bundle)
     p = name.split("_")
-    if len(p) < 4 or p[0] != "llm":
+    if len(p) < 3 or p[0] != "llm" or not p[-1].startswith("nv"):
         return None
-    return {"persona": p[1], "model": p[2], "nv": p[3]}
+    model = p[2] if len(p) >= 4 else None
+    return {"persona": p[1], "model": model, "nv": p[-1]}
 
 
 def meta_round(name):
@@ -81,7 +82,7 @@ def seed_atoms(seed_dir: Path, model: str, max_round=None):
         if not cell.is_dir():
             continue
         info = parse_cell(cell.name)
-        if not info or info["model"] != model:
+        if not info or (info["model"] is not None and info["model"] != model):
             continue
         lab = cell / "labels.npz"
         if not lab.exists():
