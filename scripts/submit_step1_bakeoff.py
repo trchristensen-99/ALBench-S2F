@@ -116,13 +116,18 @@ EVO_STRATS = [
     "evo_knowledgeable",
 ]
 RAY_STRATS = ["ray_asha", "ray_bohb"]
-# (variant_label, strategy, llm_model, llm_style)
-# PENDING Phase-0 (outputs/hp_llm_screen_e100): swap these to the TOP-3 diverse winners
-# from the prompt-style screen before the Phase-1 launch. The 3 below are placeholders.
+# (variant_label, strategy, llm_model, llm_style, llm_context, novel_axes)
+# FROZEN from the Phase-0 confirm bundle (outputs/hp_llm_ablation_confirm_e100, Jun 17): the four
+# complementary personas, each at the novel-axis setting where it was validated (exploit/diverse/
+# explore won with novel axes ON; critic won at nv0). All at ctxnone (no cross-experiment KB priors)
+# so the LLM is judged on intrinsic in-context optimization — fair vs the algo/evo strategies. The
+# final ensemble subset is chosen downstream by the all-subsets ElasticNet ablation over the pooled
+# strategies; the bake-off just gives every persona a slot. diverse_nv0 dropped (nv1 dominates +0.016).
 LLM_VARIANTS = [
-    ("llm_default", "llm_autoresearch", "claude-opus-4-7", "default"),
-    ("llm_diverse", "llm_autoresearch", "claude-sonnet-4-6", "diverse"),
-    ("llm_exploit", "llm_autoresearch", "claude-sonnet-4-6", "exploit"),
+    ("llm_exploit_nv1", "llm_autoresearch", "claude-sonnet-4-6", "exploit", "none", "1"),
+    ("llm_critic_nv0", "llm_autoresearch", "claude-sonnet-4-6", "critic", "none", "0"),
+    ("llm_diverse_nv1", "llm_autoresearch", "claude-sonnet-4-6", "diverse", "none", "1"),
+    ("llm_explore_nv1", "llm_autoresearch", "claude-sonnet-4-6", "explore", "none", "1"),
 ]
 
 
@@ -139,26 +144,27 @@ def _ray_available() -> bool:
         return False
 
 
-def all_variants() -> list[tuple[str, str, str, str]]:
-    """(label, strategies, llm_model, llm_style). One strategy per variant."""
+def all_variants() -> list[tuple[str, str, str, str, str, str]]:
+    """(label, strategy, llm_model, llm_style, llm_context, novel). One strategy per variant.
+    Non-LLM variants leave model/style/context empty and novel="0" (unused)."""
     subset = os.environ.get("STEP1_STRATS", "").strip()
     allowed = set(subset.split(",")) if subset else None
-    out: list[tuple[str, str, str, str]] = []
+    out: list[tuple[str, str, str, str, str, str]] = []
     for s in EVO_STRATS:
         if allowed is None or s in allowed:
-            out.append((s, s, "", ""))
+            out.append((s, s, "", "", "", "0"))
     if _ray_available():
         for s in RAY_STRATS:
             if allowed is None or s in allowed:
-                out.append((s, s, "", ""))
+                out.append((s, s, "", "", "", "0"))
     else:
         print(
             "  WARN: `import ray` failed — SKIPPING ray_asha/ray_bohb. "
             "Run scripts/install_hpc_packages.sh on the login node first."
         )
-    for label, strat, model, style in LLM_VARIANTS:
+    for label, strat, model, style, ctx, novel in LLM_VARIANTS:
         if allowed is None or strat in allowed or label in allowed:
-            out.append((label, strat, model, style))
+            out.append((label, strat, model, style, ctx, novel))
     return out
 
 
@@ -228,7 +234,9 @@ def qos_chain(D: int, is_llm: bool) -> list[tuple[str, str]]:
 SUBMIT_CAP = {"fast": 16, "default": 16, "slow_nice": 1000}
 
 
-def job_script(reservoir, D, variant, strategy, model, style, cache_path, ds, hs, qos, wt):
+def job_script(
+    reservoir, D, variant, strategy, model, style, context, novel, cache_path, ds, hs, qos, wt
+):
     is_llm = bool(model)
     rounds, per_round = strat_budget(strategy)
     label = f"s1_{reservoir}_d{D}_{variant}_s{ds}_{hs}"
@@ -243,7 +251,12 @@ def job_script(reservoir, D, variant, strategy, model, style, cache_path, ds, hs
     val_cache_arg = f"--reservoir_val_cache {vcache}" if vcache else ""
     llm_env = ""
     if is_llm:
-        llm_env = f'export LLM_MODEL="{model}"\nexport LLM_PROMPT_STYLE="{style}"'
+        llm_env = (
+            f'export LLM_MODEL="{model}"\n'
+            f'export LLM_PROMPT_STYLE="{style}"\n'
+            f'export LLM_CONTEXT="{context}"\n'
+            f'export LLM_ALLOW_NOVEL_AXES="{novel}"'
+        )
     script = f"""#!/bin/bash
 #SBATCH --job-name={label}
 #SBATCH --output={REPO}/logs/%x-%A.out
@@ -336,7 +349,7 @@ def main():
                 print(f"  SKIP {reservoir}: reservoir cache missing ({cache_path})")
                 continue
             for ds, hs in seeds:
-                for variant, strategy, model, style in variants:
+                for variant, strategy, model, style, context, novel in variants:
                     label = f"s1_{reservoir}_d{D}_{variant}_s{ds}_{hs}"
                     od = out_dir(reservoir, D, variant, ds, hs)
                     if is_complete(od, strategy):
@@ -356,6 +369,8 @@ def main():
                             strategy,
                             model,
                             style,
+                            context,
+                            novel,
                             cache_path,
                             ds,
                             hs,

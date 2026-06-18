@@ -180,4 +180,13 @@ so the bake-off runs the default **random** acquisition; acquisition-sensitivity
   `random, optuna_tpe, optuna_cmaes, optuna_gp, optuna_qmc, evo_single, evo_batch,
   evo_explore, evo_exploit, evo_massive, evo_adaptive, evo_knowledgeable`.
   Deferred: `ray_asha`/`ray_bohb` (need `ray[tune]`+`hpbandster`+`ConfigSpace` in the
-  venv) and the LLM arms (pending the Phase-0 deploy-3 persona result).
+  venv) and the LLM arms (pending the Phase-0 persona result).
+- 2026-06-18: LLM AutoResearch arms **launched** into the same anchor pool
+  (`hp_step1_bakeoff_e100`, genomic × 30k × 3 seeds). Four personas frozen from the
+  Phase-0 confirm bundle, each at its validated novel-axis setting, all Sonnet/ctxnone:
+  `llm_exploit_nv1, llm_critic_nv0, llm_diverse_nv1, llm_explore_nv1`. All four enter
+  the bake-off as separate strategy cells; the final ensemble subset is chosen by the
+  downstream all-subsets ElasticNet ablation over the pooled strategies (so inclusion
+  here ≠ deploy commitment). `diverse_nv0` dropped (nv1 dominates +0.016, 3 seeds).
+  `explore` kept despite its long-pole cost: GPU-seconds charges it honestly and the
+  OFAT D-axis probe tests whether its big-config prior pays off at larger D.
