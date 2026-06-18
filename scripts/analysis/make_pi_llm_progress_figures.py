@@ -192,7 +192,7 @@ STRAT_STYLE = {
 }
 
 
-def _cumbest_seed42(rows):
+def _cumbest_seed42(rows, key):
     r = [x for x in rows if x["seed"] == "seed42_0"]
     if not r:
         # fall back to whatever seed has the most rows
@@ -201,49 +201,56 @@ def _cumbest_seed42(rows):
             bys[x["seed"]].append(x)
         r = max(bys.values(), key=len)
     r = sorted(r, key=lambda x: x["mtime"])
-    vals = [x["genomic"] for x in r if x["genomic"] is not None]
+    vals = [x[key] for x in r if x[key] is not None and np.isfinite(x[key])]
     cb = np.maximum.accumulate(vals)
     return np.arange(1, len(cb) + 1), cb
 
 
 def fig_models_vs_perf(agg):
     pm = agg["per_model"]
-    fig, ax = plt.subplots(figsize=(8.2, 5.2))
-    for strat, (name, c, ls) in STRAT_STYLE.items():
-        rows = pm.get(strat, [])
-        if not rows:
-            continue
-        x, cb = _cumbest_seed42(rows)
-        is_llm = strat.startswith("llm_")
-        ax.plot(
-            x,
-            cb,
-            ls=ls,
-            lw=2.8 if is_llm else 1.5,
-            color=c,
-            alpha=0.95 if is_llm else 0.6,
-            marker="o" if is_llm else None,
-            ms=3,
-            label=name,
-            zorder=3 if is_llm else 2,
-        )
-
-    ax.set_xlabel("number of models trained (search progress, seed 42)")
-    ax.set_ylabel("best held-out genomic test correlation so far")
-    ax.set_title(
-        "Live Phase-1 search progress (D=30k, genomic, random acq.)\n"
-        "cumulative-best single model vs models evaluated",
-        fontsize=12,
+    panels = [
+        ("val", "best chr-val correlation so far\n(metric the search selects on)"),
+        ("genomic", "best held-out genomic TEST correlation so far\n(unbiased generalization)"),
+    ]
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.4))
+    for ax, (key, ylab) in zip(axes, panels):
+        ymins, ymaxs = [], []
+        for strat, (name, c, ls) in STRAT_STYLE.items():
+            rows = pm.get(strat, [])
+            if not rows:
+                continue
+            x, cb = _cumbest_seed42(rows, key)
+            if len(cb) == 0:
+                continue
+            ymins.append(cb.min())
+            ymaxs.append(cb.max())
+            is_llm = strat.startswith("llm_")
+            ax.plot(
+                x,
+                cb,
+                ls=ls,
+                lw=2.8 if is_llm else 1.5,
+                color=c,
+                alpha=0.95 if is_llm else 0.6,
+                marker="o" if is_llm else None,
+                ms=3,
+                label=name,
+                zorder=3 if is_llm else 2,
+            )
+        # autoscale to capture all data, with small padding
+        lo, hi = min(ymins), max(ymaxs)
+        pad = max(0.005, (hi - lo) * 0.06)
+        ax.set_ylim(lo - pad, hi + pad)
+        ax.set_xlabel("number of models trained (search progress, seed 42)")
+        ax.set_ylabel(ylab)
+        ax.grid(True, ls=":", alpha=0.5)
+        ax.legend(fontsize=7.5, ncol=2, loc="lower right", framealpha=0.95)
+    fig.suptitle(
+        "Live Phase-1 search progress (D=30k, genomic, random acq.)  "
+        "— cumulative-best single model vs models evaluated",
+        fontsize=12.5,
     )
-    ax.set_ylim(0.60, 0.71)
-    ax.grid(True, ls=":", alpha=0.5)
-    ax.legend(fontsize=7.5, ncol=2, loc="lower right", framealpha=0.95)
-    note = (
-        "LLM arms launched ~12 h after algo/evo arms -> fewer models so far;\n"
-        "per-model training cost is comparable across families."
-    )
-    ax.annotate(note, (0.02, 0.02), xycoords="axes fraction", fontsize=8, color=GREY, va="bottom")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     for ext in ("png", "pdf"):
         fig.savefig(f"{OUT}/pi_llm_models_vs_perf.{ext}", dpi=160, bbox_inches="tight")
     plt.close(fig)
