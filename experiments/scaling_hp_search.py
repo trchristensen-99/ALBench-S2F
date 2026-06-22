@@ -465,21 +465,23 @@ def _hp_to_dict(hp) -> dict:
 
 
 def batch_size_menu(D: int | None) -> list[int]:
-    """D-aware batch_size menu (4× diversity window centered near ½·B_crit).
+    """D-aware batch_size menu (width-4 log-uniform window stepped by 2× per D-decade).
 
     Empirical anchors: B_crit=512 at D=30k (n=17,290), B_crit=1024 at D=300k
-    (n=158); slope B_crit ∝ D^0.301. See ~/Downloads/hp_strategy_curves/.
+    (n=158); slope B_crit ∝ D^0.301. Each menu spans ¼·B_crit (val-safe but
+    cost-suboptimal) to 2·B_crit (past peak val but cost-cheap — efficiency keeps
+    rising past B_crit). See ~/Downloads/hp_strategy_curves/.
 
     None / unknown D → full legacy menu (back-compat for ad-hoc runs)."""
     if D is None:
         return [32, 64, 128, 256, 512, 1024]
-    if D <= 15_000:
+    if D <= 5_000:
         return [64, 128, 256, 512]
     if D <= 50_000:
         return [128, 256, 512, 1024]
     if D <= 500_000:
-        return [256, 512, 1024]
-    return [512, 1024, 2048]
+        return [256, 512, 1024, 2048]
+    return [512, 1024, 2048, 4096]
 
 
 def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) -> HPConfig:

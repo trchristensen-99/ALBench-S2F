@@ -13,14 +13,16 @@ import numpy as np
 OUT_DIR = os.path.expanduser("~/Downloads/hp_strategy_curves")
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# Schedule (diversity menu, user override at 100k → start at 256)
+# Schedule: width-4 log-uniform menus stepped by 2× per D-decade.
+# Each tier spans ¼·B_crit → 2·B_crit (efficiency keeps rising past B_crit, so
+# the top of the menu is cost-cheap even if slightly past peak val).
 SCHEDULE = [
-    (10_000, [64, 128, 256, 512], "extrapolated"),
-    (30_000, [128, 256, 512, 1024], "measured"),
-    (100_000, [256, 512, 1024], "extrapolated"),
-    (300_000, [256, 512, 1024], "measured"),
-    (1_000_000, [512, 1024, 2048], "extrapolated"),
-    (3_000_000, [512, 1024, 2048], "extrapolated"),
+    (10_000, [128, 256, 512, 1024], "consolidated (matches 30k tier)"),
+    (30_000, [128, 256, 512, 1024], "measured B_crit=512"),
+    (100_000, [256, 512, 1024, 2048], "extrapolated"),
+    (300_000, [256, 512, 1024, 2048], "measured B_crit=1024"),
+    (1_000_000, [512, 1024, 2048, 4096], "extrapolated"),
+    (3_000_000, [512, 1024, 2048, 4096], "extrapolated"),
 ]
 
 # Empirical B_crit anchors and projection (B_crit ∝ D^0.301)
@@ -72,9 +74,10 @@ def main():
                 markeredgecolor="white",
                 markeredgewidth=0.8,
             )
-        # half-Bcrit reference (sweet spot from cost/val data)
-        ax.plot(D, 0.5 * b_crit_at(D), "x", color=color, ms=8, mew=2, alpha=0.6)
-        tag = " (data)" if kind == "measured" else " (extrap)"
+        # B_crit reference: efficiency peaks at or just above B_crit (eff at 2×B_crit
+        # > eff at B_crit at D=30k, so the menu extends to 2×B_crit on purpose).
+        ax.plot(D, b_crit_at(D), "x", color=color, ms=8, mew=2, alpha=0.6)
+        tag = " (data)" if "measured" in kind else " (extrap)"
         ax.annotate(f"{D:,}{tag}", (D, max(menu) * 1.4), ha="center", fontsize=8, color="#444")
 
     ax.set_xscale("log")
@@ -82,8 +85,8 @@ def main():
     ax.set_xlabel("Dataset size  D")
     ax.set_ylabel("batch_size")
     ax.set_title(
-        "D-aware batch_size menu — empirical $B_{\\rm crit}(D)$ + 4× diversity window\n"
-        "dots = menu options at each D    ×  = ½·$B_{\\rm crit}$ (cost/val sweet spot)"
+        "D-aware batch_size menu — empirical $B_{\\rm crit}(D)$ + width-4 diversity window\n"
+        "dots = menu options at each D    ×  = $B_{\\rm crit}$ (efficiency peaks at or just above)"
     )
     ax.set_yticks([16, 32, 64, 128, 256, 512, 1024, 2048, 4096])
     ax.set_yticklabels([16, 32, 64, 128, 256, 512, 1024, 2048, 4096])
@@ -119,11 +122,13 @@ def main():
     )
     md.append(
         "## Menu design\n\n"
-        "- **Width 3-4** to retain search diversity.\n"
-        "- **Center on ½·B_crit** (empirically the cost/val sweet spot from per-bs efficiency).\n"
-        "- **Span 4×–8×** so search can explore around B_crit.\n"
-        "- At D=100k the user requested the lower edge be 256 (not 128); this matches "
-        "the projection B_crit(100k) ≈ 1024 and keeps the menu strictly above the 30k floor.\n"
+        "- **Width 4** (log-uniform, factor-2 steps) to retain search diversity.\n"
+        "- **Span ¼·B_crit → 2·B_crit**. The top end is past peak val but cost-cheap — "
+        "empirical efficiency (top_val / median_time) keeps rising past B_crit at D=30k "
+        "(eff at bs=1024 = 86 vs eff at bs=512 = 62), so a faster-than-peak option helps "
+        "the search escape slow regions.\n"
+        "- **Stepped by 2× per D-decade**: tier edges (5k, 50k, 500k) align with measured anchors.\n"
+        "- D=10k uses the same menu as D=30k (B_crit projected ~370 — within the menu).\n"
     )
     md.append(
         "## Schedule\n\n"
