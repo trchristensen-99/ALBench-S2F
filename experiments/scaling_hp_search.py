@@ -464,12 +464,30 @@ def _hp_to_dict(hp) -> dict:
     return d
 
 
-def sample_random_hp(rng: np.random.Generator, seed: int) -> HPConfig:
+def batch_size_menu(D: int | None) -> list[int]:
+    """D-aware batch_size menu (4× diversity window centered near ½·B_crit).
+
+    Empirical anchors: B_crit=512 at D=30k (n=17,290), B_crit=1024 at D=300k
+    (n=158); slope B_crit ∝ D^0.301. See ~/Downloads/hp_strategy_curves/.
+
+    None / unknown D → full legacy menu (back-compat for ad-hoc runs)."""
+    if D is None:
+        return [32, 64, 128, 256, 512, 1024]
+    if D <= 15_000:
+        return [64, 128, 256, 512]
+    if D <= 50_000:
+        return [128, 256, 512, 1024]
+    if D <= 500_000:
+        return [256, 512, 1024]
+    return [512, 1024, 2048]
+
+
+def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) -> HPConfig:
     n_layers = int(rng.integers(2, 13))  # 2 to 12
     width_jitter = [float(2 ** rng.uniform(-1, 1)) for _ in range(n_layers)]
     return HPConfig(
         lr=float(10 ** rng.uniform(-5, -2)),
-        batch_size=int(rng.choice([32, 64, 128, 256, 512, 1024])),
+        batch_size=int(rng.choice(batch_size_menu(D))),
         conv_dropout=float(rng.uniform(0, 0.3)),
         dense_dropout=float(rng.uniform(0, 0.5)),
         n_layers=n_layers,
@@ -768,8 +786,9 @@ def run_search(args):
 
     # Build strategies
     strategy_names = args.strategies.split(",")
+    # D is threaded into strategies so batch_size_menu(D) is used at proposal time.
     strategies = {
-        name: get_strategy(name, seed=args.hp_seed + i * 1000)
+        name: get_strategy(name, seed=args.hp_seed + i * 1000, D=args.D)
         for i, name in enumerate(strategy_names)
     }
     print(f"=== Strategies: {list(strategies)} ===")
