@@ -226,7 +226,12 @@ def qos_walltime(D: int, is_llm: bool) -> tuple[str, str]:
 def qos_chain(D: int, is_llm: bool) -> list[tuple[str, str]]:
     pref_qos, pref_wt = qos_walltime(D, is_llm)
     chain = [(pref_qos, pref_wt)]
-    if pref_qos != "slow_nice":
+    # Opt-in: when slow_nice's 20-GPU cap is the bottleneck and higher tiers sit
+    # idle, try default (12h) first for non-LLM cells that fit. --requeue resumes
+    # from on-disk meta.json if a cell needs more than one 12h window.
+    if os.environ.get("STEP1_PREFER_DEFAULT") == "1" and not is_llm and pref_qos == "slow_nice":
+        chain = [("default", "12:00:00"), (pref_qos, pref_wt)]
+    elif pref_qos != "slow_nice":
         chain.append(("slow_nice", "2-00:00:00"))
     return chain
 
