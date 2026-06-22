@@ -27,7 +27,12 @@ from typing import Any
 
 import numpy as np
 
-from experiments.scaling_hp_search import LR_SCHEDULE_CHOICES, HPConfig, sample_random_hp
+from experiments.scaling_hp_search import (
+    LR_SCHEDULE_CHOICES,
+    HPConfig,
+    batch_size_menu,
+    sample_random_hp,
+)
 
 
 class Strategy:
@@ -35,9 +40,10 @@ class Strategy:
 
     name: str = "base"
 
-    def __init__(self, seed: int = 0):
+    def __init__(self, seed: int = 0, D: int | None = None):
         self.rng = np.random.default_rng(seed)
         self.seed = seed
+        self.D = D
         self.history: list[tuple[HPConfig, float]] = []
 
     def suggest(self, n: int) -> list[HPConfig]:
@@ -58,7 +64,10 @@ class RandomStrategy(Strategy):
     name = "random"
 
     def suggest(self, n: int) -> list[HPConfig]:
-        return [sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))) for _ in range(n)]
+        return [
+            sample_random_hp(self.rng, seed=int(self.rng.integers(2**31)), D=self.D)
+            for _ in range(n)
+        ]
 
 
 class _OptunaSamplerBase(Strategy):
@@ -73,8 +82,8 @@ class _OptunaSamplerBase(Strategy):
     def make_sampler(self, seed: int):
         raise NotImplementedError
 
-    def __init__(self, seed: int = 0):
-        super().__init__(seed)
+    def __init__(self, seed: int = 0, D: int | None = None):
+        super().__init__(seed, D=D)
         import optuna
 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -95,7 +104,7 @@ class _OptunaSamplerBase(Strategy):
         ][:n_layers]
         hp = HPConfig(
             lr=trial.suggest_float("lr", 1e-5, 1e-2, log=True),
-            batch_size=trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512, 1024]),
+            batch_size=trial.suggest_categorical("batch_size", batch_size_menu(self.D)),
             conv_dropout=trial.suggest_float("conv_dropout", 0.0, 0.3),
             dense_dropout=trial.suggest_float("dense_dropout", 0.0, 0.5),
             n_layers=n_layers,
@@ -160,7 +169,8 @@ class AutoResearchBase(Strategy):
         if not self.history:
             # No best yet — start with random
             return [
-                sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))) for _ in range(n)
+                sample_random_hp(self.rng, seed=int(self.rng.integers(2**31)), D=self.D)
+                for _ in range(n)
             ]
         # Sample around current top-3 best
         top = sorted(self.history, key=lambda x: x[1], reverse=True)[:3]
@@ -169,7 +179,9 @@ class AutoResearchBase(Strategy):
             base = top[self.rng.integers(0, len(top))][0]
             # Decide whether to explore (random restart) or exploit (perturb)
             if self.rng.random() < self.temperature:
-                configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))))
+                configs.append(
+                    sample_random_hp(self.rng, seed=int(self.rng.integers(2**31)), D=self.D)
+                )
             else:
                 configs.append(self._perturb(base))
         return configs
@@ -180,7 +192,7 @@ class AutoResearchBase(Strategy):
         # Map of HP name → perturbation function
         perturbations = {
             "lr": lambda v: float(np.clip(v * 10 ** self.rng.uniform(-0.5, 0.5), 1e-5, 1e-2)),
-            "batch_size": lambda v: int(self.rng.choice([32, 64, 128, 256, 512, 1024])),
+            "batch_size": lambda v: int(self.rng.choice(batch_size_menu(self.D))),
             "conv_dropout": lambda v: float(np.clip(v + self.rng.uniform(-0.05, 0.05), 0.0, 0.3)),
             "dense_dropout": lambda v: float(np.clip(v + self.rng.uniform(-0.1, 0.1), 0.0, 0.5)),
             "n_layers": lambda v: int(np.clip(v + self.rng.choice([-2, -1, 0, 1, 2]), 2, 12)),
@@ -284,7 +296,8 @@ class AutoResearchMassive(AutoResearchBase):
     def suggest(self, n: int) -> list[HPConfig]:
         if not self.history:
             return [
-                sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))) for _ in range(n)
+                sample_random_hp(self.rng, seed=int(self.rng.integers(2**31)), D=self.D)
+                for _ in range(n)
             ]
         configs = []
         avoid = self._bottom_quartile_summary()
@@ -303,7 +316,7 @@ class AutoResearchMassive(AutoResearchBase):
             configs.append(cand)
         # Explore: pure random
         for _ in range(n_explore):
-            configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))))
+            configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31)), D=self.D))
         return configs
 
     def _looks_like_bottom(self, cfg: "HPConfig", avoid: dict) -> bool:
@@ -454,7 +467,9 @@ class AutoResearchKnowledgeable(AutoResearchAdaptive):
             )
             if kb_dict is None:
                 # Not enough data, fall back to random
-                configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))))
+                configs.append(
+                    sample_random_hp(self.rng, seed=int(self.rng.integers(2**31)), D=self.D)
+                )
             else:
                 # Construct HPConfig from dict, fix unsupported lists
                 if not isinstance(kb_dict.get("width_jitter"), list):
@@ -463,7 +478,9 @@ class AutoResearchKnowledgeable(AutoResearchAdaptive):
                 try:
                     configs.append(HPConfig(**kb_dict))
                 except Exception:
-                    configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))))
+                    configs.append(
+                        sample_random_hp(self.rng, seed=int(self.rng.integers(2**31)), D=self.D)
+                    )
 
         # Perturbations from session top
         if self.history:
@@ -473,11 +490,13 @@ class AutoResearchKnowledgeable(AutoResearchAdaptive):
                 configs.append(self._perturb(base))
         else:
             for _ in range(n_perturb):
-                configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))))
+                configs.append(
+                    sample_random_hp(self.rng, seed=int(self.rng.integers(2**31)), D=self.D)
+                )
 
         # Pure random
         for _ in range(n_random):
-            configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31))))
+            configs.append(sample_random_hp(self.rng, seed=int(self.rng.integers(2**31)), D=self.D))
         return configs
 
 
@@ -518,8 +537,16 @@ def canonical_strategy(name: str) -> str:
     return STRATEGY_ALIASES.get(name, name)
 
 
-def get_strategy(name: str, seed: int = 0) -> Strategy:
+def get_strategy(name: str, seed: int = 0, D: int | None = None) -> Strategy:
     name = canonical_strategy(name)
     if name not in STRATEGY_REGISTRY:
         raise ValueError(f"Unknown strategy: {name}. Available: {list(STRATEGY_REGISTRY)}")
-    return STRATEGY_REGISTRY[name](seed=seed)
+    cls = STRATEGY_REGISTRY[name]
+    try:
+        return cls(seed=seed, D=D)
+    except TypeError:
+        # Back-compat: strategies that don't yet accept D in __init__ (e.g. LLM
+        # AutoResearch variants). Set D post-hoc so code reading self.D works.
+        inst = cls(seed=seed)
+        inst.D = D
+        return inst

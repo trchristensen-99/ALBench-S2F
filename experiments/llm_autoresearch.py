@@ -153,9 +153,10 @@ def _compute_wait(retry_after: float | None, attempt: int, base: float) -> float
     return wait + random.uniform(0, min(30.0, wait * 0.1))
 
 
+_BS_SPEC_PLACEHOLDER = "{__BS_MENU__}"
 HP_SPACE_SPEC = """HP SEARCH SPACE for LegNet sequence-to-function predictor:
   lr             : log-uniform in [1e-5, 1e-2]
-  batch_size     : categorical {32, 64, 128, 256, 512, 1024}
+  batch_size     : categorical {__BS_MENU__}
   conv_dropout   : uniform [0.0, 0.3]   (Peter: conv layers need less dropout than dense)
   dense_dropout  : uniform [0.0, 0.5]
   n_layers       : int in [2, 12]       (LegNet inverted residual blocks)
@@ -351,6 +352,7 @@ def build_prompt(
     style: str = "default",
     allow_novel: bool = False,
     context: str = "full",
+    D: int | None = None,
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt).
 
@@ -375,7 +377,13 @@ def build_prompt(
 
     system = PROMPT_STYLES.get(style, PROMPT_STYLES["default"]).format(n=n)
 
-    parts = [HP_SPACE_SPEC]
+    from experiments.scaling_hp_search import batch_size_menu
+
+    bs_menu = batch_size_menu(D)
+    spec = HP_SPACE_SPEC.replace(
+        _BS_SPEC_PLACEHOLDER, "{" + ", ".join(str(x) for x in bs_menu) + "}"
+    )
+    parts = [spec]
     if include_guidance:
         parts.append(ADVANCED_GUIDANCE)
     if allow_novel:
@@ -632,10 +640,14 @@ def parse_response(text: str, n: int) -> list[dict]:
     return objs[:n]
 
 
-def dict_to_hpconfig(d: dict, seed: int, allow_novel: bool = False) -> HPConfig:
+def dict_to_hpconfig(
+    d: dict, seed: int, allow_novel: bool = False, D: int | None = None
+) -> HPConfig:
     """Coerce LLM-proposed dict to a valid HPConfig. When allow_novel is True,
     any key outside the 15 core axes (plus an explicit "extra" object) is gathered
-    into HPConfig.extra for downstream validation/recording."""
+    into HPConfig.extra for downstream validation/recording. When D is given, the
+    batch_size is clamped onto the D-aware menu (closest match) to guard against
+    the LLM proposing values outside the active menu."""
     # Defaults if missing
     n_layers = int(d.get("n_layers", 6))
     width_jitter = d.get("width_jitter", [1.0] * n_layers)
@@ -652,9 +664,14 @@ def dict_to_hpconfig(d: dict, seed: int, allow_novel: bool = False) -> HPConfig:
         for k, v in d.items():
             if k not in _CORE_KEYS and k not in ("extra", "seed"):
                 extra[k] = v
+    from experiments.scaling_hp_search import batch_size_menu
+
+    bs_menu = batch_size_menu(D)
+    bs_raw = int(d.get("batch_size", bs_menu[len(bs_menu) // 2]))
+    bs = min(bs_menu, key=lambda x: abs(x - bs_raw))
     return HPConfig(
         lr=max(1e-5, min(1e-2, float(d.get("lr", 1e-3)))),
-        batch_size=int(d.get("batch_size", 256)),
+        batch_size=bs,
         conv_dropout=max(0.0, min(0.3, float(d.get("conv_dropout", 0.1)))),
         dense_dropout=max(0.0, min(0.5, float(d.get("dense_dropout", 0.2)))),
         n_layers=max(2, min(12, n_layers)),
@@ -711,8 +728,8 @@ class LLMAutoResearch(Strategy):
 
     name = "llm_autoresearch"
 
-    def __init__(self, seed: int = 0):
-        super().__init__(seed)
+    def __init__(self, seed: int = 0, D: int | None = None):
+        super().__init__(seed, D=D)
         self.style = os.environ.get("LLM_PROMPT_STYLE", "default")
         self.model = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
         # Context level (full | nokb | none); no-prior styles force "none".
@@ -755,6 +772,7 @@ class LLMAutoResearch(Strategy):
                 style=self.style,
                 allow_novel=self.allow_novel,
                 context=self.context,
+                D=getattr(self, "D", None),
             )
             response = None
             try:
@@ -762,7 +780,10 @@ class LLMAutoResearch(Strategy):
                 parsed = parse_response(response, need)
                 configs.extend(
                     dict_to_hpconfig(
-                        d, seed=int(self.rng.integers(2**31)), allow_novel=self.allow_novel
+                        d,
+                        seed=int(self.rng.integers(2**31)),
+                        allow_novel=self.allow_novel,
+                        D=getattr(self, "D", None),
                     )
                     for d in parsed
                 )
