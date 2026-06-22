@@ -13,6 +13,8 @@ Key changes from v1:
 import argparse
 import json
 import os
+import subprocess
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -786,6 +788,29 @@ def run_search(args):
     label_dict["regime_json"] = np.array(json.dumps(regime))
     _atomic_savez(out_dir / "labels.npz", **label_dict)
 
+    # Parallel-training mode: persist training arrays once so subprocess workers
+    # can mmap-load them with their own CUDA_VISIBLE_DEVICES. Re-uses cached file
+    # across resumes — only re-written if missing (np.savez is content-stable).
+    _worker_data_path = None
+    if getattr(args, "parallel_gpus", 1) > 1:
+        _worker_data_path = out_dir / "_worker_data.npz"
+        if not _worker_data_path.exists():
+            np.savez(
+                str(_worker_data_path),
+                train_seqs=train_seqs,
+                train_labels=train_labels,
+                val_seqs=val_seqs,
+                val_labels=val_labels,
+                test_seqs=test_seqs,
+            )
+        for name, (xseqs, xlabels) in (all_test_sets or {}).items():
+            xp = out_dir / f"_worker_xset_{name}.npz"
+            if not xp.exists():
+                np.savez(str(xp), seqs=xseqs, labels=xlabels)
+        print(
+            f"[parallel] worker data cached at {_worker_data_path} (parallel_gpus={args.parallel_gpus})"
+        )
+
     # Build strategies
     strategy_names = args.strategies.split(",")
     # D is threaded into strategies so batch_size_menu(D) is used at proposal time.
@@ -856,10 +881,159 @@ def run_search(args):
                 ),
             )
 
-        # Train each config sequentially (single-GPU for now)
+        # Train each config sequentially (single-GPU for now) OR in parallel
+        # when --parallel_gpus > 1 (per-round configs dispatched across GPUs).
         # Track only models trained in THIS run; preloaded history already covers
         # results on disk, so re-adding them here would double-count.
         newly_trained: dict[str, tuple[list, list]] = {name: ([], []) for name in strategies}
+
+        def _post_process_result(result, strat_name, hp, model_id):
+            """Common: KB log + newly_trained update. result is a dict already
+            written to disk by either the sequential path or a worker process."""
+            nonlocal total
+            if result.get("val_mse") is not None:
+                try:
+                    from experiments.hp_knowledge_base import get_kb
+
+                    get_kb().add(
+                        hp=result.get("hp", {}),
+                        val_metric=result.get("val_mse"),
+                        context={
+                            "D": args.D,
+                            "ref_only": args.ref_only,
+                            "epochs": args.epochs,
+                            "strategy": strat_name,
+                            "round": rd,
+                        },
+                    )
+                except Exception as e:
+                    print(f"    KB log failed: {e}", flush=True)
+            if "val_pearson" in result:
+                newly_trained[strat_name][0].append(hp)
+                newly_trained[strat_name][1].append(result["val_pearson"])
+            total += 1
+            print(
+                f"    [{model_id}] val_pearson={result.get('val_pearson', 'ERR')}  "
+                f"time={result.get('train_time_sec', 0):.1f}s"
+            )
+
+        if args.parallel_gpus > 1:
+            # PARALLEL MODE: dispatch round_configs in batches of size parallel_gpus.
+            # Each batch launches Popen workers with CUDA_VISIBLE_DEVICES=0..N-1.
+            # Workers write meta + npz to disk; parent reads them back to update
+            # strategies and the KB.
+            pending = []
+            for i, (strat_name, hp) in enumerate(round_configs):
+                model_id = f"r{rd:02d}_{strat_name}_{i:02d}"
+                meta_path = out_dir / f"{model_id}_meta.json"
+                if meta_path.exists():
+                    try:
+                        prior_meta = json.loads(meta_path.read_text())
+                    except Exception:
+                        prior_meta = {}
+                    if regime_key(prior_meta.get("regime")) != rk:
+                        raise SystemExit(
+                            f"{meta_path} exists under a different regime than the current run. "
+                            f"Use a fresh --out_dir for this regime."
+                        )
+                    if "val_pearson" in prior_meta:
+                        print(f"  [resume] skip {model_id} (already done)")
+                        total += 1
+                        continue
+                    print(
+                        f"  [resume] retry {model_id} (prior attempt errored: "
+                        f"{str(prior_meta.get('error', '?'))[:80]})"
+                    )
+                pending.append((i, strat_name, hp, model_id))
+
+            for batch_start in range(0, len(pending), args.parallel_gpus):
+                batch = pending[batch_start : batch_start + args.parallel_gpus]
+                procs = []
+                for j, (i, strat_name, hp, model_id) in enumerate(batch):
+                    gpu_id = j
+                    worker_in = {
+                        "repo": str(REPO),
+                        "data_path": str(_worker_data_path),
+                        "xset_names": list((all_test_sets or {}).keys()),
+                        "xset_dir": str(out_dir),
+                        "out_dir": str(out_dir),
+                        "hp": _hp_to_dict(hp),
+                        "model_id": model_id,
+                        "strategy": strat_name,
+                        "round": rd,
+                        "regime": regime,
+                        "epochs": args.epochs,
+                        "esp": esp,
+                        "min_delta": min_delta,
+                    }
+                    in_path = out_dir / f"_worker_in_{model_id}.json"
+                    in_path.write_text(json.dumps(worker_in, default=str))
+                    env = os.environ.copy()
+                    env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+                    cmd = [
+                        sys.executable,
+                        "-u",
+                        "-m",
+                        "experiments.scaling_hp_search",
+                        "_train_worker",
+                        str(in_path),
+                    ]
+                    print(
+                        f"\n  [parallel gpu={gpu_id}] {model_id}: lr={hp.lr:.1e} "
+                        f"bs={hp.batch_size} layers={hp.n_layers} width={hp.width_base}",
+                        flush=True,
+                    )
+                    p = subprocess.Popen(
+                        cmd,
+                        env=env,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                    )
+                    procs.append((p, model_id, hp, strat_name, in_path))
+                for p, model_id, hp, strat_name, in_path in procs:
+                    stdout, _ = p.communicate()
+                    for line in (stdout or "").splitlines():
+                        print(f"    [{model_id}] {line}")
+                    try:
+                        in_path.unlink()
+                    except OSError:
+                        pass
+                    meta_path = out_dir / f"{model_id}_meta.json"
+                    if meta_path.exists():
+                        try:
+                            result = json.loads(meta_path.read_text())
+                        except Exception:
+                            result = {"error": "post-write meta unreadable"}
+                    else:
+                        result = {
+                            "error": f"worker exit {p.returncode}, no meta written",
+                            "hp": _hp_to_dict(hp),
+                        }
+                        # Persist an error stub so resume retries this slot.
+                        _atomic_write_text(
+                            meta_path,
+                            json.dumps(
+                                {
+                                    **result,
+                                    "model_id": model_id,
+                                    "strategy": strat_name,
+                                    "round": rd,
+                                    "regime": regime,
+                                },
+                                indent=2,
+                                default=str,
+                            ),
+                        )
+                    _post_process_result(result, strat_name, hp, model_id)
+
+            # Update each strategy after the parallel round completes
+            for name, strat in strategies.items():
+                cs, vs = newly_trained[name]
+                if cs:
+                    strat.update(cs, vs)
+            continue
+
         for i, (strat_name, hp) in enumerate(round_configs):
             model_id = f"r{rd:02d}_{strat_name}_{i:02d}"
             # Skip already-completed models (resume): meta file present = attempted.
@@ -978,7 +1152,64 @@ def run_search(args):
     print(f"\n=== Done. {total} models trained. Run aggregate_ensemble.py on {out_dir} ===")
 
 
+def _train_worker_main(input_path: str) -> int:
+    """Subprocess entry point for parallel training. Parent has already set
+    CUDA_VISIBLE_DEVICES so this process sees only one GPU as 'cuda:0'. We do
+    NOT import torch at module scope; train_one_model imports it lazily, picking
+    up the right device. Reads its args from a JSON file written by the parent."""
+    args_in = json.loads(Path(input_path).read_text())
+    sys.path.insert(0, args_in["repo"])
+
+    data = np.load(args_in["data_path"])
+    extra_test_sets: dict = {}
+    for name in args_in.get("xset_names", []):
+        xpath = Path(args_in["xset_dir"]) / f"_worker_xset_{name}.npz"
+        if xpath.exists():
+            xd = np.load(xpath)
+            extra_test_sets[name] = (xd["seqs"], xd["labels"])
+
+    hp_fields = {k: v for k, v in args_in["hp"].items() if k in HPConfig.__dataclass_fields__}
+    hp = HPConfig(**hp_fields)
+    try:
+        result = train_one_model(
+            hp,
+            data["train_seqs"],
+            data["train_labels"],
+            data["val_seqs"],
+            data["val_labels"],
+            data["test_seqs"],
+            epochs=args_in["epochs"],
+            use_compile=False,
+            early_stopping_patience=args_in["esp"],
+            min_delta=args_in["min_delta"],
+            extra_test_sets=extra_test_sets or None,
+        )
+    except Exception as e:
+        result = {"hp": args_in["hp"], "error": str(e)}
+
+    result["model_id"] = args_in["model_id"]
+    result["strategy"] = args_in["strategy"]
+    result["round"] = args_in["round"]
+    result["regime"] = args_in["regime"]
+    out_dir = Path(args_in["out_dir"])
+    _atomic_savez(
+        out_dir / f"{args_in['model_id']}.npz",
+        **{k: v for k, v in result.items() if isinstance(v, np.ndarray)},
+    )
+    meta = {k: v for k, v in result.items() if not isinstance(v, np.ndarray)}
+    _atomic_write_text(
+        out_dir / f"{args_in['model_id']}_meta.json",
+        json.dumps(meta, indent=2, default=str),
+    )
+    return 0
+
+
 def main():
+    # Hidden subcommand: parallel-training worker. Parent dispatches via Popen
+    # with CUDA_VISIBLE_DEVICES set per worker. Must be checked BEFORE argparse.
+    if len(sys.argv) >= 3 and sys.argv[1] == "_train_worker":
+        sys.exit(_train_worker_main(sys.argv[2]))
+
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--strategies",
@@ -1032,6 +1263,15 @@ def main():
         default=1e-3,
         help="Minimum val-metric improvement to reset the patience timer (default 1e-3). "
         "Filters noise-level wiggles so early stopping triggers on true plateaus.",
+    )
+    ap.add_argument(
+        "--parallel_gpus",
+        type=int,
+        default=1,
+        help="Number of GPUs to use for per-round parallel training. With N>1, each "
+        "round dispatches up to N configs simultaneously via subprocess.Popen "
+        "workers (CUDA_VISIBLE_DEVICES set per worker). The SLURM job must "
+        "allocate at least --parallel_gpus GPUs. Default 1 = legacy sequential.",
     )
     args = ap.parse_args()
 

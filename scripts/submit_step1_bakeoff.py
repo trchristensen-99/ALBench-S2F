@@ -262,15 +262,23 @@ def job_script(
             f'export LLM_CONTEXT="{context}"\n'
             f'export LLM_ALLOW_NOVEL_AXES="{novel}"'
         )
+    # LLM cells propose per_round=2 configs that train sequentially on 1 GPU
+    # (~5000s each at D=300k → ~10000s/round). Request 2 GPUs + --parallel_gpus 2
+    # so the 2 configs train concurrently, halving wall time. Non-LLM cells stay
+    # at 1 GPU (per_round=1 typically, or evo_batch=4 but those are short).
+    n_gpus = 2 if is_llm else 1
+    cpus = 16 if is_llm else 8
+    mem_gb = 180 if is_llm else 100
+    parallel_arg = f"--parallel_gpus {n_gpus}" if n_gpus > 1 else ""
     script = f"""#!/bin/bash
 #SBATCH --job-name={label}
 #SBATCH --output={REPO}/logs/%x-%A.out
 #SBATCH --partition=gpuq
 #SBATCH --qos={qos}
-#SBATCH --gres=gpu:h100:1
-#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:h100:{n_gpus}
+#SBATCH --cpus-per-task={cpus}
 #SBATCH --time={wt}
-#SBATCH --mem=100G
+#SBATCH --mem={mem_gb}G
 #SBATCH --exclude=bamgpu15,bamgpu25
 #SBATCH --export=ALL
 #SBATCH --requeue
@@ -294,6 +302,7 @@ while true; do
     --D {D} --ref_only {chr_val_arg} {cache_arg} {val_cache_arg} \\
     --data_seed {ds} --hp_seed {hs} \\
     --epochs {EPOCHS} --early_stop_patience {PATIENCE} --min_delta {MIN_DELTA} \\
+    {parallel_arg} \\
     --out_dir {od}
   rc=$?
   if [ $rc -eq 0 ]; then touch {od}/.bakeoff_done; echo "=== DONE rc=0 ==="; break; fi
