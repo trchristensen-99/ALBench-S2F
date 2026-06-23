@@ -355,10 +355,16 @@ def main():
             qcount[q.strip()] += 1
 
     n_sub = n_skip = n_done = n_full = 0
+    allow_all_R_at_large_D = os.environ.get("STEP1_ALLOW_ALL_R") == "1"
     for D in ds_list:
         # Phase-2 assumes the 30k reservoir ranking transfers across D, so D=300k
-        # runs genomic ONLY (the cross-D cell); the cache reservoirs stay at 30k.
-        reservoirs_D = reservoirs if D <= 30_000 else [r for r in reservoirs if r == "genomic"]
+        # runs genomic ONLY (the cross-D cell) by default; the cache reservoirs
+        # stay at 30k. Set STEP1_ALLOW_ALL_R=1 to override (e.g. to validate the
+        # K=5 menu transfer to a non-genomic reservoir at D>30k).
+        if allow_all_R_at_large_D:
+            reservoirs_D = reservoirs
+        else:
+            reservoirs_D = reservoirs if D <= 30_000 else [r for r in reservoirs if r == "genomic"]
         for reservoir in reservoirs_D:
             cache_path = pool_cache(reservoir)
             if cache_path is not None and not Path(cache_path).exists():
