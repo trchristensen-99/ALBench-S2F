@@ -85,8 +85,11 @@ DEFAULT_PER_ROUND = {
     # ray schedulers own the trial loop — num_samples = rounds*per_round = MODEL_BUDGET
     "ray_asha": 1,
     "ray_bohb": 1,
-    # LLM — one Claude call returns per_round configs (200 models in 100 calls)
-    "llm_autoresearch": 2,
+    # LLM — one Claude call returns per_round configs.
+    # 4 configs/call + 4 GPUs/cell halves total LLM round count vs the legacy
+    # per_round=2 setting; phase-0 finding was "feedback weakly used, proposals/
+    # call is top lever" so higher per_round preserves or improves quality.
+    "llm_autoresearch": int(os.environ.get("STEP1_LLM_PER_ROUND", "4")),
 }
 EPOCHS = 100
 PATIENCE = 15
@@ -262,13 +265,12 @@ def job_script(
             f'export LLM_CONTEXT="{context}"\n'
             f'export LLM_ALLOW_NOVEL_AXES="{novel}"'
         )
-    # LLM cells propose per_round=2 configs that train sequentially on 1 GPU
-    # (~5000s each at D=300k → ~10000s/round). Request 2 GPUs + --parallel_gpus 2
-    # so the 2 configs train concurrently, halving wall time. Non-LLM cells stay
-    # at 1 GPU (per_round=1 typically, or evo_batch=4 but those are short).
-    n_gpus = 2 if is_llm else 1
+    # LLM cells propose per_round=N (default 4) and train N configs in parallel
+    # on N GPUs. Non-LLM cells stay at 1 GPU. STEP1_LLM_GPUS overrides the LLM
+    # GPU/per_round count (use 2 when slow_nice cluster GPU cap is tight).
+    n_gpus = int(os.environ.get("STEP1_LLM_GPUS", "4")) if is_llm else 1
     cpus = 16 if is_llm else 8
-    mem_gb = 180 if is_llm else 100
+    mem_gb = 200 if is_llm else 100
     parallel_arg = f"--parallel_gpus {n_gpus}" if n_gpus > 1 else ""
     script = f"""#!/bin/bash
 #SBATCH --job-name={label}
