@@ -153,6 +153,12 @@ def main():
         help="Comma list of 'R=val_spec' where val_spec is 'chr_val', a val "
         "cache path, or empty (10pct holdout). Defaults to empty for all.",
     )
+    ap.add_argument(
+        "--parallel_R",
+        action="store_true",
+        help="Train each HP config's R-replicates in parallel via subprocess "
+        "workers (one GPU per reservoir). Requires --gres=gpu:N matching len(R).",
+    )
     args = ap.parse_args()
 
     out_root = Path(args.out_dir)
@@ -211,6 +217,28 @@ def main():
             label_dict[f"oracle_{set_name}"] = ol
         label_dict["regime_json"] = np.array(json.dumps(regime))
         _atomic_savez(R_dir / "labels.npz", **label_dict)
+
+    # ── Parallel-R mode: cache per-R training arrays once for subprocess workers
+    worker_data_paths: dict[str, Path] = {}
+    if args.parallel_R:
+        for R in R_names:
+            p = out_root / R / "_worker_data.npz"
+            if not p.exists():
+                np.savez(
+                    str(p),
+                    train_seqs=R_data[R]["train_seqs"],
+                    train_labels=R_data[R]["train_labels"],
+                    val_seqs=R_data[R]["val_seqs"],
+                    val_labels=R_data[R]["val_labels"],
+                    test_seqs=test_seqs,
+                )
+            worker_data_paths[R] = p
+            # extra_test_sets cached alongside (same set shared across R)
+            for name, (xseqs, xlabels) in (all_test_sets or {}).items():
+                xp = out_root / R / f"_worker_xset_{name}.npz"
+                if not xp.exists():
+                    np.savez(str(xp), seqs=xseqs, labels=xlabels)
+        print(f"[parallel_R] cached worker data for {len(R_names)} reservoirs")
 
     # ── Build strategies (single set, fed cross-R mean val) ──────────────
     sys.path.insert(0, str(REPO))
@@ -331,6 +359,8 @@ def main():
         for i, (strat_name, hp) in enumerate(round_configs):
             model_id = f"r{rd:02d}_{strat_name}_{i:02d}"
             per_R_vals: list[float] = []
+            # Identify which (R) need training (skip resume-cached) and dispatch.
+            todo_Rs: list[str] = []
             for R in R_names:
                 meta_path = out_root / R / strat_name / f"{model_id}_meta.json"
                 meta_path.parent.mkdir(parents=True, exist_ok=True)
@@ -342,53 +372,117 @@ def main():
                     if "val_pearson" in prior:
                         per_R_vals.append(float(prior["val_pearson"]))
                         continue
+                todo_Rs.append(R)
 
-                print(
-                    f"  Training {model_id} on {R}: lr={hp.lr:.1e} bs={hp.batch_size} "
-                    f"layers={hp.n_layers} width={hp.width_base}",
-                    flush=True,
-                )
-                try:
-                    result = train_one_model(
-                        hp,
-                        R_data[R]["train_seqs"],
-                        R_data[R]["train_labels"],
-                        R_data[R]["val_seqs"],
-                        R_data[R]["val_labels"],
-                        test_seqs,
-                        epochs=args.epochs,
-                        use_compile=False,
-                        early_stopping_patience=esp,
-                        min_delta=min_delta,
-                        extra_test_sets=all_test_sets,
-                    )
-                except Exception as e:
-                    print(f"    ERROR: {e}", flush=True)
-                    result = {
+            if args.parallel_R and todo_Rs:
+                # Launch one subprocess worker per R, each on a separate GPU.
+                import subprocess
+
+                procs = []
+                for j, R in enumerate(todo_Rs):
+                    worker_in = {
+                        "repo": str(REPO),
+                        "data_path": str(worker_data_paths[R]),
+                        "xset_names": list((all_test_sets or {}).keys()),
+                        "xset_dir": str(out_root / R),
+                        "out_dir": str(out_root / R / strat_name),
                         "hp": _hp_to_dict(hp),
-                        "error": str(e),
+                        "model_id": model_id,
                         "strategy": strat_name,
                         "round": rd,
+                        "regime": regime,
+                        "epochs": args.epochs,
+                        "esp": esp,
+                        "min_delta": min_delta,
                     }
-                result["model_id"] = model_id
-                result["strategy"] = strat_name
-                result["round"] = rd
-                result["regime"] = regime
-                result["reservoir"] = R
-                _atomic_savez(
-                    out_root / R / strat_name / f"{model_id}.npz",
-                    **{k: v for k, v in result.items() if isinstance(v, np.ndarray)},
-                )
-                meta = {k: v for k, v in result.items() if not isinstance(v, np.ndarray)}
-                _atomic_write_text(meta_path, json.dumps(meta, indent=2, default=str))
-                if "val_pearson" in result and np.isfinite(result["val_pearson"]):
-                    per_R_vals.append(float(result["val_pearson"]))
-                total_models += 1
-                print(
-                    f"    val_pearson({R})={result.get('val_pearson', 'ERR')}  "
-                    f"time={result.get('train_time_sec', 0):.0f}s",
-                    flush=True,
-                )
+                    in_path = out_root / R / strat_name / f"_worker_in_{model_id}.json"
+                    in_path.write_text(json.dumps(worker_in, default=str))
+                    env = os.environ.copy()
+                    env["CUDA_VISIBLE_DEVICES"] = str(j)
+                    cmd = [
+                        sys.executable,
+                        "-u",
+                        "-m",
+                        "experiments.scaling_hp_search",
+                        "_train_worker",
+                        str(in_path),
+                    ]
+                    print(
+                        f"  [parallel_R gpu={j}] {model_id} on {R}: lr={hp.lr:.1e} "
+                        f"bs={hp.batch_size} layers={hp.n_layers} width={hp.width_base}",
+                        flush=True,
+                    )
+                    p = subprocess.Popen(
+                        cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+                    )
+                    procs.append((p, R, in_path))
+                for p, R, in_path in procs:
+                    stdout, _ = p.communicate()
+                    for line in (stdout or "").splitlines():
+                        print(f"    [{R} {model_id}] {line}", flush=True)
+                    try:
+                        in_path.unlink()
+                    except OSError:
+                        pass
+                    meta_path = out_root / R / strat_name / f"{model_id}_meta.json"
+                    if meta_path.exists():
+                        try:
+                            prior = json.loads(meta_path.read_text())
+                        except Exception:
+                            prior = {}
+                        if "val_pearson" in prior and np.isfinite(prior["val_pearson"]):
+                            per_R_vals.append(float(prior["val_pearson"]))
+                    total_models += 1
+            elif not args.parallel_R:
+                # Sequential path (legacy)
+                for R in todo_Rs:
+                    meta_path = out_root / R / strat_name / f"{model_id}_meta.json"
+                    print(
+                        f"  Training {model_id} on {R}: lr={hp.lr:.1e} bs={hp.batch_size} "
+                        f"layers={hp.n_layers} width={hp.width_base}",
+                        flush=True,
+                    )
+                    try:
+                        result = train_one_model(
+                            hp,
+                            R_data[R]["train_seqs"],
+                            R_data[R]["train_labels"],
+                            R_data[R]["val_seqs"],
+                            R_data[R]["val_labels"],
+                            test_seqs,
+                            epochs=args.epochs,
+                            use_compile=False,
+                            early_stopping_patience=esp,
+                            min_delta=min_delta,
+                            extra_test_sets=all_test_sets,
+                        )
+                    except Exception as e:
+                        print(f"    ERROR: {e}", flush=True)
+                        result = {
+                            "hp": _hp_to_dict(hp),
+                            "error": str(e),
+                            "strategy": strat_name,
+                            "round": rd,
+                        }
+                    result["model_id"] = model_id
+                    result["strategy"] = strat_name
+                    result["round"] = rd
+                    result["regime"] = regime
+                    result["reservoir"] = R
+                    _atomic_savez(
+                        out_root / R / strat_name / f"{model_id}.npz",
+                        **{k: v for k, v in result.items() if isinstance(v, np.ndarray)},
+                    )
+                    meta = {k: v for k, v in result.items() if not isinstance(v, np.ndarray)}
+                    _atomic_write_text(meta_path, json.dumps(meta, indent=2, default=str))
+                    if "val_pearson" in result and np.isfinite(result["val_pearson"]):
+                        per_R_vals.append(float(result["val_pearson"]))
+                    total_models += 1
+                    print(
+                        f"    val_pearson({R})={result.get('val_pearson', 'ERR')}  "
+                        f"time={result.get('train_time_sec', 0):.0f}s",
+                        flush=True,
+                    )
 
             if len(per_R_vals) == len(R_names):
                 cross_mean = float(np.mean(per_R_vals))
