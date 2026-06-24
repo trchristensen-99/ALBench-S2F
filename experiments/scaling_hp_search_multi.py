@@ -90,11 +90,48 @@ def load_R_data(
     )
 
 
+# Native per_round per strategy — matches submit_step1_bakeoff's DEFAULT_PER_ROUND.
+# Keeps the multi-R pilot consistent with how the regular bakeoff runs each
+# strategy. Override per-run via --strategy_per_round JSON.
+DEFAULT_PER_ROUND = {
+    "random": 1,
+    "optuna_tpe": 1,
+    "optuna_cmaes": 1,
+    "optuna_gp": 1,
+    "optuna_qmc": 1,
+    "evo_single": 1,
+    "evo_explore": 1,
+    "evo_exploit": 1,
+    "evo_adaptive": 1,
+    "evo_knowledgeable": 1,
+    "evo_batch": 4,
+    "evo_massive": 10,
+    "ray_asha": 1,
+    "ray_bohb": 1,
+    "llm_autoresearch": 4,
+    # LLM personas alias to llm_autoresearch
+    "llm_explore_nv1": 4,
+    "llm_diverse_nv1": 4,
+    "llm_exploit_nv1": 4,
+    "llm_critic_nv0": 4,
+}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--strategies", required=True)
-    ap.add_argument("--rounds", type=int, default=1)
-    ap.add_argument("--per_strategy_per_round", type=int, default=1)
+    ap.add_argument(
+        "--model_budget",
+        type=int,
+        default=50,
+        help="Models per strategy per reservoir. Each strategy runs ceil(budget/per_round) rounds.",
+    )
+    ap.add_argument(
+        "--strategy_per_round",
+        default="",
+        help='JSON override for per-strategy per_round, e.g. \'{"evo_batch":4,"llm_explore_nv1":4}\'. '
+        "Defaults to DEFAULT_PER_ROUND (matches submit_step1_bakeoff).",
+    )
     ap.add_argument("--D", type=int, required=True)
     ap.add_argument("--ref_only", action="store_true")
     ap.add_argument("--out_dir", required=True, help="Root dir; per-R subdirs will be created.")
@@ -230,13 +267,29 @@ def main():
             strategies[name].update(cs, vs)
             print(f"  [resume] preloaded {len(cs)} complete cross-R rounds into '{name}'")
 
+    # ── Per-strategy per_round + total rounds ───────────────────────────
+    per_round = dict(DEFAULT_PER_ROUND)
+    if args.strategy_per_round:
+        per_round.update(json.loads(args.strategy_per_round))
+    strat_per_round = {n: int(per_round.get(n, 1)) for n in strategies}
+    strat_total_rounds = {
+        n: max(1, (args.model_budget + strat_per_round[n] - 1) // strat_per_round[n])
+        for n in strategies
+    }
+    max_rounds = max(strat_total_rounds.values())
+    print(
+        f"=== per-strategy budget (model_budget={args.model_budget}): {strat_total_rounds} "
+        f"(per_round={strat_per_round}); loop runs {max_rounds} rounds ==="
+    )
+
     # ── Search loop ──────────────────────────────────────────────────────
     total_models = 0
     t0 = time.time()
-    for rd in range(args.rounds):
+    for rd in range(max_rounds):
+        active = [n for n in strategies if rd < strat_total_rounds[n]]
         print(
-            f"\n=== Round {rd + 1}/{args.rounds}  (elapsed {(time.time() - t0) / 60:.1f}m, "
-            f"{total_models} models trained) ===",
+            f"\n=== Round {rd + 1}/{max_rounds}  (elapsed {(time.time() - t0) / 60:.1f}m, "
+            f"{total_models} models, active strategies: {active}) ===",
             flush=True,
         )
         proposals_path = out_root / f"round_{rd:02d}_proposals.json"
@@ -258,8 +311,10 @@ def main():
             print(f"  [resume] loaded {len(round_configs)} saved proposals")
         else:
             round_configs = []
-            for name, strat in strategies.items():
-                configs = strat.suggest(args.per_strategy_per_round)
+            for name in active:
+                strat = strategies[name]
+                n_propose = strat_per_round[name]
+                configs = strat.suggest(n_propose)
                 for c in configs:
                     round_configs.append((name, c))
                 print(f"  {name}: proposed {len(configs)} configs")
