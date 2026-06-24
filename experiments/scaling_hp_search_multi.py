@@ -157,7 +157,17 @@ def main():
         "--parallel_R",
         action="store_true",
         help="Train each HP config's R-replicates in parallel via subprocess "
-        "workers (one GPU per reservoir). Requires --gres=gpu:N matching len(R).",
+        "workers (one GPU per reservoir). Requires --gres=gpu:N matching len(R). "
+        "Superseded by --concurrent_gpus when both are set.",
+    )
+    ap.add_argument(
+        "--concurrent_gpus",
+        type=int,
+        default=0,
+        help="If >0: dispatch ALL (config, R) trainings per round concurrently in "
+        "batches of N. Generalizes --parallel_R to also parallelize across the "
+        "multi-proposal strategies (LLM, evo_batch at per_round=4). N must equal "
+        "the SLURM --gres=gpu:N allocation.",
     )
     args = ap.parse_args()
 
@@ -355,6 +365,122 @@ def main():
 
         round_cross_R_vals: dict[str, list[float]] = {n: [] for n in strategies}
         round_cross_R_cfgs: dict[str, list[HPConfig]] = {n: [] for n in strategies}
+
+        # ── concurrent_gpus mode: dispatch ALL (config, R) trainings per round
+        # in parallel up to N GPUs (one process per GPU). Generalizes parallel_R
+        # to also fan out across multi-proposal strategies (LLM/evo_batch with
+        # per_round=4 send 4×3=12 trainings per round).
+        if args.concurrent_gpus and args.concurrent_gpus > 0 and worker_data_paths:
+            import subprocess
+
+            # Build full work list: skip already-done meta files (resume)
+            work_items: list[dict] = []
+            for ci, (strat_name, hp) in enumerate(round_configs):
+                model_id = f"r{rd:02d}_{strat_name}_{ci:02d}"
+                for R in R_names:
+                    meta_path = out_root / R / strat_name / f"{model_id}_meta.json"
+                    meta_path.parent.mkdir(parents=True, exist_ok=True)
+                    if meta_path.exists():
+                        try:
+                            prior = json.loads(meta_path.read_text())
+                        except Exception:
+                            prior = {}
+                        if "val_pearson" in prior:
+                            continue
+                    work_items.append(
+                        {
+                            "ci": ci,
+                            "strat_name": strat_name,
+                            "hp": hp,
+                            "R": R,
+                            "model_id": model_id,
+                            "meta_path": meta_path,
+                        }
+                    )
+
+            # Dispatch in batches of concurrent_gpus
+            for batch_start in range(0, len(work_items), args.concurrent_gpus):
+                batch = work_items[batch_start : batch_start + args.concurrent_gpus]
+                procs = []
+                for gpu_id, w in enumerate(batch):
+                    worker_in = {
+                        "repo": str(REPO),
+                        "data_path": str(worker_data_paths[w["R"]]),
+                        "xset_names": list((all_test_sets or {}).keys()),
+                        "xset_dir": str(out_root / w["R"]),
+                        "out_dir": str(out_root / w["R"] / w["strat_name"]),
+                        "hp": _hp_to_dict(w["hp"]),
+                        "model_id": w["model_id"],
+                        "strategy": w["strat_name"],
+                        "round": rd,
+                        "regime": regime,
+                        "epochs": args.epochs,
+                        "esp": esp,
+                        "min_delta": min_delta,
+                    }
+                    in_path = (
+                        out_root / w["R"] / w["strat_name"] / f"_worker_in_{w['model_id']}.json"
+                    )
+                    in_path.write_text(json.dumps(worker_in, default=str))
+                    env = os.environ.copy()
+                    env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+                    cmd = [
+                        sys.executable,
+                        "-u",
+                        "-m",
+                        "experiments.scaling_hp_search",
+                        "_train_worker",
+                        str(in_path),
+                    ]
+                    print(
+                        f"  [concurrent gpu={gpu_id}] {w['model_id']} on {w['R']}: "
+                        f"lr={w['hp'].lr:.1e} bs={w['hp'].batch_size} "
+                        f"layers={w['hp'].n_layers} width={w['hp'].width_base}",
+                        flush=True,
+                    )
+                    p = subprocess.Popen(
+                        cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+                    )
+                    procs.append((p, w, in_path))
+                # Wait for batch
+                for p, w, in_path in procs:
+                    stdout, _ = p.communicate()
+                    for line in (stdout or "").splitlines():
+                        print(f"    [{w['R']} {w['model_id']}] {line}", flush=True)
+                    try:
+                        in_path.unlink()
+                    except OSError:
+                        pass
+                    total_models += 1
+
+            # Aggregate per-config cross-R vals from on-disk metas + update strats
+            for ci, (strat_name, hp) in enumerate(round_configs):
+                model_id = f"r{rd:02d}_{strat_name}_{ci:02d}"
+                vals = []
+                for R in R_names:
+                    mp = out_root / R / strat_name / f"{model_id}_meta.json"
+                    if mp.exists():
+                        try:
+                            m = json.loads(mp.read_text())
+                        except Exception:
+                            continue
+                        if "val_pearson" in m and np.isfinite(m["val_pearson"]):
+                            vals.append(float(m["val_pearson"]))
+                if len(vals) == len(R_names):
+                    cross_mean = float(np.mean(vals))
+                    round_cross_R_cfgs[strat_name].append(hp)
+                    round_cross_R_vals[strat_name].append(cross_mean)
+                    print(
+                        f"  {model_id} CROSS-R MEAN val = {cross_mean:.4f}  "
+                        f"(per-R: {['%.3f' % v for v in vals]})",
+                        flush=True,
+                    )
+            # Update strategies with the cross-R signal for this round
+            for name, strat in strategies.items():
+                cs, vs = round_cross_R_cfgs[name], round_cross_R_vals[name]
+                if cs:
+                    strat.update(cs, vs)
+            continue  # Skip the legacy per-config loop below
 
         for i, (strat_name, hp) in enumerate(round_configs):
             model_id = f"r{rd:02d}_{strat_name}_{i:02d}"
