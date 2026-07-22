@@ -490,28 +490,48 @@ def batch_size_menu(D: int | None) -> list[int]:
 
 def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) -> HPConfig:
     n_layers = int(rng.integers(2, 13))  # 2 to 12
-    width_jitter = [float(2 ** rng.uniform(-1, 1)) for _ in range(n_layers)]
+    # Ranges/menus overridable via env vars so launch scripts can set them per-experiment
+    # (e.g. D-scaled lr/batch/width) without editing code. Defaults reproduce prior behavior.
+    _wd_lo = float(np.log10(float(os.environ.get("HP_WD_MIN", "1e-6"))))
+    _wd_hi = float(np.log10(float(os.environ.get("HP_WD_MAX", "1e-1"))))
+    _wj_lo = float(np.log2(float(os.environ.get("HP_WJ_MIN", "0.5"))))
+    _wj_hi = float(np.log2(float(os.environ.get("HP_WJ_MAX", "2.0"))))
+    width_jitter = [float(2 ** rng.uniform(_wj_lo, _wj_hi)) for _ in range(n_layers)]
+    _lr_lo = float(np.log10(float(os.environ.get("HP_LR_MIN", "1e-5"))))
+    _lr_hi = float(np.log10(float(os.environ.get("HP_LR_MAX", "1e-2"))))
+    _bs_menu_str = os.environ.get("HP_BS_MENU", "").strip()
+    _bs_menu = [int(x) for x in _bs_menu_str.split(",")] if _bs_menu_str else batch_size_menu(D)
+    _ks_menu_str = os.environ.get("HP_KS_MENU", "").strip()
+    _ks_menu = [int(x) for x in _ks_menu_str.split(",")] if _ks_menu_str else [3, 5, 7, 9, 11]
+    _ks_per_layer = os.environ.get("HP_KS_PER_LAYER", "0") == "1"
+    _wb_menu_str = os.environ.get("HP_WB_MENU", "").strip()
+    _wb_menu = [int(x) for x in _wb_menu_str.split(",")] if _wb_menu_str else [16, 32, 64, 128, 256]
     return HPConfig(
-        lr=float(10 ** rng.uniform(-5, -2)),
-        batch_size=int(rng.choice(batch_size_menu(D))),
-        conv_dropout=float(rng.uniform(0, 0.3)),
-        dense_dropout=float(rng.uniform(0, 0.5)),
+        lr=float(10 ** rng.uniform(_lr_lo, _lr_hi)),
+        batch_size=int(rng.choice(_bs_menu)),
+        conv_dropout=float(rng.uniform(float(os.environ.get("HP_CONV_DROPOUT_MIN", "0")), float(os.environ.get("HP_CONV_DROPOUT_MAX", "0.3")))),
+        dense_dropout=float(rng.uniform(float(os.environ.get("HP_DENSE_DROPOUT_MIN", "0")), float(os.environ.get("HP_DENSE_DROPOUT_MAX", "0.5")))),
         n_layers=n_layers,
-        width_base=int(rng.choice([16, 32, 64, 128, 256])),
+        width_base=int(rng.choice(_wb_menu)),
         width_jitter=width_jitter,
-        block_class=str(rng.choice(["eff", "ag", "plain"])),
-        ks=int(rng.choice([3, 5, 7, 9, 11])),
+        block_class=str(rng.choice(os.environ["HP_BLOCK_CLASS_MENU"].split(",") if os.environ.get("HP_BLOCK_CLASS_MENU") else ["eff", "ag", "plain"])),
+        ks=([int(rng.choice(_ks_menu)) for _ in range(n_layers)] if _ks_per_layer else int(rng.choice(_ks_menu))),
         pct_start=float(rng.choice([0.1, 0.2, 0.3, 0.4])),
-        optimizer=str(rng.choice(["adam", "adamw", "muon"])),
-        weight_decay=float(10 ** rng.uniform(-8, -1)),
-        width_ratio=float(2 ** rng.uniform(np.log2(0.125), np.log2(4.0))),
-        pool_downsample=int(rng.choice([0, 1, 2, 3, 4])),
+        optimizer=str(rng.choice(os.environ["HP_OPTIMIZER_MENU"].split(",") if os.environ.get("HP_OPTIMIZER_MENU") else ["adam", "adamw", "muon"])),
+        weight_decay=float(10 ** rng.uniform(_wd_lo, _wd_hi)),
+        width_ratio=float(2 ** rng.uniform(np.log2(float(os.environ.get("HP_WIDTH_RATIO_MIN", "0.125"))), np.log2(float(os.environ.get("HP_WIDTH_RATIO_MAX", "4.0"))))),
+        pool_downsample=int(rng.choice([int(x) for x in os.environ["HP_POOL_DOWNSAMPLE_MENU"].split(",")] if os.environ.get("HP_POOL_DOWNSAMPLE_MENU") else [0, 1, 2, 3, 4])),
         use_shift_aug=bool(rng.random() < 0.5),
         shift_max=int(rng.choice([5, 10, 15, 20])),
         use_evoaug=bool(rng.random() < 0.3),
-        lr_schedule=str(rng.choice(LR_SCHEDULE_CHOICES)),
+        lr_schedule=str(rng.choice(os.environ["HP_LR_SCHEDULE_MENU"].split(",") if os.environ.get("HP_LR_SCHEDULE_MENU") else LR_SCHEDULE_CHOICES)),
         seed=seed,
+        extra={
+            **({"activation": str(rng.choice(os.environ["HP_ACTIVATION_MENU"].split(",")))} if os.environ.get("HP_ACTIVATION_MENU") else {}),
+            **({"lr_plateau_factor": float(rng.choice([float(x) for x in os.environ["HP_LR_PLATEAU_FACTOR_MENU"].split(",")]))} if os.environ.get("HP_LR_PLATEAU_FACTOR_MENU") else {}),
+        },
     )
+
 
 
 def build_block_sizes(
