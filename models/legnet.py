@@ -326,6 +326,8 @@ class LegNet(nn.Module):
         dense_dropout: float = 0.0,
         block_class: str | Type[nn.Module] = "eff",
         pool_sizes: list | None = None,  # per-stage MaxPool1d factor (None=none; canonical MPRA-LegNet uses [2,2,2,2])
+        outer_skip_style: str = "concat",  # concat | add | none
+        skip_stride: int = 1,              # blocks per outer residual group
     ):
         super().__init__()
         if block_sizes is None:
@@ -378,22 +380,37 @@ class LegNet(nn.Module):
             return block_cls(in_ch=in_ch, ks=ks)
 
         self.pool_sizes = pool_sizes
+        sk_style = str(outer_skip_style).lower()
+        if sk_style not in ("concat", "add", "none"):
+            sk_style = "concat"
+        self.outer_skip_style = sk_style
+        self.skip_stride = max(1, int(skip_stride))
+        n_main = len(block_sizes) - 1
         blocks = []
-        for _si, (prev_sz, sz) in enumerate(zip(block_sizes[:-1], block_sizes[1:])):
+        i = 0
+        _stage = 0
+        while i < n_main:
+            grp_end = min(i + self.skip_stride, n_main)
+            prev_sz = block_sizes[i]
+            sz = block_sizes[grp_end]
+            inner = nn.Sequential(*[_build_block(prev_sz) for _ in range(i, grp_end)])
+            if sk_style == "concat":
+                wrapped = ResidualConcat(inner); merge_in = 2 * prev_sz
+            elif sk_style == "add":
+                wrapped = Residual(inner); merge_in = prev_sz
+            else:
+                wrapped = inner; merge_in = prev_sz
             layers: list[nn.Module] = [
-                ResidualConcat(_build_block(prev_sz)),
-                LocalBlock(
-                    in_ch=2 * prev_sz,  # doubled by ResidualConcat
-                    out_ch=sz,
-                    ks=ks,
-                    activation=activation,
-                ),
+                wrapped,
+                LocalBlock(in_ch=merge_in, out_ch=sz, ks=ks, activation=activation),
             ]
             if self.conv_dropout > 0:
                 layers.append(nn.Dropout1d(self.conv_dropout))
-            if pool_sizes is not None and _si < len(pool_sizes) and int(pool_sizes[_si]) > 1:
-                layers.append(nn.MaxPool1d(int(pool_sizes[_si])))
+            if pool_sizes is not None and _stage < len(pool_sizes) and int(pool_sizes[_stage]) > 1:
+                layers.append(nn.MaxPool1d(int(pool_sizes[_stage])))
             blocks.append(nn.Sequential(*layers))
+            i = grp_end
+            _stage += 1
         self.main = nn.Sequential(*blocks)
 
         # Output head. Two modes:
