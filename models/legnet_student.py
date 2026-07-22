@@ -160,6 +160,8 @@ class LegNetStudent(SequenceModel):
         activation: str = "silu",
         se_reduction: int = 4,
         pool_sizes: list | None = None,
+        outer_skip_style: str = "concat",
+        skip_stride: int = 1,
     ) -> None:
         self.in_channels = in_channels
         self.sequence_length = sequence_length
@@ -184,6 +186,8 @@ class LegNetStudent(SequenceModel):
                 dense_dropout=dense_dropout,
                 block_class=block_class,
                 pool_sizes=pool_sizes,
+                outer_skip_style=outer_skip_style,
+                skip_stride=skip_stride,
             ).to(self.device)
             for _ in range(ensemble_size)
         ]

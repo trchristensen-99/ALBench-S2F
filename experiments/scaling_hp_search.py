@@ -421,6 +421,8 @@ EXPERIMENTAL_KNOBS = {
     "evoaug_prob": ("train", lambda v: _clipf(v, 0.05, 1.0, 0.5)),
     "activation": ("model", lambda v: str(v).lower() if str(v).lower() in _ACTIVATIONS else "silu"),
     "se_reduction": ("model", lambda v: int(max(2, min(16, int(v))))),
+    "outer_skip_style": ("model", lambda v: str(v).lower() if str(v).lower() in {"concat", "add", "none"} else "concat"),
+    "skip_stride": ("model", lambda v: int(max(1, min(4, int(v))))),
     "loss": ("loss", lambda v: str(v).lower() if str(v).lower() in _LOSSES else "mse"),
     "huber_delta": ("loss", lambda v: _clipf(v, 0.1, 5.0, 1.0)),
 }
@@ -528,6 +530,8 @@ def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) 
         seed=seed,
         extra={
             **({"activation": str(rng.choice(os.environ["HP_ACTIVATION_MENU"].split(",")))} if os.environ.get("HP_ACTIVATION_MENU") else {}),
+            **({"outer_skip_style": str(rng.choice(os.environ["HP_OUTER_SKIP_STYLE_MENU"].split(",")))} if os.environ.get("HP_OUTER_SKIP_STYLE_MENU") else {}),
+            **({"skip_stride": int(rng.choice([int(x) for x in os.environ["HP_SKIP_STRIDE_MENU"].split(",")]))} if os.environ.get("HP_SKIP_STRIDE_MENU") else {}),
             **({"lr_plateau_factor": float(rng.choice([float(x) for x in os.environ["HP_LR_PLATEAU_FACTOR_MENU"].split(",")]))} if os.environ.get("HP_LR_PLATEAU_FACTOR_MENU") else {}),
         },
     )
