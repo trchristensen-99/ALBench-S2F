@@ -159,6 +159,7 @@ class LegNetStudent(SequenceModel):
         block_class: str = "eff",
         activation: str = "silu",
         se_reduction: int = 4,
+        pool_sizes: list | None = None,
     ) -> None:
         self.in_channels = in_channels
         self.sequence_length = sequence_length
@@ -182,6 +183,7 @@ class LegNetStudent(SequenceModel):
                 conv_dropout=conv_dropout,
                 dense_dropout=dense_dropout,
                 block_class=block_class,
+                pool_sizes=pool_sizes,
             ).to(self.device)
             for _ in range(ensemble_size)
         ]
