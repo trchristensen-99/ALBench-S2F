@@ -371,6 +371,8 @@ class HPConfig:
     # off-menu scheduler name here (or a torch class name) + an optional
     # extra["lr_schedule_kwargs"] dict — LegNetStudent builds it generically.
     lr_schedule: str = "plateau"
+    width_ratio: float = 1.0    # final/initial width ratio: <1 shrink, 1 flat, >1 grow (canonical ~2.0)
+    pool_downsample: int = 0    # number of 2x MaxPool stages (0=none, 4=16x=canonical MPRA-LegNet)
     # Free-form, off-menu axes proposed by the LLM AutoResearch strategy when
     # LLM_ALLOW_NOVEL_AXES=1. Empty for all core-axis configs. Recognized keys
     # (see EXPERIMENTAL_KNOBS) are applied to training/model; unrecognized keys
@@ -501,7 +503,9 @@ def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) 
         ks=int(rng.choice([3, 5, 7, 9, 11])),
         pct_start=float(rng.choice([0.1, 0.2, 0.3, 0.4])),
         optimizer=str(rng.choice(["adam", "adamw", "muon"])),
-        weight_decay=float(10 ** rng.uniform(-6, -2)),
+        weight_decay=float(10 ** rng.uniform(-8, -1)),
+        width_ratio=float(2 ** rng.uniform(np.log2(0.125), np.log2(4.0))),
+        pool_downsample=int(rng.choice([0, 1, 2, 3, 4])),
         use_shift_aug=bool(rng.random() < 0.5),
         shift_max=int(rng.choice([5, 10, 15, 20])),
         use_evoaug=bool(rng.random() < 0.3),
@@ -511,21 +515,50 @@ def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) 
 
 
 def build_block_sizes(
-    n_layers: int, width_base: int, width_jitter: list | None = None
+    n_layers: int, width_base: int, width_jitter: list | None = None,
+    width_ratio: float = 1.0,
 ) -> list[int]:
-    """Per-layer widths with jitter; caps max to 2*width_base to prevent blow-up."""
+    """Per-layer widths as a smooth power-law in depth, times optional per-layer jitter.
+    width_ratio = final/initial width ratio (continuous): <1 shrink, =1 flat, >1 grow.
+    Canonical MPRA-LegNet grows ~2x (64->128) => width_ratio~2.0. Rounded to /8; cap 8x base."""
     if width_jitter is None:
         width_jitter = [1.0] * n_layers
+    r = max(1e-3, float(width_ratio))
+    denom = max(1, n_layers - 1)
     sizes = []
     for i in range(n_layers):
-        # Pattern: layers 0-1 = width_base, 2-3 = /2, 4-5 = /4, 6+ = /8 (floor 8)
-        tier = i // 2
-        mult = max(0.125, 2.0 ** (-tier))  # 1, 1, 0.5, 0.5, 0.25, 0.25, ...
+        mult = r ** (i / denom)
         jitter = width_jitter[i] if i < len(width_jitter) else 1.0
         sz = max(8, int(round(width_base * mult * jitter / 8)) * 8)
-        sz = min(sz, 2 * width_base)  # cap at 2x base for jitter safety
+        sz = min(sz, 8 * width_base)
         sizes.append(sz)
     return sizes
+
+
+def build_pool_sizes(n_stages: int, pool_downsample: int = 0) -> list | None:
+    """Per-stage MaxPool factors: 2x on the first pool_downsample stages, 1x after.
+    0 -> None (no pooling); 4 -> 16x total (canonical MPRA-LegNet)."""
+    try:
+        k = int(pool_downsample)
+    except Exception:
+        k = 0
+    if k <= 0 or n_stages <= 0:
+        return None
+    k = min(k, n_stages)
+    return [2] * k + [1] * (n_stages - k)
+
+
+def canonical_anchor_config(D=None, seed: int = 0) -> "HPConfig":
+    """Published canonical MPRA-LegNet (K562) config, used as the fixed search anchor.
+    Evaluated first (round 0) so all cells start from the same principled point."""
+    n_layers = 5
+    return HPConfig(
+        lr=0.01, batch_size=1024, conv_dropout=0.0, dense_dropout=0.0,
+        n_layers=n_layers, width_base=64, width_jitter=[1.0] * n_layers,
+        block_class="eff", ks=9, pct_start=0.3, optimizer="adamw",
+        weight_decay=0.1, use_shift_aug=True, shift_max=10, use_evoaug=False,
+        seed=seed, lr_schedule="onecycle", width_ratio=2.0, pool_downsample=4,
+    )
 
 
 # ── Training ──────────────────────────────────────────────────────────────────
@@ -560,7 +593,7 @@ def train_one_model(
     np.random.seed(hp.seed)
     _random.seed(hp.seed)
     width_jitter = hp.width_jitter if hp.width_jitter else [1.0] * hp.n_layers
-    block_sizes = build_block_sizes(hp.n_layers, hp.width_base, width_jitter)
+    block_sizes = build_block_sizes(hp.n_layers, hp.width_base, width_jitter, getattr(hp, "width_ratio", 1.0))
     # Off-menu novel axes (empty unless LLM_ALLOW_NOVEL_AXES was set when proposing).
     tr_over, md_over, ls_over, applied_knobs, recorded_knobs = apply_experimental_knobs(
         getattr(hp, "extra", {}) or {}
@@ -592,10 +625,13 @@ def train_one_model(
     tcfg_kwargs.update(tr_over)  # use_reverse_complement / evoaug_intensity / evoaug_prob
     tcfg_kwargs.update(ls_over)  # loss / huber_delta
     train_cfg = TrainConfig(**tcfg_kwargs)
+    _n_stages = max(0, len(block_sizes) - 1)
+    pool_sizes = build_pool_sizes(_n_stages, getattr(hp, "pool_downsample", 0))
     student = LegNetStudent(
         task_mode="k562",
         ensemble_size=1,
         block_sizes=block_sizes,
+        pool_sizes=pool_sizes,
         ks=hp.ks,
         block_class=hp.block_class,
         device=device,
@@ -874,6 +910,16 @@ def run_search(args):
                     flush=True,
                 )
                 sys.exit(42)
+            if rd == 0 and int(getattr(args, "seed_anchor", 1)):
+                _amode = str(getattr(args, "anchor_mode", "exploit")).lower()
+                _exploit_pat = ("optuna", "evo_exploit", "evo_adaptive", "evo_knowledgeable", "ray_", "bohb", "asha", "llm_exploit")
+                _anchor = canonical_anchor_config(getattr(args, "D", None))
+                _seeded = []
+                for _nm in list(strategies.keys()):
+                    if _amode == "all" or (_amode == "exploit" and any(_p in _nm for _p in _exploit_pat)):
+                        round_configs.insert(0, (_nm, _anchor)); _seeded.append(_nm)
+                if _seeded:
+                    print(f"  [anchor] seeded canonical config (mode={_amode}) into round 0 for: {_seeded}", flush=True)
             _atomic_write_text(
                 proposals_path,
                 json.dumps(
@@ -1217,6 +1263,8 @@ def main():
         help="comma list, e.g. random,optuna_tpe,autoresearch_single",
     )
     ap.add_argument("--rounds", type=int, default=1)
+    ap.add_argument("--seed_anchor", type=int, default=1, help="1=evaluate canonical MPRA-LegNet first (round 0); 0=off")
+    ap.add_argument("--anchor_mode", type=str, default="exploit", choices=["exploit", "all", "none"], help="which strategies get the canonical anchor at round 0")
     ap.add_argument("--per_strategy_per_round", type=int, default=5)
     ap.add_argument("--D", type=int, default=10_000)
     ap.add_argument("--ref_only", action="store_true")

@@ -325,6 +325,7 @@ class LegNet(nn.Module):
         dense_dims: list[int] | None = None,
         dense_dropout: float = 0.0,
         block_class: str | Type[nn.Module] = "eff",
+        pool_sizes: list | None = None,  # per-stage MaxPool1d factor (None=none; canonical MPRA-LegNet uses [2,2,2,2])
     ):
         super().__init__()
         if block_sizes is None:
@@ -376,8 +377,9 @@ class LegNet(nn.Module):
             # PlainConvBlock + AGBlock take only (in_ch, ks)
             return block_cls(in_ch=in_ch, ks=ks)
 
+        self.pool_sizes = pool_sizes
         blocks = []
-        for prev_sz, sz in zip(block_sizes[:-1], block_sizes[1:]):
+        for _si, (prev_sz, sz) in enumerate(zip(block_sizes[:-1], block_sizes[1:])):
             layers: list[nn.Module] = [
                 ResidualConcat(_build_block(prev_sz)),
                 LocalBlock(
@@ -389,6 +391,8 @@ class LegNet(nn.Module):
             ]
             if self.conv_dropout > 0:
                 layers.append(nn.Dropout1d(self.conv_dropout))
+            if pool_sizes is not None and _si < len(pool_sizes) and int(pool_sizes[_si]) > 1:
+                layers.append(nn.MaxPool1d(int(pool_sizes[_si])))
             blocks.append(nn.Sequential(*layers))
         self.main = nn.Sequential(*blocks)
 
