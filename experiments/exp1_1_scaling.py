@@ -2495,6 +2495,7 @@ def run_scaling_experiment(
         "curriculum_random",
         "uncertainty_guided",
         "uncertainty_balanced",
+        "diversity_guided",
         "mixed_motif_snv",
         "mixed_motif_prm",
         "mixed_genomic_random",
@@ -2695,6 +2696,8 @@ def run_scaling_experiment(
             _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
         elif _res_config_name.startswith("uncertainty"):
             _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
+        elif _res_config_name == "diversity_guided":
+            _seqs, _ = _res.generate(n_train, pool_sequences=pool_seqs, pool_labels=pool_labels)
         elif _res_config_name.startswith("mixed_"):
             # Mixed-pool needs component samplers — load them dynamically
             from albench.reservoir.mixed_pool import MixedPoolSampler
@@ -2826,6 +2829,10 @@ def run_scaling_experiment(
                     n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
                 )
             elif reservoir_name.startswith("uncertainty"):
+                sequences, meta = reservoir.generate(
+                    n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
+                )
+            elif reservoir_name == "diversity_guided":
                 sequences, meta = reservoir.generate(
                     n_train, pool_sequences=pool_seqs, pool_labels=pool_labels
                 )

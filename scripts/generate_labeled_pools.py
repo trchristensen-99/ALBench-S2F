@@ -131,6 +131,7 @@ _NEEDS_POOL = {
     "motif_density_5",
     "motif_clustering",
     "motif_clustering_mutant",
+    "diversity_guided",
 }
 
 DEFAULT_POOL_SIZE = 500_000
@@ -220,6 +221,8 @@ def _generate_sequences(
         seqs, _ = res.generate(n, task=task)
     elif reservoir_name.startswith("motif_clustering"):
         seqs, _ = res.generate(n, pool_sequences=pool_seqs, task=task)
+    elif reservoir_name == "diversity_guided":
+        seqs, _ = res.generate(n, pool_sequences=pool_seqs, pool_labels=pool_labels)
     else:
         # Fallback: try task-only
         seqs, _ = res.generate(n, task=task)

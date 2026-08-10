@@ -1,0 +1,3 @@
+_target_: albench.reservoir.diversity_guided.DiversityGuidedSampler
+seed: ${seed}
+k: 4

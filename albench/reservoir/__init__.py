@@ -4,6 +4,7 @@ from albench.reservoir.activity_stratified import ActivityStratifiedSampler
 from albench.reservoir.adaptive_selection import AdaptiveSelectionSampler
 from albench.reservoir.base import ReservoirSampler
 from albench.reservoir.curriculum import CurriculumSampler
+from albench.reservoir.diversity_guided import DiversityGuidedSampler
 from albench.reservoir.evoaug import EvoAugSampler
 from albench.reservoir.evoaug_structural import EvoAugStructuralSampler
 from albench.reservoir.fixed_pool import FixedPoolSampler
@@ -28,6 +29,7 @@ __all__ = [
     "ActivityStratifiedSampler",
     "AdaptiveSelectionSampler",
     "CurriculumSampler",
+    "DiversityGuidedSampler",
     "ReservoirSampler",
     "EvoAugSampler",
     "EvoAugStructuralSampler",
