@@ -56,6 +56,7 @@ RESERVOIRS = [
     "motif_planted_v2",
     "phylogenetic_zoonomia",
     "uncertainty_guided",
+    "diversity_guided",
 ]
 SEEDDIR = "seed42_0"
 MAX_N = 20
