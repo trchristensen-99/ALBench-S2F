@@ -28,15 +28,18 @@ FLASHZOI_REPO = os.environ.get("FLASHZOI_REPO", "johahi/flashzoi-replicate-0")
 BORZOI_REPO = os.environ.get("BORZOI_REPO", "johahi/borzoi-replicate-0")
 
 
-def one_hot(seqs, length=None):
-    """list[str] -> (N, 4, L) float tensor (channels-first for conv stems)."""
+def one_hot(seqs, length=None, center=False):
+    """list[str] -> (N, 4, L) float tensor (channels-first for conv stems).
+    center=True places each sequence in the middle of the L-window (zero-padded flanks) — used by the
+    full-encoder head so the MPRA element sits in the center window that the pooling head reads."""
     L = length or max(len(s) for s in seqs)
     x = torch.zeros(len(seqs), 4, L)
     for i, s in enumerate(seqs):
+        off = max(0, (L - len(s)) // 2) if center else 0
         for j, ch in enumerate(s[:L]):
             k = _BASE2IDX.get(ch)
-            if k is not None:
-                x[i, k, j] = 1.0
+            if k is not None and off + j < L:
+                x[i, k, off + j] = 1.0
     return x
 
 
@@ -65,19 +68,94 @@ class BorzoiTrunkRegressor(nn.Module):
             p.requires_grad = flag
 
 
-def load_fm(model_name, head_dim=1):
-    if model_name in ("flashzoi", "borzoi"):
-        from borzoi_pytorch import Borzoi
+class BorzoiFullEncoderRegressor(nn.Module):
+    """FULL Borzoi encoder (conv_dna -> res_tower -> unet1 -> transformer -> upsampling U-Net ->
+    separable), MINUS the fixed 16352-bin crop, -> center-window pool -> MLP head.
 
-        # We use only the CONV TRUNK (conv_dna + res_tower) — identical weights in borzoi/flashzoi;
-        # FlashAttention (flashzoi) only speeds up the transformer, which we don't use. Load the
-        # cached borzoi repo with flashed=False so no flash_attn dependency is needed.
-        try:
-            borzoi = Borzoi.from_pretrained(BORZOI_REPO, flashed=False)
-        except TypeError:
-            borzoi = Borzoi.from_pretrained(BORZOI_REPO)
-            borzoi.flashed = False
-        return BorzoiTrunkRegressor(borzoi, head_dim)
+    This mirrors the AlphaGenome MPRA encoder-only fine-tune (full sequence_encoder + a center-window
+    pooling head), and — unlike the conv-trunk head — keeps the ENTIRE model (incl. transformer) and
+    its original human_head intact, so a continual-learning wrapper can replay Borzoi's original
+    genomic-track task through the original head while this MPRA head is added. Bypassing the crop lets
+    us run the full transformer on a moderate padded input (~512 bp) instead of a ~524 kb window.
+    """
+
+    def __init__(
+        self, borzoi, head_dim=1, center_bins=None, pooling="mean", hidden=256, dropout=0.1
+    ):
+        super().__init__()
+        self.borzoi = borzoi
+        self.pooling = pooling
+        self.center_bins = center_bins  # None -> pool all bins
+        with torch.no_grad():
+            emb = self._encode(torch.zeros(1, 4, 512))  # (1, C, Lb)
+        self.embed_dim = emb.shape[1]
+        self.head = nn.Sequential(
+            nn.Linear(self.embed_dim, hidden),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden, head_dim),
+        )
+
+    def _encode(self, x):
+        """Replicate Borzoi.get_embs_after_crop WITHOUT the final TargetLengthCrop -> (N, C, L/16)."""
+        b = self.borzoi
+        x = b.conv_dna(x)
+        x_unet0 = b.res_tower(x)
+        x_unet1 = b.unet1(x_unet0)
+        x = b._max_pool(x_unet1)
+        x_unet1 = b.horizontal_conv1(x_unet1)  # project skip to config.dim (1536)
+        x_unet0 = b.horizontal_conv0(x_unet0)  # project skip 1280 -> config.dim (1536)
+        x = b.transformer(x.permute(0, 2, 1))
+        x = x.permute(0, 2, 1)
+        x = b.upsampling_unet1(x)
+        x = x + x_unet1
+        x = b.separable1(x)
+        x = b.upsampling_unet0(x)
+        x = x + x_unet0
+        x = b.separable0(x)
+        return x
+
+    def forward(self, x):
+        emb = self._encode(x)  # (N, C, Lb)
+        if self.center_bins:
+            lb = emb.shape[-1]
+            c, h = lb // 2, self.center_bins // 2
+            emb = emb[..., max(0, c - h) : c + h + (self.center_bins % 2)]
+        if self.pooling == "mean":
+            pooled = emb.mean(-1)
+        elif self.pooling == "sum":
+            pooled = emb.sum(-1)
+        else:
+            pooled = emb.max(-1).values
+        return self.head(pooled).squeeze(-1)
+
+    def set_encoder_trainable(self, flag):
+        for p in self.borzoi.parameters():
+            p.requires_grad = flag
+
+
+def _load_borzoi():
+    from borzoi_pytorch import Borzoi
+
+    # Load the cached borzoi repo with flashed=False -> standard attention, no flash_attn dependency
+    # (flashzoi weights are identical; FlashAttention only accelerates the transformer). Install
+    # flash_attn later purely for speed if desired.
+    try:
+        return Borzoi.from_pretrained(BORZOI_REPO, flashed=False)
+    except TypeError:
+        b = Borzoi.from_pretrained(BORZOI_REPO)
+        b.flashed = False
+        return b
+
+
+def load_fm(model_name, head="full_encoder", head_dim=1, center_bins=None, pooling="mean"):
+    if model_name in ("flashzoi", "borzoi"):
+        borzoi = _load_borzoi()
+        if head == "trunk":
+            return BorzoiTrunkRegressor(borzoi, head_dim)
+        return BorzoiFullEncoderRegressor(
+            borzoi, head_dim, center_bins=center_bins, pooling=pooling
+        )
     raise NotImplementedError(f"wire {model_name} (NTv3 / AG-fold0) next")
 
 
@@ -107,19 +185,18 @@ def load_battery(battery_dir, limit=None):
     return out
 
 
-def _batches(seqs, labels, bs, L, device, shuffle=False):
+def _batches(seqs, labels, bs, L, device, shuffle=False, center=False):
     idx = np.arange(len(seqs))
     if shuffle:
         np.random.shuffle(idx)
     for i in range(0, len(idx), bs):
         b = idx[i : i + bs]
-        xb = one_hot([seqs[j] for j in b], L).to(device)
+        xb = one_hot([seqs[j] for j in b], L, center=center).to(device)
         yb = torch.tensor(labels[b], device=device)
         yield xb, yb
 
 
-def train_fm(model, seqs, labels, args, device):
-    L = max(len(s) for s in seqs)
+def train_fm(model, seqs, labels, args, device, L, center):
     labels = np.asarray(labels)
     opt = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=1e-4
@@ -133,7 +210,9 @@ def train_fm(model, seqs, labels, args, device):
             opt = torch.optim.AdamW(model.parameters(), lr=args.lr * 0.1, weight_decay=1e-4)
         model.train()
         tot = 0.0
-        for xb, yb in _batches(seqs, labels, args.batch_size, L, device, shuffle=True):
+        for xb, yb in _batches(
+            seqs, labels, args.batch_size, L, device, shuffle=True, center=center
+        ):
             opt.zero_grad()
             loss = lossf(model(xb), yb)
             loss.backward()
@@ -144,12 +223,12 @@ def train_fm(model, seqs, labels, args, device):
 
 
 @torch.no_grad()
-def evaluate(model, battery, device, L):
+def evaluate(model, battery, device, L, center):
     model.eval()
     metrics = {}
     for name, (seqs, y) in battery.items():
         preds = []
-        for xb, _ in _batches(seqs, np.zeros(len(seqs), np.float32), 64, L, device):
+        for xb, _ in _batches(seqs, np.zeros(len(seqs), np.float32), 64, L, device, center=center):
             preds.append(model(xb).cpu().numpy())
         p = np.concatenate(preds)
         m = np.isfinite(p) & np.isfinite(y)
@@ -179,26 +258,56 @@ def main():
     ap.add_argument("--batch_size", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--cl", choices=["none", "replay"], default="none")
+    ap.add_argument(
+        "--head",
+        choices=["full_encoder", "trunk"],
+        default="full_encoder",
+        help="full_encoder = AG-style full Borzoi encoder + center-window pool (CL-ready, default); "
+        "trunk = cheap conv-trunk-only (separate comparison curve, not CL-ready)",
+    )
+    ap.add_argument(
+        "--input_len",
+        type=int,
+        default=512,
+        help="padded input length for full_encoder (must be divisible by the encoder downsampling; "
+        "the ~200 bp element is centered)",
+    )
+    ap.add_argument(
+        "--center_bins",
+        type=int,
+        default=None,
+        help="pool only the center N encoder bins (default: all)",
+    )
+    ap.add_argument("--pooling", choices=["mean", "sum", "max"], default="mean")
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     src = args.reservoir_cache or args.genomic_train
     seqs, labels = load_reservoir(src, args.D, args.seed)
-    L = max(len(s) for s in seqs)
+    # full_encoder centers the element in a fixed padded window; trunk uses the native element length
+    center = args.head == "full_encoder"
+    L = args.input_len if center else max(len(s) for s in seqs)
     battery = load_battery(args.battery_dir, args.battery_limit)
     print(
-        f"[fm] model={args.model} D={len(seqs)} L={L} sets={list(battery)} device={device}",
+        f"[fm] model={args.model} head={args.head} D={len(seqs)} L={L} center={center} "
+        f"sets={list(battery)} device={device}",
         flush=True,
     )
 
-    model = load_fm(args.model).to(device)
+    model = load_fm(
+        args.model, head=args.head, center_bins=args.center_bins, pooling=args.pooling
+    ).to(device)
     print(f"[fm] {args.model} embed_dim={model.embed_dim}", flush=True)
     t0 = time.time()
-    train_fm(model, seqs, labels, args, device)
-    metrics = evaluate(model, battery, device, L)
+    train_fm(model, seqs, labels, args, device, L, center)
+    metrics = evaluate(model, battery, device, L, center)
     out = {
         "model": args.model,
+        "head": args.head,
+        "input_len": L,
+        "pooling": args.pooling,
+        "center_bins": args.center_bins,
         "D": len(seqs),
         "cl": args.cl,
         "train_sec": round(time.time() - t0, 1),
