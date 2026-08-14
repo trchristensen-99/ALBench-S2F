@@ -43,6 +43,34 @@ def one_hot(seqs, length=None, center=False):
     return x
 
 
+def borzoi_encode(b, x):
+    """Replicate Borzoi.get_embs_after_crop WITHOUT the final TargetLengthCrop -> (N, config.dim, L/16)."""
+    x = b.conv_dna(x)
+    x_unet0 = b.res_tower(x)
+    x_unet1 = b.unet1(x_unet0)
+    x = b._max_pool(x_unet1)
+    x_unet1 = b.horizontal_conv1(x_unet1)  # project skip to config.dim (1536)
+    x_unet0 = b.horizontal_conv0(x_unet0)  # project skip 1280 -> config.dim (1536)
+    x = b.transformer(x.permute(0, 2, 1))
+    x = x.permute(0, 2, 1)
+    x = b.upsampling_unet1(x)
+    x = x + x_unet1
+    x = b.separable1(x)
+    x = b.upsampling_unet0(x)
+    x = x + x_unet0
+    x = b.separable0(x)
+    return x
+
+
+def borzoi_tracks(b, x):
+    """Original Borzoi track-prediction path on a short (skip-crop) window -> (N, n_tracks, bins).
+    Used for continual-learning distillation/replay: keep the fine-tuned encoder's genomic-track
+    outputs close to the frozen original model's on genomic windows."""
+    x = borzoi_encode(b, x)
+    x = b.final_joined_convs(x)
+    return b.final_softplus(b.human_head(x))
+
+
 class BorzoiTrunkRegressor(nn.Module):
     """Borzoi conv trunk (conv_dna -> res_tower) -> global-avg-pool -> Linear head."""
 
@@ -97,23 +125,7 @@ class BorzoiFullEncoderRegressor(nn.Module):
         )
 
     def _encode(self, x):
-        """Replicate Borzoi.get_embs_after_crop WITHOUT the final TargetLengthCrop -> (N, C, L/16)."""
-        b = self.borzoi
-        x = b.conv_dna(x)
-        x_unet0 = b.res_tower(x)
-        x_unet1 = b.unet1(x_unet0)
-        x = b._max_pool(x_unet1)
-        x_unet1 = b.horizontal_conv1(x_unet1)  # project skip to config.dim (1536)
-        x_unet0 = b.horizontal_conv0(x_unet0)  # project skip 1280 -> config.dim (1536)
-        x = b.transformer(x.permute(0, 2, 1))
-        x = x.permute(0, 2, 1)
-        x = b.upsampling_unet1(x)
-        x = x + x_unet1
-        x = b.separable1(x)
-        x = b.upsampling_unet0(x)
-        x = x + x_unet0
-        x = b.separable0(x)
-        return x
+        return borzoi_encode(self.borzoi, x)
 
     def forward(self, x):
         emb = self._encode(x)  # (N, C, Lb)
@@ -196,30 +208,97 @@ def _batches(seqs, labels, bs, L, device, shuffle=False, center=False):
         yield xb, yb
 
 
-def train_fm(model, seqs, labels, args, device, L, center):
+def _cycle_anchor(seqs, targets, bs, L, device, center):
+    """Infinite stream of genomic anchor batches (seq one-hot, optional real track targets)."""
+    while True:
+        order = np.random.permutation(len(seqs))
+        for i in range(0, len(order), bs):
+            b = order[i : i + bs]
+            gx = one_hot([seqs[j] for j in b], L, center=center).to(device)
+            gt = None if targets is None else torch.tensor(targets[b], device=device)
+            yield gx, gt
+
+
+def train_fm(model, seqs, labels, args, device, L, center, ref_borzoi=None, anchor=None):
+    """anchor = (seqs, targets_or_None). distill = match frozen ref model's track outputs;
+    replay_real = match provided real track targets. Anchoring runs jointly (multitask) with the MPRA
+    loss, only in stage-2 (once the encoder unfreezes — nothing to preserve while it is frozen)."""
     labels = np.asarray(labels)
     opt = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=1e-4
     )
     lossf = nn.MSELoss()
     stage1 = max(1, args.epochs // 4)
+    anchor_on = args.cl in ("distill", "replay_real") and anchor is not None
     model.set_encoder_trainable(False)  # stage 1: head only
     for ep in range(args.epochs):
         if ep == stage1:  # stage 2: full fine-tune
             model.set_encoder_trainable(True)
             opt = torch.optim.AdamW(model.parameters(), lr=args.lr * 0.1, weight_decay=1e-4)
         model.train()
+        astream = (
+            _cycle_anchor(anchor[0], anchor[1], args.batch_size, L, device, center)
+            if (anchor_on and ep >= stage1)
+            else None
+        )
         tot = 0.0
+        dtot = 0.0
         for xb, yb in _batches(
             seqs, labels, args.batch_size, L, device, shuffle=True, center=center
         ):
             opt.zero_grad()
             loss = lossf(model(xb), yb)
+            if astream is not None:
+                gx, gt = next(astream)
+                cur = borzoi_tracks(model.borzoi, gx)
+                if gt is None:  # distill: target = frozen original model's outputs
+                    with torch.no_grad():
+                        gt = borzoi_tracks(ref_borzoi, gx)
+                dloss = lossf(cur, gt)
+                loss = loss + args.replay_lambda * dloss
+                dtot += dloss.item()
             loss.backward()
             opt.step()
             tot += loss.item()
         if ep % 5 == 0 or ep == args.epochs - 1:
-            print(f"  ep{ep} stage{1 if ep < stage1 else 2} mse={tot:.3f}", flush=True)
+            print(
+                f"  ep{ep} stage{1 if ep < stage1 else 2} loss={tot:.3f} distill={dtot:.3f}",
+                flush=True,
+            )
+
+
+@torch.no_grad()
+def genomic_preservation(borzoi_ft, ref_borzoi, anchor_seqs, device, L, center, n=1024):
+    """Pearson between the fine-tuned encoder's and the frozen original model's track outputs on
+    held-out genomic windows. High -> original genomic behavior preserved (low catastrophic forgetting).
+    Reported for every arm (incl. cl=none) so backward-transfer arms can be compared against naive FT."""
+    ref_borzoi.eval()
+    cur, ref = [], []
+    for i in range(0, min(n, len(anchor_seqs)), 32):
+        gx = one_hot(anchor_seqs[i : i + 32], L, center=center).to(device)
+        cur.append(borzoi_tracks(borzoi_ft, gx).float().cpu().numpy().ravel())
+        ref.append(borzoi_tracks(ref_borzoi, gx).float().cpu().numpy().ravel())
+    c, r = np.concatenate(cur), np.concatenate(ref)
+    m = np.isfinite(c) & np.isfinite(r)
+    return float(pearsonr(c[m], r[m])[0])
+
+
+def load_anchor(path, n, seed, want_targets=False):
+    """Genomic anchor windows for CL. want_targets -> also return real track targets (replay_real)."""
+    z = np.load(path, allow_pickle=True)
+    seqs = z["sequences"]
+    rng = np.random.default_rng(seed + 9999)
+    idx = rng.choice(len(seqs), size=min(n, len(seqs)), replace=False)
+    s = [str(seqs[i]) for i in idx]
+    t = None
+    if want_targets:
+        tkey = next((k for k in ("track_targets", "targets", "tracks") if k in z.files), None)
+        if tkey is None:
+            raise ValueError(
+                f"replay_real needs real track targets in {path} (have {list(z.files)})"
+            )
+        t = z[tkey][idx].astype(np.float32)
+    return s, t
 
 
 @torch.no_grad()
@@ -257,7 +336,28 @@ def main():
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--batch_size", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
-    ap.add_argument("--cl", choices=["none", "replay"], default="none")
+    ap.add_argument(
+        "--cl",
+        choices=["none", "distill", "replay_real"],
+        default="none",
+        help="none = MPRA-only full FT (may forget); distill = joint MPRA + KD to frozen Borzoi's track "
+        "outputs on genomic windows (functional replay, no original labels needed); replay_real = joint "
+        "MPRA + real Borzoi track targets (needs --anchor_cache with targets)",
+    )
+    ap.add_argument(
+        "--replay_lambda", type=float, default=1.0, help="weight on the anchor/distill loss"
+    )
+    ap.add_argument(
+        "--anchor_cache",
+        default="outputs/chr_split_cache/chr_train_ref_only.npz",
+        help="genomic windows for the CL anchor (and preservation metric)",
+    )
+    ap.add_argument("--anchor_n", type=int, default=4096)
+    ap.add_argument(
+        "--measure_preservation",
+        action="store_true",
+        help="report genomic-track preservation vs frozen original (loads a frozen ref; implied by --cl distill)",
+    )
     ap.add_argument(
         "--head",
         choices=["full_encoder", "trunk"],
@@ -299,9 +399,28 @@ def main():
         args.model, head=args.head, center_bins=args.center_bins, pooling=args.pooling
     ).to(device)
     print(f"[fm] {args.model} embed_dim={model.embed_dim}", flush=True)
+
+    # Continual-learning anchor: frozen reference model + genomic windows (needed for distill/replay
+    # and for the preservation metric, which we report for every arm to quantify forgetting).
+    ref_borzoi, anchor = None, None
+    need_ref = args.cl in ("distill", "replay_real") or args.measure_preservation
+    if need_ref:
+        ref_borzoi = _load_borzoi().to(device).eval()
+        for p in ref_borzoi.parameters():
+            p.requires_grad = False
+        a_seqs, a_tgt = load_anchor(
+            args.anchor_cache, args.anchor_n, args.seed, want_targets=(args.cl == "replay_real")
+        )
+        anchor = (a_seqs, a_tgt)
+        print(f"[fm] cl={args.cl} lambda={args.replay_lambda} anchor_n={len(a_seqs)}", flush=True)
+
     t0 = time.time()
-    train_fm(model, seqs, labels, args, device, L, center)
+    train_fm(model, seqs, labels, args, device, L, center, ref_borzoi=ref_borzoi, anchor=anchor)
     metrics = evaluate(model, battery, device, L, center)
+    preservation = None
+    if need_ref:
+        preservation = genomic_preservation(model.borzoi, ref_borzoi, anchor[0], device, L, center)
+        print(f"[fm] genomic_preservation={preservation:.4f}", flush=True)
     out = {
         "model": args.model,
         "head": args.head,
@@ -310,6 +429,8 @@ def main():
         "center_bins": args.center_bins,
         "D": len(seqs),
         "cl": args.cl,
+        "replay_lambda": args.replay_lambda,
+        "genomic_preservation": preservation,
         "train_sec": round(time.time() - t0, 1),
         "metrics": metrics,
     }
