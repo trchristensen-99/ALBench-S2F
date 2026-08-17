@@ -24,6 +24,9 @@ import torch.nn as nn
 from scipy.stats import pearsonr
 
 _BASE2IDX = {"A": 0, "C": 1, "G": 2, "T": 3, "a": 0, "c": 1, "g": 2, "t": 3}
+_CODE_LUT = np.full(256, -1, dtype=np.int64)  # ASCII code -> base index (-1 for N/other)
+for _b, _i in _BASE2IDX.items():
+    _CODE_LUT[ord(_b)] = _i
 FLASHZOI_REPO = os.environ.get("FLASHZOI_REPO", "johahi/flashzoi-replicate-0")
 BORZOI_REPO = os.environ.get("BORZOI_REPO", "johahi/borzoi-replicate-0")
 
@@ -31,15 +34,16 @@ BORZOI_REPO = os.environ.get("BORZOI_REPO", "johahi/borzoi-replicate-0")
 def one_hot(seqs, length=None, center=False):
     """list[str] -> (N, 4, L) float tensor (channels-first for conv stems).
     center=True places each sequence in the middle of the L-window (zero-padded flanks) — used by the
-    full-encoder head so the MPRA element sits in the center window that the pooling head reads."""
+    full-encoder head so the MPRA element sits in the center window that the pooling head reads.
+    Vectorized per sequence (no per-base Python loop) to keep CPU off the critical path."""
     L = length or max(len(s) for s in seqs)
     x = torch.zeros(len(seqs), 4, L)
     for i, s in enumerate(seqs):
+        s = s[:L]
         off = max(0, (L - len(s)) // 2) if center else 0
-        for j, ch in enumerate(s[:L]):
-            k = _BASE2IDX.get(ch)
-            if k is not None and off + j < L:
-                x[i, k, off + j] = 1.0
+        codes = _CODE_LUT[np.frombuffer(s.encode("ascii", "ignore"), dtype=np.uint8)]
+        pos = np.nonzero(codes >= 0)[0]  # drop N / non-ACGT
+        x[i, codes[pos], pos + off] = 1.0
     return x
 
 
@@ -224,6 +228,7 @@ def train_fm(model, seqs, labels, args, device, L, center, ref_borzoi=None, anch
     replay_real = match provided real track targets. Anchoring runs jointly (multitask) with the MPRA
     loss, only in stage-2 (once the encoder unfreezes — nothing to preserve while it is frozen)."""
     labels = np.asarray(labels)
+    amp = args.amp and device == "cuda"  # bf16 autocast: ~2x throughput + ~half memory on H100
     opt = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=1e-4
     )
@@ -247,16 +252,17 @@ def train_fm(model, seqs, labels, args, device, L, center, ref_borzoi=None, anch
             seqs, labels, args.batch_size, L, device, shuffle=True, center=center
         ):
             opt.zero_grad()
-            loss = lossf(model(xb), yb)
-            if astream is not None:
-                gx, gt = next(astream)
-                cur = borzoi_tracks(model.borzoi, gx)
-                if gt is None:  # distill: target = frozen original model's outputs
-                    with torch.no_grad():
-                        gt = borzoi_tracks(ref_borzoi, gx)
-                dloss = lossf(cur, gt)
-                loss = loss + args.replay_lambda * dloss
-                dtot += dloss.item()
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp):
+                loss = lossf(model(xb), yb)
+                if astream is not None:
+                    gx, gt = next(astream)
+                    cur = borzoi_tracks(model.borzoi, gx)
+                    if gt is None:  # distill: target = frozen original model's outputs
+                        with torch.no_grad():
+                            gt = borzoi_tracks(ref_borzoi, gx)
+                    dloss = lossf(cur, gt)
+                    loss = loss + args.replay_lambda * dloss
+                    dtot += dloss.item()
             loss.backward()
             opt.step()
             tot += loss.item()
@@ -302,13 +308,15 @@ def load_anchor(path, n, seed, want_targets=False):
 
 
 @torch.no_grad()
-def evaluate(model, battery, device, L, center):
+def evaluate(model, battery, device, L, center, amp=False):
     model.eval()
     metrics = {}
     for name, (seqs, y) in battery.items():
         preds = []
         for xb, _ in _batches(seqs, np.zeros(len(seqs), np.float32), 64, L, device, center=center):
-            preds.append(model(xb).cpu().numpy())
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
+                out = model(xb)
+            preds.append(out.float().cpu().numpy())
         p = np.concatenate(preds)
         m = np.isfinite(p) & np.isfinite(y)
         if m.sum() > 3:
@@ -379,6 +387,13 @@ def main():
         help="pool only the center N encoder bins (default: all)",
     )
     ap.add_argument("--pooling", choices=["mean", "sum", "max"], default="mean")
+    ap.add_argument(
+        "--amp",
+        action="store_true",
+        default=True,
+        help="bf16 autocast on CUDA (~2x throughput, ~half memory); on by default",
+    )
+    ap.add_argument("--no_amp", dest="amp", action="store_false")
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -416,7 +431,7 @@ def main():
 
     t0 = time.time()
     train_fm(model, seqs, labels, args, device, L, center, ref_borzoi=ref_borzoi, anchor=anchor)
-    metrics = evaluate(model, battery, device, L, center)
+    metrics = evaluate(model, battery, device, L, center, amp=args.amp)
     preservation = None
     if need_ref:
         preservation = genomic_preservation(model.borzoi, ref_borzoi, anchor[0], device, L, center)
