@@ -1,0 +1,86 @@
+"""Assemble the full PI figure pack in deck order:
+map -> decision register -> 5 decision slides -> results -> method -> reference appendix.
+Composed slides (mode 'full') are full-bleed; data figures (mode 'fig') get a title band + caption.
+"""
+import os
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+from matplotlib.backends.backend_pdf import PdfPages
+
+SL = os.path.expanduser("~/Downloads/slope_experiment_figs")
+PI = os.path.expanduser("~/Downloads/pi_meeting_figs")
+
+# (path, mode, title, caption) — title/caption only used for mode 'fig'
+PAGES = [
+    (f"{PI}/schematic_pipeline.png", "full", "", ""),
+    (f"{PI}/decision_register.png", "full", "", ""),
+    # --- 5 decision slides ---
+    (f"{PI}/val_set_options.png", "full", "", ""),
+    (f"{PI}/test_set_options.png", "full", "", ""),
+    (f"{PI}/hp_summary.png", "full", "", ""),
+    (f"{PI}/reservoir_summary.png", "full", "", ""),
+    (f"{PI}/acquisition_summary.png", "full", "", ""),
+    # --- results ---
+    (f"{SL}/fig_scaling.png", "fig", "Primary result: error follows a power law in data",
+     "Test-error ∝ D^−0.28; the slope is shared across sequence sources (only the offset moves)."),
+    (f"{SL}/slope_variance.png", "fig", "Source sets the LEVEL, target sets the RATE",
+     "Reservoirs differ only in offset; OOD/structural targets scale faster (−0.35 vs −0.28)."),
+    (f"{PI}/schematic_informativeness.png", "full", "", ""),
+    (f"{SL}/selection_regret.png", "fig", "The ensemble reaches ~the best possible model",
+     "Val-selected ensemble matches/beats the best single model everywhere except OOD (+0.02–0.04)."),
+    (f"{SL}/loso.png", "fig", "One reweightable menu works across strategies",
+     "Leave-one-reservoir-out: shared menu ≈ each reservoir's own best (7/8; acq uncertainty/diversity ≈0)."),
+    (f"{PI}/protocol_evidence.png", "full", "", ""),
+    # --- method budgets ---
+    (f"{SL}/fig_ensemble_knee.png", "fig", "Ensembles plateau at ~4–5 models",
+     "Diminishing returns past ~4–5 models — small, cheap ensembles capture the gain."),
+    (f"{SL}/fig_rounds_plateau.png", "fig", "HP search plateaus at ~50 rounds",
+     "Beyond ~50 proposals the best-so-far flattens — sets the search budget."),
+    (f"{SL}/fig_overfit_by_reservoir.png", "fig", "Val–test gaps are distribution shift, not overfitting",
+     "Gap ≈0 in-distribution, large on OOD/motif → the val set must match the target you care about."),
+    # --- reference appendix (July-16 detailed tables — confirmed current for reservoir/acq;
+    #     HP-axes ranges have drifted, see note) ---
+    (f"{PI}/1_HP_axes_table.png", "full", "", ""),
+    (f"{PI}/1b_HP_strategies_table.png", "full", "", ""),
+    (f"{PI}/2a_reservoir_IMPLEMENTED.png", "full", "", ""),
+    (f"{PI}/2b_reservoir_PROPOSED.png", "full", "", ""),
+    (f"{PI}/3a_acquisition_IMPLEMENTED.png", "full", "", ""),
+    (f"{PI}/3b_acquisition_PROPOSED.png", "full", "", ""),
+]
+
+pdf_path = f"{PI}/figure_pack.pdf"
+n = 0
+with PdfPages(pdf_path) as pdf:
+    for path, mode, title, caption in PAGES:
+        fig = plt.figure(figsize=(13, 8.5) if mode == "full" else (11, 8.5))
+        fig.patch.set_facecolor("white")
+        if mode == "full":
+            ax = fig.add_axes([0, 0, 1, 1]); ax.axis("off")
+            if os.path.exists(path):
+                ax.imshow(mpimg.imread(path)); n += 1
+            else:
+                ax.text(0.5, 0.5, f"[missing {os.path.basename(path)}]", ha="center", color="red")
+        else:
+            fig.text(0.06, 0.9, title, fontsize=20, weight="bold", color="0.1")
+            ax = fig.add_axes([0.06, 0.13, 0.88, 0.72]); ax.axis("off")
+            if os.path.exists(path):
+                ax.imshow(mpimg.imread(path)); n += 1
+            else:
+                ax.text(0.5, 0.5, f"[missing {os.path.basename(path)}]", ha="center", color="red")
+            fig.text(0.06, 0.06, caption, fontsize=13, style="italic", color="0.25", wrap=True)
+        pdf.savefig(fig, bbox_inches="tight"); plt.close(fig)
+
+print(f"WROTE {pdf_path} ({len(PAGES)} pages, {n} images found)")
+
+# Also export every deck image at full resolution, numbered in deck order, so slides can be
+# rebuilt in a more readable format.
+import shutil
+IMG = os.path.expanduser("~/Downloads/pi_deck_images")
+os.makedirs(IMG, exist_ok=True)
+for old in os.listdir(IMG):
+    os.remove(os.path.join(IMG, old))
+for i, (path, mode, title, caption) in enumerate(PAGES, 1):
+    if os.path.exists(path):
+        dst = os.path.join(IMG, f"{i:02d}_{os.path.basename(path)}")
+        shutil.copy(path, dst)
+print(f"EXPORTED {len([p for p,*_ in PAGES if os.path.exists(p)])} full-res images -> {IMG}")
