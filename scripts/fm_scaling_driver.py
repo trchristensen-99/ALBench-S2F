@@ -201,32 +201,40 @@ def load_battery(battery_dir, limit=None):
     return out
 
 
-def _batches(seqs, labels, bs, L, device, shuffle=False, center=False):
-    idx = np.arange(len(seqs))
+def encode_all(seqs, L, center):
+    """One-hot the whole split ONCE as uint8 (N,4,L) — the per-batch re-encoding was the real
+    bottleneck (CPU-bound, repeated every epoch). uint8 keeps it small: D=300k @512bp = 0.6 GB."""
+    return one_hot(seqs, L, center=center).to(torch.uint8)
+
+
+def _batches(X, labels, bs, device, shuffle=False):
+    """X: precomputed uint8 (N,4,L) one-hot. Batches just index + cast on device."""
+    idx = np.arange(len(X))
     if shuffle:
         np.random.shuffle(idx)
     for i in range(0, len(idx), bs):
         b = idx[i : i + bs]
-        xb = one_hot([seqs[j] for j in b], L, center=center).to(device)
+        xb = X[b].to(device, non_blocking=True).float()
         yb = torch.tensor(labels[b], device=device)
         yield xb, yb
 
 
-def _cycle_anchor(seqs, targets, bs, L, device, center):
-    """Infinite stream of genomic anchor batches (seq one-hot, optional real track targets)."""
+def _cycle_anchor(X, targets, bs, device):
+    """Infinite stream of genomic anchor batches from precomputed one-hot X (+ optional targets)."""
     while True:
-        order = np.random.permutation(len(seqs))
+        order = np.random.permutation(len(X))
         for i in range(0, len(order), bs):
             b = order[i : i + bs]
-            gx = one_hot([seqs[j] for j in b], L, center=center).to(device)
+            gx = X[b].to(device, non_blocking=True).float()
             gt = None if targets is None else torch.tensor(targets[b], device=device)
             yield gx, gt
 
 
-def train_fm(model, seqs, labels, args, device, L, center, ref_borzoi=None, anchor=None):
-    """anchor = (seqs, targets_or_None). distill = match frozen ref model's track outputs;
-    replay_real = match provided real track targets. Anchoring runs jointly (multitask) with the MPRA
-    loss, only in stage-2 (once the encoder unfreezes — nothing to preserve while it is frozen)."""
+def train_fm(model, X, labels, args, device, ref_borzoi=None, anchor=None):
+    """X = precomputed one-hot for the training split. anchor = (anchor_X, targets_or_None):
+    distill = match frozen ref model's track outputs; replay_real = match provided real track targets.
+    Anchoring runs jointly (multitask) with the MPRA loss, only in stage-2 (once the encoder unfreezes
+    — nothing to preserve while it is frozen)."""
     labels = np.asarray(labels)
     amp = args.amp and device == "cuda"  # bf16 autocast: ~2x throughput + ~half memory on H100
     opt = torch.optim.AdamW(
@@ -242,15 +250,13 @@ def train_fm(model, seqs, labels, args, device, L, center, ref_borzoi=None, anch
             opt = torch.optim.AdamW(model.parameters(), lr=args.lr * 0.1, weight_decay=1e-4)
         model.train()
         astream = (
-            _cycle_anchor(anchor[0], anchor[1], args.batch_size, L, device, center)
+            _cycle_anchor(anchor[0], anchor[1], args.batch_size, device)
             if (anchor_on and ep >= stage1)
             else None
         )
         tot = 0.0
         dtot = 0.0
-        for xb, yb in _batches(
-            seqs, labels, args.batch_size, L, device, shuffle=True, center=center
-        ):
+        for xb, yb in _batches(X, labels, args.batch_size, device, shuffle=True):
             opt.zero_grad()
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp):
                 loss = lossf(model(xb), yb)
@@ -274,14 +280,14 @@ def train_fm(model, seqs, labels, args, device, L, center, ref_borzoi=None, anch
 
 
 @torch.no_grad()
-def genomic_preservation(borzoi_ft, ref_borzoi, anchor_seqs, device, L, center, n=1024):
+def genomic_preservation(borzoi_ft, ref_borzoi, anchor_X, device, n=1024):
     """Pearson between the fine-tuned encoder's and the frozen original model's track outputs on
     held-out genomic windows. High -> original genomic behavior preserved (low catastrophic forgetting).
     Reported for every arm (incl. cl=none) so backward-transfer arms can be compared against naive FT."""
     ref_borzoi.eval()
     cur, ref = [], []
-    for i in range(0, min(n, len(anchor_seqs)), 32):
-        gx = one_hot(anchor_seqs[i : i + 32], L, center=center).to(device)
+    for i in range(0, min(n, len(anchor_X)), 32):
+        gx = anchor_X[i : i + 32].to(device).float()
         cur.append(borzoi_tracks(borzoi_ft, gx).float().cpu().numpy().ravel())
         ref.append(borzoi_tracks(ref_borzoi, gx).float().cpu().numpy().ravel())
     c, r = np.concatenate(cur), np.concatenate(ref)
@@ -312,8 +318,9 @@ def evaluate(model, battery, device, L, center, amp=False):
     model.eval()
     metrics = {}
     for name, (seqs, y) in battery.items():
+        X = encode_all(seqs, L, center)
         preds = []
-        for xb, _ in _batches(seqs, np.zeros(len(seqs), np.float32), 64, L, device, center=center):
+        for xb, _ in _batches(X, np.zeros(len(seqs), np.float32), 64, device):
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
                 out = model(xb)
             preds.append(out.float().cpu().numpy())
@@ -426,15 +433,19 @@ def main():
         a_seqs, a_tgt = load_anchor(
             args.anchor_cache, args.anchor_n, args.seed, want_targets=(args.cl == "replay_real")
         )
-        anchor = (a_seqs, a_tgt)
+        anchor = (encode_all(a_seqs, L, center), a_tgt)
         print(f"[fm] cl={args.cl} lambda={args.replay_lambda} anchor_n={len(a_seqs)}", flush=True)
 
+    X = encode_all(seqs, L, center)  # encode the training split once (not per batch per epoch)
+    print(
+        f"[fm] encoded train one-hot {tuple(X.shape)} ({X.numel() / 1e9:.2f} GB uint8)", flush=True
+    )
     t0 = time.time()
-    train_fm(model, seqs, labels, args, device, L, center, ref_borzoi=ref_borzoi, anchor=anchor)
+    train_fm(model, X, labels, args, device, ref_borzoi=ref_borzoi, anchor=anchor)
     metrics = evaluate(model, battery, device, L, center, amp=args.amp)
     preservation = None
     if need_ref:
-        preservation = genomic_preservation(model.borzoi, ref_borzoi, anchor[0], device, L, center)
+        preservation = genomic_preservation(model.borzoi, ref_borzoi, anchor[0], device)
         print(f"[fm] genomic_preservation={preservation:.4f}", flush=True)
     out = {
         "model": args.model,
