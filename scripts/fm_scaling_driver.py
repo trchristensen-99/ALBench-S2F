@@ -164,13 +164,26 @@ def _load_borzoi():
         return b
 
 
-def load_fm(model_name, head="full_encoder", head_dim=1, center_bins=None, pooling="mean"):
+def load_fm(
+    model_name,
+    head="full_encoder",
+    head_dim=1,
+    center_bins=None,
+    pooling="mean",
+    hidden=256,
+    dropout=0.1,
+):
     if model_name in ("flashzoi", "borzoi"):
         borzoi = _load_borzoi()
         if head == "trunk":
             return BorzoiTrunkRegressor(borzoi, head_dim)
         return BorzoiFullEncoderRegressor(
-            borzoi, head_dim, center_bins=center_bins, pooling=pooling
+            borzoi,
+            head_dim,
+            center_bins=center_bins,
+            pooling=pooling,
+            hidden=hidden,
+            dropout=dropout,
         )
     raise NotImplementedError(f"wire {model_name} (NTv3 / AG-fold0) next")
 
@@ -230,24 +243,45 @@ def _cycle_anchor(X, targets, bs, device):
             yield gx, gt
 
 
-def train_fm(model, X, labels, args, device, ref_borzoi=None, anchor=None):
+@torch.no_grad()
+def _val_pearson(model, Xv, yv, device, amp):
+    """Held-out val correlation — the ONLY legitimate signal for HP selection (the battery is test)."""
+    model.eval()
+    preds = []
+    for xb, _ in _batches(Xv, np.zeros(len(Xv), np.float32), 128, device):
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp and device == "cuda"):
+            out = model(xb)
+        preds.append(out.float().cpu().numpy())
+    p = np.concatenate(preds)
+    m = np.isfinite(p) & np.isfinite(yv)
+    model.train()
+    return float(pearsonr(p[m], yv[m])[0]) if m.sum() > 3 else float("nan")
+
+
+def train_fm(model, X, labels, args, device, ref_borzoi=None, anchor=None, val=None):
     """X = precomputed one-hot for the training split. anchor = (anchor_X, targets_or_None):
     distill = match frozen ref model's track outputs; replay_real = match provided real track targets.
     Anchoring runs jointly (multitask) with the MPRA loss, only in stage-2 (once the encoder unfreezes
     — nothing to preserve while it is frozen)."""
     labels = np.asarray(labels)
     amp = args.amp and device == "cuda"  # bf16 autocast: ~2x throughput + ~half memory on H100
+    wd = getattr(args, "weight_decay", 1e-4)
     opt = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=1e-4
+        filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=wd
     )
     lossf = nn.MSELoss()
-    stage1 = max(1, args.epochs // 4)
+    stage1 = max(1, int(round(args.epochs * getattr(args, "stage1_frac", 0.25))))
+    best_val, best_ep = float("-inf"), -1
     anchor_on = args.cl in ("distill", "replay_real") and anchor is not None
     model.set_encoder_trainable(False)  # stage 1: head only
     for ep in range(args.epochs):
-        if ep == stage1:  # stage 2: full fine-tune
+        if ep == stage1:  # stage 2: full fine-tune (encoder at a reduced LR)
             model.set_encoder_trainable(True)
-            opt = torch.optim.AdamW(model.parameters(), lr=args.lr * 0.1, weight_decay=1e-4)
+            opt = torch.optim.AdamW(
+                model.parameters(),
+                lr=args.lr * getattr(args, "encoder_lr_mult", 0.1),
+                weight_decay=wd,
+            )
         model.train()
         astream = (
             _cycle_anchor(anchor[0], anchor[1], args.batch_size, device)
@@ -272,11 +306,18 @@ def train_fm(model, X, labels, args, device, ref_borzoi=None, anchor=None):
             loss.backward()
             opt.step()
             tot += loss.item()
+        vmsg = ""
+        if val is not None and (ep % 5 == 0 or ep == args.epochs - 1):
+            v = _val_pearson(model, val[0], val[1], device, amp)
+            if v > best_val:
+                best_val, best_ep = v, ep
+            vmsg = f" val_r={v:.4f}"
         if ep % 5 == 0 or ep == args.epochs - 1:
             print(
-                f"  ep{ep} stage{1 if ep < stage1 else 2} loss={tot:.3f} distill={dtot:.3f}",
+                f"  ep{ep} stage{1 if ep < stage1 else 2} loss={tot:.3f} distill={dtot:.3f}{vmsg}",
                 flush=True,
             )
+    return {"best_val_pearson": best_val if best_ep >= 0 else None, "best_val_epoch": best_ep}
 
 
 @torch.no_grad()
@@ -401,6 +442,23 @@ def main():
         help="bf16 autocast on CUDA (~2x throughput, ~half memory); on by default",
     )
     ap.add_argument("--no_amp", dest="amp", action="store_false")
+    # --- fine-tuning HPs. Tuned ONCE on a reservoir-balanced mixture and then FROZEN across every
+    # cell, so the reservoir/acquisition comparison is never confounded by per-cell tuning. ---
+    ap.add_argument(
+        "--encoder_lr_mult", type=float, default=0.1, help="stage-2 encoder LR = lr * this"
+    )
+    ap.add_argument(
+        "--stage1_frac", type=float, default=0.25, help="fraction of epochs with frozen encoder"
+    )
+    ap.add_argument("--weight_decay", type=float, default=1e-4)
+    ap.add_argument("--head_hidden", type=int, default=256)
+    ap.add_argument("--head_dropout", type=float, default=0.1)
+    ap.add_argument(
+        "--val_frac",
+        type=float,
+        default=0.1,
+        help="held-out fraction of TRAIN for HP selection (never select on the battery = test)",
+    )
     args = ap.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -418,7 +476,12 @@ def main():
     )
 
     model = load_fm(
-        args.model, head=args.head, center_bins=args.center_bins, pooling=args.pooling
+        args.model,
+        head=args.head,
+        center_bins=args.center_bins,
+        pooling=args.pooling,
+        hidden=args.head_hidden,
+        dropout=args.head_dropout,
     ).to(device)
     print(f"[fm] {args.model} embed_dim={model.embed_dim}", flush=True)
 
@@ -440,8 +503,20 @@ def main():
     print(
         f"[fm] encoded train one-hot {tuple(X.shape)} ({X.numel() / 1e9:.2f} GB uint8)", flush=True
     )
+    # Hold out a val split from TRAIN for HP selection — the battery is TEST, and selecting on it
+    # would leak. Seeded so every arm of a comparison sees the same partition.
+    val = None
+    if args.val_frac and args.val_frac > 0:
+        perm = np.random.default_rng(args.seed + 777).permutation(len(X))
+        nv = max(1, int(len(X) * args.val_frac))
+        vi, ti = perm[:nv], perm[nv:]
+        lab = np.asarray(labels)
+        val = (X[vi], lab[vi])
+        X, labels = X[ti], lab[ti]
+        print(f"[fm] train={len(X)} val={len(vi)} (val_frac={args.val_frac})", flush=True)
+
     t0 = time.time()
-    train_fm(model, X, labels, args, device, ref_borzoi=ref_borzoi, anchor=anchor)
+    fit = train_fm(model, X, labels, args, device, ref_borzoi=ref_borzoi, anchor=anchor, val=val)
     metrics = evaluate(model, battery, device, L, center, amp=args.amp)
     preservation = None
     if need_ref:
@@ -456,6 +531,21 @@ def main():
         "D": len(seqs),
         "cl": args.cl,
         "replay_lambda": args.replay_lambda,
+        "hp": {
+            "lr": args.lr,
+            "encoder_lr_mult": args.encoder_lr_mult,
+            "stage1_frac": args.stage1_frac,
+            "weight_decay": args.weight_decay,
+            "head_hidden": args.head_hidden,
+            "head_dropout": args.head_dropout,
+            "batch_size": args.batch_size,
+            "epochs": args.epochs,
+            "input_len": args.input_len,
+            "pooling": args.pooling,
+            "center_bins": args.center_bins,
+        },
+        "val_pearson": (fit or {}).get("best_val_pearson"),
+        "val_best_epoch": (fit or {}).get("best_val_epoch"),
         "genomic_preservation": preservation,
         "train_sec": round(time.time() - t0, 1),
         "metrics": metrics,
