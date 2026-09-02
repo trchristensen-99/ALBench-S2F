@@ -27,13 +27,16 @@ RESERVOIRS = [
     ("Random", "Uniform ACGT", "-", "A"),
     ("Random", "Dinuc-shuffled genomic", "-", "A"),
     ("Random", "Composition-tuned (GC / k-mer biased)", "-", "A"),
-    ("Genomic", "ENCODE accessible - union of both lines", "-", "A"),
+    ("Genomic", "ENCODE accessible - open in BOTH", "agg", "A"),
+    ("Genomic", "ENCODE accessible - open in ONE only", "con", "A"),
     ("Genomic", "Zoonomia ortholog CREs (phylogenetic)", "-", "A"),
     ("Genomic", "Gosai alts - TRAIN chr only", "-", "A"),
     ("Genomic pert.", "Mutagenesis - oracle-tuned rate", "-", "A"),
     ("Genomic pert.", "Structural - indel/transloc/inv, tuned", "-", "A"),
     ("Genomic pert.", "EvoAug - as-published settings (ctrl)", "-", "A"),
-    ("Motif-based", "Coverage - FULL vocabulary (~600 motifs)", "-", "A"),
+    ("Motif-based", "Coverage - FULL vocabulary (~600)", "-", "A"),
+    ("Motif-based", "Vocabulary - shared-core motifs", "agg", "A"),
+    ("Motif-based", "Vocabulary - CT-enriched motifs", "con", "A"),
     ("Motif-based", "Syntax core - RESTRICTED vocab, crossed", "-", "A"),
     ("Model-gen.", "DNA-LM (HyenaDNA) - unconditioned", "-", "A"),
     ("Model-gen.", "D3 - genomic-conditioned", "-", "A"),
@@ -108,7 +111,7 @@ ws.title = "Budget"
 ws["A1"] = "Sequence budget - funded arms"
 ws["A1"].font = Font(bold=True, size=14)
 ws["A2"] = (
-    f"Paste A{AH}:{LC}{SROW} into Slides ({SROW - AH + 1} x {nA + 3} at 8 pt). "
+    f"Paste A{AH}:{LC}{SROW} into Slides ({SROW - AH + 1} x {nA + 3} at 7.5 pt). "
     f"Toggles in {KC0}:{KCL} on the SAME ROWS: 1 = on, 0/blank = off, >1 = pin that count."
 )
 ws["A2"].font = Font(italic=True, size=9, color="666666")
@@ -187,7 +190,7 @@ for i, (fam, name, ct, tier) in enumerate(RESERVOIRS):
     f.fill = PatternFill("solid", fgColor=FAMF[fam])
     f.alignment = Alignment(vertical="center", wrap_text=True)
     n = ws.cell(r, 2, name)
-    n.font = Font(size=8, bold=tier != "A")
+    n.font = Font(size=7.5, bold=tier != "A")
     n.alignment = Alignment(vertical="center")
     if tier != "A":
         n.fill = POOL
@@ -265,7 +268,7 @@ for j in range(nA):
     ws.column_dimensions[get_column_letter(K0 + j)].width = 7.5
 ws.column_dimensions[get_column_letter(TOTC)].width = 9.5
 for r in range(AH - 1, SROW + 1):
-    ws.row_dimensions[r].height = 14.0
+    ws.row_dimensions[r].height = 13.0
 ws.freeze_panes = "D9"
 
 # ==================== FOR THE MEETING ====================
@@ -939,68 +942,66 @@ wsmo.column_dimensions["A"].width = 104
 
 # ==================== CELL-TYPE FRAMEWORK ====================
 wsst = wb.create_sheet("CT_Framework")
-wsst["A1"] = "Cell type: filter vs objective, and why most strata cost nothing"
+wsst["A1"] = "Cell type: what needs a full arm, and what is only a covariate"
 wsst["A1"].font = Font(bold=True, size=13)
 SL = [
-    "THE RULE THAT DECIDES WHICH AXIS A CELL-TYPE QUESTION BELONGS TO",
-    "  If cell-type information enters as a FILTER on sequences that already exist, it is ACQUISITION.",
-    "  If it enters as an OBJECTIVE that shapes what gets created, it is a RESERVOIR.",
-    "     ENCODE accessibility  -> filter    (regions exist; you select on their accessibility)",
-    "     Motif vocabulary      -> filter    (build one broad planted pool; select by motif content)",
-    "     Conditional D3        -> objective (the condition determines what is generated)",
-    "     In-silico evolution   -> objective (you must pick what to evolve toward)",
-    "  That is why ENCODE and motifs are now ONE reservoir arm each, while the generative methods",
-    "  legitimately need one row per target.",
+    "CORRECTION TO EARLIER GUIDANCE",
+    "  A recorded covariate does NOT substitute for a full arm, because the UNIT OF ANALYSIS differs:",
+    "     TRAINING claim  - 'sequences of type X make a better model' -> the unit is a TRAINED MODEL.",
+    "                       Requires training on X separately, so X needs its own allocation.",
+    "     EVALUATION claim- 'the model predicts type-X sequences well' -> the unit is a SEQUENCE.",
+    "                       A covariate on any single arm answers this, for free.",
+    "  Recording which quadrant a sequence belongs to only ever answers the second. Every reservoir",
+    "  hypothesis in this study is of the first kind, so cell-type-varying strategies DO need arms.",
     "",
-    "EVERY CELL-TYPE-AWARE SCORE IS A 2-VECTOR; THE DESIGN CHOICE IS HOW YOU REDUCE IT",
-    "  Activity, uncertainty, accessibility and motif enrichment all have one value per cell line.",
-    "  Selection needs a scalar, so there are exactly three reductions - and they ARE the cell-type",
-    "  target options that kept appearing as separate strategies:",
-    "     agg  aggregate   mean or max over lines   -> concentrates on HIGH IN BOTH",
-    "     con  contrast    |K562 - HepG2|           -> concentrates on SPECIFIC (either direction)",
-    "     2D   stratified  uniform over 2D bins     -> covers ALL QUADRANTS in balance",
-    "  This is the answer to the model-generated wrinkle: 'high in one / low in the other / high in",
-    "  both' is not a list of separate strategies, it is the three reductions of one 2-vector. It",
-    "  applies identically to uncertainty, to activity, and to the evolution objective.",
-    "  'con' also removes the old awkwardness of 'uncertainty per cell type', which meant running",
-    "  selection twice on half budget each. Contrast is a SINGLE selection run at full N, so matched-N",
-    "  comparison against aggregate is automatic - no halving, no confound.",
+    "AND THE PAIRING ARGUMENT FOR STRATA WAS WEAK",
+    "  Earlier I argued within-arm contrasts beat between-arm ones because arm-level nuisance variance",
+    "  cancels. That barely applies here: all arms come from ONE library order, one synthesis batch,",
+    "  one sequencing run. There is no arm-level batch effect to cancel. The only nuisance is",
+    "  sequence-sampling variance, which the disjoint-subset replicates already handle.",
+    "  So splitting into separate arms costs budget but loses almost nothing statistically.",
     "",
-    "STRATA ARE RECORDED, NOT DESIGNED - this is why they cost nothing",
-    "  Accessibility labels are known for every ENCODE region, and we know exactly which motifs we",
-    "  planted in every constructed sequence. So which quadrant a sequence belongs to is a RECORDED",
-    "  COVARIATE, available for free at analysis time:",
-    "     ENCODE arm  -> record (open in K562?, open in HepG2?) per sequence",
-    "     Motif arms  -> record (K562-enriched motifs present?, HepG2-enriched present?) per sequence",
-    "  Every stratum contrast is then a covariate analysis on the FULL ~110k arm, not a comparison of",
-    "  four ~28k design cells. No sequence budget is spent on the breakdown at all.",
-    "  ONE THING TO DO AT DESIGN TIME: draw the arm so the quadrants are BALANCED. Balanced-by-",
-    "  construction sampling costs nothing extra - it only changes how you draw the same N - but",
-    "  without it the natural union is dominated by shared-accessible regions (Carl: most K562-active",
-    "  sequences are also HepG2-active) and the specific quadrants end up too thin to analyse.",
+    "THE BREAKDOWN: TWO ARMS PER CELL-TYPE-AWARE FAMILY, NOT FOUR",
+    "  A 4-quadrant split is unnecessary because K562-only and HepG2-only test the SAME hypothesis in",
+    "  two directions. The load-bearing contrast is SHARED vs SPECIFIC, which is 2 arms:",
     "",
-    "'NEITHER' IS DROPPED",
-    "  Per your call. It also falls out automatically: the ENCODE arm samples the UNION of accessible",
-    "  regions, so regions closed in both lines are excluded by construction. Low-activity coverage",
-    "  still comes from the three random arms.",
+    "     family                    aggregate / shared arm       contrast / specific arm",
+    "     ENCODE accessibility      open in BOTH                 open in ONE only",
+    "     Motif vocabulary          shared-core motifs           CT-enriched motifs",
+    "     D3 activity-conditioned   BOTH-high                    DIFFERENTIAL",
+    "     In-silico evolution       BOTH-high                    DIFFERENTIAL",
+    "     Uncertainty (acquisition) aggregate                    contrast",
     "",
-    "WHERE THE REDUCTION FACTOR IS ACTUALLY TESTED",
-    "  Default (current toggles): in the POOLED arm, which carries all 7 acquisition columns including",
-    "  aggregate, contrast and 2D. That tests the reduction question once, cleanly, on a fixed pool.",
-    "  OPTION for the PIs: also turn on ENCODE x {aggregate, contrast, 2D} and Motif x {aggregate,",
-    "  contrast, 2D} to ask whether the best reduction DEPENDS on the reservoir. That is 6 extra arms,",
-    "  which moves every arm from ~110k to ~91k - below the 100k line where the from-scratch curve",
-    "  loses its top decade. Recommend against unless reservoir x reduction interaction is a named",
-    "  hypothesis.",
+    "  The same shared-vs-specific structure now runs across generation AND selection, which makes the",
+    "  design one idea applied five times instead of five special cases.",
+    "",
+    "WHAT STAYS A COVARIATE (genuinely, and defensibly)",
+    "  DIRECTION SYMMETRY. Inside the 'open in ONE only' arm, record whether each sequence is K562-only",
+    "  or HepG2-only. Comparing K562-only-trained against HepG2-only-trained models would halve the arm",
+    "  again for a question that is secondary - whether the two lines behave symmetrically. Report it",
+    "  as an evaluation covariate plus an assay-noise check, pre-registered EXPLORATORY.",
+    "  PER-SEQUENCE PREDICTABILITY. Which quadrant any model predicts best, on every arm. Free.",
+    "  POOLED-ARM ENRICHMENT. Which reservoir each acquisition draws from. Free.",
+    "",
+    "WHY 2D IS AN ACQUISITION AND NEVER A RESERVOIR ARM",
+    "  The 2D reduction exists to BALANCE coverage across quadrants, which is a property of selection.",
+    "  On the reservoir side, 'generate across all quadrants' is just the union of the aggregate and",
+    "  contrast arms - you get it by pooling them, so funding a third generative arm would buy nothing.",
+    "",
+    "BUDGET CONSEQUENCE",
+    "  24 strategies, 32 arms, exactly 100,000 sequences per arm - right at the floor where the",
+    "  from-scratch curve still spans ~2 OOMs (1k -> 100k) with replicates at the small end.",
+    "  If the PIs add anything, take it from: composition-tuned random, D3-genomic-conditioned, or one",
+    "  sub-pool arm. Do NOT fund reservoir x reduction interaction cells (6 arms, drops to ~84k).",
 ]
 for k_, t in enumerate(SL, start=2):
-    c = wsst.cell(k_, 1, t)
-    c.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
+    c_ = wsst.cell(k_, 1, t)
+    c_.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
 wsst.column_dimensions["A"].width = 104
 
 wb.save(OUT)
 w_in = (WA + WB + WC + WD * nA) * 7 / 96
-h_in = (SROW - AH + 1) * 14.0 / 72
+h_in = (SROW - AH + 1) * 13.0 / 72
 print("wrote", OUT)
 print(
     f"  PASTE BLOCK A{AH}:{LC}{SROW} = {SROW - AH + 1} rows x {nA + 3} cols, "
