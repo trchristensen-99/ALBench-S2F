@@ -24,35 +24,36 @@ OUT = os.path.expanduser("~/Downloads/joint_PI_meeting_aug20/sequence_budget.xls
 
 # (family, reservoir, cell-type role, tier)   tier A = single-R arm, B = main pool, C = sub-pool
 RESERVOIRS = [
-    ("Random", "Uniform ACGT", "agn", "A"),
-    ("Random", "Dinuc-shuffled genomic", "agn", "A"),
-    ("Random", "Composition-tuned (GC / k-mer biased)", "agn", "A"),
-    ("Genomic", "ENCODE accessible - 4 accessibility strata", "diff", "A"),
-    ("Genomic", "Zoonomia ortholog CREs (phylogenetic)", "agn", "A"),
-    ("Genomic", "Gosai alts - TRAIN chr only (test chr held out)", "agn", "A"),
-    ("Genomic pert.", "Mutagenesis - oracle-tuned rate (SNV pairs)", "agn", "A"),
-    ("Genomic pert.", "Structural - indel/transloc/inv, oracle-tuned", "agn", "A"),
-    ("Genomic pert.", "EvoAug - as-published ML-aug settings (ctrl)", "agn", "A"),
-    ("Motif-based", "Coverage - FULL vocabulary (~600 motifs)", "agn", "A"),
-    ("Motif-based", "Coverage - CT vocabulary, 4 strata", "diff", "A"),
-    ("Motif-based", "Syntax core - RESTRICTED vocab (~60), crossed", "agn", "A"),
-    ("Model-gen.", "DNA-LM (HyenaDNA) - unconditioned", "agn", "A"),
-    ("Model-gen.", "D3 diffusion - activity-conditioned", "diff", "A"),
-    ("Model-gen.", "D3 diffusion - genomic-conditioned", "agn", "A"),
-    ("Model-gen.", "D3 diffusion - uncertainty-conditioned", "diff", "A"),
-    ("Model-gen.", "In-silico directed evolution (oracle-guided)", "diff", "A"),
-    ("POOLED", "All reservoirs, equal parts", "agn", "B"),
-    ("POOLED", "Genomic-derived only", "agn", "C"),
-    ("POOLED", "Synthetic / generated only", "agn", "C"),
+    ("Random", "Uniform ACGT", "-", "A"),
+    ("Random", "Dinuc-shuffled genomic", "-", "A"),
+    ("Random", "Composition-tuned (GC / k-mer biased)", "-", "A"),
+    ("Genomic", "ENCODE accessible - union of both lines", "-", "A"),
+    ("Genomic", "Zoonomia ortholog CREs (phylogenetic)", "-", "A"),
+    ("Genomic", "Gosai alts - TRAIN chr only", "-", "A"),
+    ("Genomic pert.", "Mutagenesis - oracle-tuned rate", "-", "A"),
+    ("Genomic pert.", "Structural - indel/transloc/inv, tuned", "-", "A"),
+    ("Genomic pert.", "EvoAug - as-published settings (ctrl)", "-", "A"),
+    ("Motif-based", "Coverage - FULL vocabulary (~600 motifs)", "-", "A"),
+    ("Motif-based", "Syntax core - RESTRICTED vocab, crossed", "-", "A"),
+    ("Model-gen.", "DNA-LM (HyenaDNA) - unconditioned", "-", "A"),
+    ("Model-gen.", "D3 - genomic-conditioned", "-", "A"),
+    ("Model-gen.", "D3 - activity-cond., BOTH-high", "agg", "A"),
+    ("Model-gen.", "D3 - activity-cond., DIFFERENTIAL", "con", "A"),
+    ("Model-gen.", "D3 - uncertainty-conditioned", "agg", "A"),
+    ("Model-gen.", "In-silico evolution - BOTH-high", "agg", "A"),
+    ("Model-gen.", "In-silico evolution - DIFFERENTIAL", "con", "A"),
+    ("POOLED", "All reservoirs, equal parts", "-", "B"),
+    ("POOLED", "Genomic-derived only", "-", "C"),
+    ("POOLED", "Synthetic / generated only", "-", "C"),
 ]
 ACQ = [
     "Random",
-    "Uncertainty (joint)",
-    "Uncertainty (per CT)",
+    "Uncertainty - aggregate",
+    "Uncertainty - DIFFERENTIAL",
     "Diversity (model latent)",
     "Diversity (TFBS embed.)",
     "Uncert. x Divers.",
-    "Activity-strat. (2D joint)",
+    "Activity - 2D stratified",
 ]
 
 ON = set()
@@ -80,9 +81,10 @@ FAMF = {
     "POOLED": "FDE68A",
 }
 CTF = {
-    "joint": PatternFill("solid", fgColor="E0E7FF"),
-    "diff": PatternFill("solid", fgColor="FEE2E2"),
-    "agn": None,
+    "agg": PatternFill("solid", fgColor="E0E7FF"),
+    "con": PatternFill("solid", fgColor="FEE2E2"),
+    "2D": PatternFill("solid", fgColor="DCFCE7"),
+    "-": None,
 }
 thin = Side(style="thin", color="BFBFBF")
 BOX = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -164,7 +166,7 @@ ws["A6"].font = Font(bold=True, size=9, color="15803D")
 
 
 def header(row, fill, first, size=7.0):
-    for c, t in ((1, "Family"), (2, first), (3, "CT")):
+    for c, t in ((1, "Family"), (2, first), (3, "Tgt")):
         h = ws.cell(row, c, t)
         h.fill = fill
         h.font = Font(bold=True, color="FFFFFF", size=size + 0.5)
@@ -230,7 +232,7 @@ ws.cell(
     1,
     f'="ordered "&TEXT(ROUND($I$5*{eff},-2),"#,##0")&"   |   "&'
     f'IF(ABS(ROUND($I$5*{eff},-2)-$C$3)<20000,"within budget","MISMATCH")&'
-    '"   |   CT: agn = agnostic, joint = shared/both, diff = differential"',
+    '"   |   TARGET: - none, agg = both-high, con = differential, 2D = all quadrants"',
 ).font = Font(bold=True, size=8)
 
 ws.cell(AH - 1, K0, "CONTROL - 1 = on, 0/blank = off, >1 = pin").font = Font(
@@ -935,125 +937,61 @@ for k_, t in enumerate(ML, start=2):
     c.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
 wsmo.column_dimensions["A"].width = 104
 
-# ==================== CELL-TYPE DESIGN ====================
-wsct = wb.create_sheet("CellTypeDesign")
-wsct["A1"] = "Joint / differential reservoirs, and why halves rather than separate arms"
-wsct["A1"].font = Font(bold=True, size=13)
-CL = [
-    "HOW THE THREE CT TAGS ACTUALLY WORK",
-    "  agn   - design uses no cell-type signal at all. One pool, assayed in both lines.",
-    "  joint - design uses signal SHARED by both lines: regions open in BOTH, or motifs for TFs",
-    "          expressed in BOTH. Tests whether shared regulatory information is sufficient.",
-    "  diff  - design uses signal that DIFFERS between lines. The arm is built as a within-arm",
-    "          factorial, not as a K562 half and a HepG2 half glued together:",
-    "               K562-specific only  |  HepG2-specific only  |  BOTH in one sequence  |  neither",
-    "          All four cells are assayed in both lines. The BOTH cell is what teaches differential",
-    "          activity; the single cells give attribution; 'neither' is the internal control.",
-    "",
-    "WHY NOT TWO SEPARATE ARMS, ONE PER CELL TYPE - the reasons that are NOT about budget",
-    "  1. EVERY SEQUENCE IS MEASURED IN BOTH LINES ANYWAY. The library is assayed in K562 and HepG2, so",
-    "     a K562-specific-accessible sequence still returns a HepG2 measurement. Splitting into two arms",
-    "     buys no extra information per sequence; it only changes which sequences exist.",
-    "  2. THE TRAINING CORPUS IS SHARED. One two-output model trains on all of it. Separate arms would",
-    "     only matter if separate models were trained on separate arms - which halves the data for each",
-    "     and is strictly worse.",
-    "  3. WITHIN-ARM CONTRASTS ARE PAIRED, BETWEEN-ARM CONTRASTS ARE NOT. The differential comparison",
-    "     inside one arm is free of arm-level nuisance variance (synthesis batch, plate, sequencing",
-    "     depth). Across two arms, that nuisance sits directly on top of the effect of interest.",
-    "  4. THE QUESTION IS ABOUT THE DIFFERENTIAL, NOT ABOUT K562 IN ISOLATION. Carl: shared TFs (MYC,",
-    "     AP1) mean most K562-active sequences are also HepG2-active. 'Does cell-type-specific",
-    "     information help?' is answered by contrasting the differential design against the shared",
-    "     design - not by running K562-specific and HepG2-specific separately, which under symmetry",
-    "     estimates the same effect twice.",
-    "  5. ASYMMETRY IS STILL TESTABLE. If HepG2 behaves worse (noisier assay, fewer characterised CREs),",
-    "     the within-arm factorial exposes it: the K562-only and HepG2-only cells are compared directly.",
-    "     At ~107k per arm each factorial cell holds ~27k sequences, which is enough to see it.",
-    "     Two separate arms would spend 2x the budget to answer a question one arm already answers.",
-    "",
-    "THE ACQUISITION PER-CT ARM - N/2 + N/2 is the DECISION-RELEVANT question, not a compromise",
-    "  Matched N is the definition of a controlled comparison: at 2N you cannot tell whether per-CT",
-    "  selection won because it selects better or because it had twice the data. On a scaling curve that",
-    "  ambiguity gets worse, since more data always helps.",
-    "  But the deeper point is that N/2 + N/2 IS the real-world question. You are ordering ONE library",
-    "  with a FIXED budget. The decision facing you is 'should I spend my budget selecting jointly, or",
-    "  split it and select per cell type?' - which is exactly what the matched-N arm answers.",
-    "  'Run per-CT selection at full scale in each line' is a different question (it doubles the order),",
-    "  and it is not the one a fixed library budget poses.",
-    "",
-    "NESTING GIVES THE OTHER COMPARISONS FOR FREE",
-    "  Because every arm is trained on nested subsets, the joint arm can be subsampled to N/2 after the",
-    "  fact. So from the same ordered sequences you can read off:",
-    "     joint at N        vs  per-CT at N/2+N/2     - budget-matched (the decision question)",
-    "     joint at N/2      vs  K562-only at N/2      - per-cell-type-matched (the mechanism question)",
-    "  No extra sequences are needed for either. This is the main reason the halving costs nothing",
-    "  analytically - the comparison you gave up is recoverable from the scaling curve.",
-]
-for k_, t in enumerate(CL, start=2):
-    c = wsct.cell(k_, 1, t)
-    c.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
-wsct.column_dimensions["A"].width = 104
-
-
-# ==================== STRATA ====================
-wsst = wb.create_sheet("Strata")
-wsst["A1"] = "What the CT tags mean, and what lives inside each arm"
+# ==================== CELL-TYPE FRAMEWORK ====================
+wsst = wb.create_sheet("CT_Framework")
+wsst["A1"] = "Cell type: filter vs objective, and why most strata cost nothing"
 wsst["A1"].font = Font(bold=True, size=13)
 SL = [
-    "THE TAG DESCRIBES THE DESIGN INPUT, NOT THE RESULT",
-    "  Every arm is assayed in BOTH cell lines, so every arm returns a K562 measurement and a HepG2",
-    "  measurement. Cell-type-specific EFFECTS are therefore measurable in every single arm, including",
-    "  the agnostic ones. The tag answers only one question:",
-    "        does the DESIGN STEP have to consult cell-type-specific information?",
-    "     agn   - no. Uniform random, dinuc-shuffle, EP-PCR, full-vocabulary motifs, HyenaDNA.",
-    "     joint - yes, but only information SHARED by both lines.",
-    "     diff  - yes, information that DIFFERS between the lines.",
-    "  This is why 'syntax is potentially cell-type specific' does NOT require a cell-type-specific",
-    "  syntax arm: a syntax x cell-type interaction is recovered from the READOUT of the agnostic",
-    "  syntax core, because the same sequences are measured in both lines. Design-side specificity is",
-    "  only needed if you want to TUNE the syntax separately per line, which is a later question.",
+    "THE RULE THAT DECIDES WHICH AXIS A CELL-TYPE QUESTION BELONGS TO",
+    "  If cell-type information enters as a FILTER on sequences that already exist, it is ACQUISITION.",
+    "  If it enters as an OBJECTIVE that shapes what gets created, it is a RESERVOIR.",
+    "     ENCODE accessibility  -> filter    (regions exist; you select on their accessibility)",
+    "     Motif vocabulary      -> filter    (build one broad planted pool; select by motif content)",
+    "     Conditional D3        -> objective (the condition determines what is generated)",
+    "     In-silico evolution   -> objective (you must pick what to evolve toward)",
+    "  That is why ENCODE and motifs are now ONE reservoir arm each, while the generative methods",
+    "  legitimately need one row per target.",
     "",
-    "THE DUPLICATION IS FIXED",
-    "  Previously 'ENCODE open in BOTH' was its own arm AND a cell inside the differential arm - the",
-    "  same sequences counted twice. Likewise 'shared-core motifs' duplicated a stratum of the",
-    "  CT-vocabulary arm. Both are now single arms with internal strata. That removed 2 arms and pushed",
-    "  every arm from ~107k to ~114k.",
+    "EVERY CELL-TYPE-AWARE SCORE IS A 2-VECTOR; THE DESIGN CHOICE IS HOW YOU REDUCE IT",
+    "  Activity, uncertainty, accessibility and motif enrichment all have one value per cell line.",
+    "  Selection needs a scalar, so there are exactly three reductions - and they ARE the cell-type",
+    "  target options that kept appearing as separate strategies:",
+    "     agg  aggregate   mean or max over lines   -> concentrates on HIGH IN BOTH",
+    "     con  contrast    |K562 - HepG2|           -> concentrates on SPECIFIC (either direction)",
+    "     2D   stratified  uniform over 2D bins     -> covers ALL QUADRANTS in balance",
+    "  This is the answer to the model-generated wrinkle: 'high in one / low in the other / high in",
+    "  both' is not a list of separate strategies, it is the three reductions of one 2-vector. It",
+    "  applies identically to uncertainty, to activity, and to the evolution objective.",
+    "  'con' also removes the old awkwardness of 'uncertainty per cell type', which meant running",
+    "  selection twice on half budget each. Contrast is a SINGLE selection run at full N, so matched-N",
+    "  comparison against aggregate is automatic - no halving, no confound.",
     "",
-    "ENCODE ACCESSIBILITY - one arm, a PARTITION of the genome (not a constructed factorial)",
-    "  Each candidate region either is or is not accessible in each line, so every region falls in",
-    "  exactly one stratum. Nothing is constructed and nothing overlaps:",
-    "     open in BOTH          - tests whether SHARED accessibility is sufficient",
-    "     K562-accessible only  - differential, direction 1",
-    "     HepG2-accessible only - differential, direction 2",
-    "     open in NEITHER       - real-sequence negatives (absorbs the 'closed regions' proposal)",
-    "  All four are assayed in both lines, so the K562-only stratum still yields HepG2 labels. That is",
-    "  what makes the specificity comparison bidirectional.",
+    "STRATA ARE RECORDED, NOT DESIGNED - this is why they cost nothing",
+    "  Accessibility labels are known for every ENCODE region, and we know exactly which motifs we",
+    "  planted in every constructed sequence. So which quadrant a sequence belongs to is a RECORDED",
+    "  COVARIATE, available for free at analysis time:",
+    "     ENCODE arm  -> record (open in K562?, open in HepG2?) per sequence",
+    "     Motif arms  -> record (K562-enriched motifs present?, HepG2-enriched present?) per sequence",
+    "  Every stratum contrast is then a covariate analysis on the FULL ~110k arm, not a comparison of",
+    "  four ~28k design cells. No sequence budget is spent on the breakdown at all.",
+    "  ONE THING TO DO AT DESIGN TIME: draw the arm so the quadrants are BALANCED. Balanced-by-",
+    "  construction sampling costs nothing extra - it only changes how you draw the same N - but",
+    "  without it the natural union is dominated by shared-accessible regions (Carl: most K562-active",
+    "  sequences are also HepG2-active) and the specific quadrants end up too thin to analyse.",
     "",
-    "MOTIF CT-VOCABULARY - one arm, a CONSTRUCTED 2x2 (this one you do build)",
-    "  Here you choose what to insert, so the strata are defined by which motifs are placed:",
-    "     shared-core motifs only     - the MYC / AP1 core Carl described",
-    "     K562-enriched motifs only   - differential, direction 1",
-    "     HepG2-enriched motifs only  - differential, direction 2",
-    "     BOTH in the same sequence   - the cell that teaches differential activity",
-    "  Attribution survives because the single-vocabulary strata sit in the same arm as the mixed one.",
+    "'NEITHER' IS DROPPED",
+    "  Per your call. It also falls out automatically: the ENCODE arm samples the UNION of accessible",
+    "  regions, so regions closed in both lines are excluded by construction. Low-activity coverage",
+    "  still comes from the three random arms.",
     "",
-    "ARE THE STRATA UNDERPOWERED? - the arithmetic",
-    "  At ~114k per arm, a 4-way partition gives ~28.6k per stratum. For scale: our entire current",
-    "  bake-off runs at D = 30k, so each stratum is about the size of a complete existing experiment.",
-    "  A stratum supports a nested curve from 1k to ~28.6k, roughly 1.5 OOMs - shorter than an arm's",
-    "  ~2 OOMs, but real. It also supports the within-arm contrasts, which are PAIRED and therefore",
-    "  higher-powered than the equivalent between-arm comparison.",
-    "  What a stratum does NOT support is the full 2-OOM curve. So the decision to put to the PIs is",
-    "  exactly this:",
-    "     STRATUM  - cheap, gives a paired contrast plus a ~1.5-OOM curve         (current default)",
-    "     ARM      - costs a full ~114k and shrinks every other arm, gives ~2 OOMs and a clean",
-    "                between-arm comparison",
-    "  Promote a stratum to an arm only where the per-stratum SCALING RATE is itself the hypothesis.",
-    "",
-    "WHY STRATA ARE THE RIGHT DEFAULT HERE",
-    "  The reservoir-level claim ('accessibility-based selection is informative') uses the whole arm,",
-    "  all ~114k. Only the specificity claim needs the strata, and that claim is a CONTRAST between",
-    "  strata - which is precisely the comparison that gains from being inside one arm, since",
-    "  arm-level nuisance variance (synthesis batch, plate, sequencing depth) cancels.",
+    "WHERE THE REDUCTION FACTOR IS ACTUALLY TESTED",
+    "  Default (current toggles): in the POOLED arm, which carries all 7 acquisition columns including",
+    "  aggregate, contrast and 2D. That tests the reduction question once, cleanly, on a fixed pool.",
+    "  OPTION for the PIs: also turn on ENCODE x {aggregate, contrast, 2D} and Motif x {aggregate,",
+    "  contrast, 2D} to ask whether the best reduction DEPENDS on the reservoir. That is 6 extra arms,",
+    "  which moves every arm from ~110k to ~91k - below the 100k line where the from-scratch curve",
+    "  loses its top decade. Recommend against unless reservoir x reduction interaction is a named",
+    "  hypothesis.",
 ]
 for k_, t in enumerate(SL, start=2):
     c = wsst.cell(k_, 1, t)
