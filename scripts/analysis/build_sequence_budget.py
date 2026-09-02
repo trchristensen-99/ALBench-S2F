@@ -46,8 +46,7 @@ RESERVOIRS = [
     ("Model-gen.", "In-silico evolution - BOTH-high", "agg", "A"),
     ("Model-gen.", "In-silico evolution - DIFFERENTIAL", "con", "A"),
     ("POOLED", "All reservoirs, equal parts", "-", "B"),
-    ("POOLED", "Genomic-derived only", "-", "C"),
-    ("POOLED", "Synthetic / generated only", "-", "C"),
+    ("POOLED", "Synthetic only (OFF - see Menu)", "-", "C"),
 ]
 ACQ = [
     "Random",
@@ -65,8 +64,7 @@ for i, (_f, _n, _ct, tier) in enumerate(RESERVOIRS):
         ON.add((i, 0))
     if tier == "B":
         ON.update((i, j) for j in range(len(ACQ)))
-    if tier == "C":
-        ON.update({(i, 1), (i, 3)})
+    # tier C rows stay visible but UNFUNDED (Carl: no strong reason to restrict the pool)
 
 HDR = PatternFill("solid", fgColor="1E293B")
 CTRLH = PatternFill("solid", fgColor="92400E")
@@ -277,79 +275,76 @@ wsf["A1"] = "Open decisions - bring these to the PIs"
 wsf["A1"].font = Font(bold=True, size=13)
 DEC = [
     (
-        "Gosai alts as a reservoir?",
-        "Rafi: it is our test data.",
-        "Only the ~35k chromosome-held-out alts are test. The ~300k train-chromosome alts are usable "
-        "with no leakage, and we already own their Gosai measurements - so re-measure only a subset for "
-        "assay calibration. KEEP, relabelled 'TRAIN chr only'. Decide: full arm, or calibration subset "
-        "folded into the anchor set?",
+        "RESOLVED 9.2 - no test-set weighting",
+        "Carl: keep the test sets separate; if strategies cater to particular sets, that is just how it is.",
+        "No weighted composite. Report a VECTOR of per-test-set results. For pruning use PARETO "
+        "DOMINANCE - drop only what loses on every set - which needs no weights and so cannot be "
+        "accused of being tuned to a favoured strategy.",
     ),
     (
-        "Drop 'open in BOTH' and 'shared-core motifs'?",
-        "Rafi: overkill if we already have per-cell-type accessible and TFBS-rich arms - we will see "
-        "informativeness from those.",
-        "Counter: the shared arms are the only ones that test whether SHARED regulatory information is "
-        "sufficient, which is the null for the whole cell-type-specificity story. Dropping them saves "
-        "2 arms; keeping them costs ~9k/arm. Middle option: merge shared + differential into ONE arm "
-        "with a within-arm split, keeping the contrast at half the cost.",
+        "RESOLVED 9.2 - linear transform is the primary integration",
+        "Carl: anchors plus a linear transform; will not be the best but gets the job done, and it "
+        "answers a different question from ours.",
+        "Reversed my earlier ordering. Transform is now primary; the per-assay AssayFiLM head is the "
+        "contingency if anchors show sequence-dependent residuals.",
     ),
     (
-        "Drop 'Uncertainty (per CT)'?",
-        "Rafi: may be able to skip it.",
-        "It is the only test of H6 (does per-cell-type selection beat joint?). Costs 1 arm because it "
-        "is N/2+N/2, not 2N. Cheap way to retire a question that will otherwise be asked at review.",
+        "RESOLVED 9.2 - anchors sample expression space",
+        "Carl: pick random diverse expression levels; 30k is more than needed but the array is big.",
+        "Keep 30k. Diverse sampling rather than decile-stratify-then-regress, which is what created the "
+        "regression-to-the-mean risk in the first place.",
     ),
     (
-        "Two diversity methods - ADDED per Rafi",
-        "Model-latent diversity vs TFBS-embedding diversity (so all TFs are represented).",
-        "Worth keeping both: one covers what the MODEL represents, the other covers TF space regardless "
-        "of the model. When they disagree, that tells you whether informativeness is model-defined or "
-        "biology-defined. Both are cell-type agnostic, so neither needs a per-CT variant.",
+        "RESOLVED 9.2 - leakage control is alignment-based",
+        "Carl: k-mer methods would exclude legitimate motif spacing/orientation variation and drop whole "
+        "TFBSs. Rafi already uses a local alignment score.",
+        "Three-way chromosome split PLUS a local-alignment homology filter against the test sets. No "
+        "k-mer filtering anywhere. And no feature hold-out - that would stop the model learning.",
     ),
     (
-        "Motif syntax vs composition - CLARIFIED",
-        "Rafi asked what separates 'motif grammar' from 'TFBS recombination'.",
-        "Two axes of one generator. COMPOSITION = which motifs are present (identity and count) - "
-        "recombining real TFBS instances into backgrounds. SYNTAX = hold the motif set FIXED and vary "
-        "order, spacing, orientation, copy number, distance to the reporter. Composition asks which TFs "
-        "matter; syntax asks whether arrangement matters. Now separate rows.",
+        "RESOLVED 9.2 - sub-pool arms dropped",
+        "Carl: little reason to restrict the selection pool; synthetic-only only makes sense if you want "
+        "a model that has never seen the genome.",
+        "Genomic-only removed. Synthetic-only kept as a visible but UNFUNDED row. Freed 4 arms and moved "
+        "every arm from 100k to ~114k.",
     ),
     (
-        "EvoAug as the H5 control - REFRAMED",
-        "Its published settings were tuned for ML data AUGMENTATION (regularisation during training), "
-        "not for generating sequences to be measured.",
-        "That makes it a BETTER control, not a worse one: it is exactly the off-the-shelf setting a "
-        "practitioner would naively reuse. Keep it as the naive baseline and oracle-tune the two "
-        "perturbation arms. If the PIs prefer, drop this row and test H5 inside the mutagenesis arm "
-        "instead by ordering two rates (oracle-optimal and naive default).",
+        "OPEN - is enrichment a gate or a ranking?",
+        "Carl, twice: if the acquisitions do not pick from a reservoir, do not include it.",
+        "Recommend a RANKING, not a hard gate. Two caveats: preference is not value (a reservoir can be "
+        "under-picked and still informative - enrichment is a RELEVANCE filter, which is a legitimate "
+        "but different criterion), and enrichment depends on what else is in the pool, so a near-"
+        "duplicate can crowd a strategy out. Keep both null controls funded regardless - low enrichment "
+        "is expected for a baseline, not disqualifying.",
     ),
     (
-        "D3 uncertainty-conditioned is CT-specific - FIXED",
-        "Uncertainty can be defined on K562, on HepG2, or jointly.",
-        "Retagged 'diff'. Default conditioning target is JOINT uncertainty, with per-cell-type strata "
-        "inside the arm, so the CT question is answered without a second arm.",
+        "OPEN - which rows to prune to stay above 100k",
+        "You expect to prune further; 28 arms currently sits at ~114k.",
+        "Cheapest cuts that lose least: composition-tuned random (partly redundant with dinuc-shuffle), "
+        "D3-genomic-conditioned (overlaps HyenaDNA-unconditioned), and one of the two Gosai-alt options "
+        "if the calibration subset covers it. Each cut adds ~4k/arm.",
     ),
     (
-        "In-silico directed evolution - ADDED",
-        "Oracle-guided iterative mutate-and-select.",
-        "Distinct from D3 (no generative model) and from EP-PCR (random perturbation, no selection). "
-        "It is the strongest activity-maximising design method and can be evolved toward the "
-        "DIFFERENTIAL objective, which is Carl's gene-therapy angle. Tagged 'diff'.",
+        "OPEN - realism vs baseline labelling",
+        "Carl: as realistic as possible for what people would actually do, unless it is explicitly a "
+        "baseline.",
+        "Tag every funded arm PRACTICE or BASELINE in the Menu. Uniform random and dinuc-shuffle are "
+        "baselines; EvoAug-as-published, ENCODE and conditional generation are practice. Reviewers will "
+        "ask why a strategy is present, and this answers it per row.",
     ),
     (
-        "Three random arms - ADDED",
-        "Uniform ACGT, dinuc-shuffled, composition-tuned (GC / k-mer biased).",
-        "These are genuinely different nulls: uniform = pure null; dinuc-shuffle = composition-matched "
-        "null; composition-tuned = deliberately biased toward accessible-region composition. Together "
-        "they answer 'how much of informativeness is just nucleotide composition?', which is the "
-        "cheapest interpretable result in the study.",
+        "OPEN - run yeast first?",
+        "Carl: the 6M random yeast set is worth keeping because the point is testing active-learning "
+        "power; yeast readout is sorting-based, not barcode counting.",
+        "Recommend running yeast FIRST, entirely in silico on existing data: ~2.8 OOMs of scaling with "
+        "no synthesis, no cell-type axis, and it validates the acquisition ranking and replicate "
+        "machinery before 3.2M human sequences are committed. Separate pre-registration.",
     ),
     (
-        "Row budget",
-        "22 strategies x 7 acquisitions, 30 arms.",
-        "Fits a slide at 7 pt. Pruning to ~18 strategies restores 8 pt and pushes each arm from ~107k "
-        "to ~128k. Per-arm size is the thing to protect: below 100k the from-scratch curve loses its "
-        "top decade.",
+        "OPEN - SNV test set has the lowest ceiling",
+        "Carl: SNV effects are hard to predict - experimental noise and tiny effect sizes.",
+        "Our oracle ceiling is ~0.81 on snv_delta vs ~0.97 in-distribution. Report it, but do not let it "
+        "drive strategy decisions; say so in advance so a weak SNV result is not read as failure.",
     ),
 ]
 for j, t in enumerate(["Question", "Argument raised", "Our read / recommendation"], 1):
@@ -998,6 +993,153 @@ for k_, t in enumerate(SL, start=2):
     c_ = wsst.cell(k_, 1, t)
     c_.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
 wsst.column_dimensions["A"].width = 104
+
+# ==================== ASSAY CALIBRATION (Carl 9.2) ====================
+wsa2 = wb.create_sheet("AssayCalib")
+wsa2["A1"] = "Correcting between Gosai conditions and this assay"
+wsa2["A1"].font = Font(bold=True, size=13)
+AL = [
+    "WHAT TO RE-MEASURE  (comes out of the val/eval allocation, NOT the 3.2M train budget)",
+    "     35k Gosai test ref        |  35k test alt  |  22k high-activity  |  35k val    = ~130k",
+    "     + 30k anchors from the 300k train set                                          =  160k",
+    "  Carl: 30k anchors is probably far more than needed, but the array is large enough that it is",
+    "  not a problem - so keep it. Re-measuring the VAL set matters as much as the test sets: val in",
+    "  old units with test in new units means selecting models in one space and scoring in another.",
+    "",
+    "HOW TO CHOOSE ANCHORS - CHANGED per Carl",
+    "  Sample RANDOMLY ACROSS DIVERSE EXPRESSION LEVELS to span expression space. Do NOT stratify by",
+    "  activity decile and then regress new-on-old: picking sequences for extreme old values makes them",
+    "  regress toward the mean in the new assay from measurement noise alone, which reads as the new",
+    "  assay having compressed the dynamic range when it has not.",
+    "  Carl's steer: do not over-engineer this - it answers a different question from the one we are",
+    "  asking. Diverse sampling largely avoids the bias, and the cheap safeguard (choose anchors using",
+    "  one half of Gosai's replicates, calibrate on the other half) is a footnote, not critical path.",
+    "",
+    "HOW TO INTEGRATE OLD + NEW - REPRIORITISED per Carl",
+    "  1. PRIMARY: fit an explicit LINEAR transform from the anchor sequences and pool old + new.",
+    "     Carl: 'a linear transform won't be the best but it gets the job done.' It is simple, it is",
+    "     auditable, and assay integration is not a research question in this study.",
+    "  2. Fallback if the anchors show clear sequence-dependent residuals (vs GC, motif content,",
+    "     activity level): a per-assay readout head on a shared trunk (AssayFiLM already exists in",
+    "     fm_scaling_driver.py). Use only if the diagnostic demands it.",
+    "  3. Pretrain-on-Gosai / finetune-on-new: keep as a robustness check, not the main path.",
+    "  EARLIER GUIDANCE REVERSED: I had the per-assay head as primary and the transform as a mere",
+    "  diagnostic. Carl's ordering is the right one - the transform is the deliverable and the head is",
+    "  the contingency.",
+]
+for k_, t in enumerate(AL, start=2):
+    c_ = wsa2.cell(k_, 1, t)
+    c_.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
+wsa2.column_dimensions["A"].width = 104
+
+# ==================== EVAL + IN-SILICO SCREEN ====================
+wse = wb.create_sheet("EvalAndScreen")
+wse["A1"] = "Evaluation battery and the in-silico pre-screen"
+wse["A1"].font = Font(bold=True, size=13)
+EL = [
+    "DO NOT WEIGHT THE TEST SETS - the slide question is answered by NOT aggregating",
+    "  Carl: keep the test sets separate and hope the same answer comes out of all of them; if some",
+    "  strategies cater to particular test sets, that is just how it is and it is hard to value-judge.",
+    "  So there is no weighted composite score, evenly weighted or otherwise. The deliverable is a",
+    "  VECTOR of per-test-set results, and agreement across them is itself the headline finding.",
+    "  This also matches Peter's 'do not trust one eval' and our own result that ranking depends on the",
+    "  eval set (evoaug/phylo best in-distribution, motif_planted best OOD).",
+    "",
+    "BUT PRUNING STILL NEEDS A DECISION RULE - use dominance, which needs no weights",
+    "  Drop a strategy only if it is beaten on EVERY test set (Pareto-dominated). Anything that wins on",
+    "  even one axis survives, and is reported as winning on that axis. This is weight-free, so it",
+    "  cannot be accused of having been tuned to favour a preferred strategy.",
+    "",
+    "TEST SETS AND THEIR HEADROOM",
+    "  Genomic (in-distribution)  - highest ceiling; the leakage-sensitive one, see below.",
+    "  VEP / SNV delta            - LOWEST headroom. Carl: change in value from SNVs is hard to predict",
+    "                               because of experimental noise and tiny effects. Our oracle ceiling",
+    "                               on snv_delta is ~0.81 vs ~0.97 in-distribution. Do not let this",
+    "                               test set drive strategy decisions.",
+    "  High-activity              - the design-relevant one for enhancer engineering.",
+    "",
+    "LEAKAGE CONTROL - use LOCAL ALIGNMENT, not k-mers  (Carl, and Rafi's implementation)",
+    "  Carl's framing: you must NOT hold out features, or the model cannot learn them - which is the",
+    "  same conclusion we reached for motif identity. The real risk is the opposite: if the design is",
+    "  over-specified, the model memorises a sequence that then appears in a test set.",
+    "  So the control is on SEQUENCE SIMILARITY, not on features:",
+    "     - chromosome split, three-way: disjoint from the Gosai training base AND every eval set,",
+    "       including anything DERIVED from held-out chromosomes (EP-PCR, EvoAug, Zoonomia are all",
+    "       genome-seeded).",
+    "     - plus a LOCAL ALIGNMENT SCORE filter against the test sets, to catch homology that a",
+    "       chromosome split misses. Rafi has already used this.",
+    "  DO NOT use k-mer similarity for this. Carl: k-mer methods would exclude legitimate variation in",
+    "  motif spacing and orientation, and would end up excluding certain TFBSs altogether - i.e. they",
+    "  remove exactly the grammar we are trying to teach.",
+    "",
+    "IN-SILICO PRE-SCREEN - now a PRIORITY RANKING, not just parameter tuning",
+    "  Carl, twice: if the acquisition functions do not pick many sequences from a reservoir, do not",
+    "  include it; test in silico first and drop what is never chosen. Plus: the design should be as",
+    "  realistic as possible for what people would actually do, unless a strategy is explicitly a",
+    "  baseline.",
+    "  PROCEDURE (free - uses the existing 300k model and the oracle):",
+    "     1. Build every candidate reservoir in silico.",
+    "     2. Pool them with EQUAL representation per reservoir.",
+    "     3. Run every acquisition function over the pool; record enrichment = picked / expected.",
+    "     4. Rank reservoirs by enrichment, and rank acquisitions by mutual Jaccard / rank correlation.",
+    "     5. Fund down the ranked list until the budget is exhausted - Carl's 'limited time investment",
+    "        budget for priorities, starting with highest'.",
+    "  Also settles: optimal perturbation rates, motif design parameters, and the exact UNION size,",
+    "  which is what sets N so the order lands on budget.",
+    "",
+    "TWO CAVEATS TO STATE WHEN USING ENRICHMENT AS A GATE",
+    "  1. Preference is not value. A reservoir can be under-picked and still informative. Enrichment is",
+    "     a RELEVANCE filter (would anyone actually select these sequences?), not an informativeness",
+    "     measure - which is a legitimate and different criterion, and worth saying so explicitly.",
+    "  2. Enrichment depends on what else is in the pool. A reservoir with a near-duplicate present can",
+    "     be crowded out by it. Check enrichment with and without each near-duplicate before dropping.",
+    "  RECOMMENDATION: use enrichment to ORDER the funding list, not as a hard gate, and keep the two",
+    "  null controls (uniform random, dinuc-shuffle) funded regardless - they are baselines by design",
+    "  and low enrichment is expected, not disqualifying.",
+]
+for k_, t in enumerate(EL, start=2):
+    c_ = wse.cell(k_, 1, t)
+    c_.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
+wse.column_dimensions["A"].width = 104
+
+# ==================== YEAST ====================
+wsy = wb.create_sheet("Yeast")
+wsy["A1"] = "Yeast: a separate pre-registration"
+wsy["A1"].font = Font(bold=True, size=13)
+YL = [
+    "SPLIT HUMAN AND YEAST IN THE REGISTERED REPORT",
+    "  Strategy effectiveness may differ between the two, so pooling them would blur both answers.",
+    "  Separate pre-registrations also let each use the design that suits its data.",
+    "",
+    "WHAT CHANGES FOR YEAST",
+    "  NO CELL-TYPE AXIS. Every agg/con pair collapses to a single arm, which removes 5 arms' worth of",
+    "  structure outright. That is where the extra power comes from.",
+    "  DIFFERENT BIOLOGY, DIFFERENT RESERVOIRS. No ENCODE equivalent; the motif vocabulary is far",
+    "  smaller (~150 yeast TFs vs ~600 human motifs), which means per-pair motif coverage is much",
+    "  better at the same N - the syntax/interaction question is genuinely easier to power in yeast.",
+    "  Condition-specific arms replace cell-type-specific ones (Carl: same idea in yeast grown in",
+    "  different conditions), IF more than one growth condition is assayed.",
+    "  DIFFERENT READOUT. Activity-binned cell sorting, not RNA-seq barcode counting. The noise model",
+    "  differs, so the assay-calibration section does NOT transfer - and there is no Gosai-equivalent",
+    "  legacy dataset to reconcile against.",
+    "",
+    "THE 6M RANDOM DATASET IS THE POINT, NOT AN OBSTACLE",
+    "  Carl: a yeast model may be more powerful at baseline, but keeping the 6M sequences makes sense",
+    "  because the point is to test the power of active learning. With a 6M pool, ACQUISITION is the",
+    "  headline axis and reservoirs matter less - the inverse of the human study.",
+    "  So: FEWER strategies, MORE power, and a scaling curve spanning ~10k to 6M (~2.8 OOMs) that needs",
+    "  no new synthesis at all. That is the cleanest scaling law in the whole project, and it can be",
+    "  computed before any human sequence is ordered.",
+    "",
+    "RECOMMENDATION",
+    "  Run the yeast arm FIRST, entirely in silico on existing data. It de-risks the human design: the",
+    "  acquisition ranking, the from-scratch curve shape, and the replicate machinery all get validated",
+    "  on real measured data before committing 3.2M sequences of synthesis.",
+]
+for k_, t in enumerate(YL, start=2):
+    c_ = wsy.cell(k_, 1, t)
+    c_.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
+wsy.column_dimensions["A"].width = 104
 
 wb.save(OUT)
 w_in = (WA + WB + WC + WD * nA) * 7 / 96
