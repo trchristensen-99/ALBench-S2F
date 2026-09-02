@@ -34,10 +34,10 @@ RESERVOIRS = [
     ("Genomic pert.", "Mutagenesis - oracle-tuned rate (SNV pairs)", "agn", "A"),
     ("Genomic pert.", "Structural - indel/transloc/inv, oracle-tuned", "agn", "A"),
     ("Genomic pert.", "EvoAug - as-published ML-aug settings (ctrl)", "agn", "A"),
-    ("Motif-based", "Composition - full motif DB (CT-agnostic)", "agn", "A"),
-    ("Motif-based", "Composition - shared-core motifs", "joint", "A"),
-    ("Motif-based", "Composition - CT-enriched, mixed factorial", "diff", "A"),
-    ("Motif-based", "Syntax - fixed set, vary order/spacing/copies", "agn", "A"),
+    ("Motif-based", "Coverage - FULL vocabulary (~600 motifs)", "agn", "A"),
+    ("Motif-based", "Coverage - shared-core vocabulary", "joint", "A"),
+    ("Motif-based", "Coverage - CT-enriched vocabulary", "diff", "A"),
+    ("Motif-based", "Syntax core - RESTRICTED vocab (~60), crossed", "agn", "A"),
     ("Model-gen.", "DNA-LM (HyenaDNA) - unconditioned", "agn", "A"),
     ("Model-gen.", "D3 diffusion - activity-conditioned", "diff", "A"),
     ("Model-gen.", "D3 diffusion - genomic-conditioned", "agn", "A"),
@@ -863,6 +863,130 @@ for k, t in enumerate(H, start=2):
     c = ws2.cell(k, 1, t)
     c.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
 ws2.column_dimensions["A"].width = 108
+
+
+# ==================== MOTIF DESIGN ====================
+wsmo = wb.create_sheet("MotifDesign")
+wsmo["A1"] = "Motif reservoirs: vocabulary size is the design lever"
+wsmo["A1"].font = Font(bold=True, size=13)
+ML = [
+    "THE PROBLEM",
+    "  A 200 bp sequence holds ~4 motifs (each ~12 bp, plus spacing and flanks). The non-redundant human",
+    "  vocabulary is ~600 motifs. So no sequence can contain 'the fixed set' - every sequence draws a",
+    "  small SUBSET from a vocabulary. The design is therefore hierarchical, with four nested levels:",
+    "     VOCABULARY V  - which motifs are eligible for the whole arm",
+    "     SUBSET S      - which k motifs go into THIS sequence          <- composition",
+    "     ARRANGEMENT   - order, spacing, orientation, copy number of S  <- syntax",
+    "     BACKGROUND    - what S is embedded in",
+    "",
+    "WHY COMPOSITION AND SYNTAX CANNOT BOTH BE ESTIMATED FROM ONE POOL",
+    "  If every sequence has a different subset AND a different arrangement, the two are perfectly",
+    "  confounded at the sequence level. Separating them requires REPEATED MEASURES: the same subset",
+    "  appearing in many arrangements, and the same arrangement realised with many subsets.",
+    "  Varying background, motifs, spacing and order all at once across sequences - the intuitive design -",
+    "  gives maximum coverage and ZERO ability to attribute. Both are needed, in different arms.",
+    "",
+    "THE ARITHMETIC THAT DECIDES IT  (arm = ~107k sequences, k = 4 slots)",
+    "     |V|      per-motif obs      motif pairs in V      per-PAIR obs",
+    "     600            498                179,700              2.5",
+    "     300            996                 44,850             10.0",
+    "     120          2,489                  7,140             62.7",
+    "      60          4,978                  1,770            253.1",
+    "  A FULL vocabulary gives excellent MARGINAL coverage (~500 observations per motif) and essentially",
+    "  no PAIRWISE coverage (2.5 per pair). You cannot learn how motifs combine from a 600-motif pool at",
+    "  this budget - there are 179,700 pairs and only ~450k pair-slots to spread over them.",
+    "  A RESTRICTED vocabulary (~60) inverts this: ~253 observations per PAIR, which powers interaction",
+    "  and spacing effects.",
+    "",
+    "SO THE ARMS SPLIT ON VOCABULARY SIZE, NOT ON 'COMPOSITION vs SYNTAX'",
+    "  COVERAGE arms - FULL vocabulary, one random arrangement per random subset, background randomised.",
+    "     Purpose: the model sees every motif many times in many contexts. This is what answers the",
+    "     generalisation worry - and the vocabulary should be chosen to COVER every motif that occurs in",
+    "     the eval sets (a free in-silico task: scan the eval batteries for motif content first).",
+    "  SYNTAX CORE arm - RESTRICTED vocabulary (~60 motifs, chosen for eval-set relevance and TF-family",
+    "     diversity), with subset x order x spacing x orientation x background deliberately CROSSED and",
+    "     replicated. Purpose: attribution. This is the only arm that can decompose variance into",
+    "     composition / syntax / background, because it is the only one with repeated measures.",
+    "",
+    "WITHIN THE SYNTAX CORE - a worked allocation for ~107k",
+    "     ~400 motif subsets  x  4 orders  x  5 spacings  x  2 backgrounds  x  ~7 replicate draws",
+    "  Every factor is crossed, so each main effect and the two-way interactions are estimable, and the",
+    "  replicate draws give a pure-error term for the variance decomposition.",
+    "",
+    "CONSEQUENCE FOR H7",
+    "  H7 (composition and syntax contribute separably) is tested INSIDE the syntax core via variance",
+    "  decomposition, not by comparing two arms to each other. Comparing arms would confound the",
+    "  vocabulary change with the design change.",
+    "",
+    "OPEN - CONFIRM BEFORE ORDERING",
+    "  Exact non-redundant vocabulary size after clustering (JASPAR CORE / HOCOMOCO are ~700-1400 raw",
+    "  models but collapse substantially). The ~600 figure above is illustrative; recompute it, since",
+    "  every number on this sheet scales with it.",
+    "  Motifs per sequence k: 4 assumed for 200 bp. If the assay length changes, k and all coverage",
+    "  numbers change with it.",
+]
+for k_, t in enumerate(ML, start=2):
+    c = wsmo.cell(k_, 1, t)
+    c.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
+wsmo.column_dimensions["A"].width = 104
+
+# ==================== CELL-TYPE DESIGN ====================
+wsct = wb.create_sheet("CellTypeDesign")
+wsct["A1"] = "Joint / differential reservoirs, and why halves rather than separate arms"
+wsct["A1"].font = Font(bold=True, size=13)
+CL = [
+    "HOW THE THREE CT TAGS ACTUALLY WORK",
+    "  agn   - design uses no cell-type signal at all. One pool, assayed in both lines.",
+    "  joint - design uses signal SHARED by both lines: regions open in BOTH, or motifs for TFs",
+    "          expressed in BOTH. Tests whether shared regulatory information is sufficient.",
+    "  diff  - design uses signal that DIFFERS between lines. The arm is built as a within-arm",
+    "          factorial, not as a K562 half and a HepG2 half glued together:",
+    "               K562-specific only  |  HepG2-specific only  |  BOTH in one sequence  |  neither",
+    "          All four cells are assayed in both lines. The BOTH cell is what teaches differential",
+    "          activity; the single cells give attribution; 'neither' is the internal control.",
+    "",
+    "WHY NOT TWO SEPARATE ARMS, ONE PER CELL TYPE - the reasons that are NOT about budget",
+    "  1. EVERY SEQUENCE IS MEASURED IN BOTH LINES ANYWAY. The library is assayed in K562 and HepG2, so",
+    "     a K562-specific-accessible sequence still returns a HepG2 measurement. Splitting into two arms",
+    "     buys no extra information per sequence; it only changes which sequences exist.",
+    "  2. THE TRAINING CORPUS IS SHARED. One two-output model trains on all of it. Separate arms would",
+    "     only matter if separate models were trained on separate arms - which halves the data for each",
+    "     and is strictly worse.",
+    "  3. WITHIN-ARM CONTRASTS ARE PAIRED, BETWEEN-ARM CONTRASTS ARE NOT. The differential comparison",
+    "     inside one arm is free of arm-level nuisance variance (synthesis batch, plate, sequencing",
+    "     depth). Across two arms, that nuisance sits directly on top of the effect of interest.",
+    "  4. THE QUESTION IS ABOUT THE DIFFERENTIAL, NOT ABOUT K562 IN ISOLATION. Carl: shared TFs (MYC,",
+    "     AP1) mean most K562-active sequences are also HepG2-active. 'Does cell-type-specific",
+    "     information help?' is answered by contrasting the differential design against the shared",
+    "     design - not by running K562-specific and HepG2-specific separately, which under symmetry",
+    "     estimates the same effect twice.",
+    "  5. ASYMMETRY IS STILL TESTABLE. If HepG2 behaves worse (noisier assay, fewer characterised CREs),",
+    "     the within-arm factorial exposes it: the K562-only and HepG2-only cells are compared directly.",
+    "     At ~107k per arm each factorial cell holds ~27k sequences, which is enough to see it.",
+    "     Two separate arms would spend 2x the budget to answer a question one arm already answers.",
+    "",
+    "THE ACQUISITION PER-CT ARM - N/2 + N/2 is the DECISION-RELEVANT question, not a compromise",
+    "  Matched N is the definition of a controlled comparison: at 2N you cannot tell whether per-CT",
+    "  selection won because it selects better or because it had twice the data. On a scaling curve that",
+    "  ambiguity gets worse, since more data always helps.",
+    "  But the deeper point is that N/2 + N/2 IS the real-world question. You are ordering ONE library",
+    "  with a FIXED budget. The decision facing you is 'should I spend my budget selecting jointly, or",
+    "  split it and select per cell type?' - which is exactly what the matched-N arm answers.",
+    "  'Run per-CT selection at full scale in each line' is a different question (it doubles the order),",
+    "  and it is not the one a fixed library budget poses.",
+    "",
+    "NESTING GIVES THE OTHER COMPARISONS FOR FREE",
+    "  Because every arm is trained on nested subsets, the joint arm can be subsampled to N/2 after the",
+    "  fact. So from the same ordered sequences you can read off:",
+    "     joint at N        vs  per-CT at N/2+N/2     - budget-matched (the decision question)",
+    "     joint at N/2      vs  K562-only at N/2      - per-cell-type-matched (the mechanism question)",
+    "  No extra sequences are needed for either. This is the main reason the halving costs nothing",
+    "  analytically - the comparison you gave up is recoverable from the scaling curve.",
+]
+for k_, t in enumerate(CL, start=2):
+    c = wsct.cell(k_, 1, t)
+    c.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
+wsct.column_dimensions["A"].width = 104
 
 wb.save(OUT)
 w_in = (WA + WB + WC + WD * nA) * 7 / 96
