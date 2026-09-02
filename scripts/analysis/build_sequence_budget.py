@@ -27,16 +27,14 @@ RESERVOIRS = [
     ("Random", "Uniform ACGT", "agn", "A"),
     ("Random", "Dinuc-shuffled genomic", "agn", "A"),
     ("Random", "Composition-tuned (GC / k-mer biased)", "agn", "A"),
-    ("Genomic", "ENCODE accessible - open in BOTH", "joint", "A"),
-    ("Genomic", "ENCODE accessible - CT-differential", "diff", "A"),
+    ("Genomic", "ENCODE accessible - 4 accessibility strata", "diff", "A"),
     ("Genomic", "Zoonomia ortholog CREs (phylogenetic)", "agn", "A"),
     ("Genomic", "Gosai alts - TRAIN chr only (test chr held out)", "agn", "A"),
     ("Genomic pert.", "Mutagenesis - oracle-tuned rate (SNV pairs)", "agn", "A"),
     ("Genomic pert.", "Structural - indel/transloc/inv, oracle-tuned", "agn", "A"),
     ("Genomic pert.", "EvoAug - as-published ML-aug settings (ctrl)", "agn", "A"),
     ("Motif-based", "Coverage - FULL vocabulary (~600 motifs)", "agn", "A"),
-    ("Motif-based", "Coverage - shared-core vocabulary", "joint", "A"),
-    ("Motif-based", "Coverage - CT-enriched vocabulary", "diff", "A"),
+    ("Motif-based", "Coverage - CT vocabulary, 4 strata", "diff", "A"),
     ("Motif-based", "Syntax core - RESTRICTED vocab (~60), crossed", "agn", "A"),
     ("Model-gen.", "DNA-LM (HyenaDNA) - unconditioned", "agn", "A"),
     ("Model-gen.", "D3 diffusion - activity-conditioned", "diff", "A"),
@@ -108,7 +106,7 @@ ws.title = "Budget"
 ws["A1"] = "Sequence budget - funded arms"
 ws["A1"].font = Font(bold=True, size=14)
 ws["A2"] = (
-    f"Paste A{AH}:{LC}{SROW} into Slides ({SROW - AH + 1} x {nA + 3} at 7 pt). "
+    f"Paste A{AH}:{LC}{SROW} into Slides ({SROW - AH + 1} x {nA + 3} at 8 pt). "
     f"Toggles in {KC0}:{KCL} on the SAME ROWS: 1 = on, 0/blank = off, >1 = pin that count."
 )
 ws["A2"].font = Font(italic=True, size=9, color="666666")
@@ -187,7 +185,7 @@ for i, (fam, name, ct, tier) in enumerate(RESERVOIRS):
     f.fill = PatternFill("solid", fgColor=FAMF[fam])
     f.alignment = Alignment(vertical="center", wrap_text=True)
     n = ws.cell(r, 2, name)
-    n.font = Font(size=7.5, bold=tier != "A")
+    n.font = Font(size=8, bold=tier != "A")
     n.alignment = Alignment(vertical="center")
     if tier != "A":
         n.fill = POOL
@@ -201,7 +199,7 @@ for i, (fam, name, ct, tier) in enumerate(RESERVOIRS):
         cell = ws.cell(r, C0 + j, f'=IF({kcol}{r}=1,$I$5,IF({kcol}{r}>1,{kcol}{r},"-"))')
         cell.number_format = "#,##0"
         cell.border = BOX
-        cell.font = Font(size=7.5)
+        cell.font = Font(size=8)
         cell.alignment = Alignment(horizontal="right", vertical="center")
         if (i, j) not in ON:
             cell.fill = OFFF
@@ -265,7 +263,7 @@ for j in range(nA):
     ws.column_dimensions[get_column_letter(K0 + j)].width = 7.5
 ws.column_dimensions[get_column_letter(TOTC)].width = 9.5
 for r in range(AH - 1, SROW + 1):
-    ws.row_dimensions[r].height = 13.5
+    ws.row_dimensions[r].height = 14.0
 ws.freeze_panes = "D9"
 
 # ==================== FOR THE MEETING ====================
@@ -913,6 +911,13 @@ ML = [
     "  Every factor is crossed, so each main effect and the two-way interactions are estimable, and the",
     "  replicate draws give a pure-error term for the variance decomposition.",
     "",
+    "SYNTAX AND CELL TYPE",
+    "  Spacing and order requirements may well differ between lines - different TFs, different",
+    "  cofactor geometry. You do NOT need a cell-type-specific syntax arm to see it: build the",
+    "  syntax core with a vocabulary spanning both lines' enriched motifs, measure in both, and the",
+    "  effect appears as a syntax x cell-type INTERACTION in the readout. Design-side specificity",
+    "  would only be needed to TUNE syntax per line, which is a follow-up, not this study.",
+    "",
     "CONSEQUENCE FOR H7",
     "  H7 (composition and syntax contribute separably) is tested INSIDE the syntax core via variance",
     "  decomposition, not by comparing two arms to each other. Comparing arms would confound the",
@@ -988,9 +993,76 @@ for k_, t in enumerate(CL, start=2):
     c.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
 wsct.column_dimensions["A"].width = 104
 
+
+# ==================== STRATA ====================
+wsst = wb.create_sheet("Strata")
+wsst["A1"] = "What the CT tags mean, and what lives inside each arm"
+wsst["A1"].font = Font(bold=True, size=13)
+SL = [
+    "THE TAG DESCRIBES THE DESIGN INPUT, NOT THE RESULT",
+    "  Every arm is assayed in BOTH cell lines, so every arm returns a K562 measurement and a HepG2",
+    "  measurement. Cell-type-specific EFFECTS are therefore measurable in every single arm, including",
+    "  the agnostic ones. The tag answers only one question:",
+    "        does the DESIGN STEP have to consult cell-type-specific information?",
+    "     agn   - no. Uniform random, dinuc-shuffle, EP-PCR, full-vocabulary motifs, HyenaDNA.",
+    "     joint - yes, but only information SHARED by both lines.",
+    "     diff  - yes, information that DIFFERS between the lines.",
+    "  This is why 'syntax is potentially cell-type specific' does NOT require a cell-type-specific",
+    "  syntax arm: a syntax x cell-type interaction is recovered from the READOUT of the agnostic",
+    "  syntax core, because the same sequences are measured in both lines. Design-side specificity is",
+    "  only needed if you want to TUNE the syntax separately per line, which is a later question.",
+    "",
+    "THE DUPLICATION IS FIXED",
+    "  Previously 'ENCODE open in BOTH' was its own arm AND a cell inside the differential arm - the",
+    "  same sequences counted twice. Likewise 'shared-core motifs' duplicated a stratum of the",
+    "  CT-vocabulary arm. Both are now single arms with internal strata. That removed 2 arms and pushed",
+    "  every arm from ~107k to ~114k.",
+    "",
+    "ENCODE ACCESSIBILITY - one arm, a PARTITION of the genome (not a constructed factorial)",
+    "  Each candidate region either is or is not accessible in each line, so every region falls in",
+    "  exactly one stratum. Nothing is constructed and nothing overlaps:",
+    "     open in BOTH          - tests whether SHARED accessibility is sufficient",
+    "     K562-accessible only  - differential, direction 1",
+    "     HepG2-accessible only - differential, direction 2",
+    "     open in NEITHER       - real-sequence negatives (absorbs the 'closed regions' proposal)",
+    "  All four are assayed in both lines, so the K562-only stratum still yields HepG2 labels. That is",
+    "  what makes the specificity comparison bidirectional.",
+    "",
+    "MOTIF CT-VOCABULARY - one arm, a CONSTRUCTED 2x2 (this one you do build)",
+    "  Here you choose what to insert, so the strata are defined by which motifs are placed:",
+    "     shared-core motifs only     - the MYC / AP1 core Carl described",
+    "     K562-enriched motifs only   - differential, direction 1",
+    "     HepG2-enriched motifs only  - differential, direction 2",
+    "     BOTH in the same sequence   - the cell that teaches differential activity",
+    "  Attribution survives because the single-vocabulary strata sit in the same arm as the mixed one.",
+    "",
+    "ARE THE STRATA UNDERPOWERED? - the arithmetic",
+    "  At ~114k per arm, a 4-way partition gives ~28.6k per stratum. For scale: our entire current",
+    "  bake-off runs at D = 30k, so each stratum is about the size of a complete existing experiment.",
+    "  A stratum supports a nested curve from 1k to ~28.6k, roughly 1.5 OOMs - shorter than an arm's",
+    "  ~2 OOMs, but real. It also supports the within-arm contrasts, which are PAIRED and therefore",
+    "  higher-powered than the equivalent between-arm comparison.",
+    "  What a stratum does NOT support is the full 2-OOM curve. So the decision to put to the PIs is",
+    "  exactly this:",
+    "     STRATUM  - cheap, gives a paired contrast plus a ~1.5-OOM curve         (current default)",
+    "     ARM      - costs a full ~114k and shrinks every other arm, gives ~2 OOMs and a clean",
+    "                between-arm comparison",
+    "  Promote a stratum to an arm only where the per-stratum SCALING RATE is itself the hypothesis.",
+    "",
+    "WHY STRATA ARE THE RIGHT DEFAULT HERE",
+    "  The reservoir-level claim ('accessibility-based selection is informative') uses the whole arm,",
+    "  all ~114k. Only the specificity claim needs the strata, and that claim is a CONTRAST between",
+    "  strata - which is precisely the comparison that gains from being inside one arm, since",
+    "  arm-level nuisance variance (synthesis batch, plate, sequencing depth) cancels.",
+]
+for k_, t in enumerate(SL, start=2):
+    c = wsst.cell(k_, 1, t)
+    c.font = Font(size=9, bold=(t.strip() != "" and not t.startswith("  ")))
+wsst.column_dimensions["A"].width = 104
+
 wb.save(OUT)
 w_in = (WA + WB + WC + WD * nA) * 7 / 96
-h_in = (SROW - AH + 1) * 13.5 / 72
+h_in = (SROW - AH + 1) * 14.0 / 72
 print("wrote", OUT)
 print(
     f"  PASTE BLOCK A{AH}:{LC}{SROW} = {SROW - AH + 1} rows x {nA + 3} cols, "
