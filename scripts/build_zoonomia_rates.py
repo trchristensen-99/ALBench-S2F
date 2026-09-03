@@ -53,6 +53,12 @@ def main():
     )
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument(
+        "--min_aligned_frac",
+        type=float,
+        default=0.5,
+        help="require this fraction of positions to have >=1 aligned species",
+    )
+    ap.add_argument(
         "--max_n_frac",
         type=float,
         default=0.02,
