@@ -121,6 +121,15 @@ def main() -> None:
         "edge as N (matches the reference implementation). roll: circular roll with no mask, "
         "which splices the 3-prime flank onto the 5-prime start (what v1 did).",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="resume from the last saved best_model if progress.json exists. slow_nice is "
+        "preemptible, and without this an evicted run restarts from epoch 0. Params are restored; "
+        "the optimizer state is NOT saved (Adam moments for a fully-unfrozen encoder would be "
+        "~3.4 GB per epoch of I/O), so it restarts fresh - a brief re-warmup, not a correctness "
+        "issue.",
+    )
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
@@ -394,10 +403,31 @@ def main() -> None:
     # ── Training loop ─────────────────────────────────────────────────────────
     best_val_pearson = -1.0
     best_params = None
+    start_epoch = 0
+    progress_path = args.output_dir / "progress.json"
+    if args.resume and progress_path.exists():
+        prog = json.loads(progress_path.read_text())
+        ck = (args.output_dir / "best_model" / "checkpoint").resolve()
+        if ck.exists():
+            restored = ocp.StandardCheckpointer().restore(ck)
+            # save_checkpoint stored (params, state); orbax may hand it back as a list
+            pr = restored[0] if isinstance(restored, (tuple, list)) else restored
+            model._params = jax.device_put(pr)
+            best_params = jax.device_get(model._params)
+            start_epoch = int(prog["next_epoch"])
+            best_val_pearson = float(prog["best_val_pearson"])
+            best_epoch = int(prog["best_epoch"])
+            epochs_no_improve = int(prog.get("epochs_no_improve", 0))
+            logger.info(
+                "RESUMED at epoch %d/%d (best_val_pearson=%.4f from epoch %d)",
+                start_epoch + 1, args.epochs, best_val_pearson, best_epoch + 1,
+            )
+        else:
+            logger.warning("progress.json present but no checkpoint; starting fresh")
     best_epoch = 0
     epochs_no_improve = 0
 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         train_losses: list[float] = []
         for batch in train_loader:
             model._params, opt_state, loss = train_step(
@@ -441,8 +471,16 @@ def main() -> None:
             # test pass is fragile - the round trip can hand back a list rather than the mapping
             # haiku expects - and an in-memory copy removes that failure mode entirely.
             best_params = jax.device_get(model._params)
+            progress_path.write_text(json.dumps({
+                "next_epoch": epoch + 1, "best_val_pearson": best_val_pearson,
+                "best_epoch": best_epoch, "epochs_no_improve": 0,
+            }))
         else:
             epochs_no_improve += 1
+            progress_path.write_text(json.dumps({
+                "next_epoch": epoch + 1, "best_val_pearson": best_val_pearson,
+                "best_epoch": best_epoch, "epochs_no_improve": epochs_no_improve,
+            }))
             if epochs_no_improve >= args.early_stop_patience:
                 logger.info(
                     "Early stopping at epoch %d (best=%d, val_pearson=%.4f)",
