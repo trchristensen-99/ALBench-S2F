@@ -85,7 +85,7 @@ def main():
     L, half = args.seq_len, args.seq_len // 2
 
     seqs, rates, phylops, meta = [], [], [], []
-    n_oob = n_masked = 0
+    n_oob = n_masked = n_unaligned = 0
     with h5py.File(args.h5, "r") as f:
         for chrom, g in bed.groupby("chrom", sort=True):
             if chrom not in f:
@@ -110,6 +110,12 @@ def main():
                 diff = (other != human[None, :]) & called & (human[None, :] > 0)
                 denom = called.sum(axis=0)
                 rate = np.where(denom > 0, diff.sum(axis=0) / np.maximum(denom, 1), np.nan)
+                # A window can have NO species aligned at any position (denom==0 everywhere),
+                # which makes its per-region mean NaN and poisons downstream weighting. Require a
+                # minimum fraction of positions with alignment coverage.
+                if np.isfinite(rate).mean() < args.min_aligned_frac:
+                    n_unaligned += 1
+                    continue
                 seqs.append("".join(CODE[human]))
                 rates.append(rate.astype(np.float32))
                 phylops.append(np.asarray(pp_ds[s:e], dtype=np.float32))
@@ -118,13 +124,17 @@ def main():
     if not seqs:
         raise SystemExit("no regions extracted -- check --h5 / --ccre paths")
     rates, phylops = np.stack(rates), np.stack(phylops)
-    print(f"\n[extracted] {len(seqs):,} regions   out-of-bounds {n_oob:,}   N-masked {n_masked:,}")
+    print(
+        f"\n[extracted] {len(seqs):,} regions   out-of-bounds {n_oob:,}   "
+        f"N-masked {n_masked:,}   under-aligned {n_unaligned:,}"
+    )
     print(
         f"[subst_rate] mean={np.nanmean(rates):.4f} median={np.nanmedian(rates):.4f} "
         f"p5={np.nanpercentile(rates, 5):.4f} p95={np.nanpercentile(rates, 95):.4f}"
     )
     print(f"[phyloP]     mean={np.nanmean(phylops):.3f} frac>2={np.nanmean(phylops > 2):.3f}")
     per_seq = np.nanmean(rates, axis=1)
+    per_seq = per_seq[np.isfinite(per_seq)]
     print(
         f"[per-region] rate mean={per_seq.mean():.4f} sd={per_seq.std():.4f} "
         f"range=[{np.nanmin(per_seq):.3f}, {np.nanmax(per_seq):.3f}]"
