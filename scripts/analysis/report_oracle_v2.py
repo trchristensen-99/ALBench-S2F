@@ -62,13 +62,15 @@ def main():
               f"(positive means the val fold is optimistic, which is the reason for a test fold)")
 
     print("\n2. WITHIN-FOLD ENSEMBLING CURVE - fold 0 test set, seeds 1-8")
+    # fold_0 is fold 0 / seed 42 / unfreeze-all / crop - the same config as the prototype seeds, so
+    # it counts as the 8th member and seed 8 was never trained.
     preds, y = [], None
-    for s in range(1, 9):
-        r = load(f"{a.root}/proto_fold0_seed{s}")
+    for d in [f"{a.root}/proto_fold0_seed{s}" for s in range(1, 8)] + [f"{a.root}/fold_0"]:
+        r = load(d)
         if r and r.get("_pred") is not None:
             preds.append(np.asarray(r["_pred"]["y_pred"], float))
             y = np.asarray(r["_pred"]["y_true"], float)
-    print(f"   {len(preds)} of 8 models available")
+    print(f"   {len(preds)} of 8 models available (7 prototype seeds + the fold-0 ensemble member)")
     if len(preds) >= 2:
         P = np.stack(preds)
         print(f"   {'k':>3} {'test r':>8} {'test MSE':>9} {'gain vs k=1':>12}")
