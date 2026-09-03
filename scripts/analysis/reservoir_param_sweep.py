@@ -94,7 +94,29 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
-    from albench.reservoir import get_sampler  # registry lookup
+    # There is no name->class registry: scripts/generate_labeled_pools._generate_sequences
+    # dispatches on a bare reservoir NAME and exposes no kwargs, which is precisely why parameter
+    # variants have never been swept. Construct the classes directly instead.
+    import albench.reservoir as R
+
+    CLS = {
+        "partial_mutagenesis": R.PartialMutagenesisSampler,
+        "evoaug_structural": R.EvoAugStructuralSampler,
+        "motif_planted_v2": R.MotifPlantedSampler,
+        "motif_density": R.MotifDensitySampler,
+        "motif_grammar": R.MotifGrammarSampler,
+        "in_silico_evolution_generative": R.InSilicoEvolutionGenerativeSampler,
+        "activity_stratified": R.ActivityStratifiedSampler,
+        "gc_matched": R.GCMatchedSampler,
+        "recombination": R.RecombinationSampler,
+        "random": R.RandomSampler,
+    }
+    try:
+        from albench.reservoir.motif_planted_v2 import PhylogeneticZoonomiaSampler
+
+        CLS["phylogenetic_zoonomia"] = PhylogeneticZoonomiaSampler
+    except Exception as e:
+        print(f"[warn] zoonomia sampler unavailable: {e}")
 
     names = args.strategies or list(GRIDS)
     ref = None
@@ -119,7 +141,10 @@ def main():
             kw = dict(zip(keys, combo))
             t0 = time.time()
             try:
-                sampler = get_sampler(name, seed=args.seed, **kw)
+                cls = CLS.get(name)
+                if cls is None:
+                    raise KeyError(f"no sampler class mapped for {name!r}")
+                sampler = cls(seed=args.seed, **kw)
                 seqs, _meta = sampler.generate(args.n_seqs)
             except Exception as e:
                 print(f"  {name:<30} {kw} -> FAILED: {type(e).__name__}: {e}")
