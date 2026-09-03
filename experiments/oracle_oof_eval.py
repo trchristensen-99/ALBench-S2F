@@ -136,7 +136,8 @@ def stage_predict(args):
 
     k = int(args.fold_id)
     stem = "allfold" if args.all_sequences else "oof_fold"
-    out_path = Path(args.out_dir) / f"{stem}_{k}.npz"
+    suffix = "" if args.n_shards == 1 else f"_s{args.shard_id}"
+    out_path = Path(args.out_dir) / f"{stem}_{k}{suffix}.npz"
     if out_path.exists() and not args.overwrite:
         print(f"SKIP: {out_path} exists")
         return
@@ -160,6 +161,8 @@ def stage_predict(args):
                 if tag not in fm.files:
                     continue
                 sel = np.where(fm[tag] == k)[0]
+            if args.n_shards > 1:
+                sel = sel[args.shard_id :: args.n_shards]  # strided, so shards stay balanced
             if len(sel):
                 todo[tag] = (sel, [str(z[key][i]) for i in sel])
     n_tot = sum(len(v[0]) for v in todo.values())
@@ -244,6 +247,15 @@ if __name__ == "__main__":
         "10 resulting files reproduces the deployed all-folds ensemble on the same pairs, which is "
         "what makes an inflation number comparable.",
     )
+    ap.add_argument(
+        "--n_shards",
+        type=int,
+        default=1,
+        help="split each fold's sequences across this many tasks. Wall-clock per task falls ~1/N, "
+        "but every task re-pays the ~6 min JAX init + weight load, so sharding only wins when "
+        "predict time already dominates setup (roughly >20k sequences per fold).",
+    )
+    ap.add_argument("--shard_id", type=int, default=0)
     ap.add_argument("--overwrite", action="store_true")
     a = ap.parse_args()
     (stage_foldmap if a.stage == "foldmap" else stage_predict)(a)
