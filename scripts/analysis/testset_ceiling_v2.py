@@ -20,7 +20,7 @@ import pandas as pd
 from scipy.stats import pearsonr
 
 
-def rel(y, se, tag, achieved=None):
+def rel(tag, y, se, achieved=None):
     y, se = np.asarray(y, float), np.asarray(se, float)
     m = np.isfinite(y) & np.isfinite(se)
     y, se = y[m], se[m]
