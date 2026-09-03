@@ -68,7 +68,14 @@ def plot_t2():
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 4.5), gridspec_kw={"width_ratios": [3, 1.4]})
     ax1.bar(xx - 0.20, greedy, width=0.40, color="#444", alpha=0.85, label="full pool, K=5 strats")
-    ax1.bar(xx + 0.20, top1, width=0.40, color="#ff7f0e", alpha=0.85, label="top-1 per K=5 strat (5 models)")
+    ax1.bar(
+        xx + 0.20,
+        top1,
+        width=0.40,
+        color="#ff7f0e",
+        alpha=0.85,
+        label="top-1 per K=5 strat (5 models)",
+    )
     ax1.set_xticks(xx)
     ax1.set_xticklabels(labels, rotation=40, ha="right", fontsize=8)
     ax1.set_ylabel("ensemble oracle_r (within cell)")
@@ -114,7 +121,8 @@ def plot_t3():
     colors = ["#d62728", "#ff7f0e", "#2ca02c"]
     bp = ax.boxplot(data, tick_labels=labels, showmeans=True, patch_artist=True, widths=0.55)
     for patch, c in zip(bp["boxes"], colors):
-        patch.set_facecolor(c); patch.set_alpha(0.55)
+        patch.set_facecolor(c)
+        patch.set_alpha(0.55)
     ax.axhline(NOISE, color="red", ls="--", lw=1, label=f"noise floor +{NOISE}")
     ax.axhline(0, color="k", lw=0.5)
     ax.set_ylabel("transfer gap (oracle_r) on HELD-OUT cells")
@@ -138,12 +146,19 @@ def plot_t3():
     ax.axhline(NOISE, color="red", ls="--", lw=1, label=f"noise floor +{NOISE}")
     ax.axhline(0, color="k", lw=0.5)
     ax.set_ylabel("gap on held-out reservoir family")
-    ax.set_title("T3b — which reservoir family is hardest to transfer to?\n(2-pilot setting)", fontsize=11)
+    ax.set_title(
+        "T3b — which reservoir family is hardest to transfer to?\n(2-pilot setting)", fontsize=11
+    )
     ax.legend(fontsize=8, loc="upper right")
     ax.grid(axis="y", alpha=0.25)
     for b, m, s in zip(bars, means, stds):
-        ax.text(b.get_x() + b.get_width() / 2, b.get_height() + s + 0.001,
-                f"{m:+.4f}", ha="center", fontsize=9)
+        ax.text(
+            b.get_x() + b.get_width() / 2,
+            b.get_height() + s + 0.001,
+            f"{m:+.4f}",
+            ha="center",
+            fontsize=9,
+        )
 
     # Panel 3: menu agreement: how often does each strategy appear in the menu across LOR splits
     ax = axes[2]
@@ -159,8 +174,13 @@ def plot_t3():
         items = sorted(menu_counts.items(), key=lambda x: -x[1])
         names, counts = zip(*items)
         ax.barh(names, counts, color="#1f77b4", alpha=0.85)
-        ax.axvline(n_splits_unique, color="black", ls=":", lw=1,
-                   label=f"all {n_splits_unique} splits agreed")
+        ax.axvline(
+            n_splits_unique,
+            color="black",
+            ls=":",
+            lw=1,
+            label=f"all {n_splits_unique} splits agreed",
+        )
         ax.set_xlabel(f"# pilot-pair splits selecting this strategy (out of {n_splits_unique})")
         ax.set_title("T3c — menu stability across pilot subsets\n(at 2-pilot, K=5)", fontsize=11)
         ax.legend(fontsize=8, loc="lower right")

@@ -5,14 +5,23 @@ val Pearson, then cumulatively pool the top-1, top-2, ... strategies' models and
 val-selected greedy ElasticNet ensemble at each step; record its genomic test Pearson.
 Averaged across reservoirs -> the marginal curve + knee that justifies pooling across strategies.
 """
+
 import os, sys, json, glob
 import numpy as np
 from scipy.stats import pearsonr
 from sklearn.linear_model import ElasticNetCV
 
 BASE = "outputs/hp_step1_bakeoff_e100"
-RES = ["genomic", "dinuc_shuffle", "evoaug_heavy", "gc_matched", "motif_planted_v2",
-       "phylogenetic_zoonomia", "uncertainty_guided", "diversity_guided"]
+RES = [
+    "genomic",
+    "dinuc_shuffle",
+    "evoaug_heavy",
+    "gc_matched",
+    "motif_planted_v2",
+    "phylogenetic_zoonomia",
+    "uncertainty_guided",
+    "diversity_guided",
+]
 D = 30000
 SET = "genomic"
 MAX_POOL, MAX_SIZE, MIN_DELTA = 40, 8, 1e-4
@@ -48,9 +57,14 @@ def load_cell(R):
             continue
         if "val_pred" not in d.files or f"test_pred_{SET}" not in d.files:
             continue
-        models.append(dict(strat=strat, val_pearson=float(vp),
-                           val_pred=d["val_pred"].astype(np.float64),
-                           test=d[f"test_pred_{SET}"].astype(np.float64)))
+        models.append(
+            dict(
+                strat=strat,
+                val_pearson=float(vp),
+                val_pred=d["val_pred"].astype(np.float64),
+                test=d[f"test_pred_{SET}"].astype(np.float64),
+            )
+        )
     if len(models) < 2:
         return None
     return dict(vy=vy, oracle=oracle, models=models)
@@ -70,7 +84,10 @@ def greedy_ens(models, vy, oracle):
         vp, c, en = best
         if vp <= best_val + MIN_DELTA and selected:
             break
-        selected.append(c); remaining.remove(c); best_val = vp; best_en = en
+        selected.append(c)
+        remaining.remove(c)
+        best_val = vp
+        best_en = en
     if not selected:
         return None
     T = np.column_stack([m["test"] for m in selected])
@@ -89,7 +106,7 @@ def marginal(cell, maxk=8):
         pooled = [m for s in order[:k] for m in strats[s]]
         tp = greedy_ens(pooled, cell["vy"], cell["oracle"])
         curve.append(tp)
-        print(f"    k={k} strat={order[k-1]:<18} test={tp:.4f}", flush=True)
+        print(f"    k={k} strat={order[k - 1]:<18} test={tp:.4f}", flush=True)
     return curve, order
 
 
@@ -97,10 +114,15 @@ results, orders = {}, {}
 for R in RES:
     c = load_cell(R)
     if c is None:
-        print(f"skip {R} (no/insufficient data)", flush=True); continue
-    print(f"[{R}] {len(c['models'])} models, {len(set(m['strat'] for m in c['models']))} strategies", flush=True)
+        print(f"skip {R} (no/insufficient data)", flush=True)
+        continue
+    print(
+        f"[{R}] {len(c['models'])} models, {len(set(m['strat'] for m in c['models']))} strategies",
+        flush=True,
+    )
     curve, order = marginal(c)
-    results[R] = curve; orders[R] = order
+    results[R] = curve
+    orders[R] = order
 
 maxk = max(len(v) for v in results.values())
 agg = []
@@ -114,21 +136,38 @@ for i, (k, m, s, n) in enumerate(agg):
     marg.append(g)
     print(f"k={k}  mean={m:.4f}  std={s:.4f}  n={n}  marginal={g:+.4f}")
 
-json.dump(dict(per_reservoir=results, order=orders, aggregate=agg, marginal=marg),
-          open(f"{BASE}/strategy_marginal.json", "w"), indent=1)
+json.dump(
+    dict(per_reservoir=results, order=orders, aggregate=agg, marginal=marg),
+    open(f"{BASE}/strategy_marginal.json", "w"),
+    indent=1,
+)
 
-import matplotlib; matplotlib.use("Agg")
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
 fig, (a1, a2) = plt.subplots(1, 2, figsize=(13, 5.2))
 for R, v in results.items():
     a1.plot(range(1, len(v) + 1), v, color="0.78", lw=1, alpha=0.8)
-ks = [a[0] for a in agg]; ms = [a[1] for a in agg]; ss = [a[2] for a in agg]
-a1.errorbar(ks, ms, yerr=ss, color="#1d4ed8", lw=2.6, marker="o", capsize=3, label="mean over reservoirs")
-a1.set_xlabel("# HP-search strategies pooled (best-first)"); a1.set_ylabel("ensemble test Pearson (genomic)")
-a1.set_title("Marginal benefit of pooling HP strategies (D=30k)"); a1.legend(); a1.grid(alpha=0.3)
+ks = [a[0] for a in agg]
+ms = [a[1] for a in agg]
+ss = [a[2] for a in agg]
+a1.errorbar(
+    ks, ms, yerr=ss, color="#1d4ed8", lw=2.6, marker="o", capsize=3, label="mean over reservoirs"
+)
+a1.set_xlabel("# HP-search strategies pooled (best-first)")
+a1.set_ylabel("ensemble test Pearson (genomic)")
+a1.set_title("Marginal benefit of pooling HP strategies (D=30k)")
+a1.legend()
+a1.grid(alpha=0.3)
 a2.bar(ks[1:], [m * 100 for m in marg[1:]], color="#16a34a")
 a2.axhline(0.3, ls="--", color="0.5", label="~noise 0.003")
-a2.set_xlabel("strategy added (k)"); a2.set_ylabel("marginal gain x100 (Pearson)")
-a2.set_title("Per-step marginal gain"); a2.legend(); a2.grid(alpha=0.3)
-fig.tight_layout(); fig.savefig(f"{BASE}/strategy_marginal.png", dpi=140)
+a2.set_xlabel("strategy added (k)")
+a2.set_ylabel("marginal gain x100 (Pearson)")
+a2.set_title("Per-step marginal gain")
+a2.legend()
+a2.grid(alpha=0.3)
+fig.tight_layout()
+fig.savefig(f"{BASE}/strategy_marginal.png", dpi=140)
 print("WROTE", f"{BASE}/strategy_marginal.png")

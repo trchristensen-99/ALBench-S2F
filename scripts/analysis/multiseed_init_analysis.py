@@ -105,8 +105,15 @@ def per_config_seed_variance(models, oracle, target_set):
         if len(sibs) < 2:
             continue
         pears = [pearsonr(m.test[target_set], truth)[0] for m in sibs]
-        rows.append(dict(cfg=cfg, n=len(sibs), mean=float(np.mean(pears)),
-                         std=float(np.std(pears, ddof=0)), vals=pears))
+        rows.append(
+            dict(
+                cfg=cfg,
+                n=len(sibs),
+                mean=float(np.mean(pears)),
+                std=float(np.std(pears, ddof=0)),
+                vals=pears,
+            )
+        )
     return rows
 
 
@@ -169,8 +176,12 @@ def build_candidates_3seed(models, target_set):
 
 def analyze_reservoir(name, d, target_sets, max_pool, max_size):
     val_labels, oracle, models = load_dir(d, target_sets)
-    out = {"name": name, "dir": d, "n_models": len(models),
-           "n_configs": len(set(m.cfg for m in models))}
+    out = {
+        "name": name,
+        "dir": d,
+        "n_models": len(models),
+        "n_configs": len(set(m.cfg for m in models)),
+    }
     for ts in target_sets:
         truth = oracle[ts]
         var_rows = per_config_seed_variance(models, oracle, ts)
@@ -186,8 +197,10 @@ def analyze_reservoir(name, d, target_sets, max_pool, max_size):
             median_seed_std=float(np.median(stds)),
             mean_seed_std=float(np.mean(stds)),
             max_seed_std=float(np.max(stds)),
-            ens_1seed=p1, ens_1seed_size=n1,
-            ens_3seed=p3, ens_3seed_size=n3,
+            ens_1seed=p1,
+            ens_1seed_size=n1,
+            ens_3seed=p3,
+            ens_3seed_size=n3,
             delta=p3 - p1,
         )
     return out
@@ -209,7 +222,9 @@ def main():
     }
     print("=" * 90)
     print("MULTI-SEED WEIGHT-INIT COMPARISON (D=30000, saved preds, CPU)")
-    print(f"  sets={sets}  greedy: VAL-selected ElasticNetCV  max_pool={args.max_pool} max_size={args.max_size}")
+    print(
+        f"  sets={sets}  greedy: VAL-selected ElasticNetCV  max_pool={args.max_pool} max_size={args.max_size}"
+    )
     print("=" * 90)
 
     results = []
@@ -220,30 +235,44 @@ def main():
         for ts in sets:
             s = r[ts]
             print(f"  [{ts}]  per-config mean test-pearson={s['per_config_mean_pearson']:.4f}")
-            print(f"        seed-std across siblings: median={s['median_seed_std']:.4f} "
-                  f"mean={s['mean_seed_std']:.4f} max={s['max_seed_std']:.4f}  (n_configs={s['n_configs']})")
-            print(f"        ensemble test-pearson: 1-seed={s['ens_1seed']:.4f} (size {s['ens_1seed_size']})  "
-                  f"3-seed={s['ens_3seed']:.4f} (size {s['ens_3seed_size']})  delta={s['delta']:+.4f}")
+            print(
+                f"        seed-std across siblings: median={s['median_seed_std']:.4f} "
+                f"mean={s['mean_seed_std']:.4f} max={s['max_seed_std']:.4f}  (n_configs={s['n_configs']})"
+            )
+            print(
+                f"        ensemble test-pearson: 1-seed={s['ens_1seed']:.4f} (size {s['ens_1seed_size']})  "
+                f"3-seed={s['ens_3seed']:.4f} (size {s['ens_3seed_size']})  delta={s['delta']:+.4f}"
+            )
 
     print("\n" + "=" * 90)
     print("SUMMARY TABLE (genomic/reference test set)")
-    print(f"  {'reservoir':<16s} {'median_seed_std':>15s} {'ens_1seed':>10s} {'ens_3seed':>10s} {'delta':>9s}")
+    print(
+        f"  {'reservoir':<16s} {'median_seed_std':>15s} {'ens_1seed':>10s} {'ens_3seed':>10s} {'delta':>9s}"
+    )
     for r in results:
         s = r["genomic"]
-        print(f"  {r['name']:<16s} {s['median_seed_std']:>15.4f} {s['ens_1seed']:>10.4f} "
-              f"{s['ens_3seed']:>10.4f} {s['delta']:>+9.4f}")
+        print(
+            f"  {r['name']:<16s} {s['median_seed_std']:>15.4f} {s['ens_1seed']:>10.4f} "
+            f"{s['ens_3seed']:>10.4f} {s['delta']:>+9.4f}"
+        )
     if "ood" in sets:
         print("\n  (OOD test set)")
-        print(f"  {'reservoir':<16s} {'median_seed_std':>15s} {'ens_1seed':>10s} {'ens_3seed':>10s} {'delta':>9s}")
+        print(
+            f"  {'reservoir':<16s} {'median_seed_std':>15s} {'ens_1seed':>10s} {'ens_3seed':>10s} {'delta':>9s}"
+        )
         for r in results:
             s = r["ood"]
-            print(f"  {r['name']:<16s} {s['median_seed_std']:>15.4f} {s['ens_1seed']:>10.4f} "
-                  f"{s['ens_3seed']:>10.4f} {s['delta']:>+9.4f}")
+            print(
+                f"  {r['name']:<16s} {s['median_seed_std']:>15.4f} {s['ens_1seed']:>10.4f} "
+                f"{s['ens_3seed']:>10.4f} {s['delta']:>+9.4f}"
+            )
 
     max_delta = max(abs(r["genomic"]["delta"]) for r in results)
-    verdict = ("MATERIAL: seed-averaging improves the ensemble by >~0.005 test Pearson"
-               if max_delta > 0.005 else
-               "WITHIN NOISE: seed-averaging delta <~0.005 test Pearson; 1 seed/config is fine for the main grid")
+    verdict = (
+        "MATERIAL: seed-averaging improves the ensemble by >~0.005 test Pearson"
+        if max_delta > 0.005
+        else "WITHIN NOISE: seed-averaging delta <~0.005 test Pearson; 1 seed/config is fine for the main grid"
+    )
     print(f"\nVERDICT: {verdict}  (max |delta genomic| = {max_delta:.4f})")
 
     if args.out:

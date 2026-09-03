@@ -5,6 +5,7 @@
 Stratified by block_class + optimizer so the candidate pool is architecturally diverse
 (NOT the motif-collapsed free menu). BIAS_D env picks the D (default 30000).
 """
+
 import os, json, glob
 import numpy as np
 from collections import Counter
@@ -17,9 +18,25 @@ BASE = ["genomic", "motif_planted_v2"]
 POOL3 = ["dinuc_shuffle", "evoaug_heavy", "gc_matched"]
 control = next(r for r in POOL3 if r != X)
 SETS = {"without": BASE + [control], "with": BASE + [X]}
-CFG_KEYS = ["lr", "batch_size", "conv_dropout", "dense_dropout", "n_layers", "width_base",
-            "width_jitter", "block_class", "ks", "pct_start", "optimizer", "weight_decay",
-            "use_shift_aug", "shift_max", "use_evoaug", "activation", "loss"]
+CFG_KEYS = [
+    "lr",
+    "batch_size",
+    "conv_dropout",
+    "dense_dropout",
+    "n_layers",
+    "width_base",
+    "width_jitter",
+    "block_class",
+    "ks",
+    "pct_start",
+    "optimizer",
+    "weight_decay",
+    "use_shift_aug",
+    "shift_max",
+    "use_evoaug",
+    "activation",
+    "loss",
+]
 RECIPE_DIR = "/grid/wsbs/home_norepl/christen/ALBench-S2F/configs/deploy_recipes"
 
 
@@ -47,7 +64,9 @@ def stratified(pool, n_per_block=3):
             return False
         # emit the FULL hp dict (deploy_train filters to HPConfig keys); a filtered subset drops
         # required fields like 'seed' -> "missing required HP fields: ['seed']".
-        seen.add(k); cands.append(dict(hp)); return True
+        seen.add(k)
+        cands.append(dict(hp))
+        return True
 
     for bc in ["eff", "ag", "plain"]:
         sub = sorted([p for p in pool if p[1].get("block_class") == bc], key=lambda x: -x[0])
@@ -72,6 +91,9 @@ for name, res in SETS.items():
     out = f"{RECIPE_DIR}/bias_{name}_{X}_d{D}.json"
     json.dump(rec, open(out, "w"), indent=1)
     print(f"{name}: {len(rec)} configs from {res} (pool={len(pool)}) -> {out}", flush=True)
-    print(f"  blocks={dict(Counter(c.get('block_class') for c in rec))} "
-          f"opt={dict(Counter(c.get('optimizer') for c in rec))}", flush=True)
+    print(
+        f"  blocks={dict(Counter(c.get('block_class') for c in rec))} "
+        f"opt={dict(Counter(c.get('optimizer') for c in rec))}",
+        flush=True,
+    )
 print("DONE bias recipes", flush=True)
