@@ -54,7 +54,7 @@ def main():
         if len(g) > 200:
             rel(f"  OOD / {meth[:26]}", g["K562_log2FC"], g["K562_lfcSE"])
 
-    ind = pd.read_csv(os.path.join(a.ts, "test_chr7_13_ref_only.tsv"), sep="\t")
+    ind = pd.read_csv(os.path.join(a.ts, "test_chr7_13_all.tsv"), sep="\t")
     col = "K562_lfcSE" if "K562_lfcSE" in ind.columns else None
     if col:
         rel("WT / genomic in-dist", ind["K562_log2FC"], ind[col], achieved=0.9496)
