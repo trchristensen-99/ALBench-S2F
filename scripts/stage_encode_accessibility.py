@@ -23,7 +23,6 @@ between these lines?" question becomes a measured number rather than an assumpti
 import argparse
 import json
 import os
-import subprocess
 import urllib.parse
 import urllib.request
 
@@ -64,8 +63,72 @@ def pick(files):
     return (files[0], files[0].get("output_type")) if files else (None, None)
 
 
-def sh(cmd):
-    return subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True).stdout
+def read_bed(path, gz=False):
+    """chrom -> sorted list of (start, end), primary chromosomes only."""
+    import gzip
+
+    opener = gzip.open if gz else open
+    keep = {f"chr{c}" for c in list(range(1, 23)) + ["X"]}
+    out = {}
+    with opener(path, "rt") as fh:
+        for line in fh:
+            if not line or line[0] == "#":
+                continue
+            f = line.split("\t")
+            if len(f) < 3 or f[0] not in keep:
+                continue
+            out.setdefault(f[0], []).append((int(f[1]), int(f[2])))
+    return {c: sorted(v) for c, v in out.items()}
+
+
+def merge(iv):
+    """Union of overlapping intervals in a sorted list."""
+    out = []
+    for s, e in iv:
+        if out and s <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], e)
+        else:
+            out.append([s, e])
+    return [(s, e) for s, e in out]
+
+
+def _mask_ops(a, b):
+    """Return (intersection, a_minus_b) for two merged interval lists via a sweep."""
+    inter, only = [], []
+    j = 0
+    for s, e in a:
+        cur = s
+        hit = False
+        while j > 0 and b[j - 1][1] > s:
+            j -= 1
+        k = j
+        while k < len(b) and b[k][0] < e:
+            bs, be = b[k]
+            if be <= s:
+                k += 1
+                continue
+            ov_s, ov_e = max(s, bs), min(e, be)
+            if ov_s < ov_e:
+                hit = True
+                inter.append((ov_s, ov_e))
+                if cur < ov_s:
+                    only.append((cur, ov_s))
+                cur = max(cur, ov_e)
+            k += 1
+        if cur < e and (hit or True):
+            only.append((cur, e))
+    return inter, only
+
+
+def write_bed(path, per_chrom):
+    n = bp = 0
+    with open(path, "w") as fh:
+        for c in sorted(per_chrom):
+            for s, e in per_chrom[c]:
+                fh.write(f"{c}\t{s}\t{e}\n")
+                n += 1
+                bp += e - s
+    return n, bp
 
 
 def main():
@@ -80,68 +143,72 @@ def main():
     chosen = {}
     for cell in args.cells:
         for assay in args.assays:
+            if cell in chosen:
+                break
             try:
-                files = search_files(cell, assay)
+                files = [f for f in search_files(cell, assay) if f.get("href")]
             except Exception as e:
                 print(f"  [{cell} {assay}] query failed: {e}")
                 continue
-            files = [f for f in files if f.get("href")]
             f, kind = pick(files)
             print(
                 f"  {cell:<6} {assay:<10} {len(files):>3} beds -> "
                 f"{f['accession'] if f else 'NONE'} ({kind})"
             )
-            if f and cell not in chosen:  # first assay that yields something wins
+            if f:
                 chosen[cell] = (assay, f, kind)
-    if len(chosen) < len(args.cells):
-        missing = set(args.cells) - set(chosen)
+    missing = set(args.cells) - set(chosen)
+    if missing:
         print(f"\nWARNING no peaks found for: {sorted(missing)}")
 
-    paths = {}
+    peaks = {}
     for cell, (assay, f, kind) in chosen.items():
         url = API + f["href"]
         raw = os.path.join(args.out_dir, f"{cell}_{f['accession']}.bed.gz")
-        merged = os.path.join(args.out_dir, f"{cell}_peaks_merged.bed")
         print(f"\n[{cell}] {assay} / {kind} / {f['accession']}\n  {url}")
         if args.dry_run:
             continue
         if not os.path.exists(raw):
             urllib.request.urlretrieve(url, raw)
-        # merge overlapping peaks; keep only primary chromosomes
-        sh(
-            f"zcat {raw} | awk '$1 ~ /^chr([0-9]+|X)$/' | sort -k1,1 -k2,2n "
-            f"| bedtools merge -i - > {merged}"
-        )
-        n = int(sh(f"wc -l < {merged}").strip())
-        bp = int(sh(f"awk '{{s+=$3-$2}} END {{print s+0}}' {merged}").strip())
+        per = {c: merge(v) for c, v in read_bed(raw, gz=True).items()}
+        n, bp = write_bed(os.path.join(args.out_dir, f"{cell}_peaks_merged.bed"), per)
         print(f"  merged: {n:,} peaks, {bp / 1e6:.1f} Mb")
-        paths[cell] = merged
+        peaks[cell] = per
 
-    if len(paths) == 2 and not args.dry_run:
+    if len(peaks) == 2 and not args.dry_run:
         a, b = args.cells[0], args.cells[1]
-        out = {
-            "shared": os.path.join(args.out_dir, "shared_open_both.bed"),
-            f"{a.lower()}_only": os.path.join(args.out_dir, f"{a.lower()}_only.bed"),
-            f"{b.lower()}_only": os.path.join(args.out_dir, f"{b.lower()}_only.bed"),
-        }
-        sh(f"bedtools intersect -a {paths[a]} -b {paths[b]} > {out['shared']}")
-        sh(f"bedtools subtract -A -a {paths[a]} -b {paths[b]} > {out[f'{a.lower()}_only']}")
-        sh(f"bedtools subtract -A -a {paths[b]} -b {paths[a]} > {out[f'{b.lower()}_only']}")
-        print("\n=== accessibility partition (this IS the open question, measured) ===")
+        shared, a_only, b_only = {}, {}, {}
+        for c in sorted(set(peaks[a]) | set(peaks[b])):
+            A, B = peaks[a].get(c, []), peaks[b].get(c, [])
+            if not A:
+                b_only[c] = B
+                continue
+            if not B:
+                a_only[c] = A
+                continue
+            inter, aonly = _mask_ops(A, B)
+            _, bonly = _mask_ops(B, A)
+            shared[c] = merge(sorted(inter))
+            a_only[c] = merge(sorted(aonly))
+            b_only[c] = merge(sorted(bonly))
+        print("\n=== accessibility partition (the open question, measured) ===")
         summ = {}
-        for k, v in out.items():
-            n = int(sh(f"wc -l < {v}").strip())
-            bp = int(sh(f"awk '{{s+=$3-$2}} END {{print s+0}}' {v}").strip())
-            summ[k] = {"n_regions": n, "bp": bp}
-            print(f"  {k:<12} {n:>8,} regions  {bp / 1e6:>7.1f} Mb")
-        tot = sum(v["n_regions"] for v in summ.values())
-        if tot:
-            frac = summ["shared"]["n_regions"] / tot
+        for name, d in (
+            ("shared_open_both", shared),
+            (f"{a.lower()}_only", a_only),
+            (f"{b.lower()}_only", b_only),
+        ):
+            n, bp = write_bed(os.path.join(args.out_dir, f"{name}.bed"), d)
+            summ[name] = {"n_regions": n, "bp": bp}
+            print(f"  {name:<18} {n:>8,} regions  {bp / 1e6:>7.1f} Mb")
+        tot_bp = sum(v["bp"] for v in summ.values())
+        if tot_bp:
+            print(f"\n  shared fraction (bp) = {summ['shared_open_both']['bp'] / tot_bp:.1%}")
             print(
-                f"\n  shared fraction = {frac:.1%} -- Carl's point is that this will be HIGH "
-                "because shared TFs (MYC, AP1) drive most activity; the specific fractions are "
-                "what the differential arm must be drawn from, so if they are small the arm needs "
-                "balanced-by-construction sampling rather than proportional sampling."
+                "  Carl predicted this is HIGH, because shared TFs (MYC, AP1) drive most "
+                "activity. If the cell-type-specific fractions are small, the differential arm "
+                "must be drawn BALANCED-BY-CONSTRUCTION rather than proportionally, or its "
+                "specific strata will be too thin to analyse."
             )
         with open(os.path.join(args.out_dir, "partition_summary.json"), "w") as fh:
             json.dump(summ, fh, indent=2)
