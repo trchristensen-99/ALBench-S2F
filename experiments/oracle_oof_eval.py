@@ -187,7 +187,9 @@ def stage_predict(args):
             strand_reindexing=None,
         )[unique_head_name]
 
-    ckpt = Path(args.oracle_dir) / f"fold_{k}" / "best_model" / "checkpoint"
+    # orbax requires an ABSOLUTE path: a relative one raises
+    # "Checkpoint path should be absolute" from build_kvstore_tspec.
+    ckpt = Path(args.oracle_dir).expanduser().resolve() / f"fold_{k}" / "best_model" / "checkpoint"
     if not ckpt.exists():
         raise FileNotFoundError(ckpt)
     loaded_params, _ = ocp.StandardCheckpointer().restore(ckpt)
