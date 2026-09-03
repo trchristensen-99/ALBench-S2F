@@ -135,12 +135,17 @@ def stage_predict(args):
     from models.embedding_cache import reinit_head_params
 
     k = int(args.fold_id)
-    out_path = Path(args.out_dir) / f"oof_fold_{k}.npz"
+    stem = "allfold" if args.all_sequences else "oof_fold"
+    out_path = Path(args.out_dir) / f"{stem}_{k}.npz"
     if out_path.exists() and not args.overwrite:
         print(f"SKIP: {out_path} exists")
         return
 
-    fm = np.load(Path(args.out_dir) / "foldmap.npz", allow_pickle=True)
+    fm = (
+        None
+        if args.all_sequences
+        else np.load(Path(args.out_dir) / "foldmap.npz", allow_pickle=True)
+    )
     todo = {}
     for name, (fn, keys) in BATTERY.items():
         path = Path(args.battery_dir) / fn
@@ -149,9 +154,12 @@ def stage_predict(args):
         z = np.load(path, allow_pickle=True)
         for key in keys:
             tag = f"{name}.{key}"
-            if tag not in fm.files:
-                continue
-            sel = np.where(fm[tag] == k)[0]
+            if args.all_sequences:
+                sel = np.arange(len(z[key]))
+            else:
+                if tag not in fm.files:
+                    continue
+                sel = np.where(fm[tag] == k)[0]
             if len(sel):
                 todo[tag] = (sel, [str(z[key][i]) for i in sel])
     n_tot = sum(len(v[0]) for v in todo.values())
@@ -228,6 +236,13 @@ if __name__ == "__main__":
     ap.add_argument(
         "--weights_path",
         default="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+    )
+    ap.add_argument(
+        "--all_sequences",
+        action="store_true",
+        help="predict EVERY sequence with this fold, not just the ones it held out. Averaging the "
+        "10 resulting files reproduces the deployed all-folds ensemble on the same pairs, which is "
+        "what makes an inflation number comparable.",
     )
     ap.add_argument("--overwrite", action="store_true")
     a = ap.parse_args()
