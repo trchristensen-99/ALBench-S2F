@@ -7,6 +7,7 @@ reservoir's best-val model per menu signature, ElasticNet-stack on its own val, 
 Curve of held-out genomic Pearson (and gap vs the held-out's explicit-best) vs K -> the plateau =
 the number of reservoirs we actually need to run.
 """
+
 import sys, json, itertools
 import numpy as np
 from collections import Counter
@@ -14,7 +15,11 @@ from scipy.stats import pearsonr
 
 sys.argv = ["reservoir_marginal"]
 from scripts.analysis.loso_menu_fairness import (
-    load_cell, greedy_knee_chosen, eval_stack_on_sets, RESERVOIRS, BAKE,
+    load_cell,
+    greedy_knee_chosen,
+    eval_stack_on_sets,
+    RESERVOIRS,
+    BAKE,
 )
 
 SET = "genomic"
@@ -26,11 +31,11 @@ for r in RESERVOIRS:
     try:
         models, labels, persets = load_cell(r)
         if len(models) < 3:
-            print(f"[skip] {r}: {len(models)} models", flush=True); continue
+            print(f"[skip] {r}: {len(models)} models", flush=True)
+            continue
         cells[r] = {"models": models, "labels": labels, "persets": persets}
         curve, chosen, nstar = greedy_knee_chosen(models, labels)
-        per_res[r] = {"chosen": chosen, "nstar": nstar,
-                      "sigs": [tuple(m["sig"]) for m in chosen]}
+        per_res[r] = {"chosen": chosen, "nstar": nstar, "sigs": [tuple(m["sig"]) for m in chosen]}
         eb = eval_stack_on_sets(chosen, labels["val_labels"], persets, r)
         explicit[r] = eb.get(SET)
         print(f"[ok] {r}: N*={nstar} explicit_{SET}={explicit[r]:.4f}", flush=True)
@@ -54,7 +59,8 @@ def build_menu(sources):
 
 
 def apply_menu(T, menu):
-    c = cells[T]; vy = c["labels"]["val_labels"]
+    c = cells[T]
+    vy = c["labels"]["val_labels"]
     by_sig = {}
     for m in c["models"]:
         sig = tuple(m["sig"])
@@ -88,12 +94,17 @@ for K in range(1, len(active)):
             mp = apply_menu(T, menu)
             if mp is None or explicit.get(T) is None:
                 continue
-            perfs.append(mp); gaps.append(mp - explicit[T])
+            perfs.append(mp)
+            gaps.append(mp - explicit[T])
     if perfs:
-        agg.append([K, float(np.mean(perfs)), float(np.std(perfs)),
-                    float(np.mean(gaps)), len(perfs)])
-        print(f"K={K}: menu_on_heldout {SET}={np.mean(perfs):.4f}±{np.std(perfs):.4f} "
-              f"gap={np.mean(gaps):+.4f} (n={len(perfs)})", flush=True)
+        agg.append(
+            [K, float(np.mean(perfs)), float(np.std(perfs)), float(np.mean(gaps)), len(perfs)]
+        )
+        print(
+            f"K={K}: menu_on_heldout {SET}={np.mean(perfs):.4f}±{np.std(perfs):.4f} "
+            f"gap={np.mean(gaps):+.4f} (n={len(perfs)})",
+            flush=True,
+        )
 
 print("\n=== AGGREGATE (K | mean_perf | std | mean_gap | n | marginal_perf) ===")
 for i, row in enumerate(agg):
@@ -101,24 +112,40 @@ for i, row in enumerate(agg):
     dm = m - agg[i - 1][1] if i else 0.0
     print(f"K={K}  perf={m:.4f}  std={s:.4f}  gap={g:+.4f}  n={n}  marginal={dm:+.4f}")
 
-json.dump({"set": SET, "aggregate": agg, "explicit_best": explicit, "active": active},
-          open(f"{BAKE}/reservoir_marginal.json", "w"), indent=1)
+json.dump(
+    {"set": SET, "aggregate": agg, "explicit_best": explicit, "active": active},
+    open(f"{BAKE}/reservoir_marginal.json", "w"),
+    indent=1,
+)
 
-import matplotlib; matplotlib.use("Agg")
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-ks = [a[0] for a in agg]; ms = [a[1] for a in agg]; ss = [a[2] for a in agg]; gs = [a[3] for a in agg]
+
+ks = [a[0] for a in agg]
+ms = [a[1] for a in agg]
+ss = [a[2] for a in agg]
+gs = [a[3] for a in agg]
 fig, (a1, a2) = plt.subplots(1, 2, figsize=(13, 5.2))
 a1.errorbar(ks, ms, yerr=ss, color="#1d4ed8", lw=2.6, marker="o", capsize=3)
-a1.axhline(np.mean(list(v for v in explicit.values() if v)), ls="--", color="0.5",
-           label="mean explicit-best (per-reservoir optimum)")
+a1.axhline(
+    np.mean(list(v for v in explicit.values() if v)),
+    ls="--",
+    color="0.5",
+    label="mean explicit-best (per-reservoir optimum)",
+)
 a1.set_xlabel("# reservoir strategies' HP-opt pools combined (K)")
 a1.set_ylabel(f"menu-on-held-out {SET} Pearson")
 a1.set_title("Marginal benefit of combining reservoir HP-opt pools (D=30k)")
-a1.legend(); a1.grid(alpha=0.3)
+a1.legend()
+a1.grid(alpha=0.3)
 a2.axhline(0, ls="-", color="0.3")
 a2.plot(ks, gs, color="#b91c1c", lw=2.6, marker="s")
-a2.set_xlabel("# reservoir pools combined (K)"); a2.set_ylabel("gap to held-out explicit-best")
+a2.set_xlabel("# reservoir pools combined (K)")
+a2.set_ylabel("gap to held-out explicit-best")
 a2.set_title("Gap to each held-out reservoir's own optimum")
 a2.grid(alpha=0.3)
-fig.tight_layout(); fig.savefig(f"{BAKE}/reservoir_marginal.png", dpi=140)
+fig.tight_layout()
+fig.savefig(f"{BAKE}/reservoir_marginal.png", dpi=140)
 print("WROTE", f"{BAKE}/reservoir_marginal.png")

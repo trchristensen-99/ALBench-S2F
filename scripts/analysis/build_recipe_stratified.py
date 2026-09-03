@@ -2,16 +2,41 @@
 collapses to eff/muon). Stratify by block_class and ensure optimizer coverage + depth/width
 spread + AutoResearch novelty, so the empirical greedy can decide if diversity helps.
 """
+
 import json, glob
 import numpy as np
 
 REPO = "/grid/wsbs/home_norepl/christen/ALBench-S2F"
 BAKE = f"{REPO}/outputs/hp_step1_bakeoff_e100"
-SRC_RES = ["genomic", "motif_planted_v2", "evoaug_heavy", "dinuc_shuffle", "gc_matched",
-           "phylogenetic_zoonomia", "uncertainty_guided", "diversity_guided"]
-CFG_KEYS = ["lr", "batch_size", "conv_dropout", "dense_dropout", "n_layers", "width_base",
-            "width_jitter", "block_class", "ks", "pct_start", "optimizer", "weight_decay",
-            "use_shift_aug", "shift_max", "use_evoaug", "activation", "loss"]
+SRC_RES = [
+    "genomic",
+    "motif_planted_v2",
+    "evoaug_heavy",
+    "dinuc_shuffle",
+    "gc_matched",
+    "phylogenetic_zoonomia",
+    "uncertainty_guided",
+    "diversity_guided",
+]
+CFG_KEYS = [
+    "lr",
+    "batch_size",
+    "conv_dropout",
+    "dense_dropout",
+    "n_layers",
+    "width_base",
+    "width_jitter",
+    "block_class",
+    "ks",
+    "pct_start",
+    "optimizer",
+    "weight_decay",
+    "use_shift_aug",
+    "shift_max",
+    "use_evoaug",
+    "activation",
+    "loss",
+]
 
 # gather all valid (val_pearson, hp) across reservoirs + AutoResearch
 pool = []
@@ -46,7 +71,9 @@ def add(hp):
     k = dedup_key(hp)
     if k in seen:
         return False
-    seen.add(k); cands.append(keep(hp)); return True
+    seen.add(k)
+    cands.append(keep(hp))
+    return True
 
 
 # 1) per block_class: top-3 by val (depth/width diversity via dedup)
@@ -66,7 +93,8 @@ for opt in ["adam", "adamw", "muon"]:
         continue
     sub = sorted([p for p in pool if p[1].get("optimizer") == opt], key=lambda x: -x[0])
     if sub:
-        add(sub[0][1]); print(f"  +optimizer {opt}", flush=True)
+        add(sub[0][1])
+        print(f"  +optimizer {opt}", flush=True)
 
 # 3) top-2 AutoResearch configs (may carry novel activation/loss axes)
 auto = sorted([p for p in pool if p[2] == "auto"], key=lambda x: -x[0])
@@ -81,9 +109,13 @@ print(f"  +autoresearch: {na}", flush=True)
 json.dump(cands, open(f"{REPO}/configs/deploy_recipes/deploy_recipe_d30000.json", "w"), indent=1)
 print(f"\nRECIPE: {len(cands)} configs", flush=True)
 from collections import Counter
+
 print("  block_class:", dict(Counter(c.get("block_class") for c in cands)), flush=True)
 print("  optimizer:", dict(Counter(c.get("optimizer") for c in cands)), flush=True)
 for c in cands:
-    print(f"  {c.get('block_class')}/{c.get('optimizer')} L{c.get('n_layers')} "
-          f"w{c.get('width_base')} lr{c.get('lr'):.1e} act={c.get('activation','-')}", flush=True)
+    print(
+        f"  {c.get('block_class')}/{c.get('optimizer')} L{c.get('n_layers')} "
+        f"w{c.get('width_base')} lr{c.get('lr'):.1e} act={c.get('activation', '-')}",
+        flush=True,
+    )
 print(f"WROTE deploy_recipe_d30000.json ({len(cands)} configs)", flush=True)

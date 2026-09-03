@@ -5,6 +5,7 @@
      -> outputs/reservoir_cache/k562_mix{3,5}_d1000000_seed42.npz
 Both are CPU-only. Mixes become first-class training compositions for deploy_train.py.
 """
+
 import os, json, glob
 import numpy as np
 
@@ -17,14 +18,33 @@ os.makedirs(RECIPE_DIR, exist_ok=True)
 # ---- 1. candidate recipe: top configs across reservoirs + AutoResearch, deduped, diverse ----
 SRC_RES = ["genomic", "motif_planted_v2", "evoaug_heavy", "dinuc_shuffle", "gc_matched"]
 TOP_PER = 2
-CFG_KEYS = ["lr", "batch_size", "conv_dropout", "dense_dropout", "n_layers", "width_base",
-            "width_jitter", "block_class", "ks", "pct_start", "optimizer", "weight_decay",
-            "use_shift_aug", "shift_max", "use_evoaug"]
+CFG_KEYS = [
+    "lr",
+    "batch_size",
+    "conv_dropout",
+    "dense_dropout",
+    "n_layers",
+    "width_base",
+    "width_jitter",
+    "block_class",
+    "ks",
+    "pct_start",
+    "optimizer",
+    "weight_decay",
+    "use_shift_aug",
+    "shift_max",
+    "use_evoaug",
+]
 
 
 def sig(hp):  # coarse de-dup key
-    return (hp.get("block_class"), hp.get("optimizer"), hp.get("n_layers"),
-            hp.get("width_base"), round(np.log10(max(hp.get("lr", 1e-3), 1e-9)), 1))
+    return (
+        hp.get("block_class"),
+        hp.get("optimizer"),
+        hp.get("n_layers"),
+        hp.get("width_base"),
+        round(np.log10(max(hp.get("lr", 1e-3), 1e-9)), 1),
+    )
 
 
 cands, seen = [], set()
@@ -54,8 +74,11 @@ for src in sources:
             break
 print(f"recipe: {len(cands)} diverse candidate configs", flush=True)
 for c in cands:
-    print(f"  {c.get('block_class')}/{c.get('optimizer')} L{c.get('n_layers')} "
-          f"w{c.get('width_base')} lr{c.get('lr'):.1e}", flush=True)
+    print(
+        f"  {c.get('block_class')}/{c.get('optimizer')} L{c.get('n_layers')} "
+        f"w{c.get('width_base')} lr{c.get('lr'):.1e}",
+        flush=True,
+    )
 json.dump(cands, open(f"{RECIPE_DIR}/deploy_recipe_d30000.json", "w"), indent=1)
 print(f"WROTE {RECIPE_DIR}/deploy_recipe_d30000.json", flush=True)
 
@@ -68,8 +91,10 @@ COMP = {
     "dinuc_shuffle": f"{RC}/k562_dinuc_shuffle_d1000000_seed42.npz",
     "gc_matched": f"{RC}/k562_gc_matched_d1000000_seed42.npz",
 }
-MIXES = {"mix3": ["genomic", "motif_planted_v2", "evoaug_heavy"],
-         "mix5": ["genomic", "motif_planted_v2", "evoaug_heavy", "dinuc_shuffle", "gc_matched"]}
+MIXES = {
+    "mix3": ["genomic", "motif_planted_v2", "evoaug_heavy"],
+    "mix5": ["genomic", "motif_planted_v2", "evoaug_heavy", "dinuc_shuffle", "gc_matched"],
+}
 TOTAL = 1_000_000
 
 

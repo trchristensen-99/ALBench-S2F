@@ -155,7 +155,7 @@ def load_cell(base, R, D, ds, tags, round_budget=None, verbose=False):
             continue
         lab = np.load(lab_p, allow_pickle=True)
         vy = lab["val_labels"]
-        ora = {k[len("oracle_"):]: lab[k] for k in lab.files if k.startswith("oracle_")}
+        ora = {k[len("oracle_") :]: lab[k] for k in lab.files if k.startswith("oracle_")}
         if val_labels is None:
             val_labels, oracle = vy, ora
         else:
@@ -219,7 +219,14 @@ def load_cell(base, R, D, ds, tags, round_budget=None, verbose=False):
             print("  [quirk]", q)
     if val_labels is None or not models:
         return None
-    return Cell(R, D, ds, val_labels.astype(np.float64), {s: o.astype(np.float64) for s, o in oracle.items()}, models)
+    return Cell(
+        R,
+        D,
+        ds,
+        val_labels.astype(np.float64),
+        {s: o.astype(np.float64) for s, o in oracle.items()},
+        models,
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -298,7 +305,9 @@ def greedy_ensemble(cell, target_set=TARGET_SET, max_pool=40, max_size=12, min_d
 # ----------------------------------------------------------------------------
 # helpers for slope: build per-cell ensembles and pool across reservoirs
 # ----------------------------------------------------------------------------
-def build_cell_ensembles(base, reservoirs, D, seeds, tags, round_budget, target_set, max_pool, max_size, cache):
+def build_cell_ensembles(
+    base, reservoirs, D, seeds, tags, round_budget, target_set, max_pool, max_size, cache
+):
     """Return {reservoir: {ds: Ensemble}} for one D, using a load/build cache."""
     out = {}
     for R in reservoirs:
@@ -307,7 +316,11 @@ def build_cell_ensembles(base, reservoirs, D, seeds, tags, round_budget, target_
             key = (R, D, ds)
             if key not in cache:
                 cell = load_cell(base, R, D, ds, tags, round_budget=round_budget)
-                ens = greedy_ensemble(cell, target_set, max_pool, max_size) if cell is not None else None
+                ens = (
+                    greedy_ensemble(cell, target_set, max_pool, max_size)
+                    if cell is not None
+                    else None
+                )
                 cache[key] = ens
             if cache[key] is not None:
                 out[R][ds] = cache[key]
@@ -338,7 +351,9 @@ def slope_analysis(base, reservoirs, Ds, seeds, tags, round_budget, target_set, 
     # per-D pooled ensembles per reservoir
     perD = {}
     for D in Ds:
-        perD[D] = build_cell_ensembles(base, reservoirs, D, seeds, tags, round_budget, target_set, max_pool, max_size, cache)
+        perD[D] = build_cell_ensembles(
+            base, reservoirs, D, seeds, tags, round_budget, target_set, max_pool, max_size, cache
+        )
 
     def subset_slope(subset):
         pts = []  # (D, mse, pearson, n_cells)
@@ -379,7 +394,9 @@ def slope_analysis(base, reservoirs, Ds, seeds, tags, round_budget, target_set, 
 # ----------------------------------------------------------------------------
 # (4a) rounds-to-plateau
 # ----------------------------------------------------------------------------
-def rounds_to_plateau(base, reservoirs, D, seeds, tags, round_budget, target_set, max_pool, max_size, round_grid):
+def rounds_to_plateau(
+    base, reservoirs, D, seeds, tags, round_budget, target_set, max_pool, max_size, round_grid
+):
     """Mean (over reservoirs x seeds) ensemble test pearson vs #rounds included."""
     # preload full cells once (up to round_budget), then rebuild ensembles per cutoff
     curve = []
@@ -409,7 +426,9 @@ def rounds_to_plateau(base, reservoirs, D, seeds, tags, round_budget, target_set
 # ----------------------------------------------------------------------------
 # (4b) ensemble-size knee (from val-selected greedy curve)
 # ----------------------------------------------------------------------------
-def size_knee(base, reservoirs, D, seeds, tags, round_budget, target_set, max_pool, max_size, knee_delta=0.002):
+def size_knee(
+    base, reservoirs, D, seeds, tags, round_budget, target_set, max_pool, max_size, knee_delta=0.002
+):
     """Mean greedy test-pearson curve vs size; report knee (first size whose
     marginal mean gain < knee_delta)."""
     curves = []
@@ -493,7 +512,12 @@ def epoch_check(base, reservoirs, Ds, seeds, tags, round_budget):
 
     def q(a):
         a = np.array(a, float)
-        return dict(mean=float(a.mean()), median=float(np.median(a)), p10=float(np.percentile(a, 10)), p90=float(np.percentile(a, 90)))
+        return dict(
+            mean=float(a.mean()),
+            median=float(np.median(a)),
+            p10=float(np.percentile(a, 10)),
+            p90=float(np.percentile(a, 90)),
+        )
 
     return dict(
         n=n,
@@ -507,36 +531,61 @@ def epoch_check(base, reservoirs, Ds, seeds, tags, round_budget):
 # printing
 # ----------------------------------------------------------------------------
 def print_slope(results, Ds):
-    print("\n=== (3) PRIMARY: log-log MSE scaling slope (VAL-selected ensembles, matched round budget) ===")
+    print(
+        "\n=== (3) PRIMARY: log-log MSE scaling slope (VAL-selected ensembles, matched round budget) ==="
+    )
     print(f"    fit = log(test MSE on '{TARGET_SET}') vs log(D);  D in {Ds}")
-    print(f"    {'subset':<22s} {'slope':>8s} {'intercept':>10s}   points (D: MSE / pearson / n_cells)")
+    print(
+        f"    {'subset':<22s} {'slope':>8s} {'intercept':>10s}   points (D: MSE / pearson / n_cells)"
+    )
     for name, r in results.items():
-        pts = "  ".join(f"{D//1000}k:{mse:.4f}/{pe:.3f}/{n}" for (D, mse, pe, n) in r["points"])
+        pts = "  ".join(f"{D // 1000}k:{mse:.4f}/{pe:.3f}/{n}" for (D, mse, pe, n) in r["points"])
         print(f"    {name:<22s} {r['slope']:>8.4f} {r['intercept']:>10.4f}   {pts}")
     base = results.get("all", {}).get("slope")
     if base is not None and np.isfinite(base):
         print(f"\n    all-R slope = {base:+.4f}")
         for name, r in results.items():
             if name.startswith("loro") and np.isfinite(r["slope"]):
-                print(f"      {name:<20s} slope={r['slope']:+.4f}  d(slope)={r['slope']-base:+.4f}")
+                print(
+                    f"      {name:<20s} slope={r['slope']:+.4f}  d(slope)={r['slope'] - base:+.4f}"
+                )
 
 
 # ----------------------------------------------------------------------------
 # main
 # ----------------------------------------------------------------------------
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--base", default=DEFAULT_BASE)
     ap.add_argument("--reservoirs", default=",".join(ALL_RESERVOIRS))
-    ap.add_argument("--tags", default=",".join(K4_TAGS), help="strategy dir tags to pool (default K4 algo)")
+    ap.add_argument(
+        "--tags", default=",".join(K4_TAGS), help="strategy dir tags to pool (default K4 algo)"
+    )
     ap.add_argument("--include_llm", action="store_true", help="also pool lexp,ldiv persona dirs")
     ap.add_argument("--seeds", default=",".join(map(str, DEFAULT_SEEDS)))
     ap.add_argument("--Ds", default=",".join(map(str, DEFAULT_DS)))
-    ap.add_argument("--round_budget", type=int, default=50, help="matched round budget across D (keep round<budget)")
+    ap.add_argument(
+        "--round_budget",
+        type=int,
+        default=50,
+        help="matched round budget across D (keep round<budget)",
+    )
     ap.add_argument("--target_set", default=TARGET_SET)
-    ap.add_argument("--max_pool", type=int, default=40, help="cap candidate models (top-N by val_pearson) for greedy")
+    ap.add_argument(
+        "--max_pool",
+        type=int,
+        default=40,
+        help="cap candidate models (top-N by val_pearson) for greedy",
+    )
     ap.add_argument("--max_size", type=int, default=12, help="max greedy ensemble size")
-    ap.add_argument("--knee_D", type=int, default=None, help="D for the rounds/knee/overfit secondary analyses (default: largest available)")
+    ap.add_argument(
+        "--knee_D",
+        type=int,
+        default=None,
+        help="D for the rounds/knee/overfit secondary analyses (default: largest available)",
+    )
     ap.add_argument(
         "--which",
         default="slope,rounds,knee,overfit,epochs",
@@ -559,28 +608,65 @@ def main():
     print(f"  base={args.base}  reservoirs={reservoirs}")
     print(f"  tags={tags}  seeds={seeds}  Ds={Ds}")
     print(f"  round_budget={args.round_budget} (matched across D)  target_set={args.target_set}")
-    print(f"  greedy: VAL-selected ElasticNetCV | max_pool={args.max_pool} max_size={args.max_size}")
+    print(
+        f"  greedy: VAL-selected ElasticNetCV | max_pool={args.max_pool} max_size={args.max_size}"
+    )
     print("=" * 88)
 
     dump = {"config": vars(args)}
 
     if "slope" in which:
-        res = slope_analysis(args.base, reservoirs, Ds, seeds, tags, args.round_budget, args.target_set, args.max_pool, args.max_size)
+        res = slope_analysis(
+            args.base,
+            reservoirs,
+            Ds,
+            seeds,
+            tags,
+            args.round_budget,
+            args.target_set,
+            args.max_pool,
+            args.max_size,
+        )
         print_slope(res, Ds)
         dump["slope"] = res
 
     if "rounds" in which:
         grid = [5, 10, 20, 30, 50, 75, 100, 150]
         grid = [r for r in grid if r <= max(150, args.round_budget)]
-        curve = rounds_to_plateau(args.base, reservoirs, knee_D, seeds, tags, max(grid), args.target_set, args.max_pool, args.max_size, grid)
-        print(f"\n=== (4a) rounds-to-plateau (D={knee_D}, mean ensemble test pearson over reservoirs x seeds) ===")
+        curve = rounds_to_plateau(
+            args.base,
+            reservoirs,
+            knee_D,
+            seeds,
+            tags,
+            max(grid),
+            args.target_set,
+            args.max_pool,
+            args.max_size,
+            grid,
+        )
+        print(
+            f"\n=== (4a) rounds-to-plateau (D={knee_D}, mean ensemble test pearson over reservoirs x seeds) ==="
+        )
         for r, p, n in curve:
             print(f"    rounds<{r:<4d}  test_pearson={p:.4f}  (n_cells={n})")
         dump["rounds_to_plateau"] = curve
 
     if "knee" in which:
-        mean_curve, knee = size_knee(args.base, reservoirs, knee_D, seeds, tags, args.round_budget, args.target_set, args.max_pool, args.max_size)
-        print(f"\n=== (4b) ensemble-size knee (D={knee_D}, val-selected greedy, mean test pearson vs size) ===")
+        mean_curve, knee = size_knee(
+            args.base,
+            reservoirs,
+            knee_D,
+            seeds,
+            tags,
+            args.round_budget,
+            args.target_set,
+            args.max_pool,
+            args.max_size,
+        )
+        print(
+            f"\n=== (4b) ensemble-size knee (D={knee_D}, val-selected greedy, mean test pearson vs size) ==="
+        )
         for size, p, n in mean_curve:
             print(f"    size={size:<3d} test_pearson={p:.4f}  (n_cells={n})")
         print(f"    -> knee at size ~{knee}")
@@ -589,9 +675,15 @@ def main():
     if "overfit" in which:
         gap_sets = [s for s in ["genomic", "snv_delta", "snv_ref", "ood"]]
         rows = overfit_gap(args.base, reservoirs, knee_D, seeds, tags, args.round_budget, gap_sets)
-        print(f"\n=== (4c) val-vs-test overfitting gap (D={knee_D}, per reservoir; val is per-combo/own held-out) ===")
+        print(
+            f"\n=== (4c) val-vs-test overfitting gap (D={knee_D}, per reservoir; val is per-combo/own held-out) ==="
+        )
         for R, row in rows.items():
-            extra = "  ".join(f"{k}={v:.3f}" for k, v in row.items() if k.startswith("test_") or k.startswith("gap_"))
+            extra = "  ".join(
+                f"{k}={v:.3f}"
+                for k, v in row.items()
+                if k.startswith("test_") or k.startswith("gap_")
+            )
             print(f"    {R:<18s} n={row['n']:<4d} val_pearson={row['val_pearson']:.3f}  {extra}")
         dump["overfit_gap"] = rows
 
@@ -603,7 +695,9 @@ def main():
             for k in ("best_epoch", "epochs_trained"):
                 if ec[k]:
                     q = ec[k]
-                    print(f"    {k}: mean={q['mean']:.1f} median={q['median']:.1f} p10={q['p10']:.0f} p90={q['p90']:.0f}")
+                    print(
+                        f"    {k}: mean={q['mean']:.1f} median={q['median']:.1f} p10={q['p10']:.0f} p90={q['p90']:.0f}"
+                    )
         dump["epoch_check"] = ec
 
     if args.out:
