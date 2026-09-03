@@ -183,6 +183,9 @@ def stage_predict(args):
             state,
             sequences,
             jnp.zeros(len(sequences), dtype=jnp.int32),
+            # the installed alphagenome_ft makes requested_outputs a REQUIRED keyword-only arg;
+            # the older reference script omitted it and now fails with a TypeError
+            requested_outputs=[unique_head_name],
             negative_strand_mask=jnp.zeros(len(sequences), dtype=bool),
             strand_reindexing=None,
         )[unique_head_name]
