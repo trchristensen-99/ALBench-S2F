@@ -32,6 +32,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--table", default="data/k562/DATA-Table_S2__MPRA_dataset.txt")
     ap.add_argument("--out_dir", default="data/k562/test_sets_mono_genomewide")
+    ap.add_argument(
+        "--context",
+        choices=["mono", "multi"],
+        default="mono",
+        help="mono = variant in exactly ONE oligo context; multi = repeated contexts",
+    )
     args = ap.parse_args()
 
     lab, sec = f"{CELL}_log2FC", f"{CELL}_lfcSE"
@@ -49,7 +55,11 @@ def main():
     # strict-mono: the variant appears in exactly ONE oligo context, matching the canonical
     # definition used by the chr7/13 battery
     nctx = m.groupby("vk")["OL"].transform("nunique")
-    m = m[nctx == 1].drop_duplicates(subset=["vk"])
+    if args.context == "mono":
+        m = m[nctx == 1].drop_duplicates(subset=["vk"])
+    else:
+        # keep every context: repeated variants are the point of this subset
+        m = m[nctx > 1]
     m["delta"] = m[f"{lab}_a"] - m[f"{lab}_r"]
     print(f"[pairs] {len(m):,} strict-mono pairs genome-wide over {m['chr'].nunique()} chromosomes")
     held = m["chr"].astype(str).isin(["7", "13"]).sum()
@@ -70,8 +80,8 @@ def main():
         alt_se=m[f"{sec}_a"].to_numpy(np.float32),
         chrom=m["chr"].to_numpy(),
         n_pairs=len(m),
-        test_set_version=np.str_("snv_mono_genomewide_v1"),
-        monoallelic=True,
+        test_set_version=np.str_(f"snv_{args.context}_genomewide_v1"),
+        monoallelic=(args.context == "mono"),
         # placeholders so the report's deployed-vs-OOF comparison does not crash; the deployed
         # ensemble has not been run on this set
         ref_mean=np.full(len(m), np.nan, np.float32),
