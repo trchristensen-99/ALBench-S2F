@@ -424,6 +424,16 @@ def main() -> None:
             )
         else:
             logger.warning("progress.json present but no checkpoint; starting fresh")
+    elif args.resume:
+        # A job preempted before this flag existed left a checkpoint but no progress.json. Warm-
+        # starting from those weights still saves most of the work: epochs are re-run, but from
+        # trained params rather than from the Stage-1 initialisation.
+        ck = (args.output_dir / "best_model" / "checkpoint").resolve()
+        if ck.exists():
+            restored = ocp.StandardCheckpointer().restore(ck)
+            pr = restored[0] if isinstance(restored, (tuple, list)) else restored
+            model._params = jax.device_put(pr)
+            logger.info("WARM START from %s (no progress.json; epoch count restarts)", ck)
     best_epoch = 0
     epochs_no_improve = 0
 
