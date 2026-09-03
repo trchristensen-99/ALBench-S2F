@@ -393,6 +393,7 @@ def main() -> None:
 
     # ── Training loop ─────────────────────────────────────────────────────────
     best_val_pearson = -1.0
+    best_params = None
     best_epoch = 0
     epochs_no_improve = 0
 
@@ -436,6 +437,10 @@ def main() -> None:
             best_epoch = epoch
             epochs_no_improve = 0
             model.save_checkpoint(str(args.output_dir / "best_model"), save_full_model=True)
+            # Hold the selected params on the host as well. Reloading them through orbax for the
+            # test pass is fragile - the round trip can hand back a list rather than the mapping
+            # haiku expects - and an in-memory copy removes that failure mode entirely.
+            best_params = jax.device_get(model._params)
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= args.early_stop_patience:
@@ -459,12 +464,11 @@ def main() -> None:
             collate_fn=lambda b: collate(b, augment=False),
             pin_memory=True,
         )
-        ck = (args.output_dir / "best_model" / "checkpoint").resolve()
-        if ck.exists():
-            restored = ocp.StandardCheckpointer().restore(ck)
-            model._params = jax.device_put(
-                restored[0] if isinstance(restored, tuple) else restored
-            )
+        if best_params is not None:
+            model._params = jax.device_put(best_params)
+            logger.info("Test pass uses the val-selected params from epoch %d", best_epoch + 1)
+        else:
+            logger.warning("No improving epoch recorded; testing with final params")
         yt, yp = [], []
         for batch in test_loader:
             p = eval_step(model._params, jnp.array(batch["sequences"]),
