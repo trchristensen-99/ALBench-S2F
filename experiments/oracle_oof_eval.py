@@ -251,9 +251,10 @@ if __name__ == "__main__":
         "--n_shards",
         type=int,
         default=1,
-        help="split each fold's sequences across this many tasks. Wall-clock per task falls ~1/N, "
-        "but every task re-pays the ~6 min JAX init + weight load, so sharding only wins when "
-        "predict time already dominates setup (roughly >20k sequences per fold).",
+        help="split each fold's sequences across this many tasks. MEASURED cost per task is "
+        "~19 s fixed + 0.035 s/sequence (~29 seq/s), so runtime is almost pure prediction and "
+        "sharding buys a near-linear speedup at any size worth parallelising. 64k sequences takes "
+        "~38 min unsharded, ~13 min at n_shards=3. Cap total tasks at the available GPU slots.",
     )
     ap.add_argument("--shard_id", type=int, default=0)
     ap.add_argument("--overwrite", action="store_true")
