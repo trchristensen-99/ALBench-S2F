@@ -21,6 +21,7 @@ results will not transfer until a real PWM database is wired in.
 """
 
 import argparse
+import inspect
 import itertools
 import json
 import os
@@ -35,7 +36,7 @@ GRIDS = {
         "mutation_rate": [0.01, 0.03, 0.05, 0.10, 0.20],
     },
     "evoaug_structural": {"p_deletion": [0.1, 0.3, 0.5]},
-    "motif_planted_v2": {"min_motifs": [1, 3, 5], "motif_set": ["auto"]},
+    "motif_planted_v2": {"min_motifs": [1, 2, 3], "motif_set": ["auto"]},
     "motif_density": {"n_motifs": [1, 3, 5, 8]},
     "motif_grammar": {"min_motifs": [1, 3]},
     "phylogenetic_zoonomia": {"mut_rate": [0.005, 0.02, 0.05, 0.10]},
@@ -44,7 +45,8 @@ GRIDS = {
     "gc_matched": {"n_gc_bins": [10, 50]},
     "recombination": {"crossover_mode": ["uniform", "single_point"]},
     "random": {},
-    "dinuc_shuffle": {},
+    "motif_clustering": {"n_clusters": [10, 30]},
+    "curriculum": {"difficulty_mode": ["distance_from_mean"]},
 }
 
 
@@ -110,6 +112,10 @@ def main():
         "gc_matched": R.GCMatchedSampler,
         "recombination": R.RecombinationSampler,
         "random": R.RandomSampler,
+        "uncertainty_guided": R.UncertaintyGuidedSampler,
+        "curriculum": R.CurriculumSampler,
+        "motif_clustering": R.MotifClusteringSampler,
+        "tf_motif_shuffle": R.TFMotifShuffleSampler,
     }
     try:
         from albench.reservoir.motif_planted_v2 import PhylogeneticZoonomiaSampler
@@ -119,12 +125,18 @@ def main():
         print(f"[warn] zoonomia sampler unavailable: {e}")
 
     names = args.strategies or list(GRIDS)
-    ref = None
+    # Most samplers are DERIVED strategies: they transform an existing genomic pool and take it as
+    # a required positional arg (base_sequences / pool_sequences). The first sweep failed 27/39
+    # configs for exactly this reason, so load the pool once and dispatch by signature.
+    ref, pool = None, None
     try:
         z = np.load("outputs/chr_split_cache/chr_train_ref_only.npz", allow_pickle=True)
-        ref = [str(s) for s in z["sequences"][:2000]]
+        allseq = [str(x) for x in z["sequences"]]
+        ref = allseq[:2000]
+        pool = allseq[: max(20000, args.n_seqs * 5)]
+        print(f"[pool] {len(pool):,} genomic base sequences loaded")
     except Exception as e:
-        print(f"[warn] no genomic reference for novelty ({e})")
+        print(f"[warn] no genomic pool ({e}) - derived strategies will be skipped")
 
     oracle = None
     if args.score:
@@ -145,7 +157,20 @@ def main():
                 if cls is None:
                     raise KeyError(f"no sampler class mapped for {name!r}")
                 sampler = cls(seed=args.seed, **kw)
-                seqs, _meta = sampler.generate(args.n_seqs)
+                sig = inspect.signature(sampler.generate).parameters
+                gkw = {}
+                if "base_sequences" in sig:
+                    gkw["base_sequences"] = pool
+                if "pool_sequences" in sig:
+                    gkw["pool_sequences"] = pool
+                if "pool_labels" in sig and pool is not None:
+                    gkw["pool_labels"] = np.zeros(len(pool), dtype=np.float32)
+                if "task" in sig:
+                    gkw["task"] = "k562"
+                if any(v is None for k, v in gkw.items() if "sequences" in k):
+                    raise RuntimeError("requires a genomic pool, which failed to load")
+                out = sampler.generate(args.n_seqs, **gkw)
+                seqs = out[0] if isinstance(out, tuple) else out
             except Exception as e:
                 print(f"  {name:<30} {kw} -> FAILED: {type(e).__name__}: {e}")
                 rows.append({"strategy": name, "params": kw, "error": f"{type(e).__name__}: {e}"})
