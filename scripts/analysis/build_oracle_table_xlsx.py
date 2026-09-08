@@ -30,7 +30,7 @@ ROWS = [
     ("WT / genomic ref", 39143, 1.190, 0.9153, 0.0079, 0.2299, 0.9181, 0.2188),
     ("SNV alt allele", 39169, 1.184, 0.9156, 0.0074, 0.2274, 0.9192, 0.2117),
     ("Designed high-activity", 2296, 1.589, 0.8760, 0.0050, 0.5988, 0.8920, 0.5298),
-    ("Negative controls", 86, 1.981, 0.9662, 0.0147, 0.3640, 0.9845, 0.1645),
+    ("Negative controls (ctrl_neg)", 503, 0.491, 0.8465, None, 0.0720, None, None),
     ("SNV effect (alt - ref)", 35691, 0.470, 0.4015, 0.0228, 0.1860, 0.4038, 0.1931),
 ]
 COLS = ["evaluation set", "n / fold", "label SD", "individual\nmodel: r",
