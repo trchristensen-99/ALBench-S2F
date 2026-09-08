@@ -27,7 +27,7 @@ ROWS = [
     ("WT / genomic ref", "39,143", "1.19", "0.915 ± .008", "0.230", "0.918", "0.219"),
     ("SNV alt allele", "39,169", "1.18", "0.916 ± .007", "0.227", "0.919", "0.212"),
     ("Designed high-activity", "2,296", "1.59", "0.876 ± .005", "0.599", "0.892", "0.530"),
-    ("Negative controls", "86", "1.98", "0.966 ± .015", "0.364", "0.985", "0.165"),
+    ("Negative controls (ctrl_neg)", "503*", "0.49", "0.847*", "0.072", "—", "—"),
     ("RULE",),
     ("SNV effect (alt − ref)", "35,691", "0.47", "0.402 ± .023", "0.186", "0.404", "0.193"),
 ]
@@ -40,7 +40,9 @@ CAPTION = (
     "own test fold, ± spread across folds.  8-model = 8 seeds on one fold's split, averaged.  Label SD is given\n"
     "because MSE is not comparable across sets with different dynamic ranges: SNV effect spans 0.47 against\n"
     "1.2-2.0 for the activity sets, so its low MSE reflects small targets rather than better prediction.\n"
-    "Training: full encoder unfrozen, reverse-complement and native-context shift augmentation."
+    "Training: full encoder unfrozen, reverse-complement and native-context shift augmentation.\n"
+    "* ctrl_neg pooled over all 10 test folds (~50/fold alone). Its range is narrow by design, so r\n"
+    "understates accuracy on a near-constant target - MSE is the meaningful column for that row."
 )
 
 
