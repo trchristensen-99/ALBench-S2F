@@ -22,21 +22,23 @@ HDR = "#1e293b"
 BAND = "#f4f6f9"
 RULE = "#94a3b8"
 
-# (label, n, oof_r, oof_mse, ens_r, ens_mse)
+# (label, n/fold, label SD, individual r ± sd, individual MSE, 8-model r, 8-model MSE)
 ROWS = [
-    ("Genomic reference", "30,659", "0.95", "0.13", "0.97", "0.07"),
-    ("Designed high-activity", "22,962", "0.84", "0.76", "0.98", "0.10"),
-    ("Negative controls", "471", "0.82", "0.08", "0.93", "0.03"),
-    ("SNV alleles (absolute)", "56,144", "0.92", "0.17", "0.96", "0.09"),
+    ("WT / genomic ref", "39,143", "1.19", "0.915 ± .008", "0.230", "0.918", "0.219"),
+    ("SNV alt allele", "39,169", "1.18", "0.916 ± .007", "0.227", "0.919", "0.212"),
+    ("Designed high-activity", "2,296", "1.59", "0.876 ± .005", "0.599", "0.892", "0.530"),
+    ("Negative controls", "86", "1.98", "0.966 ± .015", "0.364", "0.985", "0.165"),
     ("RULE",),
-    ("SNV effect (alt − ref)", "29,493", "0.39", "0.19", "0.46", "0.17"),
+    ("SNV effect (alt − ref)", "35,691", "0.47", "0.402 ± .023", "0.186", "0.404", "0.193"),
 ]
 CAPTION = (
-    "Oracle pseudo-labels vs measured K562 activity.  Out-of-fold = each sequence scored only by the fold\n"
-    "that held it out.  The ensemble is the deployed 10-fold mean and is not held out: every sequence was in\n"
-    "9 of the 10 folds' training data.  MSE is in log2FC units, the same scale as the labels."
+    "All numbers on a HELD-OUT TEST FOLD, never the fold used for early stopping.  Individual = mean over the\n"
+    "10 models, each on its own test fold, ± spread across folds.  8-model = 8 seeds on one fold's split,\n"
+    "averaged.  Label SD is shown because MSE is not comparable across sets with different dynamic ranges:\n"
+    "SNV effect spans 0.47 vs 1.2-2.0 for the activity sets, so its low MSE reflects small targets, not\n"
+    "better prediction.  Training: full encoder unfrozen, reverse-complement + native-context shift augs."
 )
-XS = [0.0, 0.395, 0.525, 0.655, 0.79, 0.90, 1.0]
+XS = [0.0, 0.275, 0.375, 0.465, 0.635, 0.745, 0.87, 1.0]
 
 
 def main():
@@ -44,11 +46,11 @@ def main():
     ap.add_argument(
         "--out", default=os.path.expanduser("~/Downloads/notion_updates/fig_oracle_simple.png")
     )
-    ap.add_argument("--title", default="Oracle label quality")
+    ap.add_argument("--title", default="Oracle label quality (held-out test folds)")
     ap.add_argument("--dpi", type=int, default=240)
     a = ap.parse_args()
 
-    fig, ax = plt.subplots(figsize=(9.8, 3.9))
+    fig, ax = plt.subplots(figsize=(11.4, 4.3))
     ax.set_axis_off()
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
@@ -121,7 +123,7 @@ def main():
             )
 
     ax.plot([0, 1], [y, y], color=HDR, lw=1.4)
-    ax.text(0, y - 0.042, CAPTION, fontsize=8.8, color="#475569", va="top", linespacing=1.55)
+    ax.text(0, y - 0.042, CAPTION, fontsize=8.4, color="#475569", va="top", linespacing=1.55)
 
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     fig.savefig(a.out, dpi=a.dpi, bbox_inches="tight", facecolor="white")
