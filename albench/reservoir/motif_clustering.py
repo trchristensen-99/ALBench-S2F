@@ -335,26 +335,65 @@ class MotifClusteringSampler(ReservoirSampler):
         unique_labels = np.unique(labels)
         n_actual_clusters = len(unique_labels)
 
-        # Step 3: Uniform sampling across clusters
-        per_cluster = n_sequences // n_actual_clusters
-        remainder = n_sequences % n_actual_clusters
+        # Step 3: Capacity-capped uniform sampling across clusters ("water filling").
+        #
+        # A naive uniform allocation (n_sequences // n_clusters from each cluster)
+        # duplicates heavily, because motif-composition clusters are severely
+        # imbalanced -- a large "few motifs" cluster alongside clusters of a handful
+        # of members. Any cluster smaller than its quota then has to be sampled with
+        # replacement. Measured on a 4k pool: 34% duplicate sequences at
+        # n_clusters=10, 58% at n_sequences=3000.
+        #
+        # Instead, raise a uniform per-cluster quota until the requested total is
+        # met, capping each cluster at its member count and redistributing the
+        # shortfall across clusters that still have capacity. This is as uniform as
+        # the pool permits while drawing every sequence at most once.
+        cluster_members = {int(cid): np.where(labels == cid)[0] for cid in unique_labels}
+        capacity = {cid: len(m) for cid, m in cluster_members.items()}
+        total_capacity = sum(capacity.values())
+
+        if n_sequences > total_capacity:
+            raise ValueError(
+                f"Requested n_sequences={n_sequences:,} exceeds pool size "
+                f"{total_capacity:,}; motif clustering samples without replacement."
+            )
+
+        alloc = {cid: 0 for cid in capacity}
+        remaining = n_sequences
+        # Cluster order is shuffled so the fractional remainder is not always
+        # handed to the same (e.g. lowest-id) clusters.
+        cluster_order = np.array(sorted(capacity.keys()))
+        self._rng.shuffle(cluster_order)
+
+        while remaining > 0:
+            open_clusters = [cid for cid in cluster_order if alloc[cid] < capacity[cid]]
+            if not open_clusters:  # unreachable given the capacity check above
+                break
+            share = max(1, remaining // len(open_clusters))
+            for cid in open_clusters:
+                if remaining <= 0:
+                    break
+                take = min(share, capacity[cid] - alloc[cid], remaining)
+                alloc[cid] += take
+                remaining -= take
 
         selected_indices: list[int] = []
         selected_clusters: list[int] = []
-
-        # Shuffle cluster order so remainder is distributed randomly
-        cluster_order = unique_labels.copy()
-        self._rng.shuffle(cluster_order)
-
-        for rank, cid in enumerate(cluster_order):
-            members = np.where(labels == cid)[0]
-            n_draw = per_cluster + (1 if rank < remainder else 0)
+        for cid in cluster_order:
+            n_draw = alloc[cid]
             if n_draw == 0:
                 continue
-            replace = len(members) < n_draw
-            drawn = self._rng.choice(members, size=n_draw, replace=replace)
+            drawn = self._rng.choice(cluster_members[cid], size=n_draw, replace=False)
             selected_indices.extend(drawn.tolist())
             selected_clusters.extend([int(cid)] * n_draw)
+
+        saturated = [cid for cid in capacity if alloc[cid] == capacity[cid]]
+        if saturated:
+            logger.info(
+                f"  {len(saturated)}/{n_actual_clusters} clusters exhausted "
+                f"(smaller than their uniform quota); their shortfall was "
+                f"redistributed to clusters with remaining capacity."
+            )
 
         indices = np.array(selected_indices)
         sequences = [str(pool_sequences[i]) for i in indices]

@@ -45,7 +45,7 @@ _ACGT = np.array(list("ACGT"))
 class Motif:
     mid: str
     name: str
-    pwm: np.ndarray          # (L, 4) probabilities
+    pwm: np.ndarray  # (L, 4) probabilities
 
     @property
     def length(self) -> int:
@@ -61,13 +61,41 @@ class Motif:
     def consensus(self) -> str:
         return "".join(_ACGT[np.argmax(self.pwm, axis=1)])
 
+    @property
+    def per_position_ic(self) -> np.ndarray:
+        """Information content in bits at each position, shape (L,)."""
+        p = np.clip(self.pwm, 1e-9, 1.0)
+        return 2.0 + np.sum(p * np.log2(p), axis=1)
+
     def sample(self, rng: np.random.Generator, n: int = 1) -> list[str]:
-        """Draw instances FROM the PWM, so planted sites carry realistic variation."""
-        out = []
-        for _ in range(n):
-            idx = [rng.choice(4, p=self.pwm[i]) for i in range(self.length)]
-            out.append("".join(_ACGT[idx]))
-        return out
+        """Draw instances FROM the PWM, so planted sites carry realistic variation.
+
+        Vectorised by inverse-CDF: reservoirs are generated at the 1M+ scale, where a
+        per-position rng.choice loop dominates generation time.
+        """
+        cum = np.cumsum(self.pwm, axis=1)[:, :3]  # (L, 3)
+        u = rng.random((n, self.length))
+        idx = (u[:, :, None] >= cum[None, :, :]).sum(axis=2)
+        chars = _ACGT[idx]  # (n, L)
+        return ["".join(row) for row in chars]
+
+    def trim(self, min_position_ic: float) -> "Motif":
+        """Trim terminal positions carrying less than `min_position_ic` bits.
+
+        Many JASPAR PFMs pad the informative core with low-information flanks. Those
+        flanks lengthen the motif without adding specificity, and motif length bounds
+        how many sites fit on a 200bp oligo -- so the padding silently caps the
+        motifs-per-sequence knob. Only the ends are trimmed; interior low-IC
+        positions are part of the motif (e.g. the spacer in a dimeric site).
+        """
+        ic = self.per_position_ic
+        keep = np.where(ic >= min_position_ic)[0]
+        if len(keep) == 0:
+            return self
+        lo, hi = int(keep[0]), int(keep[-1]) + 1
+        if lo == 0 and hi == self.length:
+            return self
+        return Motif(self.mid, self.name, self.pwm[lo:hi].copy())
 
     def revcomp(self) -> "Motif":
         return Motif(self.mid + "_rc", self.name + "(-)", self.pwm[::-1, ::-1].copy())
@@ -84,7 +112,7 @@ def parse_meme(path: str = MEME_DEFAULT) -> list[Motif]:
                 parts = line.split()
                 mid = parts[1]
                 name = parts[2] if len(parts) > 2 else mid
-                name = name.split(".")[-1]          # "MA0004.1.Arnt" -> "Arnt"
+                name = name.split(".")[-1]  # "MA0004.1.Arnt" -> "Arnt"
                 cur, rows, width = (mid, name), [], None
             elif line.startswith("letter-probability"):
                 m = re.search(r"w=\s*(\d+)", line)
@@ -99,15 +127,20 @@ def parse_meme(path: str = MEME_DEFAULT) -> list[Motif]:
                         pass
     if cur and rows:
         motifs.append(Motif(cur[0], cur[1], np.array(rows, dtype=np.float64)))
-    for m in motifs:                                 # renormalise defensively
+    for m in motifs:  # renormalise defensively
         m.pwm /= np.clip(m.pwm.sum(axis=1, keepdims=True), 1e-9, None)
     return motifs
 
 
 def human_core_ids(timeout: int = 60) -> set[str] | None:
     """JASPAR CORE matrix IDs for Homo sapiens. Returns None if the API is unreachable."""
-    ids, url = set(), ("https://jaspar.elixir.no/api/v1/matrix/"
-                       "?collection=CORE&tax_id=9606&page_size=1000&format=json")
+    ids, url = (
+        set(),
+        (
+            "https://jaspar.elixir.no/api/v1/matrix/"
+            "?collection=CORE&tax_id=9606&page_size=1000&format=json"
+        ),
+    )
     try:
         while url:
             with urllib.request.urlopen(url, timeout=timeout) as r:
@@ -126,10 +159,10 @@ def _pwm_similarity(a: np.ndarray, b: np.ndarray) -> float:
         la, lb = len(a), len(bb)
         for off in range(-(lb - 1), la):
             s, e = max(0, off), min(la, off + lb)
-            if e - s < 4:                            # need real overlap to compare
+            if e - s < 4:  # need real overlap to compare
                 continue
             x = a[s:e].ravel()
-            y = bb[s - off:e - off].ravel()
+            y = bb[s - off : e - off].ravel()
             if x.std() < 1e-9 or y.std() < 1e-9:
                 continue
             best = max(best, float(np.corrcoef(x, y)[0, 1]))
@@ -151,19 +184,56 @@ def cluster(motifs: list[Motif], threshold: float = 0.90) -> list[Motif]:
     return kept
 
 
-def build(meme: str = MEME_DEFAULT, human_only: bool = True, cluster_at: float | None = 0.90,
-          max_motifs: int | None = None, min_ic: float = 6.0,
-          expressed: set[str] | None = None) -> list[Motif]:
+def build(
+    meme: str = MEME_DEFAULT,
+    human_only: bool = True,
+    cluster_at: float | None = 0.90,
+    max_motifs: int | None = None,
+    min_ic: float = 6.0,
+    expressed: set[str] | None = None,
+    trim_ic: float = 0.0,
+    max_len: int | None = None,
+) -> list[Motif]:
+    """Assemble a motif vocabulary from a MEME file.
+
+    Args:
+        meme: Path to a MEME-format PFM file (JASPAR2022 CORE by default).
+        human_only: Restrict to Homo sapiens CORE matrices via the JASPAR API.
+        cluster_at: Collapse near-duplicate PFMs above this correlation. This is the
+            filter that does the real work -- roughly two-thirds of human CORE is
+            near-duplicate, so skipping it inflates every coverage number.
+        max_motifs: Cap vocabulary size, most-informative first.
+        min_ic: Drop motifs below this total information content. JASPAR CORE is
+            already curated, so at the default of 6 bits this removes nothing; it
+            matters only for uncurated PFM sources.
+        expressed: Optional TF gene symbols to keep (the cell-type vocabulary arms).
+        trim_ic: Trim terminal positions below this per-position IC, in bits.
+            Applied BEFORE clustering, since trimming can make two padded PFMs
+            resolve as the same motif.
+        max_len: Drop motifs longer than this after trimming. Length bounds how many
+            sites fit on an oligo, so this and `trim_ic` together set the ceiling on
+            the motifs-per-sequence knob.
+
+    Returns:
+        Motifs sorted by descending information content.
+    """
     ms = parse_meme(meme)
     if human_only:
         ids = human_core_ids()
         if ids:
-            ms = [m for m in ms if m.mid in ids or m.mid.split(".")[0] in
-                  {i.split(".")[0] for i in ids}]
+            ms = [
+                m
+                for m in ms
+                if m.mid in ids or m.mid.split(".")[0] in {i.split(".")[0] for i in ids}
+            ]
     if expressed:
         up = {e.upper() for e in expressed}
         ms = [m for m in ms if any(t.upper() in up for t in re.split(r"[:\-_.]", m.name))]
     ms = [m for m in ms if m.info_content >= min_ic]
+    if trim_ic > 0:
+        ms = [m.trim(trim_ic) for m in ms]
+    if max_len:
+        ms = [m for m in ms if m.length <= max_len]
     if cluster_at:
         ms = cluster(ms, cluster_at)
     ms.sort(key=lambda m: -m.info_content)

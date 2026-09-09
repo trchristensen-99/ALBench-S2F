@@ -30,9 +30,15 @@ def _gc_content(seq: str) -> float:
 class GCMatchedSampler(ReservoirSampler):
     """Generate random sequences whose GC content matches a reference distribution.
 
-    Estimates the GC distribution from pool sequences, then generates random
-    sequences by sampling per-position nucleotides with base probabilities
-    calibrated to hit target GC fractions drawn from that distribution.
+    Estimates the GC distribution from pool sequences as a histogram with
+    ``n_gc_bins`` bins, draws target GC fractions from that histogram, then
+    generates random sequences by sampling per-position nucleotides with base
+    probabilities calibrated to hit each target.
+
+    ``n_gc_bins`` controls how faithfully the pool's GC distribution is
+    reproduced: a coarse histogram smooths it (each bin becomes uniform), a fine
+    one tracks its shape including any multi-modality. It is a real knob, so it
+    is worth sweeping alongside the other reservoir parameters.
     """
 
     def __init__(
@@ -40,6 +46,8 @@ class GCMatchedSampler(ReservoirSampler):
         seed: int | None = None,
         n_gc_bins: int = 50,
     ) -> None:
+        if n_gc_bins < 1:
+            raise ValueError(f"n_gc_bins must be >= 1, got {n_gc_bins}")
         self._rng = np.random.default_rng(seed)
         self.n_gc_bins = n_gc_bins
 
@@ -81,38 +89,58 @@ class GCMatchedSampler(ReservoirSampler):
             f"range=[{pool_gc.min():.3f}, {pool_gc.max():.3f}]"
         )
 
-        # Sample target GC fractions from the empirical distribution
-        # (resample from observed values with noise)
-        target_gc = self._rng.choice(pool_gc, size=n_sequences, replace=True)
-        # Add small noise to smooth
-        target_gc += self._rng.normal(0, 0.005, size=n_sequences)
+        # Sample target GC fractions from an `n_gc_bins`-bin histogram of the pool:
+        # pick a bin with probability proportional to its pool count, then draw
+        # uniformly within that bin. The bin width sets the smoothing, so
+        # `n_gc_bins` is what controls fidelity to the pool distribution.
+        edges = np.histogram_bin_edges(pool_gc, bins=self.n_gc_bins, range=(0.0, 1.0))
+        counts, _ = np.histogram(pool_gc, bins=edges)
+        if counts.sum() == 0:  # degenerate pool
+            raise ValueError("Could not estimate a GC histogram from pool_sequences.")
+        probs = counts / counts.sum()
+        chosen_bin = self._rng.choice(len(counts), size=n_sequences, replace=True, p=probs)
+        lo = edges[chosen_bin]
+        hi = edges[chosen_bin + 1]
+        target_gc = lo + self._rng.random(n_sequences) * (hi - lo)
         target_gc = np.clip(target_gc, 0.05, 0.95)
+        logger.info(
+            f"GC histogram: {self.n_gc_bins} bins, {int((counts > 0).sum())} occupied, "
+            f"bin width={edges[1] - edges[0]:.4f}"
+        )
 
         sequences: list[str] = []
-        actual_gc: list[float] = []
+        actual_gc_arrays: list[np.ndarray] = []
 
         for start in range(0, n_sequences, batch_size):
             n_batch = min(batch_size, n_sequences - start)
             batch_gc = target_gc[start : start + n_batch]
 
-            # For each sequence, generate with position-independent base probs
-            # P(G or C) = gc, so P(each of G,C) = gc/2, P(each of A,T) = (1-gc)/2
-            # Prob vector: [A, C, G, T] = [(1-gc)/2, gc/2, gc/2, (1-gc)/2]
+            # Per-position base probs are position-independent within a sequence but
+            # differ between sequences, so draw by inverse-CDF on a uniform matrix
+            # rather than looping rng.choice per sequence (which dominated runtime at
+            # the 1M+ scale these reservoirs are generated at).
+            # [A, C, G, T] = [(1-gc)/2, gc/2, gc/2, (1-gc)/2]
+            p_at = (1.0 - batch_gc) / 2.0
+            p_gc = batch_gc / 2.0
+            # cumulative boundaries after A, after C, after G  -> shape (n_batch, 3)
+            cum = np.stack([p_at, p_at + p_gc, p_at + 2.0 * p_gc], axis=1)
+            u = self._rng.random((n_batch, seq_len))
+            idx = (u[:, :, None] >= cum[:, None, :]).sum(axis=2).astype(np.uint8)
+
+            cores = _NUC_BYTES[idx]  # (n_batch, seq_len) uint8 ASCII
+            actual_gc_arrays.append(
+                ((cores == ord("G")) | (cores == ord("C"))).sum(axis=1) / seq_len
+            )
+
+            core_bytes = cores.tobytes()
             for i in range(n_batch):
-                gc = batch_gc[i]
-                p_at = (1.0 - gc) / 2.0
-                p_gc = gc / 2.0
-                probs = np.array([p_at, p_gc, p_gc, p_at])
-                indices = self._rng.choice(4, size=seq_len, p=probs).astype(np.uint8)
-                core = _NUC_BYTES[indices].tobytes().decode("ascii")
-
+                core = core_bytes[i * seq_len : (i + 1) * seq_len].decode("ascii")
                 if task == "yeast":
-                    full_seq = _YEAST_FLANK_5 + core + _YEAST_FLANK_3
+                    sequences.append(_YEAST_FLANK_5 + core + _YEAST_FLANK_3)
                 else:
-                    full_seq = core
+                    sequences.append(core)
 
-                sequences.append(full_seq)
-                actual_gc.append(_gc_content(core))
+        actual_gc = np.concatenate(actual_gc_arrays) if actual_gc_arrays else np.zeros(0)
 
         meta = pd.DataFrame(
             {
@@ -120,7 +148,7 @@ class GCMatchedSampler(ReservoirSampler):
                 "method": "gc_matched_random",
                 "source": "generated",
                 "target_gc": target_gc,
-                "actual_gc": np.array(actual_gc, dtype=np.float32),
+                "actual_gc": actual_gc.astype(np.float32),
             }
         )
         logger.info(
