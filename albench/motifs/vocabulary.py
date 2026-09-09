@@ -30,10 +30,13 @@ it teaches nothing and it would be found by chance in any background.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -217,6 +220,11 @@ def build(
     Returns:
         Motifs sorted by descending information content.
     """
+    key = _cache_key(meme, human_only, cluster_at, max_motifs, min_ic, expressed, trim_ic, max_len)
+    cached = _cache_load(key)
+    if cached is not None:
+        return cached
+
     ms = parse_meme(meme)
     if human_only:
         ids = human_core_ids()
@@ -226,6 +234,16 @@ def build(
                 for m in ms
                 if m.mid in ids or m.mid.split(".")[0] in {i.split(".")[0] for i in ids}
             ]
+        else:
+            # Silently keeping all taxa would change the vocabulary from ~242 motifs
+            # to 700+ without anything in the output saying so, and every coverage
+            # number downstream would then be wrong. Fail loudly instead.
+            raise RuntimeError(
+                "human_only=True but the JASPAR API is unreachable, so Homo sapiens "
+                "IDs could not be fetched. Skipping the filter would silently change "
+                "the vocabulary, so this is an error. Retry with network access or "
+                "pass human_only=False deliberately."
+            )
     if expressed:
         up = {e.upper() for e in expressed}
         ms = [m for m in ms if any(t.upper() in up for t in re.split(r"[:\-_.]", m.name))]
@@ -237,4 +255,79 @@ def build(
     if cluster_at:
         ms = cluster(ms, cluster_at)
     ms.sort(key=lambda m: -m.info_content)
-    return ms[:max_motifs] if max_motifs else ms
+    ms = ms[:max_motifs] if max_motifs else ms
+    _cache_store(key, ms)
+    return ms
+
+
+# --- vocabulary cache ---------------------------------------------------------
+# Clustering is O(n^2) in the number of motifs, each pair needing a both-strand
+# best-offset alignment, so building one vocabulary from human CORE takes minutes.
+# Vocabulary source and filters are swept factors, so the same handful of
+# configurations get rebuilt repeatedly; cache them keyed on the full parameter set
+# (including the MEME file's mtime, so editing the PFM source invalidates the cache).
+
+_CACHE_DIR = Path(
+    os.environ.get("MOTIF_VOCAB_CACHE", str(Path.home() / ".cache/albench/motif_vocab"))
+)
+
+
+def _cache_key(
+    meme, human_only, cluster_at, max_motifs, min_ic, expressed, trim_ic, max_len
+) -> str:
+    try:
+        stamp = str(int(Path(meme).stat().st_mtime))
+    except OSError:
+        stamp = "0"
+    payload = repr(
+        (
+            Path(meme).name,
+            stamp,
+            bool(human_only),
+            cluster_at,
+            max_motifs,
+            min_ic,
+            tuple(sorted(expressed)) if expressed else None,
+            trim_ic,
+            max_len,
+        )
+    )
+    return hashlib.sha1(payload.encode()).hexdigest()[:16]
+
+
+def _cache_load(key: str) -> list[Motif] | None:
+    path = _CACHE_DIR / f"{key}.npz"
+    if not path.exists():
+        return None
+    try:
+        z = np.load(path, allow_pickle=False)
+        mids = [str(s) for s in z["mids"]]
+        names = [str(s) for s in z["names"]]
+        flat, lens = z["pwm_flat"], z["lens"]
+        out, off = [], 0
+        for i in range(int(z["n"])):
+            length = int(lens[i])
+            out.append(Motif(mids[i], names[i], flat[off : off + length * 4].reshape(length, 4)))
+            off += length * 4
+        return out
+    except Exception:  # a corrupt cache must never break a run
+        return None
+
+
+def _cache_store(key: str, motifs: list[Motif]) -> None:
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        # Must end in .npz: np.savez silently appends the suffix otherwise, and the
+        # rename below would then target a file that was never written.
+        tmp = _CACHE_DIR / f"{key}.tmp{os.getpid()}.npz"
+        np.savez(
+            tmp,
+            n=len(motifs),
+            mids=np.array([m.mid for m in motifs]),
+            names=np.array([m.name for m in motifs]),
+            lens=np.array([m.length for m in motifs], dtype=np.int32),
+            pwm_flat=(np.concatenate([m.pwm.ravel() for m in motifs]) if motifs else np.zeros(0)),
+        )
+        tmp.replace(_CACHE_DIR / f"{key}.npz")  # atomic, so concurrent jobs are safe
+    except Exception:
+        pass  # caching is an optimisation, never a requirement
