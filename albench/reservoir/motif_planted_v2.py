@@ -572,7 +572,11 @@ class PhylogeneticZoonomiaSampler(ReservoirSampler):
         if n_mut == 0:
             return seq_bytes
         base = code[idx]
-        p_ti = self.ti_tv / (self.ti_tv + 2.0)  # ti : tv1 : tv2  =  ti_tv : 1 : 1
+        # Ti/Tv is the aggregate count ratio (~2 in mammals), so with one transition
+        # partner and two transversion partners we need P(ti)/(1-P(ti)) = ti_tv,
+        # i.e. P(ti) = R/(R+1). Using R/(R+2) -- the per-substitution-type
+        # convention -- halves the realised ratio.
+        p_ti = self.ti_tv / (self.ti_tv + 1.0)
         is_ti = self._rng.random(n_mut) < p_ti
         which_tv = self._rng.integers(0, 2, size=n_mut)
         new = np.where(is_ti, transition[base], transversion[base, which_tv])
