@@ -90,6 +90,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         vocab_meme: str | None = None,
         vocab_expressed: set[str] | None = None,
         plant_mode: str = "pwm_sample",
+        cluster_mode: str = "representative",
         instance_pool: int = 256,
     ) -> None:
         """Initialize sampler.
@@ -121,12 +122,23 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 sites carry the variation real sites have. ``"consensus"`` stamps the
                 single consensus string -- the memorisation control, since a model can
                 learn a fixed string without learning binding preference.
+            cluster_mode: What a vocabulary entry contains once PFMs are clustered.
+                ``"representative"`` keeps only the highest-IC PFM per cluster.
+                ``"sample_members"`` keeps every member and draws one per planted
+                site, so the same binding preference is realised through the
+                different matrices JASPAR actually holds for it. Either way |V| is
+                counted in clusters, so coverage arithmetic is unaffected -- this
+                changes what gets planted, not how much is claimed to be covered.
             instance_pool: Instances pre-drawn per motif under ``pwm_sample``.
                 Reservoirs are generated at the 1M+ scale, so instances are drawn from
                 this pool rather than freshly per plant.
         """
         if plant_mode not in ("pwm_sample", "consensus"):
             raise ValueError(f"plant_mode must be 'pwm_sample' or 'consensus', got {plant_mode!r}")
+        if cluster_mode not in ("representative", "sample_members"):
+            raise ValueError(
+                f"cluster_mode must be 'representative' or 'sample_members', got {cluster_mode!r}"
+            )
         self._rng = np.random.default_rng(seed)
         self.min_motifs = min_motifs
         self.max_motifs = max_motifs
@@ -140,10 +152,12 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         self.vocab_meme = vocab_meme
         self.vocab_expressed = vocab_expressed
         self.plant_mode = plant_mode
+        self.cluster_mode = cluster_mode
         self.instance_pool = instance_pool
         self._bg_seqs: np.ndarray | None = None  # lazy
-        self._vocab: list = []  # lazy: list[Motif]
-        self._inst: dict[str, list[str]] = {}  # motif name -> pre-drawn instances
+        self._vocab: list = []  # lazy: list[Motif], one representative per entry
+        self._inst: dict[str, list[str]] = {}  # entry label -> pre-drawn instances
+        self._native_consensus: list[str] = []  # every variant's consensus, for native scan
 
     def _build_vocab(self) -> list:
         """Load and filter the JASPAR vocabulary, then pre-draw planting instances."""
@@ -157,40 +171,80 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 f"MEME PFM file not found: {meme}. Set vocab_meme= or the "
                 f"MOTIF_MEME_PATH env var to a JASPAR .meme file."
             )
-        motifs = V.build(
-            meme=meme,
-            human_only=True,
-            cluster_at=self.vocab_cluster_at,
-            max_motifs=self.vocab_size,
-            expressed=self.vocab_expressed,
-            trim_ic=self.vocab_trim_ic,
-            max_len=self.vocab_max_len,
-        )
-        if not motifs:
+        # One vocabulary ENTRY = one binding preference. Under cluster_mode
+        # "sample_members" an entry carries every PFM JASPAR holds for that
+        # preference, and each planted site draws one of them; under
+        # "representative" the entry is just the highest-IC PFM.
+        if self.cluster_mode == "sample_members":
+            if not self.vocab_cluster_at:
+                raise ValueError(
+                    "cluster_mode='sample_members' needs a clustering threshold; "
+                    "set vocab_cluster_at (e.g. 0.90). Without clustering every PFM "
+                    "is already its own entry, which is cluster_mode='representative'."
+                )
+            groups = V.build_clusters(
+                meme=meme,
+                human_only=True,
+                cluster_at=self.vocab_cluster_at,
+                max_clusters=self.vocab_size,
+                expressed=self.vocab_expressed,
+                trim_ic=self.vocab_trim_ic,
+                max_len=self.vocab_max_len,
+            )
+        else:
+            reps = V.build(
+                meme=meme,
+                human_only=True,
+                cluster_at=self.vocab_cluster_at,
+                max_motifs=self.vocab_size,
+                expressed=self.vocab_expressed,
+                trim_ic=self.vocab_trim_ic,
+                max_len=self.vocab_max_len,
+            )
+            groups = [[m] for m in reps]
+        if not groups:
             raise ValueError(
                 "Vocabulary is empty after filtering; loosen vocab_trim_ic / "
                 "vocab_max_len / vocab_cluster_at."
             )
-        if self.include_rc_variants:
-            motifs = motifs + [m.revcomp() for m in motifs]
 
-        # Pre-draw instances. Under pwm_sample every plant is a different string, so
-        # the model cannot memorise one literal; under consensus every plant is the
-        # same string, which is exactly the control we want to compare against.
-        for m in motifs:
+        # Pre-draw instances per entry. Two levels of variation, and each is a
+        # separately testable choice:
+        #   plant_mode   pwm_sample draws a different STRING per site from a given
+        #                PFM; consensus stamps one literal (the memorisation control)
+        #   cluster_mode sample_members draws a different PFM per site from within
+        #                the cluster; representative always uses the same PFM
+        # Reverse complement is an ORIENTATION of the same motif, not a second
+        # motif, so it is drawn inside the entry rather than counted as its own
+        # entry -- otherwise |V| and every coverage number double.
+        self._vocab = []
+        self._native_consensus = []
+        n_members = []
+        for g in groups:
+            variants = list(g)
+            if self.include_rc_variants:
+                variants = variants + [m.revcomp() for m in g]
+            label = g[0].name
             if self.plant_mode == "consensus":
-                self._inst[m.name] = [m.consensus]
+                pool = sorted({m.consensus for m in variants})
             else:
-                self._inst[m.name] = m.sample(self._rng, self.instance_pool)
+                per = max(1, self.instance_pool // len(variants))
+                pool = [s for m in variants for s in m.sample(self._rng, per)]
+            self._inst[label] = pool
+            self._vocab.append(g[0])
+            self._native_consensus.extend(m.consensus for m in variants)
+            n_members.append(len(g))
 
-        self._vocab = motifs
-        lens = np.array([m.length for m in motifs])
+        lens = np.array([m.length for m in self._vocab])
+        nm = np.array(n_members)
         logger.info(
-            f"MotifPlantedV2 vocabulary: {len(motifs)} motifs "
-            f"({len(motifs) // 2 if self.include_rc_variants else len(motifs)} unique + rc), "
+            f"MotifPlantedV2 vocabulary: {len(self._vocab)} entries "
+            f"(cluster_mode={self.cluster_mode}, members/entry median={int(np.median(nm))} "
+            f"max={nm.max()}, {int(nm.sum())} PFMs total), "
             f"length min={lens.min()} median={int(np.median(lens))} max={lens.max()}, "
             f"cluster_at={self.vocab_cluster_at}, trim_ic={self.vocab_trim_ic}, "
-            f"max_len={self.vocab_max_len}, plant_mode={self.plant_mode}"
+            f"max_len={self.vocab_max_len}, plant_mode={self.plant_mode}, "
+            f"rc={'in-entry' if self.include_rc_variants else 'off'}"
         )
         return self._vocab
 
@@ -220,10 +274,12 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         use_vocab = self.motif_set == "jaspar"
         if use_vocab:
             vocab = self._build_vocab()
-            # Native-motif detection scans for literal strings; with PWM-sampled
-            # instances the consensus is the right proxy for "a site is already here".
+            # Planting draws by entry; native-motif detection scans for literal
+            # strings, so it uses every variant's consensus (all cluster members and
+            # both orientations), not just the entries we plant from.
             motifs = [m.consensus for m in vocab]
             motif_names = [m.name for m in vocab]
+            native_scan = self._native_consensus
         else:
             motifs = self._get_motifs(task)
             motif_names = list(motifs)
@@ -251,7 +307,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             occupied = set()
             if self.preserve_native_motifs:
                 core_str = "".join(core)
-                for motif in motifs:
+                for motif in native_scan if use_vocab else motifs:
                     pos = core_str.find(motif)
                     while pos != -1:
                         occupied |= set(range(pos, pos + len(motif)))
@@ -297,8 +353,9 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                     "motif_planted_v2_jaspar" if use_vocab else "motif_planted_v2_gc_matched"
                 ),
                 "source": "generated",
-                "vocab_size": len(motifs),
+                "vocab_size": len(motifs),  # entries (clusters), not orientations
                 "plant_mode": self.plant_mode if use_vocab else "consensus",
+                "cluster_mode": self.cluster_mode if use_vocab else "n/a",
                 "planted_motifs": planted_motifs_list,
                 "n_motifs_planted": np.array(n_planted_list, dtype=np.int32),
                 "n_native_motifs_preserved": np.array(n_native_kept, dtype=np.int32),

@@ -243,11 +243,14 @@ class EncodeAccessibilitySampler(ReservoirSampler):
         while len(seqs) < n_sequences and attempts < max_attempts:
             attempts += 1
             need = n_sequences - len(seqs)
-            idx = self._rng.choice(
-                len(peaks),
-                size=min(int(need * 1.3) + 16, 10_000_000),
-                replace=replace or need > len(peaks),
-            )
+            use_replace = replace or need > len(peaks)
+            # The over-draw itself can exceed the peak count even when `need` does
+            # not, so the draw size -- not just `need` -- has to be capped when
+            # drawing without replacement.
+            size = min(int(need * 1.3) + 16, 10_000_000)
+            if not use_replace:
+                size = min(size, len(peaks))
+            idx = self._rng.choice(len(peaks), size=size, replace=use_replace)
             for i in idx:
                 if len(seqs) >= n_sequences:
                     break
