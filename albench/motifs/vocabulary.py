@@ -185,9 +185,19 @@ def _pwm_similarity(
                 continue
             x = a[s:e].ravel()
             y = bb[s - off : e - off].ravel()
-            if x.std() < 1e-9 or y.std() < 1e-9:
+            # Pearson by sums rather than np.corrcoef: this is called O(n^2) times
+            # when clustering a vocabulary, and corrcoef's covariance-matrix
+            # construction dominated the runtime (~5 ms per comparison, which put a
+            # single vocabulary build in the tens of minutes).
+            n = x.size
+            sx, sy = x.sum(), y.sum()
+            vx = n * x.dot(x) - sx * sx
+            vy = n * y.dot(y) - sy * sy
+            if vx <= 1e-12 or vy <= 1e-12:
                 continue
-            best = max(best, float(np.corrcoef(x, y)[0, 1]))
+            r = (n * x.dot(y) - sx * sy) / np.sqrt(vx * vy)
+            if r > best:
+                best = float(r)
     return best
 
 
