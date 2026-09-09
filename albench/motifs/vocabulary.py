@@ -155,14 +155,33 @@ def human_core_ids(timeout: int = 60) -> set[str] | None:
     return ids or None
 
 
-def _pwm_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Best-offset Pearson correlation between two PFMs, taking the better strand."""
+def _pwm_similarity(
+    a: np.ndarray,
+    b: np.ndarray,
+    min_overlap: int = 6,
+    min_overlap_frac: float = 0.8,
+) -> float:
+    """Best-offset Pearson correlation between two PFMs, taking the better strand.
+
+    The overlap requirement is doing real work here and the defaults are not
+    cosmetic. This function takes a MAX over every offset and both strands, which is
+    of order (La + Lb) x 2 comparisons -- so with a permissive overlap floor it is a
+    max over dozens of short windows, and the largest of dozens of correlations on a
+    handful of numbers is high by chance. A 4-position floor (16 values) let
+    genuinely unrelated factors cluster together: E2F7, IRF7 and HOXC11 all landed in
+    one group with ZNF8 despite completely different consensuses.
+
+    Requiring the overlap to cover ``min_overlap_frac`` of the SHORTER motif (and at
+    least ``min_overlap`` positions) means a reported similarity refers to the motifs
+    as wholes rather than to some short window inside them.
+    """
     best = -1.0
     for bb in (b, b[::-1, ::-1]):
         la, lb = len(a), len(bb)
+        need = max(min_overlap, int(np.ceil(min_overlap_frac * min(la, lb))))
         for off in range(-(lb - 1), la):
             s, e = max(0, off), min(la, off + lb)
-            if e - s < 4:  # need real overlap to compare
+            if e - s < need:
                 continue
             x = a[s:e].ravel()
             y = bb[s - off : e - off].ravel()
@@ -172,19 +191,42 @@ def _pwm_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return best
 
 
-def cluster(motifs: list[Motif], threshold: float = 0.90) -> list[Motif]:
-    """Greedy: keep the highest-IC motif of each near-duplicate group.
+def cluster_groups(motifs: list[Motif], threshold: float = 0.90) -> list[list[Motif]]:
+    """Greedy single-link-ish grouping of near-duplicate PFMs.
 
-    JASPAR ships several versions of many factors, plus paralogues with nearly identical PFMs.
-    Counting those as distinct would overstate the vocabulary and skew any per-motif coverage
-    calculation.
+    Returns one list per group, highest-IC motif first. Groups form by walking motifs
+    in descending IC and attaching each to the first existing group whose seed it
+    matches at ``threshold``.
+
+    WHY GROUP AT ALL. JASPAR ships multiple versioned matrices for the same factor
+    (MA0004.1 / MA0004.2) plus paralogues whose PFMs are nearly identical. Treating
+    those as distinct vocabulary entries inflates |V| and corrupts any per-motif or
+    per-motif-pair coverage number, because "700 motifs" is really a few hundred
+    distinct binding preferences counted several times over.
+
+    WHAT GROUPING DOES *NOT* REQUIRE. Grouping fixes the COUNTING unit. It does not
+    oblige us to throw the other members away when generating sequences -- see
+    ``build_clusters`` and the sampler's ``cluster_mode``, which keep every member as
+    an alternative realisation of the same binding preference.
     """
     order = sorted(motifs, key=lambda m: -m.info_content)
-    kept: list[Motif] = []
+    groups: list[list[Motif]] = []
     for m in order:
-        if all(_pwm_similarity(m.pwm, k.pwm) < threshold for k in kept):
-            kept.append(m)
-    return kept
+        for g in groups:
+            if _pwm_similarity(m.pwm, g[0].pwm) >= threshold:
+                g.append(m)
+                break
+        else:
+            groups.append([m])
+    return groups
+
+
+def cluster(motifs: list[Motif], threshold: float = 0.90) -> list[Motif]:
+    """Keep the highest-IC motif of each near-duplicate group.
+
+    Thin wrapper over :func:`cluster_groups` so both paths share one implementation.
+    """
+    return [g[0] for g in cluster_groups(motifs, threshold)]
 
 
 def build(
@@ -260,6 +302,55 @@ def build(
     return ms
 
 
+def build_clusters(
+    meme: str = MEME_DEFAULT,
+    human_only: bool = True,
+    cluster_at: float = 0.90,
+    max_clusters: int | None = None,
+    min_ic: float = 6.0,
+    expressed: set[str] | None = None,
+    trim_ic: float = 0.0,
+    max_len: int | None = None,
+) -> list[list[Motif]]:
+    """Like :func:`build`, but returns each cluster with ALL of its members.
+
+    A cluster is one binding preference; its members are the alternative PFMs JASPAR
+    holds for that preference (different versions of the same factor, and paralogues
+    whose matrices are near-identical). Keeping the members lets a planting sampler
+    draw a different member per site, which adds variation at the MATRIX level on top
+    of the per-instance variation that PWM sampling already provides -- while |V| is
+    still counted in clusters, so coverage arithmetic stays honest.
+
+    Returns:
+        List of clusters, each a list of Motifs with the highest-IC member first.
+        Clusters are ordered by their representative's information content.
+    """
+    key = "grp_" + _cache_key(
+        meme, human_only, cluster_at, max_clusters, min_ic, expressed, trim_ic, max_len
+    )
+    cached = _cache_load_groups(key)
+    if cached is not None:
+        return cached
+
+    # Reuse build()'s filtering (and its cache) by asking for no clustering.
+    ms = build(
+        meme=meme,
+        human_only=human_only,
+        cluster_at=None,
+        max_motifs=None,
+        min_ic=min_ic,
+        expressed=expressed,
+        trim_ic=trim_ic,
+        max_len=max_len,
+    )
+    groups = cluster_groups(ms, cluster_at)
+    groups.sort(key=lambda g: -g[0].info_content)
+    if max_clusters:
+        groups = groups[:max_clusters]
+    _cache_store_groups(key, groups)
+    return groups
+
+
 # --- vocabulary cache ---------------------------------------------------------
 # Clustering is O(n^2) in the number of motifs, each pair needing a both-strand
 # best-offset alignment, so building one vocabulary from human CORE takes minutes.
@@ -331,3 +422,30 @@ def _cache_store(key: str, motifs: list[Motif]) -> None:
         tmp.replace(_CACHE_DIR / f"{key}.npz")  # atomic, so concurrent jobs are safe
     except Exception:
         pass  # caching is an optimisation, never a requirement
+
+
+def _cache_load_groups(key: str) -> list[list[Motif]] | None:
+    flat = _cache_load(key)
+    if flat is None:
+        return None
+    sizes_path = _CACHE_DIR / f"{key}.sizes.npy"
+    if not sizes_path.exists():
+        return None
+    try:
+        sizes = np.load(sizes_path)
+        out, off = [], 0
+        for s in sizes:
+            out.append(flat[off : off + int(s)])
+            off += int(s)
+        return out
+    except Exception:
+        return None
+
+
+def _cache_store_groups(key: str, groups: list[list[Motif]]) -> None:
+    try:
+        _cache_store(key, [m for g in groups for m in g])
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        np.save(_CACHE_DIR / f"{key}.sizes.npy", np.array([len(g) for g in groups], dtype=np.int32))
+    except Exception:
+        pass
