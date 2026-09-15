@@ -115,3 +115,28 @@ Incremental, because the screen and the yeast oracle are running against this co
 5. Delete the shims.
 
 Steps 1–2 are safe today. Step 3 should wait for the 105-cell screen to finish.
+
+### Status
+
+**Steps 1 and 2 are done** (2026-09-15). `albench/core/` now holds `loop`, `pools`,
+`registry`, `paths`, `run` and the new `protocols.py`. The old paths still work.
+
+The shims **alias** the module rather than re-exporting from it:
+
+```python
+import sys
+from albench.core import loop as _module
+sys.modules[__name__] = _module
+```
+
+A `from albench.core.loop import *` shim was tried first and broke two tests, which
+turned out to be the interesting part: star-import copies only public names, so
+`albench.loop` and `albench.core.loop` became separate module objects with separate
+state. A test that patched a private attribute on one would pass while the patched
+code never ran. `tests/test_albench/test_migration_shims.py` pins both properties —
+same object identity, and private names present through the old path.
+
+**Step 3 is more entangled than the plan implies.** `albench/reservoir/
+motif_planted_v2.py` contains both the general motif planter AND the hg38-specific
+`PhylogeneticZoonomiaSampler`, so the `strategies/` vs `domains/` split needs that file
+divided first. Worth doing deliberately rather than as part of a move.
