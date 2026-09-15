@@ -659,7 +659,9 @@ class PhylogeneticZoonomiaSampler(ReservoirSampler):
         """Load Zoonomia rates and their matching sequences."""
         if self._cache is not None:
             return self._cache
-        path = Path(self.rates_path or os.environ.get("ZOONOMIA_RATES") or self.DEFAULT_RATES_PATH)
+        from albench.paths import resolve
+
+        path = Path(resolve("zoonomia_rates", self.rates_path or os.environ.get("ZOONOMIA_RATES")))
         if not path.exists():
             raise FileNotFoundError(
                 f"Zoonomia rate file not found: {path}. Set rates_path= or the "
