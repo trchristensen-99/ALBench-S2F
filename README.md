@@ -8,6 +8,43 @@ Compare reservoir sampling strategies and acquisition functions for training gen
 
 ---
 
+## New here?
+
+Read **[AGENTS.md](AGENTS.md)** first — it is the orientation for contributors and
+for LLM coding agents. Three commands get you oriented:
+
+```bash
+uv sync                 # environment
+albench doctor          # which data assets you have, and how to obtain the rest
+albench list            # every strategy and every parameter you can tune
+```
+
+`albench doctor` tells you exactly what is missing and how to get it, including the
+two ways to obtain the oracle (use our trained ensemble, or train your own from the
+public AlphaGenome weights). **You do not need every asset to start** — the `random`
+strategy needs none:
+
+```bash
+albench generate --strategy random --n 1000 --out /tmp/x.npz
+```
+
+### Sweeping parameters
+
+Parameters are swept from the command line; there is no file to add and no code to
+edit. A comma-separated value becomes a grid:
+
+```bash
+albench sweep --strategy zoonomia --n 100000 \
+    --set rate_mode=flat,per_position_matched,per_position \
+    --set ti_tv=1.0,2.0,4.0 \
+    --write jobs.sh          # 9 combinations, one command each
+```
+
+Adding a strategy is one `register(Spec(...))` call in `albench/registry.py` —
+see AGENTS.md.
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites

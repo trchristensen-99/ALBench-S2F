@@ -40,7 +40,23 @@ from pathlib import Path
 
 import numpy as np
 
-MEME_DEFAULT = "/grid/koo/home/shared/cl_procap/annotations/JASPAR2022_CORE_pfms.meme"
+
+def _default_meme() -> str:
+    """Default PFM source: CIS-BP if present, else JASPAR.
+
+    CIS-BP is preferred for the vocabulary arms because it covers far more human TFs;
+    JASPAR remains the fallback so a fresh clone with only JASPAR still works.
+    """
+    from albench.paths import resolve
+
+    for key in ("cisbp_meme", "jaspar_meme"):
+        p = resolve(key, required=False)
+        if p:
+            return str(p)
+    return str(resolve("jaspar_meme"))  # raises with instructions
+
+
+MEME_DEFAULT = None  # resolved lazily; see _default_meme()
 _ACGT = np.array(list("ACGT"))
 
 
@@ -104,7 +120,8 @@ class Motif:
         return Motif(self.mid + "_rc", self.name + "(-)", self.pwm[::-1, ::-1].copy())
 
 
-def parse_meme(path: str = MEME_DEFAULT) -> list[Motif]:
+def parse_meme(path: str | None = None) -> list[Motif]:
+    path = path or _default_meme()
     motifs, cur, rows, width = [], None, [], None
     with open(path) as fh:
         for line in fh:
@@ -240,7 +257,7 @@ def cluster(motifs: list[Motif], threshold: float = 0.90) -> list[Motif]:
 
 
 def build(
-    meme: str = MEME_DEFAULT,
+    meme: str | None = None,
     human_only: bool = True,
     cluster_at: float | None = 0.90,
     max_motifs: int | None = None,
@@ -277,6 +294,7 @@ def build(
     if cached is not None:
         return cached
 
+    meme = meme or _default_meme()
     ms = parse_meme(meme)
     if human_only:
         ids = human_core_ids()
@@ -313,7 +331,7 @@ def build(
 
 
 def build_clusters(
-    meme: str = MEME_DEFAULT,
+    meme: str | None = None,
     human_only: bool = True,
     cluster_at: float = 0.90,
     max_clusters: int | None = None,

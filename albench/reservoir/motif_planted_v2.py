@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 import numpy as np
@@ -51,16 +52,20 @@ YEAST_MOTIFS = [
     "TGACTC",
 ]
 
-_REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
-_DEFAULT_BG_CACHE = _REPO / "outputs/chr_split_cache/chr_train_ref_only.npz"
-
 
 def _bg_cache_path() -> Path:
-    """Genomic-background pool used for planting/shuffling/mutating. Override via the
-    RESERVOIR_BG_CACHE env var to generate a held-out, transform-matched VAL set from
-    chr19/21/X backgrounds (outputs/chr_split_cache/chr_val_ref_only.npz); defaults to
-    the chr-train pool so normal train-cache generation is unchanged."""
-    return Path(os.environ.get("RESERVOIR_BG_CACHE", str(_DEFAULT_BG_CACHE)))
+    """Genomic-background pool used for planting/shuffling/mutating.
+
+    RESERVOIR_BG_CACHE still wins, so an existing workflow can point this at the
+    chr19/21/X pool to build a held-out, transform-matched VAL set. Otherwise it
+    resolves through albench.paths like every other asset.
+    """
+    override = os.environ.get("RESERVOIR_BG_CACHE")
+    if override:
+        return Path(override)
+    from albench.paths import resolve
+
+    return Path(resolve("bg_cache"))
 
 
 def _rc(s: str) -> str:
@@ -91,6 +96,9 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         vocab_expressed: set[str] | None = None,
         plant_mode: str = "pwm_sample",
         cluster_mode: str = "representative",
+        vocab_subset: str | None = None,
+        motif_mutation_rate: float = 0.0,
+        ct_bias: float = 0.0,
         instance_pool: int = 256,
     ) -> None:
         """Initialize sampler.
@@ -129,6 +137,21 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 different matrices JASPAR actually holds for it. Either way |V| is
                 counted in clusters, so coverage arithmetic is unaffected -- this
                 changes what gets planted, not how much is claimed to be covered.
+            vocab_subset: Restrict the vocabulary to a named TF set --
+                ``"ct_enriched"`` (TFs active in the target cell types),
+                ``"shared_core"`` (TFs whose binding preference is shared across cell
+                types), or ``"syntax_core"`` (a deliberately small vocabulary, sized
+                by ``vocab_size``, so that motif PAIRS are covered often enough to
+                learn grammar). The first two read their TF lists from the ``tf_sets``
+                asset; ``syntax_core`` needs no external data.
+            motif_mutation_rate: Per-base mutation applied to each planted site AFTER
+                it is drawn. Planting only consensus-strength sites teaches the model
+                what a strong site looks like but nothing about weak ones, and real
+                regulatory sequence is full of degraded sites. 0.0 disables.
+            ct_bias: Fraction of planted sites drawn from the cell-type-enriched
+                subset rather than the full vocabulary. 0.2 means "upweight K562/HepG2
+                motifs to 20% of sites" without restricting the vocabulary to them,
+                which was the explicit ask -- restricting entirely is too limited.
             instance_pool: Instances pre-drawn per motif under ``pwm_sample``.
                 Reservoirs are generated at the 1M+ scale, so instances are drawn from
                 this pool rather than freshly per plant.
@@ -153,11 +176,63 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         self.vocab_expressed = vocab_expressed
         self.plant_mode = plant_mode
         self.cluster_mode = cluster_mode
+        self.vocab_subset = vocab_subset
+        if not 0.0 <= motif_mutation_rate <= 1.0:
+            raise ValueError(f"motif_mutation_rate must be in [0,1], got {motif_mutation_rate}")
+        if not 0.0 <= ct_bias <= 1.0:
+            raise ValueError(f"ct_bias must be in [0,1], got {ct_bias}")
+        self.motif_mutation_rate = motif_mutation_rate
+        self.ct_bias = ct_bias
         self.instance_pool = instance_pool
+        self._ct_entries: set[str] = set()
         self._bg_seqs: np.ndarray | None = None  # lazy
         self._vocab: list = []  # lazy: list[Motif], one representative per entry
         self._inst: dict[str, list[str]] = {}  # entry label -> pre-drawn instances
         self._native_consensus: list[str] = []  # every variant's consensus, for native scan
+
+    def _resolve_tf_sets(self) -> tuple[set[str] | None, set[str]]:
+        """Return (tf names to KEEP or None, cell-type-enriched tf names).
+
+        ``syntax_core`` needs no external data -- it is just a small vocabulary, and
+        ``vocab_size`` already expresses that. The other two subsets need real TF
+        lists, so they fail with instructions rather than silently falling back to
+        the full vocabulary, which would make the arms indistinguishable.
+        """
+        need_sets = self.vocab_subset in ("ct_enriched", "shared_core") or self.ct_bias > 0
+        if not need_sets:
+            return None, set()
+
+        import yaml
+
+        from albench.paths import resolve as resolve_asset
+
+        sets = yaml.safe_load(Path(resolve_asset("tf_sets")).read_text()) or {}
+        ct = {str(t).upper() for t in sets.get("ct_enriched", [])}
+        shared = {str(t).upper() for t in sets.get("shared_core", [])}
+        if self.vocab_subset == "ct_enriched" and not ct:
+            raise ValueError("tf_sets has no 'ct_enriched' entry")
+        if self.vocab_subset == "shared_core" and not shared:
+            raise ValueError("tf_sets has no 'shared_core' entry")
+        keep = {"ct_enriched": ct, "shared_core": shared}.get(self.vocab_subset)
+        return (keep or None), ct
+
+    def _mutate_site(self, s: str) -> str:
+        """Degrade a planted site so the model also sees WEAK binding sites.
+
+        Planting only consensus-strength instances teaches what a strong site looks
+        like but nothing about the graded response real regulatory sequence shows.
+        """
+        if self.motif_mutation_rate <= 0:
+            return s
+        arr = np.frombuffer(s.encode("ascii"), dtype=np.uint8).copy()
+        hit = self._rng.random(arr.size) < self.motif_mutation_rate
+        if not hit.any():
+            return s
+        idx = np.where(hit)[0]
+        code = np.searchsorted(_NUC_BYTES, arr[idx])
+        shift = self._rng.integers(1, 4, size=idx.size)
+        arr[idx] = _NUC_BYTES[(code + shift) % 4]
+        return arr.tobytes().decode("ascii")
 
     def _build_vocab(self) -> list:
         """Load and filter the JASPAR vocabulary, then pre-draw planting instances."""
@@ -171,6 +246,8 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 f"MEME PFM file not found: {meme}. Set vocab_meme= or the "
                 f"MOTIF_MEME_PATH env var to a JASPAR .meme file."
             )
+        keep_tfs, ct_tfs = self._resolve_tf_sets()
+
         # One vocabulary ENTRY = one binding preference. Under cluster_mode
         # "sample_members" an entry carries every PFM JASPAR holds for that
         # preference, and each planted site draws one of them; under
@@ -187,7 +264,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 human_only=True,
                 cluster_at=self.vocab_cluster_at,
                 max_clusters=self.vocab_size,
-                expressed=self.vocab_expressed,
+                expressed=keep_tfs or self.vocab_expressed,
                 trim_ic=self.vocab_trim_ic,
                 max_len=self.vocab_max_len,
             )
@@ -197,7 +274,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 human_only=True,
                 cluster_at=self.vocab_cluster_at,
                 max_motifs=self.vocab_size,
-                expressed=self.vocab_expressed,
+                expressed=keep_tfs or self.vocab_expressed,
                 trim_ic=self.vocab_trim_ic,
                 max_len=self.vocab_max_len,
             )
@@ -231,6 +308,8 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 per = max(1, self.instance_pool // len(variants))
                 pool = [s for m in variants for s in m.sample(self._rng, per)]
             self._inst[label] = pool
+            if ct_tfs and any(t.upper() in ct_tfs for m in g for t in re.split(r"[:\-_.]", m.name)):
+                self._ct_entries.add(label)
             self._vocab.append(g[0])
             self._native_consensus.extend(m.consensus for m in variants)
             n_members.append(len(g))
@@ -280,9 +359,13 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             motifs = [m.consensus for m in vocab]
             motif_names = [m.name for m in vocab]
             native_scan = self._native_consensus
+            ct_pool = np.array(
+                [i for i, nm in enumerate(motif_names) if nm in self._ct_entries], dtype=int
+            )
         else:
             motifs = self._get_motifs(task)
             motif_names = list(motifs)
+            ct_pool = np.empty(0, dtype=int)
         backgrounds = self._load_backgrounds() if task == "k562" else None
 
         sequences: list[str] = []
@@ -315,7 +398,17 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                         pos = core_str.find(motif, pos + 1)
 
             n_plant = self._rng.integers(self.min_motifs, self.max_motifs + 1)
-            chosen_idx = self._rng.integers(0, len(motifs), size=n_plant)
+            if use_vocab and ct_pool.size and self.ct_bias > 0:
+                # Upweight, do not restrict: a fraction of sites come from the
+                # cell-type-enriched entries, the rest from the whole vocabulary.
+                from_ct = self._rng.random(n_plant) < self.ct_bias
+                chosen_idx = np.where(
+                    from_ct,
+                    ct_pool[self._rng.integers(0, ct_pool.size, size=n_plant)],
+                    self._rng.integers(0, len(motifs), size=n_plant),
+                )
+            else:
+                chosen_idx = self._rng.integers(0, len(motifs), size=n_plant)
             planted_log = []
             for mi in chosen_idx:
                 mi = int(mi)
@@ -323,7 +416,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                     # A fresh draw per plant, so the same motif appears as different
                     # strings across the reservoir.
                     pool = self._inst[motif_names[mi]]
-                    motif = pool[int(self._rng.integers(0, len(pool)))]
+                    motif = self._mutate_site(pool[int(self._rng.integers(0, len(pool)))])
                     label = motif_names[mi]
                 else:
                     motif = motifs[mi]
@@ -513,7 +606,6 @@ class PhylogeneticZoonomiaSampler(ReservoirSampler):
     """
 
     DEFAULT_RATE = 0.02
-    DEFAULT_RATES_PATH = _REPO / "data/zoonomia/per_position_rates.npz"
 
     def __init__(
         self,

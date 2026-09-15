@@ -38,15 +38,6 @@ from albench.reservoir.base import ReservoirSampler
 
 logger = logging.getLogger(__name__)
 
-_REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
-_DEFAULT_PEAK_DIR = _REPO / "data/encode_accessibility"
-
-# Candidate hg38 references, first readable one wins. Override with HG38_FASTA.
-_HG38_CANDIDATES = (
-    "/grid/koo/home/dalin/ref/hg38.fa",
-    "/grid/vakoc/home/toobian/Koo_Collab/hg38_genome.fa",
-    "/grid/ngs/data/Elzar_Oxford/McCombie_Lab/hg38.fa",
-)
 
 # Held out everywhere else in the project: chr7+chr13 are the test chromosomes and
 # chr19/21/X are the validation chromosomes. A training reservoir that sampled
@@ -64,18 +55,10 @@ PARTITIONS = {
 
 
 def _find_hg38() -> str:
-    env = os.environ.get("HG38_FASTA")
-    if env:
-        if not Path(env).exists():
-            raise FileNotFoundError(f"HG38_FASTA points at a missing file: {env}")
-        return env
-    for cand in _HG38_CANDIDATES:
-        if os.access(cand, os.R_OK):
-            return cand
-    raise FileNotFoundError(
-        "No readable hg38 FASTA found. Set the HG38_FASTA env var. Tried: "
-        + ", ".join(_HG38_CANDIDATES)
-    )
+    """hg38 path, via albench.paths (which carries the cluster fallbacks)."""
+    from albench.paths import resolve
+
+    return str(resolve("hg38", os.environ.get("HG38_FASTA")))
 
 
 def _gc(seq: str) -> float:
@@ -128,7 +111,7 @@ class EncodeAccessibilitySampler(ReservoirSampler):
         self._rng = np.random.default_rng(seed)
         self.partition = partition
         self.seq_len = seq_len
-        self.peak_dir = Path(peak_dir) if peak_dir else _DEFAULT_PEAK_DIR
+        self._peak_dir_override = peak_dir
         self.fasta = fasta
         self.exclude_chroms = tuple(exclude_chroms)
         self.primary_chroms_only = primary_chroms_only
@@ -150,7 +133,10 @@ class EncodeAccessibilitySampler(ReservoirSampler):
     def _load_peaks(self) -> pd.DataFrame:
         if self._peaks is not None:
             return self._peaks
-        path = self.peak_dir / PARTITIONS[self.partition]
+        from albench.paths import resolve
+
+        peak_dir = Path(resolve("encode_peaks", self._peak_dir_override))
+        path = peak_dir / PARTITIONS[self.partition]
         if not path.exists():
             raise FileNotFoundError(f"Peak file not found: {path}")
         df = pd.read_csv(
