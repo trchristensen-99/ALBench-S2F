@@ -209,6 +209,20 @@ _add(
 )
 
 
+def _usable(p: Path, asset: Asset) -> bool:
+    """Exists AND has content.
+
+    An empty file counts as missing. A build step that fails partway can leave a
+    zero-byte artefact behind, and reporting that as present is worse than reporting
+    it absent -- the failure then surfaces much later, as a confusing parse error.
+    """
+    if not p.exists():
+        return False
+    if asset.is_dir:
+        return p.is_dir() and any(p.iterdir())
+    return p.stat().st_size > 0
+
+
 class MissingAsset(FileNotFoundError):
     """Raised with instructions rather than just a path."""
 
@@ -237,17 +251,17 @@ def resolve(key: str, explicit: str | Path | None = None, *, required: bool = Tr
         raise MissingAsset(f"{key}: {asset.env_var}={env} does not exist")
 
     for p in (_local_overrides().get(key), data_root() / asset.default_relpath):
-        if p and Path(p).expanduser().exists():
+        if p and _usable(Path(p).expanduser(), asset):
             return Path(p).expanduser()
 
     for rel in asset.repo_relpaths:
         p = REPO_ROOT / rel
-        if p.exists():
+        if _usable(p, asset):
             return p
 
     for fb in asset.fallbacks:
         p = Path(fb)
-        if p.exists() and os.access(p, os.R_OK):
+        if _usable(p, asset) and os.access(p, os.R_OK):
             return p
 
     if not required:

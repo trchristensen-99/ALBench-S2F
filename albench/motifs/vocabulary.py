@@ -296,6 +296,21 @@ def build(
 
     meme = meme or _default_meme()
     ms = parse_meme(meme)
+    # The human filter queries the JASPAR API for Homo sapiens CORE matrix IDs, so it
+    # only means anything for JASPAR-style IDs (MA1234.1). CIS-BP archives are already
+    # per-species -- we request Homo_sapiens -- so applying the JASPAR filter to
+    # CIS-BP IDs (M00099_3.10) would match nothing and empty the vocabulary.
+    jaspar_style = sum(bool(re.match(r"^MA\d+\.\d+$", m.mid)) for m in ms)
+    if human_only and jaspar_style < 0.5 * max(len(ms), 1):
+        import logging
+
+        logging.getLogger(__name__).info(
+            "human_only: IDs are not JASPAR-style (%d/%d), so the source is treated as "
+            "already species-filtered and the JASPAR API filter is skipped",
+            jaspar_style,
+            len(ms),
+        )
+        human_only = False
     if human_only:
         ids = human_core_ids()
         if ids:
