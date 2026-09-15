@@ -1,0 +1,50 @@
+# Parameter screen: the seven arms agreed 2026-09-12, at the two starting sizes.
+#
+# Stage 1 is one-factor-at-a-time from each strategy's defaults. Measured replicate
+# spread is ~0.005 in r, so a factor worth a factorial should already be visible
+# here; stage 2 (`--stage factorial`) then crosses only the factors that moved.
+#
+# d_values: 300k is the corpus we already have; 30k is the regime most groups are
+# actually in. Both have real headroom -- at D=300k a student ensemble reaches 0.848
+# against experimental labels vs the oracle's 0.916, still gaining +0.056 per
+# doubling -- so neither is a saturated dead end.
+#
+# seeds are RESERVOIR seeds: two draws from a generative strategy are different
+# sequence sets, and that variation is part of what the screen measures.
+
+d_values: [30000, 300000]
+seeds: [0, 1, 2]
+acquisitions: [random]
+
+strategies:
+  zoonomia:
+    rate_mode: [flat, per_position_matched, per_position]
+    ti_tv: [1.0, 4.0]
+
+  mutagenesis:
+    base: [zoonomia]
+    mutation_rate: [0.01, 0.10]
+    mutation_rate_distribution: [uniform]
+
+  evoaug:
+    point_mutation_rate: [0.005, 0.05]
+    p_deletion: [0.1, 0.5]
+
+  evoaug_published: {}          # control arm: published settings, never swept
+
+  motif_shared_core:
+    motif_mutation_rate: [0.05, 0.15]
+    plant_mode: [consensus]     # memorisation control
+    cluster_mode: [representative]
+    max_motifs: [4, 10]
+
+  motif_ct_enriched:
+    motif_mutation_rate: [0.05, 0.15]
+    ct_bias: [0.2, 0.5]
+
+  motif_syntax_core:
+    vocab_size: [15, 60]
+    max_motifs: [4, 10]
+
+  genomic: {}                   # baseline
+  random: {}                    # floor

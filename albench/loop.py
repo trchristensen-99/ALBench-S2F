@@ -58,6 +58,15 @@ class RunConfig:
     acquisition_schedule: dict[int | str, Any]
     output_dir: str
     n_reservoir_candidates: int = 10_000
+    candidate_provider: Any = None
+    """Optional ``(round_idx, n) -> list[str]`` producing candidates directly.
+
+    The pool path calls ``sampler.sample()``, which SELECTS from a fixed pool. The
+    seven strategies in the registry are mostly GENERATIVE -- they synthesise
+    sequences rather than choose among existing ones -- so there is no pool to index
+    into. When this is set it supersedes the pool path, which is how a registry
+    strategy drives the loop. See :func:`albench.run.registry_candidate_provider`.
+    """
 
 
 @dataclass
@@ -171,7 +180,13 @@ class ALLoop:
         acquirer = _scheduled(run_config.acquisition_schedule, self.round_idx)
 
         # Reservoir step
-        if self.use_fixed_pool:
+        if run_config.candidate_provider is not None:
+            candidate_sequences = list(
+                run_config.candidate_provider(self.round_idx, run_config.n_reservoir_candidates)
+            )
+            if not candidate_sequences:
+                return None
+        elif self.use_fixed_pool:
             candidate_indices: list[int] = sampler.sample(
                 candidates=self.pool,
                 n_samples=min(run_config.n_reservoir_candidates, len(self.pool)),
@@ -231,7 +246,11 @@ class ALLoop:
         for test_name, test_metrics in metrics.items():
             log_payload[f"test/{test_name}/pearson_r"] = test_metrics.get("pearson_r", 0.0)
         round_duration = time.perf_counter() - round_start
-        if _WANDB_AVAILABLE and _wandb is not None and _wandb.run is not None:
+        # getattr, not attribute access: wandb can be importable yet incomplete (a
+        # partial install, or a name collision with another module), in which case
+        # `_wandb.run` raises AttributeError and takes the whole round down over
+        # logging that is entirely optional.
+        if _WANDB_AVAILABLE and getattr(_wandb, "run", None) is not None:
             log_payload["round/wall_seconds"] = round_duration
             _wandb.log(log_payload)
 

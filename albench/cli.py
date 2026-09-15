@@ -202,6 +202,39 @@ def cmd_sweep(args) -> int:
     return 0
 
 
+def cmd_screen(args) -> int:
+    import yaml
+
+    from albench.run import ScreenConfig, expand_screen, screen_summary
+
+    cfg = ScreenConfig.from_dict(yaml.safe_load(Path(args.config).read_text()))
+    cells = expand_screen(cfg, args.stage)
+    print(screen_summary(cells, epochs=args.epochs))
+    if args.limit:
+        cells = cells[: args.limit]
+        print(f"\n(limited to the first {len(cells)} cells)")
+
+    lines = []
+    for c in cells:
+        sets = " ".join(f"--set {k}={v}" for k, v in sorted(c.params.items()))
+        out = f"{args.out_dir}/{c.tag}.npz"
+        lines.append(
+            f"albench generate --strategy {c.reservoir} --n {c.d} --seed {c.seed} "
+            f"{sets} --out {out}".replace("  ", " ")
+        )
+    if args.write:
+        Path(args.write).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.write).write_text("\n".join(lines) + "\n")
+        print(f"\nwrote {len(lines)} reservoir-generation commands -> {args.write}")
+        print("Each produces one labelled-pool input; training is driven separately.")
+    else:
+        for ln in lines[:5]:
+            print("  " + ln)
+        if len(lines) > 5:
+            print(f"  ... and {len(lines) - 5} more (use --write to save them all)")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="albench", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -227,12 +260,21 @@ def main(argv=None) -> int:
     s.add_argument("--out-dir", default="outputs/reservoir_cache")
     s.add_argument("--write", default=None, help="write the commands to this file")
 
+    sc = sub.add_parser("screen", help="expand a parameter-screen config into jobs")
+    sc.add_argument("--config", required=True)
+    sc.add_argument("--stage", choices=("screen", "factorial"), default="screen")
+    sc.add_argument("--out-dir", default="outputs/screen")
+    sc.add_argument("--write", default=None)
+    sc.add_argument("--limit", type=int, default=None, help="emit only the first N cells")
+    sc.add_argument("--epochs", type=int, default=60, help="for the cost estimate")
+
     args = ap.parse_args(argv)
     return {
         "doctor": cmd_doctor,
         "list": cmd_list,
         "generate": cmd_generate,
         "sweep": cmd_sweep,
+        "screen": cmd_screen,
     }[args.cmd](args)
 
 
