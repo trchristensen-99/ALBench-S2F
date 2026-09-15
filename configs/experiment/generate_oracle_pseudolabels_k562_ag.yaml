@@ -7,7 +7,7 @@ oracle_dir: outputs/ag_hashfrag_oracle_cached
 output_dir: outputs/oracle_pseudolabels_k562_ag
 cache_dir: outputs/ag_hashfrag/embedding_cache
 k562_data_path: data/k562
-weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+weights_path: ${oc.env:ALPHAGENOME_WEIGHTS,/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1}
 gpu: 0
 
 # Head (must match oracle training config)

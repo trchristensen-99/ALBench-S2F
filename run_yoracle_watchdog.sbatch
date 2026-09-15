@@ -7,7 +7,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --output=/grid/wsbs/home_norepl/christen/ALBench-S2F/logs/yoracle_watchdog.out
 set -uo pipefail
-REPO=/grid/wsbs/home_norepl/christen/ALBench-S2F; cd "$REPO"
+REPO=${ALBENCH_REPO:-/grid/wsbs/home_norepl/christen/ALBench-S2F}; cd "$REPO"
 SQ=/cm/shared/apps/slurm/current/bin/squeue; SB=/cm/shared/apps/slurm/current/bin/sbatch
 STATUS=$REPO/outputs/yeast_oracle_v2/STATUS.txt
 mkdir -p outputs/yeast_oracle_v2; resubs=0

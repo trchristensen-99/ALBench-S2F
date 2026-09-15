@@ -7,7 +7,7 @@ yeast_data_path: data/yeast
 context_mode: alphagenome384
 cache_dir: outputs/ag_yeast/embedding_cache
 output_dir: outputs/exp0_yeast_scaling_alphagenome
-weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+weights_path: ${oc.env:ALPHAGENOME_WEIGHTS,/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1}
 gpu: 0
 
 fraction: 1.0

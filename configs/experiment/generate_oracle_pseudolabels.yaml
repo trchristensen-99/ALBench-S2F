@@ -3,7 +3,7 @@
 oracle_dir: outputs/ag_hashfrag_oracle
 output_dir: outputs/oracle_pseudolabels
 k562_data_path: data/k562
-weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+weights_path: ${oc.env:ALPHAGENOME_WEIGHTS,/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1}
 head_name: alphagenome_k562_head_hashfrag_boda_flatten_512_512_v4
 head_arch: boda-flatten-512-512
 gpu: 0

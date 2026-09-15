@@ -209,6 +209,30 @@ _add(
 )
 
 
+_add(
+    Asset(
+        key="ag_weights",
+        env_var="ALPHAGENOME_WEIGHTS",
+        default_relpath="alphagenome/alphagenome-jax-all_folds-v1",
+        description=(
+            "Public AlphaGenome JAX checkpoint (all folds), the backbone the MPRA "
+            "oracle is fine-tuned from"
+        ),
+        how_to_get=(
+            "Request access and download from\n"
+            "        https://github.com/google-deepmind/alphagenome\n"
+            "        then either set ALPHAGENOME_WEIGHTS to the extracted directory or\n"
+            "        place it at <ALBENCH_DATA>/alphagenome/alphagenome-jax-all_folds-v1"
+        ),
+        required_by=("oracle training", "labelling"),
+        fallbacks=(
+            "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+        ),
+        is_dir=True,
+    )
+)
+
+
 def _usable(p: Path, asset: Asset) -> bool:
     """Exists AND has content.
 

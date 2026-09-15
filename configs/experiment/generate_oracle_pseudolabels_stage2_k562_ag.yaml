@@ -7,7 +7,7 @@
 oracle_dir: outputs/stage2_k562_oracle
 output_dir: outputs/oracle_pseudolabels_stage2_k562_ag
 k562_data_path: data/k562
-weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+weights_path: ${oc.env:ALPHAGENOME_WEIGHTS,/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1}
 gpu: 0
 
 # Head (must match Stage 2 oracle training config)

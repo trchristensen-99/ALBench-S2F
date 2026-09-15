@@ -38,6 +38,19 @@ BATTERY = {
 }
 
 
+def _ag_weights_path() -> str:
+    """AlphaGenome checkpoint directory, resolved through albench.paths.
+
+    Never a literal: the location differs per machine, so it comes from
+    ALPHAGENOME_WEIGHTS, paths.local.yaml, <ALBENCH_DATA>/alphagenome/... or a
+    site fallback, in that order. Missing weights raise with download instructions
+    instead of failing later inside the model loader.
+    """
+    from albench.paths import resolve
+
+    return str(resolve("ag_weights"))
+
+
 def owner_fold(pool, n_folds=N_FOLDS):
     """Invert the training split: which fold held out each row of the pool."""
     perm = np.random.default_rng(seed=SEED).permutation(pool)
@@ -238,7 +251,7 @@ if __name__ == "__main__":
     ap.add_argument("--batch_size", type=int, default=256)
     ap.add_argument(
         "--weights_path",
-        default="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+        default=None,  # resolved via albench.paths below
     )
     ap.add_argument(
         "--all_sequences",
@@ -259,4 +272,7 @@ if __name__ == "__main__":
     ap.add_argument("--shard_id", type=int, default=0)
     ap.add_argument("--overwrite", action="store_true")
     a = ap.parse_args()
+    # Resolve here rather than at argparse-definition time: resolve() raises when the
+    # checkpoint is absent, and --help should not require having the weights.
+    a.weights_path = a.weights_path or _ag_weights_path()
     (stage_foldmap if a.stage == "foldmap" else stage_predict)(a)

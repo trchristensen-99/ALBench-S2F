@@ -7,7 +7,7 @@ activation: relu
 
 yeast_data_path: data/yeast
 context_mode: alphagenome384
-weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+weights_path: ${oc.env:ALPHAGENOME_WEIGHTS,/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1}
 gpu: 0
 
 epochs: 100

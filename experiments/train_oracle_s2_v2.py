@@ -50,6 +50,19 @@ HEAD_NAME = "oracle_k562_fullcv_boda_flatten_512_512_v4"
 _MAPPING = {"A": 0, "C": 1, "G": 2, "T": 3}
 
 
+def _ag_weights_path() -> str:
+    """AlphaGenome checkpoint directory, resolved through albench.paths.
+
+    Never a literal: the location differs per machine, so it comes from
+    ALPHAGENOME_WEIGHTS, paths.local.yaml, <ALBENCH_DATA>/alphagenome/... or a
+    site fallback, in that order. Missing weights raise with download instructions
+    instead of failing later inside the model loader.
+    """
+    from albench.paths import resolve
+
+    return str(resolve("ag_weights"))
+
+
 def _merge(base, override):
     """Recursively merge *override* into *base*, returning a new dict."""
     if not isinstance(override, Mapping) or not isinstance(base, Mapping):
@@ -134,9 +147,12 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--weights-path",
-        default="/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
+        default=None,  # resolved via albench.paths below
     )
     args = parser.parse_args()
+    # Resolve here rather than at argparse-definition time: resolve() raises when the
+    # checkpoint is absent, and --help should not require having the weights.
+    args.weights_path = args.weights_path or _ag_weights_path()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     result_path = args.output_dir / "test_metrics.json"

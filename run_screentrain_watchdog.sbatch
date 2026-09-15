@@ -10,7 +10,7 @@
 # slow_nice is preemptible, so tasks can vanish; run_screentrain.sbatch skips any cell
 # that already has a result.json, which makes blind resubmission safe.
 set -uo pipefail
-REPO=/grid/wsbs/home_norepl/christen/ALBench-S2F; cd "$REPO"
+REPO=${ALBENCH_REPO:-/grid/wsbs/home_norepl/christen/ALBench-S2F}; cd "$REPO"
 SQ=/cm/shared/apps/slurm/current/bin/squeue; SB=/cm/shared/apps/slurm/current/bin/sbatch
 STATUS=$REPO/outputs/screen/TRAIN_STATUS.txt
 TOTAL=$(wc -l < outputs/screen/train_cells.txt)

@@ -49,3 +49,6 @@ scripts/analysis/model_comparison_plots/
 /data/zoonomia/
 /data/encode_accessibility/
 /data/reference/
+
+# Superseded code kept on disk but out of the tracked tree (see docs/ATTIC.md)
+/attic/

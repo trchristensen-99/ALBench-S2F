@@ -51,6 +51,19 @@ sys.path.insert(0, str(REPO))
 from albench.model import SequenceModel  # noqa: E402
 from experiments.test_set_guards import assert_label_cache_oracle  # noqa: E402
 
+def _ag_weights_path() -> str:
+    """AlphaGenome checkpoint directory, resolved through albench.paths.
+
+    Never a literal: the location differs per machine, so it comes from
+    ALPHAGENOME_WEIGHTS, paths.local.yaml, <ALBENCH_DATA>/alphagenome/... or a
+    site fallback, in that order. Missing weights raise with download instructions
+    instead of failing later inside the model loader.
+    """
+    from albench.paths import resolve
+
+    return str(resolve("ag_weights"))
+
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -530,10 +543,7 @@ def _load_k562_ag_oracle():
         num_tracks=1,
         dropout_rate=0.1,
     )
-    weights_path = os.environ.get(
-        "ALPHAGENOME_WEIGHTS",
-        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
-    )
+    weights_path = _ag_weights_path()
     model = create_model_with_heads(
         "all_folds",
         heads=[head_name],
@@ -776,10 +786,7 @@ def _load_yeast_ag_oracle():
         num_tracks=18,
         dropout_rate=0.1,
     )
-    weights_path = os.environ.get(
-        "ALPHAGENOME_WEIGHTS",
-        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
-    )
+    weights_path = _ag_weights_path()
     model = create_model_with_heads(
         "all_folds",
         heads=[head_name],
@@ -1041,10 +1048,7 @@ def _load_k562_ag_s2_oracle():
         num_tracks=1,
         dropout_rate=0.1,
     )
-    weights_path = os.environ.get(
-        "ALPHAGENOME_WEIGHTS",
-        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
-    )
+    weights_path = _ag_weights_path()
     model = create_model_with_heads(
         "all_folds",
         heads=[head_name],
@@ -1208,10 +1212,7 @@ def _get_ag_model_and_encoder(task: str):
         num_tracks=num_tracks,
         dropout_rate=0.1,
     )
-    weights_path = os.environ.get(
-        "ALPHAGENOME_WEIGHTS",
-        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
-    )
+    weights_path = _ag_weights_path()
     model = create_model_with_heads(
         "all_folds",
         heads=[head_name],
@@ -1273,10 +1274,7 @@ def _get_ag_model_and_encoder_multitask(task: str):
         num_tracks=num_tracks,
         dropout_rate=0.1,
     )
-    weights_path = os.environ.get(
-        "ALPHAGENOME_WEIGHTS",
-        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
-    )
+    weights_path = _ag_weights_path()
     model = create_model_with_heads(
         "all_folds",
         heads=[head_name],
@@ -1632,10 +1630,7 @@ def _train_ag_s2_student(
         dropout_rate=0.1,
     )
 
-    weights_path = os.environ.get(
-        "ALPHAGENOME_WEIGHTS",
-        "/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1",
-    )
+    weights_path = _ag_weights_path()
     model = create_model_with_heads(
         "all_folds",
         heads=[head_name],

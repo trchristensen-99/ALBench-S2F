@@ -11,7 +11,7 @@ num_tracks: 1
 k562_data_path: data/k562
 cache_dir: outputs/ag_hashfrag/embedding_cache
 output_dir: outputs/exp0_k562_scaling_alphagenome_cached
-weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+weights_path: ${oc.env:ALPHAGENOME_WEIGHTS,/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1}
 gpu: 0
 
 # Training

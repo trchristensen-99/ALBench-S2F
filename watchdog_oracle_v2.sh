@@ -5,7 +5,7 @@
 # which continues from progress.json, or warm-starts from the saved checkpoint if the run predates
 # that file. A run is considered finished only when test_metrics.json exists.
 set -uo pipefail
-ROOT=${ROOT:-/grid/wsbs/home_norepl/christen/ALBench-S2F}
+ROOT=${ALBENCH_REPO:-/grid/wsbs/home_norepl/christen/ALBench-S2F}
 cd "$ROOT"
 SQ=/cm/shared/apps/slurm/current/bin/squeue
 SB=/cm/shared/apps/slurm/current/bin/sbatch

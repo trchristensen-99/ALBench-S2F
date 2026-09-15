@@ -8,7 +8,7 @@ context_mode: alphagenome384
 cache_dir: outputs/ag_yeast/embedding_cache_full
 pseudolabel_dir: outputs/oracle_pseudolabels/yeast_dream_oracle
 output_dir: outputs/exp0_yeast_scaling_oracle_labels_ag
-weights_path: /grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1
+weights_path: ${oc.env:ALPHAGENOME_WEIGHTS,/grid/wsbs/home_norepl/christen/alphagenome_weights/alphagenome-jax-all_folds-v1}
 gpu: 0
 
 fraction: 1.0

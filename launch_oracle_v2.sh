@@ -11,7 +11,7 @@
 #
 # Spread across the three independent qos tiers so nothing queues behind the rest.
 set -euo pipefail
-ROOT=${ROOT:-/grid/wsbs/home_norepl/christen/ALBench-S2F}
+ROOT=${ALBENCH_REPO:-/grid/wsbs/home_norepl/christen/ALBench-S2F}
 cd "$ROOT"
 SBATCH=/cm/shared/apps/slurm/current/bin/sbatch
 CACHE=outputs/oracle_full856k_clean/embedding_cache

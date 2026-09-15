@@ -16,7 +16,7 @@
 # a speedup it barely benefits from.
 set -uo pipefail
 export TQDM_DISABLE=1 PYTHONUNBUFFERED=1
-cd /grid/wsbs/home_norepl/christen/ALBench-S2F
+cd "${ALBENCH_REPO:-/grid/wsbs/home_norepl/christen/ALBench-S2F}"
 CELL=$(sed -n "${SLURM_ARRAY_TASK_ID}p" outputs/screen/train_cells.txt)
 [ -z "$CELL" ] && { echo "no cell at index ${SLURM_ARRAY_TASK_ID}"; exit 0; }
 OUT=outputs/screen/train/$CELL
