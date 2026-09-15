@@ -31,3 +31,21 @@ _tmp_proposals.json
 scripts/analysis/acquisition_plots/
 scripts/analysis/hp_sweep_plots/
 scripts/analysis/model_comparison_plots/
+
+# Derived experiment data: large, regenerable-or-archived, and not part of the API.
+# These were tracked historically; they are kept on disk and archived outside git
+# (see docs/DATA_ARCHIVE.md) rather than versioned, because a fresh clone should not
+# have to download ~800 MB of intermediates to run `albench`.
+/data/neg_aug_final_push/
+/data/neg_aug_aggressive/
+/data/neg_aug_combos/
+/data/synthetic_negatives_corrected/
+/data/synthetic_negatives_cpg_aware/
+/data/synthetic_negatives_gosai_native/
+/data/cpg_augmentation/
+/data/cpg_counterfactual/
+/data/agarwal_2025/
+/data/motifs/
+/data/zoonomia/
+/data/encode_accessibility/
+/data/reference/
