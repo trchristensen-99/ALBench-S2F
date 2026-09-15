@@ -179,7 +179,20 @@ def load_chr_train_pool(
 
     if D is not None and D < len(universe):
         rng = np.random.default_rng(seed)
-        pick = rng.choice(len(universe), size=D, replace=False)
+        # Permutation PREFIX, not rng.choice(size=D, replace=False).
+        #
+        # Nesting matters: for a scaling curve, the D=10k training set must be a
+        # subset of the D=30k set, so that going up the curve only ADDS data. If the
+        # sets are drawn independently at each D, the curve also varies in WHICH
+        # sequences were drawn, which both adds noise (jagged curves) and confounds
+        # the scaling effect with the sampling draw.
+        #
+        # Generator.choice(replace=False) does NOT guarantee this. It switches
+        # algorithm with the D/N ratio, so it is nested in some regimes and not in
+        # others -- measured: at N=300k it was nested for D=10k->30k but dropped
+        # ~96% of the smaller set for D=2k->10k. A permutation prefix is nested by
+        # construction at every size.
+        pick = rng.permutation(len(universe))[:D]
         idx = universe[pick]
         seqs = seqs[idx]
         labels = labels[idx]
@@ -371,8 +384,10 @@ class HPConfig:
     # off-menu scheduler name here (or a torch class name) + an optional
     # extra["lr_schedule_kwargs"] dict — LegNetStudent builds it generically.
     lr_schedule: str = "plateau"
-    width_ratio: float = 1.0    # final/initial width ratio: <1 shrink, 1 flat, >1 grow (canonical ~2.0)
-    pool_downsample: int = 0    # number of 2x MaxPool stages (0=none, 4=16x=canonical MPRA-LegNet)
+    width_ratio: float = (
+        1.0  # final/initial width ratio: <1 shrink, 1 flat, >1 grow (canonical ~2.0)
+    )
+    pool_downsample: int = 0  # number of 2x MaxPool stages (0=none, 4=16x=canonical MPRA-LegNet)
     # Free-form, off-menu axes proposed by the LLM AutoResearch strategy when
     # LLM_ALLOW_NOVEL_AXES=1. Empty for all core-axis configs. Recognized keys
     # (see EXPERIMENTAL_KNOBS) are applied to training/model; unrecognized keys
@@ -421,7 +436,10 @@ EXPERIMENTAL_KNOBS = {
     "evoaug_prob": ("train", lambda v: _clipf(v, 0.05, 1.0, 0.5)),
     "activation": ("model", lambda v: str(v).lower() if str(v).lower() in _ACTIVATIONS else "silu"),
     "se_reduction": ("model", lambda v: int(max(2, min(16, int(v))))),
-    "outer_skip_style": ("model", lambda v: str(v).lower() if str(v).lower() in {"concat", "add", "none"} else "concat"),
+    "outer_skip_style": (
+        "model",
+        lambda v: str(v).lower() if str(v).lower() in {"concat", "add", "none"} else "concat",
+    ),
     "skip_stride": ("model", lambda v: int(max(1, min(4, int(v))))),
     "loss": ("loss", lambda v: str(v).lower() if str(v).lower() in _LOSSES else "mse"),
     "huber_delta": ("loss", lambda v: _clipf(v, 0.1, 5.0, 1.0)),
@@ -511,35 +529,110 @@ def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) 
     return HPConfig(
         lr=float(10 ** rng.uniform(_lr_lo, _lr_hi)),
         batch_size=int(rng.choice(_bs_menu)),
-        conv_dropout=float(rng.uniform(float(os.environ.get("HP_CONV_DROPOUT_MIN", "0")), float(os.environ.get("HP_CONV_DROPOUT_MAX", "0.3")))),
-        dense_dropout=float(rng.uniform(float(os.environ.get("HP_DENSE_DROPOUT_MIN", "0")), float(os.environ.get("HP_DENSE_DROPOUT_MAX", "0.5")))),
+        conv_dropout=float(
+            rng.uniform(
+                float(os.environ.get("HP_CONV_DROPOUT_MIN", "0")),
+                float(os.environ.get("HP_CONV_DROPOUT_MAX", "0.3")),
+            )
+        ),
+        dense_dropout=float(
+            rng.uniform(
+                float(os.environ.get("HP_DENSE_DROPOUT_MIN", "0")),
+                float(os.environ.get("HP_DENSE_DROPOUT_MAX", "0.5")),
+            )
+        ),
         n_layers=n_layers,
         width_base=int(rng.choice(_wb_menu)),
         width_jitter=width_jitter,
-        block_class=str(rng.choice(os.environ["HP_BLOCK_CLASS_MENU"].split(",") if os.environ.get("HP_BLOCK_CLASS_MENU") else ["eff", "ag", "plain"])),
-        ks=([int(rng.choice(_ks_menu)) for _ in range(n_layers)] if _ks_per_layer else int(rng.choice(_ks_menu))),
+        block_class=str(
+            rng.choice(
+                os.environ["HP_BLOCK_CLASS_MENU"].split(",")
+                if os.environ.get("HP_BLOCK_CLASS_MENU")
+                else ["eff", "ag", "plain"]
+            )
+        ),
+        ks=(
+            [int(rng.choice(_ks_menu)) for _ in range(n_layers)]
+            if _ks_per_layer
+            else int(rng.choice(_ks_menu))
+        ),
         pct_start=float(rng.choice([0.1, 0.2, 0.3, 0.4])),
-        optimizer=str(rng.choice(os.environ["HP_OPTIMIZER_MENU"].split(",") if os.environ.get("HP_OPTIMIZER_MENU") else ["adam", "adamw", "muon"])),
+        optimizer=str(
+            rng.choice(
+                os.environ["HP_OPTIMIZER_MENU"].split(",")
+                if os.environ.get("HP_OPTIMIZER_MENU")
+                else ["adam", "adamw", "muon"]
+            )
+        ),
         weight_decay=float(10 ** rng.uniform(_wd_lo, _wd_hi)),
-        width_ratio=float(2 ** rng.uniform(np.log2(float(os.environ.get("HP_WIDTH_RATIO_MIN", "0.125"))), np.log2(float(os.environ.get("HP_WIDTH_RATIO_MAX", "4.0"))))),
-        pool_downsample=int(rng.choice([int(x) for x in os.environ["HP_POOL_DOWNSAMPLE_MENU"].split(",")] if os.environ.get("HP_POOL_DOWNSAMPLE_MENU") else [0, 1, 2, 3, 4])),
+        width_ratio=float(
+            2
+            ** rng.uniform(
+                np.log2(float(os.environ.get("HP_WIDTH_RATIO_MIN", "0.125"))),
+                np.log2(float(os.environ.get("HP_WIDTH_RATIO_MAX", "4.0"))),
+            )
+        ),
+        pool_downsample=int(
+            rng.choice(
+                [int(x) for x in os.environ["HP_POOL_DOWNSAMPLE_MENU"].split(",")]
+                if os.environ.get("HP_POOL_DOWNSAMPLE_MENU")
+                else [0, 1, 2, 3, 4]
+            )
+        ),
         use_shift_aug=bool(rng.random() < 0.5),
         shift_max=int(rng.choice([5, 10, 15, 20])),
         use_evoaug=bool(rng.random() < 0.3),
-        lr_schedule=str(rng.choice(os.environ["HP_LR_SCHEDULE_MENU"].split(",") if os.environ.get("HP_LR_SCHEDULE_MENU") else LR_SCHEDULE_CHOICES)),
+        lr_schedule=str(
+            rng.choice(
+                os.environ["HP_LR_SCHEDULE_MENU"].split(",")
+                if os.environ.get("HP_LR_SCHEDULE_MENU")
+                else LR_SCHEDULE_CHOICES
+            )
+        ),
         seed=seed,
         extra={
-            **({"activation": str(rng.choice(os.environ["HP_ACTIVATION_MENU"].split(",")))} if os.environ.get("HP_ACTIVATION_MENU") else {}),
-            **({"outer_skip_style": str(rng.choice(os.environ["HP_OUTER_SKIP_STYLE_MENU"].split(",")))} if os.environ.get("HP_OUTER_SKIP_STYLE_MENU") else {}),
-            **({"skip_stride": int(rng.choice([int(x) for x in os.environ["HP_SKIP_STRIDE_MENU"].split(",")]))} if os.environ.get("HP_SKIP_STRIDE_MENU") else {}),
-            **({"lr_plateau_factor": float(rng.choice([float(x) for x in os.environ["HP_LR_PLATEAU_FACTOR_MENU"].split(",")]))} if os.environ.get("HP_LR_PLATEAU_FACTOR_MENU") else {}),
+            **(
+                {"activation": str(rng.choice(os.environ["HP_ACTIVATION_MENU"].split(",")))}
+                if os.environ.get("HP_ACTIVATION_MENU")
+                else {}
+            ),
+            **(
+                {
+                    "outer_skip_style": str(
+                        rng.choice(os.environ["HP_OUTER_SKIP_STYLE_MENU"].split(","))
+                    )
+                }
+                if os.environ.get("HP_OUTER_SKIP_STYLE_MENU")
+                else {}
+            ),
+            **(
+                {
+                    "skip_stride": int(
+                        rng.choice([int(x) for x in os.environ["HP_SKIP_STRIDE_MENU"].split(",")])
+                    )
+                }
+                if os.environ.get("HP_SKIP_STRIDE_MENU")
+                else {}
+            ),
+            **(
+                {
+                    "lr_plateau_factor": float(
+                        rng.choice(
+                            [float(x) for x in os.environ["HP_LR_PLATEAU_FACTOR_MENU"].split(",")]
+                        )
+                    )
+                }
+                if os.environ.get("HP_LR_PLATEAU_FACTOR_MENU")
+                else {}
+            ),
         },
     )
 
 
-
 def build_block_sizes(
-    n_layers: int, width_base: int, width_jitter: list | None = None,
+    n_layers: int,
+    width_base: int,
+    width_jitter: list | None = None,
     width_ratio: float = 1.0,
 ) -> list[int]:
     """Per-layer widths as a smooth power-law in depth, times optional per-layer jitter.
@@ -577,11 +670,25 @@ def canonical_anchor_config(D=None, seed: int = 0) -> "HPConfig":
     Evaluated first (round 0) so all cells start from the same principled point."""
     n_layers = 5
     return HPConfig(
-        lr=0.01, batch_size=1024, conv_dropout=0.0, dense_dropout=0.0,
-        n_layers=n_layers, width_base=64, width_jitter=[1.0] * n_layers,
-        block_class="eff", ks=9, pct_start=0.3, optimizer="adamw",
-        weight_decay=0.1, use_shift_aug=True, shift_max=10, use_evoaug=False,
-        seed=seed, lr_schedule="onecycle", width_ratio=2.0, pool_downsample=4,
+        lr=0.01,
+        batch_size=1024,
+        conv_dropout=0.0,
+        dense_dropout=0.0,
+        n_layers=n_layers,
+        width_base=64,
+        width_jitter=[1.0] * n_layers,
+        block_class="eff",
+        ks=9,
+        pct_start=0.3,
+        optimizer="adamw",
+        weight_decay=0.1,
+        use_shift_aug=True,
+        shift_max=10,
+        use_evoaug=False,
+        seed=seed,
+        lr_schedule="onecycle",
+        width_ratio=2.0,
+        pool_downsample=4,
     )
 
 
@@ -617,7 +724,9 @@ def train_one_model(
     np.random.seed(hp.seed)
     _random.seed(hp.seed)
     width_jitter = hp.width_jitter if hp.width_jitter else [1.0] * hp.n_layers
-    block_sizes = build_block_sizes(hp.n_layers, hp.width_base, width_jitter, getattr(hp, "width_ratio", 1.0))
+    block_sizes = build_block_sizes(
+        hp.n_layers, hp.width_base, width_jitter, getattr(hp, "width_ratio", 1.0)
+    )
     # Off-menu novel axes (empty unless LLM_ALLOW_NOVEL_AXES was set when proposing).
     tr_over, md_over, ls_over, applied_knobs, recorded_knobs = apply_experimental_knobs(
         getattr(hp, "extra", {}) or {}
@@ -936,14 +1045,29 @@ def run_search(args):
                 sys.exit(42)
             if rd == 0 and int(getattr(args, "seed_anchor", 1)):
                 _amode = str(getattr(args, "anchor_mode", "exploit")).lower()
-                _exploit_pat = ("optuna", "evo_exploit", "evo_adaptive", "evo_knowledgeable", "ray_", "bohb", "asha", "llm_exploit")
+                _exploit_pat = (
+                    "optuna",
+                    "evo_exploit",
+                    "evo_adaptive",
+                    "evo_knowledgeable",
+                    "ray_",
+                    "bohb",
+                    "asha",
+                    "llm_exploit",
+                )
                 _anchor = canonical_anchor_config(getattr(args, "D", None))
                 _seeded = []
                 for _nm in list(strategies.keys()):
-                    if _amode == "all" or (_amode == "exploit" and any(_p in _nm for _p in _exploit_pat)):
-                        round_configs.insert(0, (_nm, _anchor)); _seeded.append(_nm)
+                    if _amode == "all" or (
+                        _amode == "exploit" and any(_p in _nm for _p in _exploit_pat)
+                    ):
+                        round_configs.insert(0, (_nm, _anchor))
+                        _seeded.append(_nm)
                 if _seeded:
-                    print(f"  [anchor] seeded canonical config (mode={_amode}) into round 0 for: {_seeded}", flush=True)
+                    print(
+                        f"  [anchor] seeded canonical config (mode={_amode}) into round 0 for: {_seeded}",
+                        flush=True,
+                    )
             _atomic_write_text(
                 proposals_path,
                 json.dumps(
@@ -1287,8 +1411,19 @@ def main():
         help="comma list, e.g. random,optuna_tpe,autoresearch_single",
     )
     ap.add_argument("--rounds", type=int, default=1)
-    ap.add_argument("--seed_anchor", type=int, default=1, help="1=evaluate canonical MPRA-LegNet first (round 0); 0=off")
-    ap.add_argument("--anchor_mode", type=str, default="exploit", choices=["exploit", "all", "none"], help="which strategies get the canonical anchor at round 0")
+    ap.add_argument(
+        "--seed_anchor",
+        type=int,
+        default=1,
+        help="1=evaluate canonical MPRA-LegNet first (round 0); 0=off",
+    )
+    ap.add_argument(
+        "--anchor_mode",
+        type=str,
+        default="exploit",
+        choices=["exploit", "all", "none"],
+        help="which strategies get the canonical anchor at round 0",
+    )
     ap.add_argument("--per_strategy_per_round", type=int, default=5)
     ap.add_argument("--D", type=int, default=10_000)
     ap.add_argument("--ref_only", action="store_true")

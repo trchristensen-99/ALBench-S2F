@@ -109,3 +109,38 @@ def test_labels_follow_their_sequences(tmp_path):
     s, y, idx = draw_training_set(pool, 50, seed=2)
     for seq, val in zip(s, y):
         assert seq == f"SEQ{int(val)}"
+
+
+def test_generator_choice_is_not_reliably_nested():
+    """Documents WHY the driver uses a permutation prefix.
+
+    numpy's Generator.choice(replace=False) switches algorithm with the D/N ratio, so
+    it is nested in some size regimes and not others. Relying on it would give
+    scaling curves that are smooth at some sizes and jagged at others, which is worse
+    than uniformly jagged because the artefact looks like a result.
+    """
+    violations = 0
+    for n in (5_000, 50_000):
+        for seed in (0, 42):
+            prev = None
+            for d in (100, 500, 2_000):
+                cur = set(np.random.default_rng(seed).choice(n, size=d, replace=False).tolist())
+                if prev is not None and not prev <= cur:
+                    violations += 1
+                prev = cur
+    assert violations > 0, (
+        "choice(replace=False) appears nested here; if numpy changed this, the "
+        "permutation-prefix rationale in scaling_hp_search.py should be revisited"
+    )
+
+
+def test_permutation_prefix_is_always_nested():
+    """The property the driver now relies on."""
+    for n in (5_000, 50_000, 300_000):
+        for seed in (0, 1, 42):
+            prev = None
+            for d in (100, 500, 2_000, 10_000):
+                cur = set(np.random.default_rng(seed).permutation(n)[:d].tolist())
+                if prev is not None:
+                    assert prev <= cur, f"not nested at n={n} seed={seed} d={d}"
+                prev = cur
