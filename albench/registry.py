@@ -491,6 +491,40 @@ def _reg_acquisition() -> None:
         "uncertainty+diversity",
         {"n_mc_samples": Param(30, "MC forward passes when the student is not an ensemble")},
     )
+    from albench.acquisition.binned import (
+        BinnedBADGEAcquisition,
+        BinnedBatchBALDAcquisition,
+    )
+
+    _binned_params = {
+        "n_bins": Param(10, "activity bins; more bins = finer resolution, thinner counts"),
+        "bin_mode": Param(
+            "quantile",
+            "quantile (equal counts) | uniform (equal width)",
+            choices=("quantile", "uniform"),
+        ),
+        "n_mc_samples": Param(30, "MC passes when the student is not an ensemble"),
+    }
+    _acq(
+        "badge_binned",
+        BinnedBADGEAcquisition,
+        "BADGE in its TEXTBOOK form, on activity discretised into bins. The "
+        "cross-entropy gradient (p - onehot) (x) z is non-zero, so the degeneracy that "
+        "breaks BADGE on a Gaussian head does not arise. This is why yeast needs no "
+        "adaptation -- DREAM activities are already binned -- and it is the arm to "
+        "compare against the continuous adaptation for human MPRA.",
+        "uncertainty+diversity",
+        dict(_binned_params),
+    )
+    _acq(
+        "batchbald_binned",
+        BinnedBatchBALDAcquisition,
+        "BatchBALD in its TEXTBOOK discrete form on binned activity. Rank is governed "
+        "by the bins and the batch rather than by the ensemble size, so it does not "
+        "saturate after M-1 picks the way the Gaussian version does.",
+        "uncertainty+diversity",
+        {**_binned_params, "n_joint_samples": Param(2000, "samples for the joint term")},
+    )
     _acq(
         "badge_epistemic_only",
         EpistemicOnlyAcquisition,

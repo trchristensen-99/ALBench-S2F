@@ -139,3 +139,87 @@ def test_acquisition_builds_and_documents_params(name):
     spec.build(seed=0)
     for key, p in spec.params.items():
         assert p.help.strip(), f"{name}.{key} undocumented"
+
+
+# --- binned variants: the textbook forms, and the contrast that motivates them ----
+
+
+class SampleStudent(FakeStudent):
+    """Student whose posterior samples we control, for the binned methods."""
+
+    def __init__(self, samples: np.ndarray, d: int = 6, seed: int = 0):
+        n = samples.shape[1]
+        super().__init__(n, d=d, seed=seed)
+        self._samples = samples
+        self._i = 0
+
+    def predict(self, sequences):
+        out = self._samples[self._i % len(self._samples)]
+        self._i += 1
+        return out
+
+
+def _spread_samples(n=40, t=12, seed=0):
+    rng = np.random.default_rng(seed)
+    truth = rng.normal(size=n) * 2
+    return truth[None, :] + rng.normal(scale=0.8, size=(t, n))
+
+
+def test_bin_edges_quantile_gives_equal_counts():
+    from albench.acquisition.binned import bin_edges
+
+    v = np.random.default_rng(0).lognormal(size=5000)
+    e = bin_edges(v, 10, "quantile")
+    counts = np.bincount(np.digitize(v, e), minlength=len(e) + 1)
+    assert counts.min() > 0.5 * counts.max()  # roughly balanced
+
+
+def test_bin_edges_warns_on_ties(caplog):
+    from albench.acquisition.binned import bin_edges
+
+    v = np.zeros(1000)
+    v[:10] = 1.0
+    with caplog.at_level("WARNING"):
+        bin_edges(v, 10, "quantile")
+    assert any("duplicates" in r.getMessage() for r in caplog.records)
+
+
+def test_binned_badge_embedding_is_not_degenerate():
+    """The whole point: the categorical gradient is non-zero where the Gaussian is 0."""
+    from albench.acquisition.binned import BinnedBADGEAcquisition
+
+    s = SampleStudent(_spread_samples())
+    sel = BinnedBADGEAcquisition(seed=0, n_bins=6).select(s, [f"s{i}" for i in range(40)], 8)
+    assert len(sel) == 8 and len(set(sel.tolist())) == 8
+
+
+def test_binned_methods_reject_a_deterministic_student():
+    """No epistemic spread means no information; must fail loudly, not pick randomly."""
+    from albench.acquisition.binned import BinnedBADGEAcquisition, gather_samples
+
+    same = np.tile(np.arange(30, dtype=float), (8, 1))
+    s = SampleStudent(same)
+    with pytest.raises(ValueError, match="identical across passes"):
+        gather_samples(s, [f"s{i}" for i in range(30)], 8)
+    with pytest.raises(ValueError):
+        BinnedBADGEAcquisition(seed=0).select(s, [f"s{i}" for i in range(30)], 4)
+
+
+def test_binned_batchbald_selects_distinct_and_is_deterministic():
+    from albench.acquisition.binned import BinnedBatchBALDAcquisition
+
+    seqs = [f"s{i}" for i in range(40)]
+    a = BinnedBatchBALDAcquisition(seed=0, n_bins=5).select(
+        SampleStudent(_spread_samples()), seqs, 6
+    )
+    b = BinnedBatchBALDAcquisition(seed=0, n_bins=5).select(
+        SampleStudent(_spread_samples()), seqs, 6
+    )
+    assert len(set(a.tolist())) == 6
+    assert a.tolist() == b.tolist()
+
+
+def test_binned_variants_registered():
+    for name in ("badge_binned", "batchbald_binned"):
+        assert name in R.ACQ_REGISTRY
+        R.get_acq(name).build(seed=0)
