@@ -24,6 +24,7 @@ Nothing else in the codebase needs to change.
 
 from __future__ import annotations
 
+import inspect
 import itertools
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -395,9 +396,125 @@ class _MutagenesisWithBase:
         return self._sampler.generate(n, base_sequences=base_seqs, task=ctx.task)
 
 
+# ---------------------------------------------------------------------------
+# Acquisition strategies. MVP per the 2026-09-12 meeting is one simple method per
+# family -- k-means for diversity, MC dropout for uncertainty -- plus BADGE and
+# BatchBALD, which are uncertainty AND diversity rather than diversity alone, and
+# the controls without which a BADGE result cannot be attributed.
+# ---------------------------------------------------------------------------
+
+ACQ_REGISTRY: dict[str, Spec] = {}
+
+
+def register_acq(spec: Spec) -> Spec:
+    if spec.name in ACQ_REGISTRY:
+        raise ValueError(f"Acquisition {spec.name!r} already registered")
+    ACQ_REGISTRY[spec.name] = spec
+    return spec
+
+
+def get_acq(name: str) -> Spec:
+    if name not in ACQ_REGISTRY:
+        raise KeyError(f"Unknown acquisition {name!r}. Available: {sorted(ACQ_REGISTRY)}")
+    return ACQ_REGISTRY[name]
+
+
+def _reg_acquisition() -> None:
+    from albench.acquisition.badge import (
+        BADGEAcquisition,
+        EpistemicOnlyAcquisition,
+        KMeansPPOnlyAcquisition,
+    )
+    from albench.acquisition.batchbald import BatchBALDAcquisition
+    from albench.acquisition.diversity import DiversityAcquisition
+    from albench.acquisition.random_acq import RandomAcquisition
+    from albench.acquisition.uncertainty import UncertaintyAcquisition
+
+    def _acq(name, factory, doc, group, params=None):
+        def make(seed=None, _f=factory, **kw):
+            # Not every acquisition class takes a seed (some are deterministic), so
+            # only pass it when the constructor actually accepts one.
+            sig = inspect.signature(_f)
+            if "seed" in sig.parameters:
+                kw["seed"] = seed
+            return _f(**kw)
+
+        register_acq(
+            Spec(
+                name=name,
+                group=group,
+                doc=doc,
+                factory=make,
+                adapter=lambda s, n, ctx: s,  # acquisition is called via .select()
+                params=params or {},
+            )
+        )
+
+    _acq(
+        "random",
+        RandomAcquisition,
+        "Uniform random selection. The floor every method must beat.",
+        "baseline",
+    )
+    _acq(
+        "diversity_kmeans",
+        DiversityAcquisition,
+        "k-means in embedding space. Diversity only -- the simple baseline the "
+        "meeting settled on, and the control for BADGE's diversity half.",
+        "diversity",
+    )
+    _acq(
+        "uncertainty_mcdropout",
+        UncertaintyAcquisition,
+        "Top-k by MC-dropout predictive uncertainty. Uncertainty only.",
+        "uncertainty",
+    )
+    _acq(
+        "badge",
+        BADGEAcquisition,
+        "Uncertainty-weighted embeddings seeded by k-means++, so the batch is jointly "
+        "uncertain AND diverse. Weights by epistemic/aleatoric so the budget is not "
+        "spent on sequences whose labels are intrinsically unmeasurable.",
+        "uncertainty+diversity",
+        {
+            "mode": Param(
+                "ratio", "ratio | epistemic | total", choices=("ratio", "epistemic", "total")
+            ),
+            "eps": Param(1e-3, "floor on the aleatoric denominator"),
+        },
+    )
+    _acq(
+        "batchbald",
+        BatchBALDAcquisition,
+        "Greedy batch mutual information. Closed form for a Gaussian posterior; warns "
+        "when the batch exceeds the posterior rank and picks become arbitrary.",
+        "uncertainty+diversity",
+        {"n_mc_samples": Param(30, "MC forward passes when the student is not an ensemble")},
+    )
+    _acq(
+        "badge_epistemic_only",
+        EpistemicOnlyAcquisition,
+        "CONTROL for BADGE: uncertainty without diversity.",
+        "control",
+    )
+    _acq(
+        "badge_kmeanspp_only",
+        KMeansPPOnlyAcquisition,
+        "CONTROL for BADGE: diversity without uncertainty.",
+        "control",
+    )
+
+
 def _bootstrap() -> None:
     """Register everything. Import failures name the strategy that could not load."""
-    for fn in (_reg_zoonomia, _reg_mutagenesis, _reg_evoaug, _reg_motif, _reg_baselines):
+    for fn in (
+        _reg_zoonomia,
+        _reg_mutagenesis,
+        _reg_evoaug,
+        _reg_motif,
+        _reg_baselines,
+        _reg_acquisition,
+    ):
         try:
             fn()
         except Exception as e:  # noqa: BLE001 - a broken strategy must not hide the rest

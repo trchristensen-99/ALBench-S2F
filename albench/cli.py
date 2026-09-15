@@ -57,11 +57,18 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_list(args) -> int:
-    from albench.registry import REGISTRY
+    from albench.registry import ACQ_REGISTRY, REGISTRY
 
+    which = {
+        "reservoir": [REGISTRY],
+        "acquisition": [ACQ_REGISTRY],
+        "all": [REGISTRY, ACQ_REGISTRY],
+    }[args.kind]
     groups: dict[str, list] = {}
-    for name, spec in sorted(REGISTRY.items()):
-        groups.setdefault(spec.group or "other", []).append((name, spec))
+    for reg in which:
+        kind = "RESERVOIR" if reg is REGISTRY else "ACQUISITION"
+        for name, spec in sorted(reg.items()):
+            groups.setdefault(f"{kind} / {spec.group or 'other'}", []).append((name, spec))
 
     for group, items in groups.items():
         print(f"\n{'=' * 78}\n{group.upper()}\n{'=' * 78}")
@@ -200,7 +207,8 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("doctor", help="check data assets and print how to get missing ones")
-    sub.add_parser("list", help="list strategies and their tunable parameters")
+    ls = sub.add_parser("list", help="list strategies and their tunable parameters")
+    ls.add_argument("--kind", choices=("all", "reservoir", "acquisition"), default="all")
 
     g = sub.add_parser("generate", help="generate sequences from one strategy")
     g.add_argument("--strategy", required=True)

@@ -16,6 +16,7 @@ so the deliverable is a *training corpus recommendation*, not a model.
 uv sync                       # environment
 albench doctor                # which data assets you have, and how to get the rest
 albench list                  # every strategy and every tunable parameter
+albench list --kind acquisition   # just the acquisition methods
 albench generate --strategy random --n 1000 --out /tmp/x.npz   # needs no data at all
 ```
 
@@ -37,6 +38,22 @@ error tells you how to obtain each file.
 `experiments/` and `scripts/` contain a lot of one-off analysis. It is kept for
 reproducibility. **It is not the API and not a style model.** New shared code goes
 in `albench/`.
+
+## Acquisition methods, and why the controls are not optional
+
+BADGE and BatchBALD both have failure modes that return a full, plausible batch while
+actually selecting at random, with nothing in the output to say so:
+
+- **BADGE**: the last-layer gradient under the model's own prediction as a
+  pseudo-label is exactly zero for every candidate, so k-means++ runs on identical
+  zero vectors. We use the expected gradient outer product instead, weighted by
+  epistemic/aleatoric. `badge_epistemic_only` and `badge_kmeanspp_only` exist so a
+  gain can be attributed to the fusion rather than to either half.
+- **BatchBALD**: an M-member posterior has rank <= M-1, so a 384-batch from 10
+  members is ~375 arbitrary picks. The implementation warns and records
+  `n_informative_`.
+
+If you add an acquisition method, add its controls at the same time.
 
 ## Adding a reservoir strategy
 

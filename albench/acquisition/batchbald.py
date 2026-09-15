@@ -1,18 +1,37 @@
-"""BatchBALD: Batch Bayesian Active Learning by Disagreement.
+"""BatchBALD for regression: closed form, plus the rank guard it needs.
 
-Greedy approximation to joint mutual information maximisation.
-For regression, uses MC dropout samples to estimate predictive variance
-and selects batches that are jointly diverse in prediction space.
+In regression BatchBALD is EASIER than in classification, not harder. For a Gaussian
+posterior with homoscedastic noise the batch mutual information has a closed form:
+
+    I(Y_B ; theta) = 0.5 * log det( I + Sigma_epi / sigma^2 )
+
+which is submodular under greedy selection, costs O(N * B^2), and needs no
+Monte-Carlo entropy estimation. This is D-optimal Bayesian experimental design.
+
+THE BINDING CONSTRAINT IS POSTERIOR RANK, AND IT IS SEVERE. The epistemic covariance
+is estimated from M ensemble members or MC passes, so its rank is at most M-1. Once
+B selections have exhausted those directions the objective is flat and every
+remaining pick is arbitrary -- with M=10 and a 384-sequence batch, roughly 375 of the
+384 are chosen at random, and nothing in the output would reveal it.
+
+Growing the ensemble is the wrong fix: you would need M > B, i.e. hundreds of models.
+The right fix is a higher-rank posterior (last-layer linearised Laplace gives rank up
+to the feature dimension). Here we cannot impose that on an arbitrary student, so we
+DETECT the saturation and warn, which at least makes the degeneracy visible.
 
 Reference: Kirsch, van Amersfoort & Gal (2019).
 """
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from albench.acquisition.base import AcquisitionFunction
 from albench.model import SequenceModel
+
+logger = logging.getLogger(__name__)
 
 
 class BatchBALDAcquisition(AcquisitionFunction):
@@ -83,10 +102,32 @@ class BatchBALDAcquisition(AcquisitionFunction):
         # L will store rows of the Cholesky-like factor for the selected set
         L_rows: list[np.ndarray] = []  # each (N,) — projected covariances
 
+        # The posterior is estimated from T samples, so Sigma_epi has rank <= T-1 and
+        # the objective can only distinguish that many directions. Past it, every
+        # conditional variance is ~0 and picks are arbitrary. See the module docstring.
+        max_informative = max(samples.shape[0] - 1, 1)
+        if n_select > max_informative:
+            logger.warning(
+                "BatchBALD asked for %d selections from a rank-%d posterior (%d "
+                "samples). Only the first ~%d are informative; the remaining %d will "
+                "be effectively random. Increase samples above the batch size, or use "
+                "a higher-rank posterior (last-layer Laplace).",
+                n_select,
+                max_informative,
+                samples.shape[0],
+                max_informative,
+                n_select - max_informative,
+            )
+        self.n_informative_ = 0
+
         for _ in range(n_select):
             # Mask already-selected
             scores = np.where(chosen, -1.0, cond_var)
             best = int(np.argmax(scores))
+            # Record how many picks were actually driven by the objective, so a caller
+            # can tell an informative batch from a padded one after the fact.
+            if scores[best] > 1e-10:
+                self.n_informative_ = len(selected) + 1
             if scores[best] <= 0 and len(selected) > 0:
                 # Tie-breaking: pick randomly from remaining
                 remaining = np.where(~chosen)[0]
@@ -113,6 +154,13 @@ class BatchBALDAcquisition(AcquisitionFunction):
             cond_var -= new_row**2
             np.maximum(cond_var, 0.0, out=cond_var)
 
+        if self.n_informative_ < n_select:
+            logger.warning(
+                "BatchBALD: only %d/%d selections were driven by the objective; the "
+                "rest were filled at random once the posterior saturated.",
+                self.n_informative_,
+                n_select,
+            )
         return np.asarray(selected, dtype=np.int64)
 
     # ------------------------------------------------------------------
