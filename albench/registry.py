@@ -179,6 +179,48 @@ def _reg_zoonomia() -> None:
     )
 
 
+def _reg_encode_accessibility() -> None:
+    from albench.reservoir.encode_accessibility import EncodeAccessibilitySampler
+
+    register(
+        Spec(
+            name="encode_accessibility",
+            group="genomic",
+            doc=(
+                "Fixed-length windows centred on ENCODE DNase/ATAC peaks. Unlike the "
+                "Gosai genomic pool, which is whatever the original library happened "
+                "to tile, this samples directly from measured accessibility, so the "
+                "partition chooses the cell-type contrast: shared_open_both is "
+                "accessible in K562 AND HepG2, while k562_only/hepg2_only isolate "
+                "cell-type-specific regulatory sequence."
+            ),
+            factory=lambda seed=None, **kw: EncodeAccessibilitySampler(seed=seed, **kw),
+            adapter=lambda s, n, ctx: s.generate(n, task=ctx.task),
+            assets=("encode_peaks", "hg38"),
+            params={
+                "partition": Param(
+                    "shared_open_both",
+                    "which peak set to draw from",
+                    choices=(
+                        "shared_open_both",
+                        "k562_only",
+                        "hepg2_only",
+                        "k562_all",
+                        "hepg2_all",
+                    ),
+                ),
+                "seq_len": Param(200, "output window length in bp"),
+                "min_peak_width": Param(
+                    0,
+                    "drop peaks narrower than this; k562_only peaks are often 64bp "
+                    "slivers, so raise it to avoid windows that are mostly flank",
+                ),
+                "primary_chroms_only": Param(True, "drop scaffolds and alt contigs"),
+            },
+        )
+    )
+
+
 def _reg_mutagenesis() -> None:
     from albench.reservoir.partial_mutagenesis import PartialMutagenesisSampler
 
@@ -543,6 +585,7 @@ def _bootstrap() -> None:
     """Register everything. Import failures name the strategy that could not load."""
     for fn in (
         _reg_zoonomia,
+        _reg_encode_accessibility,
         _reg_mutagenesis,
         _reg_evoaug,
         _reg_motif,

@@ -111,6 +111,51 @@ def load_eval_classes(path: Path, classes: list[str], test_fold: int, val_fold: 
     return (seqs, labs, tr, va, te)
 
 
+def match_eval_labels_to_train_scale(
+    eval_labels: np.ndarray, random_idx: np.ndarray, train_labels: np.ndarray
+) -> tuple[np.ndarray, dict]:
+    """Put MAUDE-scale eval labels on the bulk training label scale.
+
+    THE BUG THIS FIXES. The bulk training file (data/yeast/train.txt) carries binned
+    expression on [0, 17] with mean ~11.15. The DREAM eval file carries MAUDE
+    expression on [-1.40, 1.66] with mean ~0.16. Variant B mixed both in one training
+    set under one loss, so it was taught to predict ~0.16 for anything resembling an
+    eval sequence and ~11 for everything else. That model scored r=0.17 on SNVs it had
+    TRAINED on, against 0.87 for variant A which never saw them -- memorisation cannot
+    make a model worse, which is what flagged the artefact.
+
+    WHY AN AFFINE MAP FITTED ON THE `random` CLASS. Both files measure the same
+    quantity on different scales, so the correction is affine, not rank-based:
+    quantile-matching the whole eval set onto the train marginal would compress the
+    deliberately-extreme designed classes (high_expression, low_expression) toward the
+    middle and destroy the very signal they exist to provide. The `random` class is the
+    one eval subset drawn from the same distribution as the bulk data, so it is the
+    honest place to fit the scale. The designed extremes then land outside the fitted
+    range, which is correct -- they genuinely are extreme.
+    """
+    ref = np.asarray(eval_labels, dtype=np.float64)[random_idx]
+    if len(ref) < 500:
+        raise ValueError(
+            f"only {len(ref)} `random`-class eval sequences; too few to fit a label "
+            f"scale reliably. Widen the reference set or pass it explicitly."
+        )
+    tr = np.asarray(train_labels, dtype=np.float64)
+    scale = tr.std() / ref.std()
+    shift = tr.mean() - ref.mean() * scale
+    out = (np.asarray(eval_labels, dtype=np.float64) * scale + shift).astype(np.float32)
+    assert scale > 0, "label scale must be positive; check the reference class"
+    stats = {
+        "scale": float(scale),
+        "shift": float(shift),
+        "n_reference": int(len(ref)),
+        "eval_mean_before": float(np.mean(eval_labels)),
+        "eval_mean_after": float(out.mean()),
+        "train_mean": float(tr.mean()),
+        "train_sd": float(tr.std()),
+    }
+    return out, stats
+
+
 def set_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -224,6 +269,27 @@ def main() -> int:
         names = [c.strip() for c in args.include_eval_classes.split(",") if c.strip()]
         seqs_e, labs_e, tr_e, va_e, te_e = load_eval_classes(
             REPO / args.eval_classes_npz, names, test_fold, val_fold
+        )
+        # The eval file is MAUDE-scale, the bulk file is binned [0, 17]. Mixing them
+        # raw teaches the model two different answers to the same question; see
+        # match_eval_labels_to_train_scale for what that cost the first variant B.
+        _z = np.load(REPO / args.eval_classes_npz, allow_pickle=True)
+        if "cls_random" not in _z.files:
+            raise SystemExit(
+                "eval_classes npz has no `random` class, which is the reference used "
+                "to fit the label scale; rebuild it with scripts/build_yeast_eval_classes.py"
+            )
+        labs_e, _scale_stats = match_eval_labels_to_train_scale(
+            labs_e, np.asarray(_z["cls_random"], dtype=int), ds.labels
+        )
+        print(
+            f"  eval labels rescaled to the training scale: "
+            f"x{_scale_stats['scale']:.3f} {_scale_stats['shift']:+.3f} "
+            f"(mean {_scale_stats['eval_mean_before']:.3f} -> "
+            f"{_scale_stats['eval_mean_after']:.3f}, train mean "
+            f"{_scale_stats['train_mean']:.3f}, fitted on "
+            f"{_scale_stats['n_reference']:,} random-class sequences)",
+            flush=True,
         )
         add_tr = EvalClassDataset(ds, [seqs_e[i] for i in tr_e], labs_e[tr_e])
         add_va = EvalClassDataset(ds, [seqs_e[i] for i in va_e], labs_e[va_e])

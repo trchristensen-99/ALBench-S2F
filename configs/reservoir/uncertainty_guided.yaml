@@ -1,3 +1,0 @@
-_target_: albench.reservoir.uncertainty_guided.UncertaintyGuidedSampler
-seed: ${seed}
-strategy: most_uncertain

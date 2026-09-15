@@ -1,3 +1,0 @@
-_target_: albench.reservoir.fixed_pool.FixedPoolSampler
-seed: ${seed}
-metadata_filters: null

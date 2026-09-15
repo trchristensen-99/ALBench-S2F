@@ -1,3 +1,0 @@
-_target_: albench.reservoir.activity_stratified.ActivityStratifiedSampler
-seed: ${seed}
-n_bins: 10

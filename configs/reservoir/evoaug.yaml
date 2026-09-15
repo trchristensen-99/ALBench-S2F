@@ -1,4 +1,0 @@
-_target_: albench.reservoir.evoaug.EvoAugSampler
-seed: ${seed}
-score_key: evoaug_score
-fallback_random: true

@@ -1,2 +1,0 @@
-_target_: albench.reservoir.genomic.GenomicSampler
-seed: ${seed}

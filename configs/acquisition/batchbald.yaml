@@ -1,3 +1,0 @@
-_target_: albench.acquisition.batchbald.BatchBALDAcquisition
-n_mc_samples: 30
-seed: null

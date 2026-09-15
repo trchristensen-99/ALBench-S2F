@@ -1,8 +1,0 @@
-_target_: albench.reservoir.motif_grammar.MotifGrammarSampler
-seed: ${seed}
-min_motifs: 2
-max_motifs: 3
-spacing_mode: tight
-orientation_mode: random
-motif_set: auto
-position_mode: random

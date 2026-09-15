@@ -1,2 +1,0 @@
-_target_: albench.acquisition.random_acq.RandomAcquisition
-seed: ${seed}
