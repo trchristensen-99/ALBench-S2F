@@ -48,8 +48,9 @@ CAPTION = (
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=os.path.expanduser(
-        "~/Downloads/notion_updates/fig_oracle_simple.png"))
+    ap.add_argument(
+        "--out", default=os.path.expanduser("~/Downloads/notion_updates/fig_oracle_simple.png")
+    )
     ap.add_argument("--title", default="Oracle label quality (held-out test folds)")
     ap.add_argument("--dpi", type=int, default=240)
     a = ap.parse_args()
@@ -65,15 +66,38 @@ def main():
 
     gh = rh * 0.72
     ax.add_patch(Rectangle((0, top - rh - gh), 1, rh + gh, facecolor=HDR, edgecolor="none"))
-    ax.text((XS[3] + XS[5]) / 2, top - gh / 2, "individual model",
-            fontsize=10.5, color="white", fontweight="bold", ha="center", va="center")
-    ax.text((XS[5] + XS[7]) / 2, top - gh / 2, "8-model ensemble",
-            fontsize=10.5, color="#aebdcd", ha="center", va="center")
+    ax.text(
+        (XS[3] + XS[5]) / 2,
+        top - gh / 2,
+        "individual model",
+        fontsize=10.5,
+        color="white",
+        fontweight="bold",
+        ha="center",
+        va="center",
+    )
+    ax.text(
+        (XS[5] + XS[7]) / 2,
+        top - gh / 2,
+        "8-model ensemble",
+        fontsize=10.5,
+        color="#aebdcd",
+        ha="center",
+        va="center",
+    )
     for i, c in enumerate(HEADS):
         al = "left" if i == 0 else "right"
         x = XS[i] + 0.010 if al == "left" else XS[i + 1] - 0.010
-        ax.text(x, top - gh - rh / 2, c, fontsize=11.5, color="white",
-                fontweight="bold", ha=al, va="center")
+        ax.text(
+            x,
+            top - gh - rh / 2,
+            c,
+            fontsize=11.5,
+            color="white",
+            fontweight="bold",
+            ha=al,
+            va="center",
+        )
 
     y = top - rh - gh
     band = 0
@@ -89,10 +113,18 @@ def main():
         for i, v in enumerate(row):
             al = "left" if i == 0 else "right"
             x = XS[i] + 0.010 if al == "left" else XS[i + 1] - 0.010
-            bold = i in (3, 4)                      # individual model is the headline pair
+            bold = i in (3, 4)  # individual model is the headline pair
             col = "#475569" if i in (1, 2) else ("#64748b" if i >= 5 else "#0f172a")
-            ax.text(x, y + rh / 2, v, fontsize=11.5 if i < 3 else 12, ha=al, va="center",
-                    color=col, fontweight="bold" if bold else "normal")
+            ax.text(
+                x,
+                y + rh / 2,
+                v,
+                fontsize=11.5 if i < 3 else 12,
+                ha=al,
+                va="center",
+                color=col,
+                fontweight="bold" if bold else "normal",
+            )
 
     ax.plot([0, 1], [y, y], color=HDR, lw=1.4)
     ax.text(0, y - 0.038, CAPTION, fontsize=8.2, color="#475569", va="top", linespacing=1.5)

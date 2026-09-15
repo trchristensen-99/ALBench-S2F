@@ -21,12 +21,14 @@ Ensemble.predict). Only D=3 points per fit -> honest CIs.
 Significance: two slopes are "distinguishable" if their 95% CIs do not overlap
 (a conservative screen) AND via a 2-sample z-test on |d|/sqrt(se1^2+se2^2).
 """
+
 import json
 import os
 import sys
 
-import numpy as np
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -46,9 +48,19 @@ GENOMIC = "genomic"
 
 # eval sets to profile for per-eval-set scaling
 EVAL_SETS = [
-    "genomic", "ood", "snv_ref", "snv_alt", "random_32k", "dinuc_shuffle",
-    "sub_low", "sub_med", "sub_high", "ins_med", "del_med",
-    "translocation", "inversion",
+    "genomic",
+    "ood",
+    "snv_ref",
+    "snv_alt",
+    "random_32k",
+    "dinuc_shuffle",
+    "sub_low",
+    "sub_med",
+    "sub_high",
+    "ins_med",
+    "del_med",
+    "translocation",
+    "inversion",
 ]
 
 OUTDIR = os.path.join(BASE, "final_analysis")
@@ -133,11 +145,14 @@ for R in RESERVOIRS:
         for D in DS:
             m = cell_mse(R, D, ds, GENOMIC)
             if m is not None:
-                Dv.append(D); Mv.append(m)
-                pool_D.append(D); pool_mse.append(m)
+                Dv.append(D)
+                Mv.append(m)
+                pool_D.append(D)
+                pool_mse.append(m)
         if len(Dv) >= 2:
             s, i, se = fit_loglog(Dv, Mv)
-            seed_slopes.append(s); seed_ints.append(i)
+            seed_slopes.append(s)
+            seed_ints.append(i)
             per_seed_detail[ds] = dict(D=Dv, mse=Mv, slope=s, intercept=i)
     # pooled fit
     ps, pi, pse = fit_loglog(pool_D, pool_mse) if len(pool_D) >= 2 else (np.nan, np.nan, np.nan)
@@ -146,12 +161,19 @@ for R in RESERVOIRS:
     seed_sd = float(np.nanstd(seed_slopes, ddof=1)) if seed_slopes.size >= 2 else np.nan
     seed_sem = seed_sd / np.sqrt(len(seed_slopes)) if seed_slopes.size >= 2 else np.nan
     per_res[R] = dict(
-        pooled_slope=ps, pooled_intercept=pi, pooled_slope_se=pse,
-        seed_mean_slope=seed_mean, seed_sd_slope=seed_sd, seed_sem_slope=float(seed_sem) if np.isfinite(seed_sem) else np.nan,
+        pooled_slope=ps,
+        pooled_intercept=pi,
+        pooled_slope_se=pse,
+        seed_mean_slope=seed_mean,
+        seed_sd_slope=seed_sd,
+        seed_sem_slope=float(seed_sem) if np.isfinite(seed_sem) else np.nan,
         per_seed=per_seed_detail,
         n_points=len(pool_D),
     )
-    print(f"  {R:<18s} pooled slope={ps:+.4f} (se={pse:.4f})  seed-mean={seed_mean:+.4f} (sem={seed_sem if np.isfinite(seed_sem) else float('nan'):.4f})  int={pi:+.4f}", flush=True)
+    print(
+        f"  {R:<18s} pooled slope={ps:+.4f} (se={pse:.4f})  seed-mean={seed_mean:+.4f} (sem={seed_sem if np.isfinite(seed_sem) else float('nan'):.4f})  int={pi:+.4f}",
+        flush=True,
+    )
 
 
 # =========================================================================
@@ -164,13 +186,18 @@ for es in EVAL_SETS:
     for D in DS:
         m, n = pooled_mse(D, es)
         if m is not None:
-            Dv.append(D); Mv.append(m); ncells.append(n)
+            Dv.append(D)
+            Mv.append(m)
+            ncells.append(n)
     if len(Dv) < 2:
         print(f"  {es:<14s} SKIP (only {len(Dv)} D pts)", flush=True)
         continue
     s, i, se = fit_loglog(Dv, Mv)
     per_eval[es] = dict(D=Dv, mse=Mv, n_cells=ncells, slope=s, intercept=i, slope_se=se)
-    print(f"  {es:<14s} slope={s:+.4f} (se={se:.4f})  int={i:+.4f}  mse@[{','.join('%.4f'%x for x in Mv)}]", flush=True)
+    print(
+        f"  {es:<14s} slope={s:+.4f} (se={se:.4f})  int={i:+.4f}  mse@[{','.join('%.4f' % x for x in Mv)}]",
+        flush=True,
+    )
 
 
 # =========================================================================
@@ -189,15 +216,17 @@ def pairwise(d, key_slope, key_se):
             dse = np.sqrt(ea**2 + eb**2)
             z = (sa - sb) / dse if dse > 0 else np.nan
             # CI overlap check (95%)
-            lo_a, hi_a = sa - 1.96*ea, sa + 1.96*ea
-            lo_b, hi_b = sb - 1.96*eb, sb + 1.96*eb
+            lo_a, hi_a = sa - 1.96 * ea, sa + 1.96 * ea
+            lo_b, hi_b = sb - 1.96 * eb, sb + 1.96 * eb
             ci_overlap = not (hi_a < lo_b or hi_b < lo_a)
             out[f"{na} vs {nb}"] = dict(
-                d_slope=float(sa - sb), z=float(z),
+                d_slope=float(sa - sb),
+                z=float(z),
                 significant_z=bool(abs(z) > 1.96),
                 ci_overlap=bool(ci_overlap),
             )
     return out
+
 
 res_pairs = pairwise(per_res, "pooled_slope", "pooled_slope_se")
 eval_pairs = pairwise(per_eval, "slope", "slope_se")
@@ -211,7 +240,10 @@ any_res_sig = any(v["significant_z"] and not v["ci_overlap"] for v in res_pairs.
 any_eval_sig = any(v["significant_z"] and not v["ci_overlap"] for v in eval_pairs.values())
 
 print("\n(3) significance", flush=True)
-print(f"  reservoir slopes: shared mean={res_shared_mean:+.4f}; any pair CI-disjoint & z>1.96? {any_res_sig}", flush=True)
+print(
+    f"  reservoir slopes: shared mean={res_shared_mean:+.4f}; any pair CI-disjoint & z>1.96? {any_res_sig}",
+    flush=True,
+)
 print(f"  eval-set slopes:  any pair CI-disjoint & z>1.96? {any_eval_sig}", flush=True)
 
 # =========================================================================
@@ -225,16 +257,38 @@ Rn = RESERVOIRS
 ys = [per_res[R]["pooled_slope"] for R in Rn]
 es = [per_res[R]["pooled_slope_se"] for R in Rn]
 x = np.arange(len(Rn))
-ax.errorbar(x, ys, yerr=[1.96*e for e in es], fmt="o", capsize=5, color="C0", ms=8, label="pooled slope ±95% (polyfit SE)")
+ax.errorbar(
+    x,
+    ys,
+    yerr=[1.96 * e for e in es],
+    fmt="o",
+    capsize=5,
+    color="C0",
+    ms=8,
+    label="pooled slope ±95% (polyfit SE)",
+)
 # overlay per-seed slopes
 for i, R in enumerate(Rn):
     for ds, det in per_res[R]["per_seed"].items():
-        ax.plot(i + (0.12 if ds == SEEDS[-1] else -0.12), det["slope"], "x", color="gray", ms=7, alpha=0.7)
-ax.axhline(res_shared_mean, ls="--", color="k", alpha=0.6, label=f"shared mean {res_shared_mean:+.3f}")
-ax.set_xticks(x); ax.set_xticklabels([r.replace("_planted_v2","").replace("_shuffle","") for r in Rn], rotation=30, ha="right")
+        ax.plot(
+            i + (0.12 if ds == SEEDS[-1] else -0.12),
+            det["slope"],
+            "x",
+            color="gray",
+            ms=7,
+            alpha=0.7,
+        )
+ax.axhline(
+    res_shared_mean, ls="--", color="k", alpha=0.6, label=f"shared mean {res_shared_mean:+.3f}"
+)
+ax.set_xticks(x)
+ax.set_xticklabels(
+    [r.replace("_planted_v2", "").replace("_shuffle", "") for r in Rn], rotation=30, ha="right"
+)
 ax.set_ylabel("log-log MSE scaling slope (genomic eval)")
 ax.set_title("(a) Per-reservoir slope\n(3 D pts/fit; x = per-seed slopes)")
-ax.legend(fontsize=8); ax.grid(alpha=0.3)
+ax.legend(fontsize=8)
+ax.grid(alpha=0.3)
 
 # (b) per-eval-set slopes
 ax = axes[1]
@@ -242,18 +296,29 @@ En = list(per_eval.keys())
 ys = [per_eval[e]["slope"] for e in En]
 es = [per_eval[e]["slope_se"] for e in En]
 x = np.arange(len(En))
-colors = ["C3" if e in ("ood","snv_ref","snv_alt") else "C2" for e in En]
-ax.errorbar(x, ys, yerr=[1.96*e for e in es], fmt="s", capsize=4, ms=7, ecolor="gray",
-            mfc="none", linestyle="none")
+colors = ["C3" if e in ("ood", "snv_ref", "snv_alt") else "C2" for e in En]
+ax.errorbar(
+    x,
+    ys,
+    yerr=[1.96 * e for e in es],
+    fmt="s",
+    capsize=4,
+    ms=7,
+    ecolor="gray",
+    mfc="none",
+    linestyle="none",
+)
 for xi, yi, c in zip(x, ys, colors):
     ax.plot(xi, yi, "s", color=c, ms=8)
 gmean = eval_slopes.get("genomic")
 if gmean is not None:
     ax.axhline(gmean, ls="--", color="C0", alpha=0.6, label=f"genomic slope {gmean:+.3f}")
-ax.set_xticks(x); ax.set_xticklabels(En, rotation=45, ha="right", fontsize=8)
+ax.set_xticks(x)
+ax.set_xticklabels(En, rotation=45, ha="right", fontsize=8)
 ax.set_ylabel("log-log MSE scaling slope (pooled all-R ensemble)")
 ax.set_title("(b) Per-eval-set slope\n(red=OOD/SNV, green=other; 3 D pts/fit)")
-ax.legend(fontsize=8); ax.grid(alpha=0.3)
+ax.legend(fontsize=8)
+ax.grid(alpha=0.3)
 
 plt.tight_layout()
 figpath = os.path.join(OUTDIR, "slope_variance.png")
@@ -264,11 +329,20 @@ print(f"\n[wrote {figpath}]", flush=True)
 # JSON dump
 # =========================================================================
 dump = dict(
-    config=dict(base=BASE, reservoirs=RESERVOIRS, Ds=DS, seeds=SEEDS, tags=TAGS,
-                round_budget=ROUND_BUDGET, max_pool=MAX_POOL, max_size=MAX_SIZE,
-                target_set_for_selection=GENOMIC, eval_sets=EVAL_SETS,
-                n_D_points_per_fit=len(DS),
-                caveat="Only 3 D per fit (dof=1 for pooled polyfit SE, seed-SEM has 1 dof). CIs are wide; treat slope-difference claims cautiously."),
+    config=dict(
+        base=BASE,
+        reservoirs=RESERVOIRS,
+        Ds=DS,
+        seeds=SEEDS,
+        tags=TAGS,
+        round_budget=ROUND_BUDGET,
+        max_pool=MAX_POOL,
+        max_size=MAX_SIZE,
+        target_set_for_selection=GENOMIC,
+        eval_sets=EVAL_SETS,
+        n_D_points_per_fit=len(DS),
+        caveat="Only 3 D per fit (dof=1 for pooled polyfit SE, seed-SEM has 1 dof). CIs are wide; treat slope-difference claims cautiously.",
+    ),
     per_reservoir=per_res,
     per_eval_set=per_eval,
     reservoir_shared_mean_slope=res_shared_mean,

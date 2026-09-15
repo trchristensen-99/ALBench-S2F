@@ -9,6 +9,7 @@ for stable statistics and cheap enough to run in one job.
 import logging
 import sys
 import time
+
 import numpy as np
 
 logging.disable(logging.INFO)
@@ -96,7 +97,7 @@ print()
 print("=" * 104)
 print("2. ENCODE ACCESSIBILITY")
 print("=" * 104)
-from albench.reservoir.encode_accessibility import EncodeAccessibilitySampler, PARTITIONS
+from albench.reservoir.encode_accessibility import PARTITIONS, EncodeAccessibilitySampler
 
 for part in ("shared_open_both", "k562_only", "hepg2_only"):
     for mw in (0, 150):

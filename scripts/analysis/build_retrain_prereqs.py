@@ -6,7 +6,10 @@
 Both are CPU-only. Mixes become first-class training compositions for deploy_train.py.
 """
 
-import os, json, glob
+import glob
+import json
+import os
+
 import numpy as np
 
 REPO = "/grid/wsbs/home_norepl/christen/ALBench-S2F"

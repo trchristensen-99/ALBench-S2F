@@ -10,7 +10,11 @@ Selection is on a general val = held-out slice of the common battery, equal-weig
 SELECTION heuristic on single-reservoir-trained preds, NOT a measure of retraining generality.
 """
 
-import os, json, glob, itertools
+import glob
+import itertools
+import json
+import os
+
 import numpy as np
 from scipy.stats import pearsonr
 from sklearn.linear_model import ElasticNetCV

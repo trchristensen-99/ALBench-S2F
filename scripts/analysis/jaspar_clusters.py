@@ -4,7 +4,10 @@ Prints the actual clusters so the filtering decision can be judged on the real
 groupings rather than on the abstract idea of 'near-duplicates'.
 """
 
-import sys, itertools, collections
+import collections
+import itertools
+import sys
+
 import numpy as np
 
 sys.path.insert(0, "/grid/wsbs/home_norepl/christen/ALBench-S2F")

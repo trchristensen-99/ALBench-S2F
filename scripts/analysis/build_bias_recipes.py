@@ -6,9 +6,12 @@ Stratified by block_class + optimizer so the candidate pool is architecturally d
 (NOT the motif-collapsed free menu). BIAS_D env picks the D (default 30000).
 """
 
-import os, json, glob
-import numpy as np
+import glob
+import json
+import os
 from collections import Counter
+
+import numpy as np
 
 D = int(os.environ.get("BIAS_D", "30000"))
 X = os.environ.get("BIAS_X", "dinuc_shuffle")

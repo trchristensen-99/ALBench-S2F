@@ -50,16 +50,24 @@ def main():
             continue
         t = r["test_metrics"]
         rows.append((t["pearson"], t["mse"], r["best_val_pearson"]))
-        print(f"   {f:>4} {t['n']:>8,} {t['pearson']:>8.4f} {t['mse']:>9.4f} "
-              f"{r['best_val_pearson']:>8.4f} {r['best_epoch'] + 1:>6}")
+        print(
+            f"   {f:>4} {t['n']:>8,} {t['pearson']:>8.4f} {t['mse']:>9.4f} "
+            f"{r['best_val_pearson']:>8.4f} {r['best_epoch'] + 1:>6}"
+        )
     if rows:
         arr = np.array(rows)
-        print(f"   {'MEAN':>4} {'':>8} {arr[:, 0].mean():>8.4f} {arr[:, 1].mean():>9.4f} "
-              f"{arr[:, 2].mean():>8.4f}")
-        print(f"   {'SD':>4} {'':>8} {arr[:, 0].std():>8.4f} {arr[:, 1].std():>9.4f} "
-              f"{arr[:, 2].std():>8.4f}")
-        print(f"   val - test = {arr[:, 2].mean() - arr[:, 0].mean():+.4f}  "
-              f"(positive means the val fold is optimistic, which is the reason for a test fold)")
+        print(
+            f"   {'MEAN':>4} {'':>8} {arr[:, 0].mean():>8.4f} {arr[:, 1].mean():>9.4f} "
+            f"{arr[:, 2].mean():>8.4f}"
+        )
+        print(
+            f"   {'SD':>4} {'':>8} {arr[:, 0].std():>8.4f} {arr[:, 1].std():>9.4f} "
+            f"{arr[:, 2].std():>8.4f}"
+        )
+        print(
+            f"   val - test = {arr[:, 2].mean() - arr[:, 0].mean():+.4f}  "
+            f"(positive means the val fold is optimistic, which is the reason for a test fold)"
+        )
 
     print("\n2. WITHIN-FOLD ENSEMBLING CURVE - fold 0 test set, seeds 1-8")
     # fold_0 is fold 0 / seed 42 / unfreeze-all / crop - the same config as the prototype seeds, so
@@ -97,15 +105,21 @@ def main():
     if main_r and main_r.get("test_metrics"):
         mt = main_r["test_metrics"]
         print(f"   {'config':<34} {'test r':>8} {'test MSE':>9} {'delta r':>9}")
-        print(f"   {'unfreeze all + crop (main)':<34} {mt['pearson']:>8.4f} "
-              f"{mt['mse']:>9.4f} {'-':>9}")
-        for d, lab in ((f"{a.root}/ctrl_uf45", "unfreeze 4,5 + crop"),
-                       (f"{a.root}/ctrl_roll", "unfreeze all + roll_n (reference)")):
+        print(
+            f"   {'unfreeze all + crop (main)':<34} {mt['pearson']:>8.4f} "
+            f"{mt['mse']:>9.4f} {'-':>9}"
+        )
+        for d, lab in (
+            (f"{a.root}/ctrl_uf45", "unfreeze 4,5 + crop"),
+            (f"{a.root}/ctrl_roll", "unfreeze all + roll_n (reference)"),
+        ):
             c = load(d)
             if c and c.get("test_metrics"):
                 ct = c["test_metrics"]
-                print(f"   {lab:<34} {ct['pearson']:>8.4f} {ct['mse']:>9.4f} "
-                      f"{ct['pearson'] - mt['pearson']:>+9.4f}")
+                print(
+                    f"   {lab:<34} {ct['pearson']:>8.4f} {ct['mse']:>9.4f} "
+                    f"{ct['pearson'] - mt['pearson']:>+9.4f}"
+                )
             else:
                 print(f"   {lab:<34} {'pending':>8}")
 

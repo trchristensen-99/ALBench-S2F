@@ -66,8 +66,10 @@ def load_records(results_dir: Path, model_name: str) -> pd.DataFrame:
     # Keep only standard fractions
     df = df[
         df["fraction"].apply(
-            lambda f: min(STANDARD_FRACS, key=lambda s: abs(s - f)) == round(f, 6)
-            or round(f, 2) in STANDARD_FRACS
+            lambda f: (
+                min(STANDARD_FRACS, key=lambda s: abs(s - f)) == round(f, 6)
+                or round(f, 2) in STANDARD_FRACS
+            )
         )
     ]
     # Snap fraction to nearest standard value to avoid float-key collisions

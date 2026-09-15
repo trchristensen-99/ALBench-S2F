@@ -1,7 +1,12 @@
 """Edge-case checks for --cl replay_real BEFORE committing a night of GPU time."""
-import numpy as np, torch, sys
+
+import sys
+
+import numpy as np
+import torch
+
 sys.path.insert(0, "scripts")
-from fm_scaling_driver import _load_borzoi, borzoi_tracks, load_anchor, encode_all
+from fm_scaling_driver import _load_borzoi, borzoi_tracks, encode_all, load_anchor
 
 dev = "cuda" if torch.cuda.is_available() else "cpu"
 b = _load_borzoi().to(dev).eval()

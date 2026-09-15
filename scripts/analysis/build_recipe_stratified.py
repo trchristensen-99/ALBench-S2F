@@ -3,7 +3,9 @@ collapses to eff/muon). Stratify by block_class and ensure optimizer coverage + 
 spread + AutoResearch novelty, so the empirical greedy can decide if diversity helps.
 """
 
-import json, glob
+import glob
+import json
+
 import numpy as np
 
 REPO = "/grid/wsbs/home_norepl/christen/ALBench-S2F"

@@ -151,7 +151,9 @@ def main():
                         )
                 per_cell.append(cell_rec)
                 n_ok = sum(1 for v in res.values() if v.get("regret") is not None)
-                print(f"[ok]   {R} d{D} s{ds}: {len(cell.models)} models, {n_ok}/{len(res)} sets scored")
+                print(
+                    f"[ok]   {R} d{D} s{ds}: {len(cell.models)} models, {n_ok}/{len(res)} sets scored"
+                )
 
     # aggregate
     agg = {}
@@ -170,8 +172,15 @@ def main():
         )
 
     dump = dict(
-        config=dict(base=BASE, Ds=DS, seeds=SEEDS, tags=TAGS, max_pool=MAX_POOL, max_size=MAX_SIZE,
-                    reservoirs=ALL_RESERVOIRS),
+        config=dict(
+            base=BASE,
+            Ds=DS,
+            seeds=SEEDS,
+            tags=TAGS,
+            max_pool=MAX_POOL,
+            max_size=MAX_SIZE,
+            reservoirs=ALL_RESERVOIRS,
+        ),
         per_cell=per_cell,
         aggregate=agg,
     )
@@ -184,13 +193,17 @@ def main():
     # order eval-sets by n_cells desc then name
     order = sorted(agg.keys(), key=lambda s: (-agg[s]["n_cells"], s))
     print("\n=== AGGREGATE: selection-regret & ensemble-gain per eval-set ===")
-    print(f"{'eval_set':<16s} {'n':>4s} {'mean_regret':>12s} {'med_regret':>11s} "
-          f"{'mean_gain':>10s} {'med_gain':>9s} {'reg>=0':>7s} {'gain>0':>7s} {'min_reg':>8s}")
+    print(
+        f"{'eval_set':<16s} {'n':>4s} {'mean_regret':>12s} {'med_regret':>11s} "
+        f"{'mean_gain':>10s} {'med_gain':>9s} {'reg>=0':>7s} {'gain>0':>7s} {'min_reg':>8s}"
+    )
     for s in order:
         a = agg[s]
-        print(f"{s:<16s} {a['n_cells']:>4d} {a['mean_regret']:>12.4f} {a['median_regret']:>11.4f} "
-              f"{a['mean_gain']:>10.4f} {a['median_gain']:>9.4f} {a['frac_regret_ge0']:>7.2f} "
-              f"{a['frac_gain_gt0']:>7.2f} {a['min_regret']:>8.4f}")
+        print(
+            f"{s:<16s} {a['n_cells']:>4d} {a['mean_regret']:>12.4f} {a['median_regret']:>11.4f} "
+            f"{a['mean_gain']:>10.4f} {a['median_gain']:>9.4f} {a['frac_regret_ge0']:>7.2f} "
+            f"{a['frac_gain_gt0']:>7.2f} {a['min_regret']:>8.4f}"
+        )
 
     # ---- figure ----
     make_figure(by_set, order, OUTDIR)
@@ -198,6 +211,7 @@ def main():
 
 def make_figure(by_set, order, outdir):
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -213,10 +227,22 @@ def make_figure(by_set, order, outdir):
     gain_data = [[r[1] for r in by_set[s]] for s in order]
     w = 0.34
 
-    bp1 = ax.boxplot(reg_data, positions=positions - w / 1.8, widths=w, patch_artist=True,
-                     showfliers=False, manage_ticks=False)
-    bp2 = ax.boxplot(gain_data, positions=positions + w / 1.8, widths=w, patch_artist=True,
-                     showfliers=False, manage_ticks=False)
+    bp1 = ax.boxplot(
+        reg_data,
+        positions=positions - w / 1.8,
+        widths=w,
+        patch_artist=True,
+        showfliers=False,
+        manage_ticks=False,
+    )
+    bp2 = ax.boxplot(
+        gain_data,
+        positions=positions + w / 1.8,
+        widths=w,
+        patch_artist=True,
+        showfliers=False,
+        manage_ticks=False,
+    )
     for b in bp1["boxes"]:
         b.set(facecolor="#4C72B0", alpha=0.55)
     for b in bp2["boxes"]:
@@ -229,20 +255,41 @@ def make_figure(by_set, order, outdir):
     for i, s in enumerate(order):
         rv = reg_data[i]
         gv = gain_data[i]
-        ax.scatter(np.full(len(rv), i - w / 1.8) + rng.uniform(-0.06, 0.06, len(rv)), rv,
-                   s=14, color="#1f3b6f", alpha=0.6, zorder=3)
-        ax.scatter(np.full(len(gv), i + w / 1.8) + rng.uniform(-0.06, 0.06, len(gv)), gv,
-                   s=14, color="#8c4a1f", alpha=0.6, zorder=3)
+        ax.scatter(
+            np.full(len(rv), i - w / 1.8) + rng.uniform(-0.06, 0.06, len(rv)),
+            rv,
+            s=14,
+            color="#1f3b6f",
+            alpha=0.6,
+            zorder=3,
+        )
+        ax.scatter(
+            np.full(len(gv), i + w / 1.8) + rng.uniform(-0.06, 0.06, len(gv)),
+            gv,
+            s=14,
+            color="#8c4a1f",
+            alpha=0.6,
+            zorder=3,
+        )
     ax.axhline(0, color="red", lw=1.2, ls="--", zorder=2)
     ax.set_xticks(positions)
     ax.set_xticklabels(order, rotation=55, ha="right", fontsize=8)
     ax.set_ylabel("Pearson difference")
-    ax.set_title("Selection regret (blue = ens - oracle-best single)\n"
-                 "Ensemble gain (orange = ens - val-best single)", fontsize=11)
+    ax.set_title(
+        "Selection regret (blue = ens - oracle-best single)\n"
+        "Ensemble gain (orange = ens - val-best single)",
+        fontsize=11,
+    )
     from matplotlib.patches import Patch
-    ax.legend(handles=[Patch(facecolor="#4C72B0", alpha=0.55, label="selection regret"),
-                       Patch(facecolor="#DD8452", alpha=0.55, label="ensemble gain")],
-              loc="best", fontsize=9)
+
+    ax.legend(
+        handles=[
+            Patch(facecolor="#4C72B0", alpha=0.55, label="selection regret"),
+            Patch(facecolor="#DD8452", alpha=0.55, label="ensemble gain"),
+        ],
+        loc="best",
+        fontsize=9,
+    )
     ax.grid(axis="y", alpha=0.3)
 
     # ---- panel B: scatter ensemble-test (y) vs oracle-best-single-test (x) ----
@@ -267,8 +314,10 @@ def make_figure(by_set, order, outdir):
     ax.legend(fontsize=7, ncol=2, loc="lower right")
     ax.grid(alpha=0.3)
 
-    fig.suptitle("Selection-regret: does val-selected ensemble approximate the best-possible model?",
-                 fontsize=13)
+    fig.suptitle(
+        "Selection-regret: does val-selected ensemble approximate the best-possible model?",
+        fontsize=13,
+    )
     fig.tight_layout(rect=[0, 0, 1, 0.97])
     fpath = os.path.join(outdir, "selection_regret.png")
     fig.savefig(fpath, dpi=140)

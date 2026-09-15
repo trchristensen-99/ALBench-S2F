@@ -33,9 +33,16 @@ ROWS = [
     ("Negative controls (ctrl_neg)", 503, 0.491, 0.8465, None, 0.0720, None, None),
     ("SNV effect (alt - ref)", 35691, 0.470, 0.4015, 0.0228, 0.1860, 0.4038, 0.1931),
 ]
-COLS = ["evaluation set", "n / fold", "label SD", "individual\nmodel: r",
-        "individual\nmodel: SD", "individual\nmodel: MSE", "8-model\nensemble: r",
-        "8-model\nensemble: MSE"]
+COLS = [
+    "evaluation set",
+    "n / fold",
+    "label SD",
+    "individual\nmodel: r",
+    "individual\nmodel: SD",
+    "individual\nmodel: MSE",
+    "8-model\nensemble: r",
+    "8-model\nensemble: MSE",
+]
 WIDTH = [26, 10, 10, 12, 11, 12, 11, 12]
 
 

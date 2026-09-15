@@ -32,6 +32,7 @@ import numpy as np
 from scipy.stats import pearsonr
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import matplotlib  # noqa: E402
 from greedy_deploy_select import (  # noqa: E402
     fit_stack,
     greedy_select,
@@ -39,8 +40,6 @@ from greedy_deploy_select import (  # noqa: E402
     knee_n,
     load_pool_models,
 )
-
-import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -225,7 +224,7 @@ def main():
         if not menu:
             k = int(round(np.median(knees))) if knees else 1
             menu = [sig for sig, _ in votes.most_common(max(1, k))]
-            rule = f"fallback top-{max(1,k)} by vote"
+            rule = f"fallback top-{max(1, k)} by vote"
         return menu, dict(votes), rule
 
     def apply_menu(r, menu):
@@ -235,9 +234,7 @@ def main():
         for m in c["models"]:
             sig = tuple(m["sig"])
             if sig in menu:
-                if sig not in by_sig or m.get("solo_val_r", -1) > by_sig[sig].get(
-                    "solo_val_r", -1
-                ):
+                if sig not in by_sig or m.get("solo_val_r", -1) > by_sig[sig].get("solo_val_r", -1):
                     # solo_val_r may not be set yet; compute
                     pass
         # compute solo_val_r for selection (best-val per sig)
@@ -245,9 +242,7 @@ def main():
         for m in c["models"]:
             if "solo_val_r" not in m:
                 mm = np.isfinite(m["val"]) & np.isfinite(val_y)
-                m["solo_val_r"] = (
-                    pearsonr(m["val"][mm], val_y[mm])[0] if mm.sum() > 3 else -1.0
-                )
+                m["solo_val_r"] = pearsonr(m["val"][mm], val_y[mm])[0] if mm.sum() > 3 else -1.0
         by_sig = {}
         for m in c["models"]:
             sig = tuple(m["sig"])
@@ -284,7 +279,7 @@ def main():
             gg = rec.get("gap_genomic")
             print(
                 f"[loso] {r}: explicit={eb.get('genomic'):.4f} "
-                f"menu={ (mo or {}).get('genomic') } gap={gg} "
+                f"menu={(mo or {}).get('genomic')} gap={gg} "
                 f"menu_size={len(menu)} matched={msize}",
                 flush=True,
             )
@@ -293,11 +288,7 @@ def main():
             print(f"[skip-loso] {r}: {e}", flush=True)
 
     # aggregate
-    gaps = [
-        records[r]["gap_genomic"]
-        for r in records
-        if records[r].get("gap_genomic") is not None
-    ]
+    gaps = [records[r]["gap_genomic"] for r in records if records[r].get("gap_genomic") is not None]
     agg = {
         "mean_gap_genomic": float(np.mean(gaps)) if gaps else None,
         "worst_gap_genomic": float(np.min(gaps)) if gaps else None,  # most negative
@@ -362,8 +353,7 @@ def main():
 
     ax2.scatter(eb, mo, s=120, color="#55A868", zorder=3)
     for i, r in enumerate(rs):
-        ax2.annotate(r, (eb[i], mo[i]), fontsize=10, xytext=(4, 4),
-                     textcoords="offset points")
+        ax2.annotate(r, (eb[i], mo[i]), fontsize=10, xytext=(4, 4), textcoords="offset points")
     dlo = min(eb.min(), mo.min()) - 0.01
     dhi = max(eb.max(), mo.max()) + 0.01
     ax2.plot([dlo, dhi], [dlo, dhi], "k--", lw=1.5, label="y = x (unbiased)")
@@ -381,8 +371,7 @@ def main():
         fontsize=15,
     )
     fig.suptitle(
-        "LOSO-CV menu fairness — reservoir-agnostic deploy menu vs per-reservoir best "
-        f"(D={D})",
+        f"LOSO-CV menu fairness — reservoir-agnostic deploy menu vs per-reservoir best (D={D})",
         fontsize=16,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.96])

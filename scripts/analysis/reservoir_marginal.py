@@ -8,18 +8,21 @@ Curve of held-out genomic Pearson (and gap vs the held-out's explicit-best) vs K
 the number of reservoirs we actually need to run.
 """
 
-import sys, json, itertools
-import numpy as np
+import itertools
+import json
+import sys
 from collections import Counter
+
+import numpy as np
 from scipy.stats import pearsonr
 
 sys.argv = ["reservoir_marginal"]
 from scripts.analysis.loso_menu_fairness import (
-    load_cell,
-    greedy_knee_chosen,
-    eval_stack_on_sets,
-    RESERVOIRS,
     BAKE,
+    RESERVOIRS,
+    eval_stack_on_sets,
+    greedy_knee_chosen,
+    load_cell,
 )
 
 SET = "genomic"
