@@ -35,21 +35,37 @@ the latter, the failures are in `logs/screengen/`.
 - **The watchdog is bounded.** MAX_RESUB=12 stops an infinite resubmit loop if
   something is deterministically broken.
 
-## What is NOT running, and why
+## Oracle labelling — RUNNING, but only the 30k half
 
-**Oracle labelling.** Generation produces sequences only. The labelling test
-(`logs/testlabel_*.out`, job 3186904) was still loading the AlphaGenome model when
-the laptop went down, so I did not commit the night to a path I had not seen succeed
-end-to-end. Sequences are the prerequisite and are cheap; labelling is the expensive
-step and is worth launching deliberately once that test is confirmed.
+The test passed after the handoff was written: the AG oracle loads in 173 s and
+labels at **29.7 seq/s**, giving finite, sensibly-distributed labels
+(mean 0.542, sd 1.115).
 
-Check it first thing:
+That rate reframes the plan. Per cell it is **16.8 min at D=30k but 2.8 h at
+D=300k**, so labelling all 210 cells would be **~323 GPU-h for a SINGLE oracle
+model** — and ~3,200 with the 10-model ensemble. Not feasible, and not necessary:
+the screen exists to find the best PARAMETERS per strategy, and parameter effects
+should be visible at 30k. Scale is what the 300k arm is for, and that comes after
+the parameters are chosen.
+
+So: **105 cells at D=30k are being labelled** (`run_label30k.sbatch`, job 3187122,
+6 concurrent, ~29 GPU-h total) with its own watchdog (job 3187127, status in
+`outputs/screen/STATUS_LABEL.txt`). The 97 cells at D=300k are generated but
+**deliberately unlabelled** — decide what that arm needs before spending ~270 GPU-h
+on it.
+
 ```bash
-grep -E 'OK:|PROJECTED|Error' logs/testlabel_3186904.out
+tail -20 outputs/screen/STATUS_LABEL.txt
+find outputs/screen/cache -name '*__labeled.npz' -size +0c | wc -l   # want 105
 ```
-If it reports a seq/s figure, labelling works and can be launched as an array over
-`outputs/screen/cache/*.npz`. If it errored, the likely cause is the known-fragile
-`_load_oracle` path in `experiments/exp1_1_scaling.py`.
+
+Labelled cells carry `oracle_labels`, plus the original `strategy` / `params` /
+`seed` and an `oracle_id` stamp, and are written atomically via os.replace so a
+killed job cannot leave a half-written file that looks complete.
+
+A glob to watch out for: `*d30000*` also matches `d300000`. My first submission did
+exactly that and would have labelled the expensive 300k cells too; it was cancelled
+and the list rebuilt with `*__d30000__*`.
 
 **Student training.** Still driven by the existing bakeoff infrastructure, not by
 `albench`. Connecting the two is the next piece of work.
