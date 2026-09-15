@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, Subset
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -39,6 +39,76 @@ from data.yeast import YeastDataset  # noqa: E402
 from models.dream_rnn import create_dream_rnn  # noqa: E402
 from models.loss_utils import YeastKLLoss  # noqa: E402
 from models.training_base import create_optimizer_and_scheduler  # noqa: E402
+
+
+class EvalClassDataset(Dataset):
+    """DREAM eval-set sequences, encoded exactly like the training data.
+
+    The singleton channel is label-derived and is set to 0 here, matching what the
+    base dataset does at inference. That is the honest choice, but note it means an
+    added eval sequence is distinguishable from a bulk training sequence by that
+    channel alone -- worth remembering when interpreting any gain from variant B.
+    """
+
+    def __init__(self, base, sequences: list[str], labels: np.ndarray):
+        self.base = base
+        # The base dataset stores PREPROCESSED sequences: _add_plasmid_context strips
+        # any existing flanks, normalises the random region to a fixed length and
+        # re-adds the full plasmid flanks to make exactly SEQUENCE_LENGTH. Passing raw
+        # eval sequences to encode_sequence produced tensors of a different length,
+        # which surfaced only as a collate error ("storage that is not resizable")
+        # once a batch mixed the two sources.
+        self.sequences = [str(x) for x in base._add_plasmid_context(np.array(sequences))]
+        self.labels = np.asarray(labels, dtype=np.float32)
+        enc = base.encode_sequence(self.sequences[0], {"is_singleton": 0.0})
+        ref = base.encode_sequence(str(base.sequences[0]), {"is_singleton": 0.0})
+        if enc.shape != ref.shape:
+            raise ValueError(
+                f"encoded eval sequences are {enc.shape} but training sequences are "
+                f"{ref.shape}; they cannot share a batch"
+            )
+
+    def __len__(self) -> int:
+        return len(self.sequences)
+
+    def __getitem__(self, i: int):
+        enc = self.base.encode_sequence(self.sequences[i], {"is_singleton": 0.0})
+        return torch.from_numpy(enc).float(), torch.tensor(self.labels[i], dtype=torch.float32)
+
+
+def load_eval_classes(path: Path, classes: list[str], test_fold: int, val_fold: int):
+    """Return (train, val, test) index lists over the eval file for the named classes.
+
+    Refuses a class the split builder marked UNSPLITTABLE: those have fewer connected
+    ref/alt components than folds, so holding a fold out would split pairs and destroy
+    the very quantity the paired sets measure.
+    """
+    z = np.load(path, allow_pickle=True)
+    fold = z["fold"]
+    unsplittable = {str(x) for x in z["unsplittable"]} if "unsplittable" in z.files else set()
+    bad = sorted(set(classes) & unsplittable)
+    if bad:
+        raise SystemExit(
+            f"cannot include {bad}: the split builder marked them unsplittable "
+            f"(fewer ref/alt components than folds). Including them means ALL of the "
+            f"class, which removes it as an evaluation set. Drop them or decide "
+            f"deliberately to sacrifice that evaluation."
+        )
+    keep = np.zeros(len(fold), dtype=bool)
+    for c in classes:
+        key = f"cls_{c}"
+        if key not in z.files:
+            raise SystemExit(
+                f"unknown eval class {c!r}; have {[k[4:] for k in z.files if k.startswith('cls_')]}"
+            )
+        keep[z[key]] = True
+    idx = np.flatnonzero(keep)
+    seqs = [str(s) for s in z["sequences"]]
+    labs = np.asarray(z["labels"], dtype=np.float32)
+    tr = idx[(fold[idx] != test_fold) & (fold[idx] != val_fold)]
+    va = idx[fold[idx] == val_fold]
+    te = idx[fold[idx] == test_fold]
+    return (seqs, labs, tr, va, te)
 
 
 def set_seed(seed: int) -> None:
@@ -100,11 +170,20 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--subset", type=int, default=None, help="cap dataset size (smoke tests)")
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument(
+        "--include-eval-classes",
+        default="",
+        help="comma-separated DREAM eval classes to ADD to training at 80/10/10 "
+        "(variant B). Empty = variant A, random data only. Unsplittable classes "
+        "(motif_perturbation, motif_tiling) are refused.",
+    )
+    ap.add_argument("--eval-classes-npz", default="data/yeast/eval_classes_v2.npz")
+    ap.add_argument("--tag", default="", help="suffix for the output directory")
     args = ap.parse_args()
 
     set_seed(args.seed + args.fold_id)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    out = Path(args.out_dir) / f"fold_{args.fold_id}"
+    out = Path(args.out_dir) / f"fold_{args.fold_id}{args.tag}"
     out.mkdir(parents=True, exist_ok=True)
     done = out / "test_metrics.json"
     if args.resume and done.exists():
@@ -139,18 +218,37 @@ def main() -> int:
     assert not (set(train_idx) & set(test_idx)), "train/test overlap"
     assert not (set(val_idx) & set(test_idx)), "val/test overlap"
 
-    mk = lambda idx, sh: DataLoader(  # noqa: E731
-        Subset(ds, idx),
-        batch_size=args.batch_size,
-        shuffle=sh,
-        num_workers=args.num_workers,
-        pin_memory=True,
-    )
-    train_loader, val_loader, test_loader = (
-        mk(train_idx, True),
-        mk(val_idx, False),
-        mk(test_idx, False),
-    )
+    extra = {"train": 0, "val": 0, "test": 0}
+    add_tr = add_va = add_te = None
+    if args.include_eval_classes.strip():
+        names = [c.strip() for c in args.include_eval_classes.split(",") if c.strip()]
+        seqs_e, labs_e, tr_e, va_e, te_e = load_eval_classes(
+            REPO / args.eval_classes_npz, names, test_fold, val_fold
+        )
+        add_tr = EvalClassDataset(ds, [seqs_e[i] for i in tr_e], labs_e[tr_e])
+        add_va = EvalClassDataset(ds, [seqs_e[i] for i in va_e], labs_e[va_e])
+        add_te = EvalClassDataset(ds, [seqs_e[i] for i in te_e], labs_e[te_e])
+        extra = {"train": len(add_tr), "val": len(add_va), "test": len(add_te)}
+        print(
+            f"  variant B: adding eval classes {names} -> "
+            f"+{extra['train']:,} train, +{extra['val']:,} val, +{extra['test']:,} test",
+            flush=True,
+        )
+
+    def loader(idx, add, shuffle):
+        base = Subset(ds, idx)
+        data = ConcatDataset([base, add]) if add is not None and len(add) else base
+        return DataLoader(
+            data,
+            batch_size=args.batch_size,
+            shuffle=shuffle,
+            num_workers=args.num_workers,
+            pin_memory=True,
+        )
+
+    train_loader = loader(train_idx, add_tr, True)
+    val_loader = loader(val_idx, add_va, False)
+    test_loader = loader(test_idx, add_te, False)
 
     model = create_dream_rnn(
         input_channels=6,
@@ -222,6 +320,8 @@ def main() -> int:
         "val_metrics": v,
         "test_metrics": t,
         "args": vars(args),
+        "eval_classes_added": extra,
+        "variant": "B" if args.include_eval_classes.strip() else "A",
     }
     done.write_text(json.dumps(metrics, indent=2, default=str))
     print(

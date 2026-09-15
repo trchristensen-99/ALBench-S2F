@@ -109,17 +109,28 @@ def main() -> int:
                 pair_groups.append(idxs)
         print(f"  {cname:<20} records={len(recs):>6,}  matched={hit:>6,}  unmatched={miss:>6,}")
 
-    unassigned = set(range(n)) - set().union(*cls.values()) if cls else set(range(n))
+    all_assigned = set().union(*cls.values()) if cls else set()
+    unassigned = set(range(n)) - all_assigned
     if unassigned:
         cls["unassigned"] = unassigned
         print(f"  {'unassigned':<20} {len(unassigned):>6,} (in the eval file, in no subset)")
+
+    # Classes OVERLAP: motif-perturbation references are themselves random sequences,
+    # and a sequence can appear in several subsets. Membership is therefore multi-label
+    # and a component is balanced against EVERY class it touches, not just the first
+    # one seen -- an earlier version used first-class-wins and silently mislabelled
+    # whole components.
+    memb: dict[int, set[str]] = defaultdict(set)
+    for cname, idxs in cls.items():
+        for i in idxs:
+            memb[i].add(cname)
+    multi = sum(1 for v in memb.values() if len(v) > 1)
+    print(f"  sequences in more than one class: {multi:,} of {n:,}")
 
     # ---- stratified folds, pairs kept together ------------------------------
     rng = np.random.default_rng(args.seed)
     fold = np.full(n, -1, dtype=np.int8)
 
-    # Union-find over pair groups so a sequence appearing in several pairs (an SNV
-    # ref shared by many alts) drags its whole component into one fold.
     parent = list(range(n))
 
     def find(a):
@@ -141,65 +152,63 @@ def main() -> int:
         comps[find(i)].append(i)
     print(f"  linked components (pairs kept together): {len(comps):,}")
 
-    # Assign components to folds, balancing by SIZE rather than by count: the paired
-    # sets have wildly uneven components (one motif_perturbation component holds the
-    # entire class), so round-robin over components would put everything in one fold.
-    #
-    # A class is only SPLITTABLE if it has at least n_folds components. Below that no
-    # stratified split exists that keeps pairs intact, and the class has to be all-in
-    # or all-out of training. That is reported, not worked around, because the
-    # alternative -- splitting a ref from its alt -- leaves the model having memorised
-    # the reference and needing only the difference, which is precisely the quantity
-    # the paired sets exist to measure.
-    primary = {}
-    for cname, idxs in cls.items():
-        for i in idxs:
-            primary.setdefault(i, cname)  # first class wins, deterministic by dict order
-    by_class = defaultdict(list)
-    for members in comps.values():
-        cname = primary.get(members[0], "unassigned")
-        by_class[cname].append(members)
+    comp_list = list(comps.values())
+    comp_classes = [set().union(*(memb[i] for i in c)) for c in comp_list]
 
-    splittable, unsplittable = {}, {}
-    for cname, groups in by_class.items():
-        if len(groups) < args.n_folds:
-            unsplittable[cname] = len(groups)
-            for g in groups:  # keep them together in one fold, flagged for exclusion
-                for i in g:
-                    fold[i] = 0
-            continue
-        splittable[cname] = len(groups)
-        load = np.zeros(args.n_folds, dtype=np.int64)
-        for gi in rng.permutation(len(groups)):
-            g = groups[gi]
-            f = int(np.argmin(load))  # greedy: smallest current fold
-            load[f] += len(g)
-            for i in g:
-                fold[i] = f
+    # How many components does each class span? Below n_folds, no stratified split
+    # exists that keeps pairs intact.
+    spans = defaultdict(int)
+    for cc in comp_classes:
+        for c in cc:
+            spans[c] += 1
+    splittable = {c: v for c, v in spans.items() if v >= args.n_folds}
+    unsplittable = {c: v for c, v in spans.items() if v < args.n_folds}
 
-    print(
-        f"\n  SPLITTABLE classes (>= {args.n_folds} components): "
-        f"{ {k: v for k, v in sorted(splittable.items())} }"
+    # Assign rarest-class-first so small classes get balanced before large ones
+    # consume the freedom; within that, place each component in whichever fold
+    # currently holds least of its rarest class.
+    csize = {c: len(v) for c, v in cls.items()}
+    order = sorted(
+        range(len(comp_list)),
+        key=lambda k: (min((csize[c] for c in comp_classes[k]), default=10**9), -len(comp_list[k])),
     )
-    if unsplittable:
-        print(f"  UNSPLITTABLE classes (< {args.n_folds} components, all-in-or-all-out):")
-        for k, v in sorted(unsplittable.items()):
-            print(
-                f"    {k}: only {v} component(s) -- cannot hold out a fold without "
-                f"breaking ref/alt pairs"
-            )
+    load: dict[str, np.ndarray] = {c: np.zeros(args.n_folds, dtype=np.int64) for c in cls}
+    for k in order:
+        cc = comp_classes[k] or {"unassigned"}
+        rarest = min(cc, key=lambda c: csize.get(c, 10**9))
+        # Break ties among equally-loaded folds at random, so the split is
+        # reproducible under --seed without being biased by input order (argmin
+        # alone would always favour the lowest-numbered fold).
+        lo = load[rarest]
+        cands = np.flatnonzero(lo == lo.min())
+        f = int(cands[rng.integers(len(cands))])
+        for i in comp_list[k]:
+            fold[i] = f
+        for c in cc:
+            load[c][f] += len(comp_list[k])
 
     assert (fold >= 0).all(), "some eval sequences were never assigned a fold"
     for g in pair_groups:
         assert len({int(fold[i]) for i in g}) == 1, "a pair was split across folds"
     print("  pair-integrity check: PASSED (no ref/alt pair spans two folds)")
 
-    print("\n  per-class fold balance (count in each of 10 folds):")
-    # Classes flagged unsplittable will show everything in fold 0 by design.
+    print(
+        f"\n  SPLITTABLE (>= {args.n_folds} components): "
+        f"{ {k: v for k, v in sorted(splittable.items())} }"
+    )
+    if unsplittable:
+        print(f"  UNSPLITTABLE (< {args.n_folds} components -- all-in or all-out):")
+        for k, v in sorted(unsplittable.items()):
+            print(f"    {k}: {v} component(s), n={csize[k]:,}")
+
+    print("\n  per-class fold balance:")
     for cname in sorted(cls):
         idx = np.array(sorted(cls[cname]))
         counts = np.bincount(fold[idx], minlength=args.n_folds)
-        print(f"    {cname:<20} n={len(idx):>6,}  min={counts.min():>5,} max={counts.max():>5,}")
+        flag = "" if cname in splittable else "   <- UNSPLITTABLE"
+        print(
+            f"    {cname:<20} n={len(idx):>6,}  min={counts.min():>5,} max={counts.max():>5,}{flag}"
+        )
 
     out = REPO / args.out
     np.savez_compressed(
