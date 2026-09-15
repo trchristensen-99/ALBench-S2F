@@ -45,6 +45,10 @@ class Asset:
     how_to_get: str
     required_by: tuple[str, ...] = ()
     fallbacks: tuple[str, ...] = ()
+    repo_relpaths: tuple[str, ...] = ()
+    """Locations relative to the repo root. Several assets are produced by our own
+    pipelines into ``outputs/`` rather than downloaded into ``data/``, so this is
+    where a built-in-place artefact is found without any per-machine config."""
     is_dir: bool = False
 
 
@@ -124,6 +128,7 @@ _add(
             "        do not need to rebuild it."
         ),
         required_by=("phylogenetic_zoonomia",),
+        repo_relpaths=("data/zoonomia/per_position_rates.npz",),
     )
 )
 
@@ -138,6 +143,7 @@ _add(
             "        accessions for K562 and HepG2."
         ),
         required_by=("encode_accessibility",),
+        repo_relpaths=("data/encode_accessibility",),
         is_dir=True,
     )
 )
@@ -153,6 +159,7 @@ _add(
         ),
         how_to_get="Built by scripts/build_chr_split_cache.py from the K562 MPRA dataset.",
         required_by=("motif_planted_v2", "phylogenetic_zoonomia", "motif_shuffled"),
+        repo_relpaths=("outputs/chr_split_cache/chr_train_ref_only.npz",),
     )
 )
 
@@ -196,6 +203,7 @@ _add(
             "        needed to reproduce the reported label quality."
         ),
         required_by=("labelling",),
+        repo_relpaths=("outputs/oracle_v2",),
         is_dir=True,
     )
 )
@@ -231,6 +239,11 @@ def resolve(key: str, explicit: str | Path | None = None, *, required: bool = Tr
     for p in (_local_overrides().get(key), data_root() / asset.default_relpath):
         if p and Path(p).expanduser().exists():
             return Path(p).expanduser()
+
+    for rel in asset.repo_relpaths:
+        p = REPO_ROOT / rel
+        if p.exists():
+            return p
 
     for fb in asset.fallbacks:
         p = Path(fb)
