@@ -377,7 +377,19 @@ def load_pool_subset(
     """
     data = np.load(pool_path, allow_pickle=True)
     all_sequences = data["sequences"]
-    all_labels = data["labels"]
+    # Pools written by this script use "labels"; cells written by `albench generate`
+    # + the oracle labeller use "oracle_labels". Accept either rather than forcing a
+    # full rewrite of 105 cells just to rename one key, but refuse anything else
+    # loudly -- a pool with no labels must not be silently treated as unlabelled.
+    for _key in ("labels", "oracle_labels"):
+        if _key in data.files:
+            all_labels = data[_key]
+            break
+    else:
+        raise KeyError(
+            f"{pool_path} has no label array (looked for labels and oracle_labels); "
+            f"present keys: {list(data.files)}"
+        )
     pool_size = len(all_sequences)
 
     if n_train > pool_size:
