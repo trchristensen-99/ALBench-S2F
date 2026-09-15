@@ -8,7 +8,7 @@
 #SBATCH --output=/grid/wsbs/home_norepl/christen/ALBench-S2F/logs/screentrain/watchdog.out
 # Resubmit the screen-training array if it empties before all 105 cells have results.
 # slow_nice is preemptible, so tasks can vanish; run_screentrain.sbatch skips any cell
-# that already has results.json, which makes blind resubmission safe.
+# that already has a result.json, which makes blind resubmission safe.
 set -uo pipefail
 REPO=/grid/wsbs/home_norepl/christen/ALBench-S2F; cd "$REPO"
 SQ=/cm/shared/apps/slurm/current/bin/squeue; SB=/cm/shared/apps/slurm/current/bin/sbatch
@@ -18,7 +18,12 @@ resubs=0
 note () { echo "[$(date "+%F %T")] $*" | tee -a "$STATUS"; }
 note "screen-training watchdog start: ${TOTAL} cells"
 while true; do
-  d=$(find outputs/screen/train -name results.json -size +0c 2>/dev/null | wc -l)
+  # Count CELLS that produced a result, not result files: the driver writes one
+  # result.json per (size, hp, seed) under each cell, so counting files overcounts.
+  d=0
+  while read -r c; do
+    [ -n "$(find "outputs/screen/train/$c" -name result.json -size +0c -print -quit 2>/dev/null)" ] && d=$((d+1))
+  done < outputs/screen/train_cells.txt
   r=$($SQ -u christen -h -n sctrain 2>/dev/null | wc -l)
   note "cells ${d}/${TOTAL} trained, ${r} task(s) queued (resubmits: ${resubs})"
   [ "$d" -ge "$TOTAL" ] && { note "ALL ${TOTAL} SCREEN CELLS TRAINED"; break; }

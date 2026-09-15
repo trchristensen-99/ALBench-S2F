@@ -21,7 +21,12 @@ CELL=$(sed -n "${SLURM_ARRAY_TASK_ID}p" outputs/screen/train_cells.txt)
 [ -z "$CELL" ] && { echo "no cell at index ${SLURM_ARRAY_TASK_ID}"; exit 0; }
 OUT=outputs/screen/train/$CELL
 # Idempotent: a finished cell is skipped, so the array can be resubmitted freely.
-if [ -s "$OUT/results.json" ]; then echo "SKIP already done: $CELL"; exit 0; fi
+# The driver writes <cell>/n<N>/hp<i>/seed<s>/result.json -- NOT <cell>/results.json.
+# Checking the wrong path made the skip silently never fire, which would re-run every
+# finished cell on resubmission and leave the watchdog reading 0 trained forever.
+if [ -n "$(find "$OUT" -name result.json -size +0c -print -quit 2>/dev/null)" ]; then
+  echo "SKIP already done: $CELL"; exit 0
+fi
 echo "RUN $CELL"
 uv run --no-sync python experiments/exp1_1_scaling.py \
   --task k562 --student legnet --oracle ag_s2 \
