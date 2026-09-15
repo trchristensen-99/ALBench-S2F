@@ -240,11 +240,14 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             return self._vocab
         from albench.motifs import vocabulary as V
 
-        meme = self.vocab_meme or os.environ.get("MOTIF_MEME_PATH") or V.MEME_DEFAULT
+        # V.MEME_DEFAULT is None by design -- the PFM source is resolved lazily so it
+        # can prefer CIS-BP when present and fall back to JASPAR, via albench.paths.
+        meme = self.vocab_meme or os.environ.get("MOTIF_MEME_PATH") or V._default_meme()
         if not Path(meme).exists():
             raise FileNotFoundError(
                 f"MEME PFM file not found: {meme}. Set vocab_meme= or the "
-                f"MOTIF_MEME_PATH env var to a JASPAR .meme file."
+                f"MOTIF_MEME_PATH env var, or run `albench doctor` for how to obtain "
+                f"the CIS-BP / JASPAR PFMs."
             )
         keep_tfs, ct_tfs = self._resolve_tf_sets()
 
