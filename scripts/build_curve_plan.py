@@ -26,6 +26,33 @@ def pool_path(res: str, size: int, seed: int, labelled: bool = False) -> Path:
     return POOLS / f"{res}__n{size}__seed{seed}{'__labeled' if labelled else ''}.npz"
 
 
+def find_pool(res: str, labelled: bool = False) -> Path | None:
+    """Locate a reservoir's pool whatever its size/seed suffix.
+
+    The genomic arm is not generated like the others: it is partitioned out of the
+    finite real-CRE set by scripts/build_genomic_partition.py, so its pool carries a
+    different n and seed. Globbing keeps the planner from hardcoding that exception.
+    """
+    suffix = "__labeled.npz" if labelled else ".npz"
+    hits = [
+        f
+        for f in sorted(POOLS.glob(f"{res}__n*__seed*{suffix}"))
+        if labelled or not f.name.endswith("__labeled.npz")
+    ]
+    return hits[0] if hits else None
+
+
+def pool_capacity(res: str) -> int | None:
+    """How many sequences this reservoir can actually supply, from its pool filename."""
+    f = find_pool(res)
+    if f is None:
+        return None
+    import re
+
+    m = re.search(r"__n(\d+)__", f.name)
+    return int(m.group(1)) if m else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--config", default="configs/curves/human_additive.yaml")
@@ -43,23 +70,32 @@ def main() -> int:
 
     POOLS.mkdir(parents=True, exist_ok=True)
 
+    # The genomic arm and the baseline are produced together by
+    # scripts/build_genomic_partition.py, as disjoint halves of the finite real-CRE
+    # set. Drawing them independently made 95% of the baseline reappear in the
+    # "added" genomic data, which would have flattened the genomic curve for a
+    # reason unrelated to genomic data being uninformative.
     gen = [
         f"albench generate --strategy {r} --n {size} --seed {pseed} "
         f"--out {pool_path(r, size, pseed).relative_to(REPO)}"
         for r in res_list
+        if r != base_res
     ]
-    # The baseline is its own draw so it is not the same sequences as the genomic
-    # ARM's added data; without this the genomic curve would re-add its own baseline.
-    gen.append(
-        f"albench generate --strategy {base_res} --n {max(bases)} --seed {base_seed} "
-        f"--out {pool_path(base_res + '_baseline', max(bases), base_seed).relative_to(REPO)}"
-    )
 
-    base_pool = pool_path(base_res + "_baseline", max(bases), base_seed, labelled=True)
+    base_pool_file = find_pool(base_res + "_baseline", labelled=True)
+    base_pool = base_pool_file or pool_path(base_res + "_baseline", max(bases), base_seed, True)
     train = []
+    skipped: list[str] = []
     for r in res_list:
+        cap = pool_capacity(r)
         for b in bases:
             for inc in incs:
+                # A point whose increment exceeds what the reservoir can supply is not
+                # a smaller point -- it does not exist. Dropping it explicitly keeps a
+                # capacity limit from masquerading as a data point.
+                if cap is not None and inc > cap:
+                    skipped.append(f"{r} +{inc:,} (capacity {cap:,})")
+                    continue
                 for ss in sseeds:
                     tag = f"{r}__base{b}__add{inc}__s{ss}"
                     cmd = (
@@ -101,15 +137,32 @@ def main() -> int:
         print(f"  curve points    : {done}/{len(train)}")
         return 0
 
-    n_seq = size * (len(res_list) + 1)
+    generated_seq = size * len(gen)
+    partitioned_seq = sum(
+        c for c in (pool_capacity(base_res), pool_capacity(base_res + "_baseline")) if c
+    )
+    n_seq = generated_seq + partitioned_seq
     print(f"reservoirs         : {len(res_list)}  {res_list}")
     print(f"baselines          : {bases}   (0 = from-scratch)")
     print(f"increments         : {incs}")
     print(f"subset-order seeds : {sseeds}")
-    print(f"\npools to generate+label : {len(gen)} x {size:,} = {n_seq:,} sequences")
+    print(
+        f"\npools to generate+label : {len(gen)} generated x {size:,} = "
+        f"{generated_seq:,}, plus {partitioned_seq:,} partitioned from real CREs "
+        f"= {n_seq:,} sequences"
+    )
     print(f"  estimated oracle time : {n_seq / ORACLE_SEQ_PER_S / 3600:.1f} GPU-hours "
           f"at ~{ORACLE_SEQ_PER_S} seq/s")
-    print(f"curve points to train   : {len(train)} "
+    if skipped:
+        uniq = sorted(set(skipped))
+        print(
+            f"\nSKIPPED {len(skipped)} (reservoir, baseline, increment) combinations "
+            f"= {len(skipped) * len(sseeds)} runs, beyond reservoir capacity:"
+        )
+        for k in uniq:
+            print(f"  {k}")
+        print("  (real CREs are finite -- this asymmetry is a result, report it)")
+    print(f"\ncurve points to train   : {len(train)} "
           f"({len(res_list)} reservoirs x {len(bases)} baselines x {len(incs)} "
           f"increments x {len(sseeds)} seeds)")
     print("\nEvery increment is a nested prefix of one 300k pool, so adding a subset")
