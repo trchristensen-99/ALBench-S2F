@@ -73,7 +73,7 @@ J3=$(sub label "$J2" "$GPU --array=1-16%8" '
     mkdir -p outputs/curves/.labelclaims
     claim="outputs/curves/.labelclaims/$(basename "${f%.npz}")"
     if ! mkdir "$claim" 2>/dev/null; then
-      if [ -n "$(find "$claim" -maxdepth 0 -mmin +180 2>/dev/null)" ]; then
+      if [ -n "$(find "$claim" -maxdepth 0 -mmin +600 2>/dev/null)" ]; then
         rmdir "$claim" 2>/dev/null; mkdir "$claim" 2>/dev/null || continue
       else continue; fi
     fi
@@ -112,7 +112,7 @@ TRAIN_BODY='
     echo "SKIP done: $out"; exit 0; fi
   mkdir -p "$out"
   if ! mkdir "$out/.claim" 2>/dev/null; then
-    if [ -n "$(find "$out/.claim" -maxdepth 0 -mmin +180 2>/dev/null)" ]; then
+    if [ -n "$(find "$out/.claim" -maxdepth 0 -mmin +600 2>/dev/null)" ]; then
       echo "stealing stale claim: $out"; rmdir "$out/.claim" 2>/dev/null
       mkdir "$out/.claim" 2>/dev/null || { echo "SKIP claimed: $out"; exit 0; }
     else
