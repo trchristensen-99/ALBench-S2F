@@ -9,7 +9,12 @@
 # raw, so the 300k-baseline arm cannot be extended the way the others can.
 
 baselines: [0, 3000, 30000]
-increments: [10000, 30000, 100000, 300000]
+# ACTIVE increments only. +100k and +300k (and a possible +1M) are deferred: they
+# dominate wall-clock -- a +284,981 point has been measured at up to 7h28 against
+# minutes for +10k -- and the near-term question is answered by the small end.
+# Restore by moving them back from `deferred_increments`.
+increments: [10000, 30000]
+deferred_increments: [100000, 300000, 1000000]
 
 # At the 30k baseline the genomic arm can supply only 284,981 further real CREs, so a
 # +300k point exists for the synthetic arms and not for it. Comparing a 300k synthetic
@@ -17,8 +22,12 @@ increments: [10000, 30000, 100000, 300000]
 # so at this baseline EVERY arm is capped to the genomic ceiling and the comparison is
 # like-for-like. The uncapped +300k points at baselines 0 and 3k are kept: there the
 # question is how far each arm scales, not how they compare at a matched budget.
-matched_top_increment:
-  30000: 284981
+# Keyed by the increment being replaced, NOT "whichever is largest". Keying on the
+# max silently mis-fires the moment the increment list changes: after deferring the
+# large increments it rewrote the +30k point at the 30k baseline into a +284,981 one.
+matched_increment:
+  30000:            # at this baseline
+    300000: 284981  # replace this increment with this one (the genomic ceiling)
 
 # One generated+labelled 300k pool per reservoir serves EVERY point on its curve:
 # the increments are nested prefixes of a single permutation, so 10k is a strict

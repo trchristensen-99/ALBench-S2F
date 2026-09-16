@@ -73,7 +73,12 @@ def main() -> int:
                 {"name": r["name"], "params": r.get("params", {}), "alias": r.get("alias", r["name"])}
             )
     res_list = [e["alias"] for e in res_entries]
-    matched = {int(k): int(v) for k, v in (cfg.get("matched_top_increment") or {}).items()}
+    # {baseline: {from_increment: to_increment}}. Explicit on both sides so a change
+    # to the increment list cannot silently re-target the substitution.
+    matched = {
+        int(b): {int(f): int(t_) for f, t_ in m.items()}
+        for b, m in (cfg.get("matched_increment") or {}).items()
+    }
     bases = cfg["baselines"]
     incs = cfg["increments"]
     size, pseed = cfg["pool_size"], cfg["pool_seed"]
@@ -107,7 +112,7 @@ def main() -> int:
             for inc0 in incs:
                 # At a matched baseline every arm uses the same budget, so the largest
                 # point compares arms rather than comparing budgets.
-                inc = matched[b] if (b in matched and inc0 == max(incs)) else inc0
+                inc = matched.get(b, {}).get(inc0, inc0)
                 # A point whose increment exceeds what the reservoir can supply is not
                 # a smaller point -- it does not exist. Dropping it explicitly keeps a
                 # capacity limit from masquerading as a data point.
