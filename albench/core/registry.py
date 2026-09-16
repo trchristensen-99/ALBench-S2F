@@ -185,8 +185,12 @@ def _reg_encode_accessibility() -> None:
     register(
         Spec(
             name="encode_accessibility",
-            group="genomic",
+            group="descoped",
             doc=(
+                "DESCOPED at the 2026-09-09 meeting: ENCODE regions are largely "
+                "already covered by the Gosai library and the remainder adds only "
+                "~100k, so the arm cannot scale. Kept registered so the decision is "
+                "visible and reversible, but excluded from the strategy tables. "
                 "Fixed-length windows centred on ENCODE DNase/ATAC peaks. Unlike the "
                 "Gosai genomic pool, which is whatever the original library happened "
                 "to tile, this samples directly from measured accessibility, so the "
@@ -555,6 +559,109 @@ def get_acq(name: str) -> Spec:
     return ACQ_REGISTRY[name]
 
 
+def _reg_sheet_additions() -> None:
+    """Strategies from the sequence-budget sheet that had code but no registry entry.
+
+    An unregistered sampler is unusable: `albench generate` dispatches by name, so a
+    module sitting in albench/reservoir/ with no Spec cannot be swept, cached or put
+    on a curve. These were in that state.
+    """
+    from albench.reservoir.gc_matched import GCMatchedSampler
+    from albench.reservoir.in_silico_evolution_generative import (
+        InSilicoEvolutionGenerativeSampler,
+    )
+    from albench.reservoir.random_sampler import RandomSampler
+
+    register(
+        Spec(
+            name="dinuc_shuffle",
+            group="baseline",
+            doc=(
+                "Dinucleotide-preserving shuffles of real CREs. Destroys motif syntax "
+                "while holding dinucleotide composition fixed, so it isolates how much "
+                "of the genomic arm's value is composition rather than arrangement."
+            ),
+            factory=lambda seed=None, **kw: RandomSampler(seed=seed, **kw),
+            adapter=lambda s, n, ctx: s.generate(
+                n,
+                task=ctx.task,
+                method="dinuc_shuffle",
+                reference_sequences=ctx.require_pool("dinuc_shuffle"),
+            ),
+            needs_pool=True,
+            params={},
+        )
+    )
+
+    register(
+        Spec(
+            name="gc_matched",
+            group="baseline",
+            doc=(
+                "Random sequence with the GC distribution of the real CRE pool. The "
+                "control for 'is the genomic arm just GC content?' -- it matches "
+                "composition and nothing else."
+            ),
+            factory=lambda seed=None, **kw: GCMatchedSampler(seed=seed, **kw),
+            adapter=lambda s, n, ctx: s.generate(
+                n, pool_sequences=ctx.require_pool("gc_matched"), task=ctx.task
+            ),
+            needs_pool=True,
+            params={"n_gc_bins": Param(50, "histogram bins used to match the GC distribution")},
+        )
+    )
+
+    def _ise(seed=None, **kw):
+        return InSilicoEvolutionGenerativeSampler(seed=seed, **kw)
+
+    def _ise_adapter(s, n, ctx):
+        # REFUSE to run without a fitness model. The sampler's own fallback is random
+        # mutagenesis at 5%, which would make this arm a silent duplicate of the
+        # mutagenesis arm under a different name -- exactly the failure that made the
+        # tuned and untuned EvoAug arms byte-identical.
+        model = getattr(ctx, "oracle", None)
+        if model is None:
+            raise ValueError(
+                "in-silico evolution is model-in-the-loop: it needs a predictor to "
+                "score each generation. Pass an oracle in the Context. Running it "
+                "without one silently degrades to random mutagenesis, which would "
+                "duplicate the mutagenesis arm rather than evolve anything."
+            )
+        return s.generate(
+            n,
+            base_sequences=ctx.require_pool("ise_maximize"),
+            task=ctx.task,
+            student_model=model,
+        )
+
+    register(
+        Spec(
+            name="ise_maximize",
+            group="model_generative",
+            doc=(
+                "In-silico evolution toward HIGH activity (sheet row E1, 'BOTH-high'). "
+                "Model-in-the-loop: each generation is scored by a predictor and the "
+                "elite fraction is carried forward. Needs an oracle in the Context. "
+                "NOTE: this is single-objective; the DIFFERENTIAL variant (E2) needs a "
+                "multi-cell-type predictor the current sampler does not support."
+            ),
+            factory=_ise,
+            adapter=_ise_adapter,
+            needs_pool=True,
+            assets=("oracle",),
+            params={
+                "n_evolution_rounds": Param(5, "generations of mutate-score-select"),
+                "mutation_rate": Param(0.05, "per-base rate within a generation"),
+                "population_size": Param(100, "candidates per generation"),
+                "elite_fraction": Param(0.2, "top fraction carried forward"),
+                "evolution_mode": Param(
+                    "maximize", "maximize | target", choices=("maximize", "target")
+                ),
+            },
+        )
+    )
+
+
 def _reg_acquisition() -> None:
     from albench.acquisition.badge import (
         BADGEAcquisition,
@@ -684,6 +791,7 @@ def _bootstrap() -> None:
         _reg_evoaug,
         _reg_motif,
         _reg_baselines,
+        _reg_sheet_additions,
         _reg_acquisition,
     ):
         try:
