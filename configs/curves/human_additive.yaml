@@ -41,7 +41,14 @@ reservoirs:
   - motif_syntax_core
   - mutagenesis
   - zoonomia
-  - evoaug                   # tuned
+  # TUNED arm. Without an explicit parameter this falls back to the sampler defaults,
+  # which are exactly evoaug_ours_default -- the two pools came out byte-for-byte
+  # identical, wasting a labelling pass and putting two indistinguishable lines on the
+  # plot. p_deletion=0.5 is the screen's best evoaug cell (in_dist 0.8218 vs 0.8191 for
+  # the default), so "tuned" now means something.
+  - name: evoaug
+    params: {p_deletion: 0.5}
+    alias: evoaug
   - evoaug_ours_default      # untuned, our defaults
   - evoaug_paper2023         # published control (Lee, Yu & Koo 2023)
 
@@ -53,5 +60,5 @@ reservoirs:
     params: {base: zoonomia}
     alias: mutagenesis_zoonomia
   - name: evoaug
-    params: {base: zoonomia}
+    params: {base: zoonomia, p_deletion: 0.5}
     alias: evoaug_zoonomia

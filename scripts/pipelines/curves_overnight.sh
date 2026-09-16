@@ -48,11 +48,29 @@ J2=$(sub verify_pools "$J1" "$CPU --cpus-per-task=2 --mem=32G --time=01:00:00" \
      "$PY scripts/verify_pools.py --glob 'outputs/curves/pools/*.npz'")
 echo "  verify     $J2"
 
-J3=$(sub label "$J2" "$GPU --array=1-24%8" '
-  f=$(ls outputs/curves/pools/*.npz 2>/dev/null | grep -v labeled | sed -n "${ALBENCH_TASK_ID}p")
-  [ -z "$f" ] && exit 0
-  out="${f%.npz}__labeled.npz"; [ -s "$out" ] && { echo "SKIP $out"; exit 0; }
-  '"$PY"' scripts/label_pool.py --in "$f" --out "$out"')
+# Each task CLAIMS a pool rather than indexing into a live `ls`. Index-based mapping
+# renumbers the moment a pool is added or removed -- which happened: dropping a stale
+# pool mid-flight shifted every later index, so a running task was labelling a
+# different file than its index implied. Claiming is immune to that, and lets the
+# array be sized generously without caring about the exact pool count.
+J3=$(sub label "$J2" "$GPU --array=1-16%8" '
+  for f in outputs/curves/pools/*.npz; do
+    case "$f" in *__labeled.npz) continue;; esac
+    out="${f%.npz}__labeled.npz"
+    [ -s "$out" ] && continue
+    mkdir -p outputs/curves/.labelclaims
+    claim="outputs/curves/.labelclaims/$(basename "${f%.npz}")"
+    if ! mkdir "$claim" 2>/dev/null; then
+      if [ -n "$(find "$claim" -maxdepth 0 -mmin +180 2>/dev/null)" ]; then
+        rmdir "$claim" 2>/dev/null; mkdir "$claim" 2>/dev/null || continue
+      else continue; fi
+    fi
+    echo "labelling $f"
+    '"$PY"' scripts/label_pool.py --in "$f" --out "$out"; rc=$?
+    rmdir "$claim" 2>/dev/null
+    [ $rc -ne 0 ] && { echo "FAILED $f"; exit $rc; }
+  done
+  echo "label task done"')
 echo "  label      $J3"
 
 J4=$(sub verify_labels "$J3" "$CPU --cpus-per-task=2 --mem=32G --time=01:00:00" \
