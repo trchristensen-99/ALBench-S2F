@@ -62,3 +62,29 @@ def test_context_requires_pool_with_actionable_message():
     ctx = R.Context(task="k562")
     with pytest.raises(ValueError, match="needs a genomic pool"):
         ctx.require_pool("genomic")
+
+
+def test_wrapper_factories_are_not_handed_base_sequences() -> None:
+    """A factory returning a *WithBase wrapper must pair with a ctx-style adapter.
+
+    The wrappers (_EvoAugWithBase, _MutagenesisWithBase) resolve their own starting
+    sequences from the `base` parameter, so their generate() takes (n, ctx). The raw
+    samplers take (n, base_sequences=..., task=...). Changing a factory from one to the
+    other without changing its adapter type-checks fine and only fails at run time:
+    it cost an overnight chain, where the generate stage died with
+    "_EvoAugWithBase.generate() got an unexpected keyword argument 'base_sequences'"
+    and every dependent stage went DependencyNeverSatisfied.
+    """
+    import inspect
+
+    from albench.core import registry as reg
+
+    for name, spec in reg.REGISTRY.items():
+        fsrc = inspect.getsource(spec.factory)
+        asrc = inspect.getsource(spec.adapter)
+        wrapper = "WithBase(" in fsrc
+        passes_base = "base_sequences=" in asrc
+        assert not (wrapper and passes_base), (
+            f"{name}: factory builds a *WithBase wrapper (which resolves its own base) "
+            f"but the adapter still passes base_sequences="
+        )

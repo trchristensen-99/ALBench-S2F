@@ -287,9 +287,9 @@ def _reg_evoaug() -> None:
             factory=lambda seed=None, base="pool", **kw: _EvoAugWithBase(
                 seed=seed, base=base, **kw
             ),
-            adapter=lambda s, n, ctx: s.generate(
-                n, base_sequences=ctx.require_pool("evoaug"), task=ctx.task
-            ),
+            # _EvoAugWithBase.generate takes ctx and resolves its own base sequences,
+            # so it must NOT be handed base_sequences the way the fixed controls are.
+            adapter=lambda s, n, ctx: s.generate(n, ctx),
             needs_pool=True,
             params=dict(common),
         )
