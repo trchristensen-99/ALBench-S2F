@@ -26,7 +26,14 @@ sub () {  # sub <name> <dep|none> <extra-sbatch-args> <command>
 }
 
 CPU="--partition=${ALBENCH_CPU_PARTITION:-cpuq} --qos=slow_nice --cpus-per-task=8 --mem=96G --time=11:30:00"
-GPU="--partition=${ALBENCH_GPU_PARTITION:-gpuq} --qos=slow_nice --gres=gpu:1 --cpus-per-task=8 --mem=96G --time=11:30:00"
+# Oracle labelling MUST be pinned to the fast accelerator. The oracle is JAX and pays
+# roughly 11x on an older card: measured 7m20s per 300k pool on an H100 against ~90
+# minutes on a V100 (61 seq/s vs ~680). Without a constraint the scheduler placed a
+# labelling job on a V100 and it would have run all night for one pool. Student
+# training is a CNN and is deliberately left unconstrained -- it pays only ~2.4x and
+# is better off taking whatever is idle.
+GPUC="${ALBENCH_GPU_CONSTRAINT:+--constraint=$ALBENCH_GPU_CONSTRAINT}"
+GPU="--partition=${ALBENCH_GPU_PARTITION:-gpuq} --qos=slow_nice --gres=gpu:1 --cpus-per-task=8 --mem=96G --time=11:30:00 $GPUC"
 
 # 1. regenerate anything missing or duplicated (dedupe is on by default now)
 $PY scripts/build_curve_plan.py --stage generate >/dev/null
