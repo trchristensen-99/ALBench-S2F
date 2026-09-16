@@ -25,8 +25,27 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Repo root derived from this file's location, never hardcoded.
-REPO_ROOT = Path(__file__).resolve().parents[1]
+def _find_repo_root() -> Path:
+    """Walk up until the directory that owns pyproject.toml.
+
+    NOT a fixed parents[N]. This module started life at albench/paths.py where
+    parents[1] was the repo root; moving it to albench/core/paths.py silently made
+    parents[1] point at albench/ instead, so every repo-relative asset stopped
+    resolving -- and because _load_pool() asks with required=False, the failure did
+    not surface as "missing asset" but as a confusing "strategy needs a genomic pool
+    but none was supplied" much later, after a scheduler had already run the job.
+    Anchoring on a marker file makes the location of this module irrelevant.
+    """
+    here = Path(__file__).resolve()
+    for d in here.parents:
+        if (d / "pyproject.toml").is_file() and (d / "albench").is_dir():
+            return d
+    # Fall back to the historical layout rather than raising at import time.
+    return here.parents[2] if len(here.parents) > 2 else here.parent
+
+
+# Repo root derived by search, never hardcoded and never a fixed depth.
+REPO_ROOT = _find_repo_root()
 
 
 def data_root() -> Path:

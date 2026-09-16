@@ -127,9 +127,13 @@ def _load_pool(task: str, limit: int | None):
     """Genomic pool for strategies that derive from real sequence."""
     from albench.paths import resolve
 
-    p = resolve("bg_cache", required=False)
-    if p is None:
-        return None, None
+    # required=True on purpose. This is only called for strategies that DECLARE
+    # needs_pool, so a missing pool is fatal for them -- and returning (None, None)
+    # deferred the failure until deep inside the sampler, where it surfaced as
+    # "strategy needs a genomic pool but none was supplied" with no hint that the
+    # real problem was an unresolvable asset. Ask loudly, and resolve() explains how
+    # to obtain it.
+    p = resolve("bg_cache", required=True)
     z = np.load(p, allow_pickle=True)
     seqs = [str(s) for s in z["sequences"][: limit or None]]
     labels = None
