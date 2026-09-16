@@ -1,3 +1,7 @@
+> **HISTORICAL SNAPSHOT (2026-09-14).** The `run_*.sbatch` files named below
+> were retired on 2026-09-15 in favour of `scripts/pipelines/`; see
+> docs/REPRODUCE.md. Kept for the run log, not as instructions.
+
 # Overnight run — 2026-09-14, read this first
 
 ## What is running

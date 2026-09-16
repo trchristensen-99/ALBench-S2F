@@ -52,3 +52,6 @@ scripts/analysis/model_comparison_plots/
 
 # Superseded code kept on disk but out of the tracked tree (see docs/ATTIC.md)
 /attic/
+
+# Per-machine cluster settings (copy from site.env.example)
+scripts/cluster/site.env

@@ -1,70 +1,80 @@
 # Reproducing the current experiments
 
 Two arms are live. Both label with an oracle ensemble, then train students on the
-labelled pools. Paths come from `albench.paths` (see `albench doctor`); no script
-contains a machine-specific location outside a documented fallback.
+labelled pools. Nothing below names a partition, a queue, or an absolute path: asset
+locations come from `albench.paths`, and scheduling comes from
+`scripts/cluster/site.env`.
 
 ## Setup
 
 ```bash
 uv sync
-albench doctor          # lists every asset, whether you have it, and how to get it
+albench doctor                                  # which assets you have, how to get the rest
+cp scripts/cluster/site.env.example scripts/cluster/site.env
+$EDITOR scripts/cluster/site.env                # partitions, QoS tiers, account
 ```
 
-`ALBENCH_DATA` sets the data root, `ALBENCH_REPO` the repo root used by the SLURM
-runners, `ALPHAGENOME_WEIGHTS` the AlphaGenome checkpoint.
+`site.env` is optional. With no scheduler on PATH the pipelines run each stage in the
+foreground instead, which is slow but correct — useful on a workstation or inside an
+interactive allocation.
+
+Environment knobs: `ALBENCH_DATA` (data root), `ALBENCH_REPO` (repo path on compute
+nodes), `ALPHAGENOME_WEIGHTS` (oracle backbone), `ALBENCH_PYTHON` (how to invoke
+Python, e.g. `"module load cuda/12.4 && python"`).
 
 ## Human arm: the 30k parameter screen
 
 ```bash
-# 1. enumerate the screen cells (9 strategies x parameters x seeds = 210)
-albench screen --config configs/screen/human_30k_300k.yaml --write outputs/screen/jobs.sh
-
-# 2. generate sequences            -> outputs/screen/cache/<cell>.npz
-sbatch run_screengen.sbatch
-
-# 3. label with the AG oracle      -> <cell>__labeled.npz  (D=30k half)
-sbatch run_label30k.sbatch
-
-# 4. expose the flat cache in the layout the scaling driver expects
-python scripts/link_screen_pools.py
-
-# 5. train one LegNet student per cell
-sbatch run_screentrain.sbatch
-sbatch run_screentrain_watchdog.sbatch     # resubmits if slow_nice preempts
+./scripts/pipelines/human_screen.sh enumerate   # 210 cells from the screen config
+./scripts/pipelines/human_screen.sh generate    # sequences per cell
+./scripts/pipelines/human_screen.sh label       # oracle labels (needs the oracle)
+./scripts/pipelines/human_screen.sh link        # expose cells as pools
+./scripts/pipelines/human_screen.sh train       # one LegNet student per cell
+./scripts/pipelines/human_screen.sh status
 ```
 
+Every stage is idempotent — finished work is skipped — so **re-running a stage is the
+recovery procedure** after preemption or a walltime kill. No watchdog required.
+
 Subsets are nested by construction: `load_pool_subset` permutes the pool once under
-the seed and takes a prefix, so n=5k is a strict subset of n=10k. This matters for
-scaling curves — resampling independently per size makes them jagged.
+the seed and takes a prefix, so n=5k is a strict subset of n=10k. Resampling
+independently per size is what makes scaling curves jagged.
 
 ## Yeast arm: the DREAM-RNN oracle
 
 ```bash
-python scripts/build_yeast_folds.py             # random 10-fold, duplicates grouped
-python scripts/build_yeast_eval_classes.py      # class map + pair-safe stratified folds
-
-sbatch run_yoracle.sbatch                       # variant A: bulk data only
-sbatch run_yoracleB.sbatch                      # variant B: + 80% of each eval class
-sbatch run_yoracle_watchdog.sbatch
-
-sbatch run_yopredict.sbatch                     # score eval classes with all 20 folds
-python scripts/analysis/eval_yeast_oracle_by_class.py
+./scripts/pipelines/yeast_oracle.sh prepare     # folds + pair-safe eval-class map
+./scripts/pipelines/yeast_oracle.sh train A     # bulk data only
+./scripts/pipelines/yeast_oracle.sh train B     # + 80% of each splittable eval class
+./scripts/pipelines/yeast_oracle.sh predict     # score eval classes, all 20 folds
+./scripts/pipelines/yeast_oracle.sh compare
 ```
 
-Variant B exists to measure what including an eval class in oracle training buys on
-that class. The A-vs-B comparison is restricted to sequences **both** held out —
-otherwise B is flattered by exactly what it memorised.
+Variant B measures what including an eval class in oracle training buys on that class.
+The comparison is restricted to sequences **both** variants held out — otherwise B is
+flattered by exactly what it memorised.
 
-## GPU placement
+**Label scales must match before you add any external label source.** The bulk yeast
+file is binned expression on [0, 17]; the DREAM eval file is MAUDE expression on
+[-1.40, 1.66]. Mixing them raw taught the first variant B to predict ~0.16 for eval
+sequences and ~11 for everything else, which showed up as r=0.17 on SNVs it had
+trained on against 0.87 for a model that never saw them.
+`match_eval_labels_to_train_scale` fits the affine correction on the `random` class.
 
-LSTM work (the yeast oracle) must be H100-constrained: measured ~5 min/epoch on H100
-against ~38 min on V100, a 7.6x penalty. LegNet is a CNN and pays only 2.4x, so it is
-deliberately left unconstrained to use the plentiful idle V100s.
+## Scheduling
+
+`scripts/cluster/submit.sh` is the only thing that talks to a scheduler:
 
 ```bash
-scripts/slurm/launch_tiered.sh run_yofold_one.sbatch "--tag _B" -- 0 1 2 3
+scripts/cluster/submit.sh --name train --gpus 1 --cpus 8 --mem 64G \
+    --time 11:30:00 --array 1-105%20 --tiered -- python my_script.py
 ```
-spreads jobs across the fast/default/slow_nice tiers, asking Slurm via
-`sbatch --test-only` where each would actually start, and refusing placements that
-would preempt our own running jobs.
+
+`--tiered` spreads work across the QoS tiers in `ALBENCH_TIERS`, asking the scheduler
+via `sbatch --test-only` where each job would actually start rather than tracking
+capacity itself, and refusing placements that would preempt your own running jobs.
+
+**Constrain recurrent training to your fastest accelerator** (`ALBENCH_GPU_CONSTRAINT`).
+Measured here, DREAM-RNN epochs took ~5 min on an H100 against ~38 min on a V100 — a
+7.6x penalty, where a CNN of similar size paid only 2.4x. Leave convolutional training
+unconstrained so it can use whatever is idle.
