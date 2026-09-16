@@ -252,6 +252,27 @@ _add(
 )
 
 
+_add(
+    Asset(
+        key="zoonomia_alignment",
+        env_var="ALBENCH_ZOONOMIA_H5",
+        default_relpath="zoonomia/zoonomia_241.h5",
+        description=(
+            "Zoonomia 241-mammal alignment, chrN/seq (241, len) uint8 with row 0 = "
+            "Homo_sapiens, plus chrN/phyloP and a species list. Source of the "
+            "ORTHOLOG sequences, as distinct from zoonomia_rates which holds human "
+            "sequences annotated with conservation derived from it."
+        ),
+        how_to_get=(
+            "Built from the Zoonomia 241-way alignment. On the CSHL cluster it is "
+            "already staged; elsewhere, point ALBENCH_ZOONOMIA_H5 at a copy."
+        ),
+        required_by=("zoonomia_orthologs",),
+        fallbacks=("/grid/koo/home/shared/d3/data/zoonomia/zoonomia_241.h5",),
+    )
+)
+
+
 def _usable(p: Path, asset: Asset) -> bool:
     """Exists AND has content.
 

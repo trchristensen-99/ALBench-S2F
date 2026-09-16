@@ -662,6 +662,44 @@ def _reg_sheet_additions() -> None:
     )
 
 
+    from albench.reservoir.zoonomia_orthologs import ZoonomiaOrthologSampler
+
+    register(
+        Spec(
+            name="zoonomia_orthologs",
+            group="genomic",
+            doc=(
+                "REAL orthologous CRE sequences from the 241-mammal alignment -- for "
+                "each human cCRE window, the aligned sequence in other mammals. "
+                "Replaces the earlier `zoonomia` arm, which mutated HUMAN sequence "
+                "under conservation-derived rates and was therefore capped at the "
+                "199,373 human cCREs that exist. Measured capacity is ~8.2M sequences "
+                "(199,373 windows x the ~41 species callable at min_called_frac=0.95; "
+                "the naive 240-species figure overstates it), which still makes it "
+                "the most scalable genomic arm rather than the most limited. `distance` selects an evolutionary tier by "
+                "observed identity to human: near relatives are nearly human and "
+                "test little, distant ones approach novel sequence."
+            ),
+            factory=lambda seed=None, **kw: ZoonomiaOrthologSampler(seed=seed, **kw),
+            adapter=lambda s, n, ctx: s.generate(n, task=ctx.task),
+            assets=("zoonomia_alignment",),
+            params={
+                "distance": Param(
+                    "all",
+                    "evolutionary tier by identity to human: near | mid | far | all",
+                    choices=("near", "mid", "far", "all"),
+                ),
+                "min_called_frac": Param(
+                    0.95, "reject a window/species below this called (non-gap) fraction"
+                ),
+                "max_species_per_window": Param(
+                    None, "cap species per window so a few loci cannot dominate"
+                ),
+            },
+        )
+    )
+
+
 def _reg_acquisition() -> None:
     from albench.acquisition.badge import (
         BADGEAcquisition,
