@@ -49,11 +49,16 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
+REPO = Path(_REPO_ROOT)
 sys.path.insert(0, str(REPO))
 
 from experiments.hp_strategies import Strategy  # noqa: E402
 from experiments.scaling_hp_search import EXPERIMENTAL_KNOBS_DOC, HPConfig  # noqa: E402
+
+# Repo root: env override first, else derived from this file's location.
+# Never a literal -- the path differs on every machine that runs this.
+_REPO_ROOT = Path(os.environ.get("ALBENCH_REPO") or Path(__file__).resolve().parents[1])
+
 
 # The core axes; anything else the LLM emits is gathered into HPConfig.extra
 # (only when novel-axes mode is on).
@@ -442,7 +447,7 @@ def _call_claude_cli(system: str, user: str, model: str) -> str:
     prompt = f"<system>\n{system}\n</system>\n\n{user}"
     claude_bin = os.environ.get(
         "CLAUDE_BIN",
-        "/grid/wsbs/home_norepl/christen/.conda/envs/claude_code_env/bin/claude",
+        os.environ.get("CLAUDE_CLI", "claude")  # resolve on PATH by default,
     )
     # Strip date suffix from model id for CLI (CLI expects sonnet, opus, etc.)
     cli_model = model.split("-202")[0] if "-202" in model else model

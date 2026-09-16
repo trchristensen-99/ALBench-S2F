@@ -16,7 +16,14 @@ import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
 
-REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
+import os
+
+# Repo root: env override first, else derived from this file's location.
+# Never a literal -- the path differs on every machine that runs this.
+_REPO_ROOT = Path(os.environ.get("ALBENCH_REPO") or Path(__file__).resolve().parents[2])
+
+
+REPO = Path(_REPO_ROOT)
 t = pd.read_csv(REPO / "data/k562/DATA-Table_S2__MPRA_dataset.txt", sep="\t", low_memory=False)
 print("columns:", list(t.columns))
 print(f"rows: {len(t):,}")

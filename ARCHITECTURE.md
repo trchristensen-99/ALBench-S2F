@@ -270,7 +270,7 @@ bash scripts/run_with_runtime.sh python experiments/exp0_scaling.py \
 ```bash
 ssh christen@bamdev4.cshl.edu
 cd /grid/koo/data/christen/ALBench-S2F
-sbatch scripts/slurm/train_koo.sh
+./scripts/pipelines/human_screen.sh train
 ```
 
 | Resource | Value |
@@ -286,7 +286,7 @@ sbatch scripts/slurm/train_koo.sh
 ```bash
 ssh christen@bamdev4.cshl.edu
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
-sbatch scripts/slurm/train_cshl.sh  # Uses gpuq partition
+./scripts/pipelines/human_screen.sh train  # partition comes from scripts/cluster/site.env
 ```
 
 ---

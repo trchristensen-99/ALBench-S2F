@@ -25,7 +25,12 @@ from scipy.stats import pearsonr
 
 from experiments.test_set_guards import assert_mono_snv, read_battery_provenance
 
-REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
+# Repo root: env override first, else derived from this file's location.
+# Never a literal -- the path differs on every machine that runs this.
+_REPO_ROOT = Path(os.environ.get("ALBENCH_REPO") or Path(__file__).resolve().parents[1])
+
+
+REPO = Path(_REPO_ROOT)
 CACHE = REPO / "outputs/chr_split_cache"
 
 # TF32 — fast on H100 with negligible accuracy loss

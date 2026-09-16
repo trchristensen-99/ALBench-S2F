@@ -995,8 +995,11 @@ def _load_k562_ag_s2_oracle():
     )
     if not ckpt_paths:
         raise FileNotFoundError(
-            f"No AG S2 oracle checkpoints in {oracle_dir}. "
-            f"Run: sbatch scripts/slurm/train_stage2_k562_chrsplit_natural_array.sh"
+            f"No AG S2 oracle checkpoints in {oracle_dir}.\n"
+            f"Either point ALBENCH_ORACLE_DIR at an existing ensemble, or train one:\n"
+            f"  python experiments/train_oracle_s2_v2.py --fold-id 0   (repeat 0..9)\n"
+            f"A single fold is enough to develop against; all ten are only needed to "
+            f"reproduce the reported label quality. See `albench doctor`."
         )
 
     # ── Flanking sequence encoding (same as S1 oracle) ───────────────────

@@ -15,7 +15,14 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import pearsonr
 
-ROOT = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/full_sweep_chrval")
+import os
+
+# Repo root: env override first, else derived from this file's location.
+# Never a literal -- the path differs on every machine that runs this.
+_REPO_ROOT = Path(os.environ.get("ALBENCH_REPO") or Path(__file__).resolve().parents[2])
+
+
+ROOT = Path(str(_REPO_ROOT / "outputs/full_sweep_chrval"))
 DS = [300, 1000, 3000, 10000, 30000, 100000, 300000]
 
 

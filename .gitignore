@@ -55,3 +55,6 @@ scripts/analysis/model_comparison_plots/
 
 # Per-machine cluster settings (copy from site.env.example)
 scripts/cluster/site.env
+
+# Generated deck figures (regenerate from scripts/analysis)
+figures_schematics/

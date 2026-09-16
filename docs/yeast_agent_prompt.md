@@ -1,3 +1,7 @@
+> **HISTORICAL WORKING NOTE.** Written before the current pipelines existed; the
+> `scripts/slurm/*` and `configs/experiment/*` paths below were retired on
+> 2026-09-15. For how to run the yeast arm today see docs/REPRODUCE.md.
+
 # Yeast Experiments — Agent Kickoff Prompt
 
 > Copy-paste this prompt to start a new Claude Code session focused on running the yeast

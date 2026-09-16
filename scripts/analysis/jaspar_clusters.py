@@ -10,8 +10,17 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, "/grid/wsbs/home_norepl/christen/ALBench-S2F")
+sys.path.insert(0, _REPO_ROOT)
 from albench.motifs import vocabulary as V
+
+import os
+
+from pathlib import Path
+
+# Repo root: env override first, else derived from this file's location.
+# Never a literal -- the path differs on every machine that runs this.
+_REPO_ROOT = Path(os.environ.get("ALBENCH_REPO") or Path(__file__).resolve().parents[2])
+
 
 ms = V.build(cluster_at=None, trim_ic=0.0)  # human CORE, unclustered
 print(f"human CORE, unclustered: {len(ms)} motifs\n")

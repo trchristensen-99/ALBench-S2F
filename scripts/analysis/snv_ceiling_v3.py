@@ -16,10 +16,17 @@ import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
 
-sys.path.insert(0, "/grid/wsbs/home_norepl/christen/ALBench-S2F")
+sys.path.insert(0, _REPO_ROOT)
 from pathlib import Path
 
-REPO = Path("/grid/wsbs/home_norepl/christen/ALBench-S2F")
+import os
+
+# Repo root: env override first, else derived from this file's location.
+# Never a literal -- the path differs on every machine that runs this.
+_REPO_ROOT = Path(os.environ.get("ALBENCH_REPO") or Path(__file__).resolve().parents[2])
+
+
+REPO = Path(_REPO_ROOT)
 N_REF_BLOCK = 798_064
 
 idx, y, p, fold = [], [], [], []
