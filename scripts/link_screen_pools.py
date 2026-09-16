@@ -27,13 +27,20 @@ def main() -> int:
     ap.add_argument("--cache", default="outputs/screen/cache")
     ap.add_argument("--out", default="outputs/screen/pools")
     ap.add_argument("--d", type=int, default=30000, help="only link cells at this size")
+    ap.add_argument(
+        "--glob",
+        default=None,
+        help="explicit glob for labelled files, overriding --d. The link name is the "
+        "filename with __labeled and any __n<size>__seed<k> suffix stripped, which is "
+        "what the driver resolves as the reservoir name.",
+    )
     args = ap.parse_args()
 
     cache = REPO / args.cache
     out = REPO / args.out
     out.mkdir(parents=True, exist_ok=True)
 
-    cells = sorted(cache.glob(f"*__d{args.d}__*__labeled.npz"))
+    cells = sorted(cache.glob(args.glob or f"*__d{args.d}__*__labeled.npz"))
     if not cells:
         print(f"no labelled cells at d={args.d} under {cache}", file=sys.stderr)
         return 1
@@ -41,6 +48,11 @@ def main() -> int:
     manifest, skipped = {}, []
     for c in cells:
         name = c.name.replace("__labeled.npz", "")
+        if args.glob:
+            # Curve pools are <reservoir>__n<size>__seed<k>; the driver looks them up
+            # by reservoir name alone, so strip the size/seed suffix.
+            import re as _re
+            name = _re.sub(r"__n\d+__seed\d+$", "", name)
         z = np.load(c, allow_pickle=True)
         if "oracle_labels" not in z.files and "labels" not in z.files:
             skipped.append((name, "no label array"))

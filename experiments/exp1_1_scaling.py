@@ -2320,6 +2320,9 @@ def run_scaling_experiment(
     duplication_cutoff: float | None = None,
     multitask: bool = False,
     pool_base_dir: str | None = None,
+    base_pool_path: str | None = None,
+    base_n: int = 0,
+    base_seed: int = 0,
     arch_sweep: bool = False,
     dropout: float = 0.0,
     pct_start: float = 0.3,
@@ -2620,8 +2623,34 @@ def run_scaling_experiment(
                     f"Generate with: python scripts/generate_labeled_pools.py "
                     f"--oracle ag_s2 --reservoir {reservoir_name}"
                 )
+            # ADDITIVE SCALING CURVES. n_train is the number of RESERVOIR sequences
+            # ADDED on top of a fixed genomic baseline, not the total training size.
+            # Holding the baseline identical at every curve point is what makes the
+            # points comparable: the only thing varying along a curve is how much
+            # reservoir data was added, so the slope is attributable to the reservoir.
+            # base_n=0 gives the from-scratch curve and prepends nothing.
             logger.info(f"[cached-pool] Loading n={n_train:,} from {pool_path}")
             seqs, labels = load_pool_subset(pool_path, n_train, seed=seed)
+            if base_pool_path is not None and base_n > 0:
+                # base_seed is deliberately independent of `seed`: the baseline must be
+                # THE SAME sequences for every reservoir and every curve point, while
+                # `seed` varies the reservoir subset order between replicates.
+                base_seqs, base_labels = load_pool_subset(
+                    Path(base_pool_path), base_n, seed=base_seed
+                )
+                overlap = len(set(base_seqs) & set(seqs))
+                if overlap:
+                    logger.warning(
+                        f"[cached-pool] {overlap:,} sequences appear in BOTH the "
+                        f"baseline and the added data; effective added count is "
+                        f"{len(seqs) - overlap:,}, not {len(seqs):,}."
+                    )
+                seqs = list(base_seqs) + list(seqs)
+                labels = np.concatenate([base_labels, labels])
+                logger.info(
+                    f"[cached-pool] additive: {base_n:,} baseline + {n_train:,} "
+                    f"reservoir = {len(seqs):,} training sequences"
+                )
             label_cache_dir.mkdir(parents=True, exist_ok=True)
             np.savez_compressed(
                 label_cache_path,
@@ -3343,6 +3372,25 @@ def main():
         "When set, skips oracle loading entirely (runs on V100 without JAX).",
     )
     parser.add_argument(
+        "--base-pool",
+        default=None,
+        help="Labelled pool.npz whose first --base-n sequences form a FIXED baseline "
+        "prepended to every training set (additive scaling curves).",
+    )
+    parser.add_argument(
+        "--base-n",
+        type=int,
+        default=0,
+        help="How many baseline sequences to prepend (0 = from-scratch curve).",
+    )
+    parser.add_argument(
+        "--base-seed",
+        type=int,
+        default=0,
+        help="Permutation seed for the baseline subset, kept separate from --seed so "
+        "the baseline is identical across reservoirs and curve points.",
+    )
+    parser.add_argument(
         "--arch-sweep",
         action="store_true",
         help="Include architecture variants in HP sweep for LegNet "
@@ -3431,6 +3479,9 @@ def main():
             duplication_cutoff=args.duplication_cutoff,
             multitask=args.multitask,
             pool_base_dir=args.pool_base_dir,
+            base_pool_path=args.base_pool,
+            base_n=args.base_n,
+            base_seed=args.base_seed,
             arch_sweep=args.arch_sweep,
             dropout=args.dropout,
             pct_start=args.pct_start,

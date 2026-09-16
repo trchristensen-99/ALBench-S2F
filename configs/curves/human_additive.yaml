@@ -1,0 +1,37 @@
+# Additive scaling curves for the human arm.
+#
+# A curve point is: a FIXED genomic baseline, plus N sequences from one reservoir.
+# Only N varies along a curve, so the slope is attributable to the reservoir rather
+# than to anything about the baseline.
+#
+# baseline 0 is the from-scratch curve (reservoir data only).
+# 300k baseline is deliberately deferred; genomic CREs do not scale much past ~618k
+# raw, so the 300k-baseline arm cannot be extended the way the others can.
+
+baselines: [0, 3000, 30000]
+increments: [10000, 30000, 100000, 300000]
+
+# One generated+labelled 300k pool per reservoir serves EVERY point on its curve:
+# the increments are nested prefixes of a single permutation, so 10k is a strict
+# subset of 30k is a strict subset of 100k is a strict subset of 300k. Extra
+# subset-order replicates cost nothing further -- they are just another permutation
+# seed over the same labelled pool, which is why pool_size is fixed at the largest
+# increment rather than per point.
+pool_size: 300000
+pool_seed: 0
+subset_seeds: [0, 1]        # subset ORDER replicates; free, no extra labelling
+
+baseline_pool: genomic       # the fixed baseline is drawn from the genomic reservoir
+baseline_seed: 7             # distinct from pool_seed so baseline != added genomic data
+
+reservoirs:
+  - genomic                  # the reference arm: more of the same real CREs
+  - random                   # floor
+  - motif_shared_core        # screen winner at D=30k
+  - motif_ct_enriched
+  - motif_syntax_core
+  - mutagenesis
+  - zoonomia
+  - evoaug                   # tuned
+  - evoaug_ours_default      # untuned, our defaults
+  - evoaug_paper2023         # published control (Lee, Yu & Koo 2023)

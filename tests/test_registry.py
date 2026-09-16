@@ -16,7 +16,7 @@ def test_expected_strategies_registered():
         "zoonomia",
         "mutagenesis",
         "evoaug",
-        "evoaug_published",
+        "evoaug_ours_default",
         "motif_shared_core",
         "motif_ct_enriched",
         "motif_syntax_core",

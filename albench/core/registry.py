@@ -284,16 +284,66 @@ def _reg_evoaug() -> None:
     )
     register(
         Spec(
-            name="evoaug_published",
+            name="evoaug_ours_default",
             group="genomic_perturbation",
             doc=(
-                "EvoAug at the settings published in the paper. CONTROL ARM: it exists "
-                "so any gain from the tuned arm is attributable to the tuning rather "
-                "than to EvoAug itself. Do not sweep this one."
+                "Our EvoAugStructuralSampler at ITS OWN defaults, unswept. Formerly "
+                "and wrongly named 'evoaug_published': it never carried the published "
+                "values, it just declined to override ours, and the parameterisation "
+                "differs from the paper's anyway. Kept as the untuned-baseline arm. "
+                "For the real published configuration use 'evoaug_paper2023'."
             ),
             factory=lambda seed=None, **kw: EvoAugStructuralSampler(seed=seed, **kw),
             adapter=lambda s, n, ctx: s.generate(
-                n, base_sequences=ctx.require_pool("evoaug_published"), task=ctx.task
+                n, base_sequences=ctx.require_pool("evoaug_ours_default"), task=ctx.task
+            ),
+            needs_pool=True,
+            params={},
+        )
+    )
+
+
+    register(
+        Spec(
+            name="evoaug_paper2023",
+            group="genomic_perturbation",
+            doc=(
+                "EvoAug at the values published in Lee, Yu & Koo 2023, read from the "
+                "reference implementation (p-koo/evoaug): deletion/insertion/inversion "
+                "and translocation shift all drawn uniformly up to 20bp, mutation "
+                "fraction 0.05, and exactly max_augs_per_seq augmentations per "
+                "sequence (hard_aug=True). This is the CONTROL ARM: a gain in the "
+                "swept 'evoaug' arm is only attributable to tuning if measured against "
+                "the published settings, which 'evoaug_ours_default' never was. "
+                "KNOWN DEVIATIONS, both forced by our sampler operating on discrete "
+                "sequences rather than one-hot tensors during training: there is no "
+                "reverse-complement op and no Gaussian-noise op, and point mutation is "
+                "applied independently rather than drawn from the same uniform op list. "
+                "Do not sweep this one."
+            ),
+            factory=lambda seed=None, **kw: EvoAugStructuralSampler(
+                seed=seed,
+                # Paper magnitudes. Insertion and deletion share max_indel_size, which
+                # is correct here only because the paper sets both maxima to 20.
+                max_indel_size=20,
+                max_inversion_size=20,
+                max_translocation_size=20,
+                point_mutation_rate=0.05,
+                # hard_aug=True means a FIXED count per sequence, so min == max.
+                min_events=2,
+                max_events=2,
+                # Equal weight over the paper's structural ops; tandem duplication is
+                # ours, not theirs, so it is switched off rather than left at 0.1.
+                p_deletion=0.25,
+                p_insertion=0.25,
+                p_inversion=0.25,
+                p_translocation=0.25,
+                p_tandem_dup=0.0,
+                p_point_mutation=0.4,
+                **kw,
+            ),
+            adapter=lambda s, n, ctx: s.generate(
+                n, base_sequences=ctx.require_pool("evoaug_paper2023"), task=ctx.task
             ),
             needs_pool=True,
             params={},
