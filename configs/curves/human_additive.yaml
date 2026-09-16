@@ -11,6 +11,15 @@
 baselines: [0, 3000, 30000]
 increments: [10000, 30000, 100000, 300000]
 
+# At the 30k baseline the genomic arm can supply only 284,981 further real CREs, so a
+# +300k point exists for the synthetic arms and not for it. Comparing a 300k synthetic
+# point against a 285k genomic one would confound "more data" with "different data",
+# so at this baseline EVERY arm is capped to the genomic ceiling and the comparison is
+# like-for-like. The uncapped +300k points at baselines 0 and 3k are kept: there the
+# question is how far each arm scales, not how they compare at a matched budget.
+matched_top_increment:
+  30000: 284981
+
 # One generated+labelled 300k pool per reservoir serves EVERY point on its curve:
 # the increments are nested prefixes of a single permutation, so 10k is a strict
 # subset of 30k is a strict subset of 100k is a strict subset of 300k. Extra
@@ -35,3 +44,14 @@ reservoirs:
   - evoaug                   # tuned
   - evoaug_ours_default      # untuned, our defaults
   - evoaug_paper2023         # published control (Lee, Yu & Koo 2023)
+
+  # Perturbing Zoonomia ortholog CREs instead of the Gosai pool. A resample-only arm
+  # is capped at the 314,981 real CREs that exist; an arm that PERTURBS a base can
+  # emit many distinct descendants per starting sequence, so these are the versions
+  # that can be scaled past the ceiling the genomic arm hits.
+  - name: mutagenesis
+    params: {base: zoonomia}
+    alias: mutagenesis_zoonomia
+  - name: evoaug
+    params: {base: zoonomia}
+    alias: evoaug_zoonomia

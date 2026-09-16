@@ -61,7 +61,19 @@ def main() -> int:
     args = ap.parse_args()
 
     cfg = yaml.safe_load((REPO / args.config).read_text())
-    res_list = cfg["reservoirs"]
+    # A reservoir entry is either a bare name or {name, params, alias}. The alias is
+    # what names the pool and the output dir, so two parameterisations of the same
+    # strategy stay distinguishable everywhere downstream.
+    res_entries = []
+    for r in cfg["reservoirs"]:
+        if isinstance(r, str):
+            res_entries.append({"name": r, "params": {}, "alias": r})
+        else:
+            res_entries.append(
+                {"name": r["name"], "params": r.get("params", {}), "alias": r.get("alias", r["name"])}
+            )
+    res_list = [e["alias"] for e in res_entries]
+    matched = {int(k): int(v) for k, v in (cfg.get("matched_top_increment") or {}).items()}
     bases = cfg["baselines"]
     incs = cfg["increments"]
     size, pseed = cfg["pool_size"], cfg["pool_seed"]
@@ -75,12 +87,15 @@ def main() -> int:
     # set. Drawing them independently made 95% of the baseline reappear in the
     # "added" genomic data, which would have flattened the genomic curve for a
     # reason unrelated to genomic data being uninformative.
-    gen = [
-        f"albench generate --strategy {r} --n {size} --seed {pseed} "
-        f"--out {pool_path(r, size, pseed).relative_to(REPO)}"
-        for r in res_list
-        if r != base_res
-    ]
+    gen = []
+    for e in res_entries:
+        if e["alias"] == base_res:
+            continue
+        sets = "".join(f" --set {k}={v}" for k, v in e["params"].items())
+        gen.append(
+            f"albench generate --strategy {e['name']} --n {size} --seed {pseed}{sets} "
+            f"--out {pool_path(e['alias'], size, pseed).relative_to(REPO)}"
+        )
 
     base_pool_file = find_pool(base_res + "_baseline", labelled=True)
     base_pool = base_pool_file or pool_path(base_res + "_baseline", max(bases), base_seed, True)
@@ -89,7 +104,10 @@ def main() -> int:
     for r in res_list:
         cap = pool_capacity(r)
         for b in bases:
-            for inc in incs:
+            for inc0 in incs:
+                # At a matched baseline every arm uses the same budget, so the largest
+                # point compares arms rather than comparing budgets.
+                inc = matched[b] if (b in matched and inc0 == max(incs)) else inc0
                 # A point whose increment exceeds what the reservoir can supply is not
                 # a smaller point -- it does not exist. Dropping it explicitly keeps a
                 # capacity limit from masquerading as a data point.

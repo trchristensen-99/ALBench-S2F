@@ -260,6 +260,11 @@ def _reg_evoaug() -> None:
     from albench.reservoir.evoaug_structural import EvoAugStructuralSampler
 
     common = {
+        "base": Param(
+            "pool",
+            "pool (Gosai genomic) | zoonomia (ortholog CREs, scales past the CRE ceiling)",
+            choices=("pool", "zoonomia"),
+        ),
         "p_deletion": Param(0.3, "probability of a deletion"),
         "p_insertion": Param(0.3, "probability of an insertion"),
         "p_inversion": Param(0.2, "probability of an inversion"),
@@ -273,8 +278,15 @@ def _reg_evoaug() -> None:
         Spec(
             name="evoaug",
             group="genomic_perturbation",
-            doc="EvoAug structural perturbations with all settings tunable.",
-            factory=lambda seed=None, **kw: EvoAugStructuralSampler(seed=seed, **kw),
+            doc=(
+                "EvoAug structural perturbations with all settings tunable. base="
+                "'zoonomia' perturbs ortholog CREs instead of the Gosai pool, which "
+                "grounds the starting sequences phylogenetically and lifts the capacity "
+                "ceiling that caps any resample-only arm at 314,981 real CREs."
+            ),
+            factory=lambda seed=None, base="pool", **kw: _EvoAugWithBase(
+                seed=seed, base=base, **kw
+            ),
             adapter=lambda s, n, ctx: s.generate(
                 n, base_sequences=ctx.require_pool("evoaug"), task=ctx.task
             ),
@@ -461,6 +473,44 @@ def _reg_baselines() -> None:
     )
 
 
+def _resolve_base_sequences(base: str, ctx: "Context", who: str) -> list[str]:
+    """Starting sequences a derived strategy perturbs.
+
+    'pool' is the Gosai genomic library. 'zoonomia' is the ortholog CRE set, which is
+    both phylogenetically grounded and the answer to a capacity problem: the real-CRE
+    pool holds 314,981 distinct sequences, so any arm that merely RESAMPLES it is
+    capped there, while an arm that PERTURBS a base can produce many distinct
+    descendants per starting sequence and keep scaling past that ceiling.
+    """
+    if base == "zoonomia":
+        from albench.paths import resolve
+
+        z = np.load(resolve("zoonomia_rates"), allow_pickle=True)
+        return [str(x) for x in z["sequences"]]
+    if base != "pool":
+        raise ValueError(f"{who}: unknown base {base!r}; expected 'pool' or 'zoonomia'")
+    return ctx.require_pool(who)
+
+
+class _EvoAugWithBase:
+    """EvoAug structural perturbations over the genomic pool or Zoonomia CREs.
+
+    Same motivation as the mutagenesis variant: perturbing a phylogenetically grounded
+    base lifts the capacity ceiling that constrains any resample-only arm, and lets the
+    EvoAug curve be extended past the point where real CREs run out.
+    """
+
+    def __init__(self, seed=None, base="pool", **kw):
+        from albench.reservoir.evoaug_structural import EvoAugStructuralSampler
+
+        self.base = base
+        self._sampler = EvoAugStructuralSampler(seed=seed, **kw)
+
+    def generate(self, n: int, ctx: "Context"):
+        base_seqs = _resolve_base_sequences(self.base, ctx, "evoaug")
+        return self._sampler.generate(n, base_sequences=base_seqs, task=ctx.task)
+
+
 class _MutagenesisWithBase:
     """Mutagenesis over either the genomic pool or Zoonomia ortholog CREs.
 
@@ -478,13 +528,7 @@ class _MutagenesisWithBase:
         self._rng = np.random.default_rng(seed)
 
     def generate(self, n: int, ctx: Context):
-        if self.base == "zoonomia":
-            from albench.paths import resolve
-
-            z = np.load(resolve("zoonomia_rates"), allow_pickle=True)
-            base_seqs = [str(s) for s in z["sequences"]]
-        else:
-            base_seqs = ctx.require_pool("mutagenesis")
+        base_seqs = _resolve_base_sequences(self.base, ctx, "mutagenesis")
         return self._sampler.generate(n, base_sequences=base_seqs, task=ctx.task)
 
 

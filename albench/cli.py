@@ -144,6 +144,64 @@ def _load_pool(task: str, limit: int | None):
     return seqs, labels
 
 
+def _dedupe_to_target(spec, seqs, target, ctx, seed, params, allow_duplicates):
+    """Return `target` DISTINCT sequences, or as many as the strategy can supply.
+
+    WHY THIS IS CENTRAL RATHER THAN PER-SAMPLER. A pool containing the same sequence
+    twice is a silent confound: the duplicate is weighted twice in training and, once
+    labelled, twice in any average, so a strategy whose source has fewer distinct
+    windows than the requested draw looks like it supplied more information than it
+    did. Measured before this existed: zoonomia returned 3,234 duplicate copies in a
+    300k draw (1.08%, one sequence appearing six times) because its ortholog source
+    holds fewer than 300k distinct windows.
+
+    Top-up rounds re-draw with a DERIVED seed so the extra sequences are not the same
+    draw again, and stop as soon as a round adds nothing -- that is the signal the
+    source is exhausted, and the honest response is to return fewer sequences and say
+    so, not to loop forever or pad with repeats.
+    """
+    seen, uniq = set(), []
+    for x in seqs:
+        t = str(x)
+        if t not in seen:
+            seen.add(t)
+            uniq.append(t)
+    dropped = len(seqs) - len(uniq)
+    if allow_duplicates:
+        if dropped:
+            print(f"  NOTE: {dropped:,} duplicate sequences kept (--allow-duplicates)")
+        return list(seqs)
+    if dropped == 0:
+        return uniq
+
+    print(f"  {dropped:,} duplicates removed; topping up to {target:,} distinct")
+    for attempt in range(1, 6):
+        need = target - len(uniq)
+        if need <= 0:
+            break
+        extra, _ = spec.generate(
+            min(need * 3, max(need, 10_000)), ctx, seed=seed + 1000 * attempt, **params
+        )
+        before = len(uniq)
+        for x in extra:
+            t = str(x)
+            if t not in seen and len(uniq) < target:
+                seen.add(t)
+                uniq.append(t)
+        gained = len(uniq) - before
+        print(f"    top-up {attempt}: +{gained:,} distinct (now {len(uniq):,}/{target:,})")
+        if gained == 0:
+            print("    source exhausted -- no further distinct sequences available")
+            break
+    if len(uniq) < target:
+        print(
+            f"  CAPACITY LIMIT: {len(uniq):,} distinct of {target:,} requested. "
+            f"This strategy cannot supply more; treat its largest curve point as "
+            f"capacity-limited rather than comparable."
+        )
+    return uniq
+
+
 def cmd_generate(args) -> int:
     import logging
 
@@ -161,6 +219,7 @@ def cmd_generate(args) -> int:
     ctx = Context(task=args.task, pool_sequences=pool, pool_labels=labels)
 
     seqs, _meta = spec.generate(args.n, ctx, seed=args.seed, **combos[0])
+    seqs = _dedupe_to_target(spec, seqs, args.n, ctx, args.seed, combos[0], args.allow_duplicates)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
@@ -255,6 +314,12 @@ def main(argv=None) -> int:
     g.add_argument("--set", action="append", metavar="KEY=VALUE", help="override a parameter")
     g.add_argument("--out", required=True)
     g.add_argument("--pool-limit", type=int, default=None, help="cap pool size (for quick tests)")
+    g.add_argument(
+        "--allow-duplicates",
+        action="store_true",
+        help="keep duplicate sequences instead of deduplicating and topping up. Off by "
+        "default: duplicates are weighted twice in training and in any label average.",
+    )
 
     s = sub.add_parser("sweep", help="expand a parameter grid into one command per combination")
     s.add_argument("--strategy", required=True)
