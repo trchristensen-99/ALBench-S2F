@@ -771,13 +771,24 @@ def _reg_acquisition() -> None:
     _acq(
         "badge_epistemic_only",
         EpistemicOnlyAcquisition,
-        "CONTROL for BADGE: uncertainty without diversity.",
+        # Identical in EFFECT to uncertainty_mcdropout while the student's
+        # epistemic_uncertainty() falls back to total uncertainty -- both are top-k
+        # by the same score. They diverge only for a student that genuinely
+        # separates epistemic from aleatoric (see separates_uncertainty()).
+        # Report them as ONE arm until that is true.
+        "CONTROL for BADGE: uncertainty without diversity. Currently the same rule "
+        "as uncertainty_mcdropout -- see the note above.",
         "control",
     )
     _acq(
         "badge_kmeanspp_only",
         KMeansPPOnlyAcquisition,
-        "CONTROL for BADGE: diversity without uncertainty.",
+        # Operates on the model's EMBEDDINGS, not raw sequence: it is BADGE's
+        # k-means++ step with the uncertainty scaling removed, so it overlaps
+        # heavily with diversity_kmeans. Put one of the two on a figure, not both,
+        # or they read as independent evidence when they are not.
+        "CONTROL for BADGE: diversity without uncertainty. Embedding-based and "
+        "largely redundant with diversity_kmeans -- see the note above.",
         "control",
     )
 
