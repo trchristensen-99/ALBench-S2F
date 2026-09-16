@@ -40,7 +40,19 @@ reservoirs:
   - motif_ct_enriched
   - motif_syntax_core
   - mutagenesis
-  - zoonomia
+  # BOTH Zoonomia variants, run head to head. In the D=30k screen the flat control --
+  # same mutation load, conservation profile DISCARDED -- beat both informed variants
+  # (0.8197 vs 0.8168 per_position and 0.8146 per_position_matched, SDs ~0.001). So
+  # the phylogenetic weighting was not contributing at that scale, and extending only
+  # the informed variant would have carried that unexamined into the curves.
+  # Stated explicitly rather than left to the default: an arm that silently falls back
+  # to defaults is how the tuned and untuned evoaug arms ended up identical.
+  - name: zoonomia
+    params: {rate_mode: per_position_matched}
+    alias: zoonomia
+  - name: zoonomia
+    params: {rate_mode: flat}
+    alias: zoonomia_flat
   # TUNED arm. Without an explicit parameter this falls back to the sampler defaults,
   # which are exactly evoaug_ours_default -- the two pools came out byte-for-byte
   # identical, wasting a labelling pass and putting two indistinguishable lines on the

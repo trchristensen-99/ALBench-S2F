@@ -35,11 +35,16 @@ J1=$(sub gen none "$CPU --array=1-${NGEN}%10" '
   line=$(sed -n "${ALBENCH_TASK_ID}p" outputs/curves/generate.txt); [ -z "$line" ] && exit 0
   out=$(echo "$line" | sed -n "s/.*--out \([^ ]*\).*/\1/p")
   if [ -s "$out" ]; then
-    # Already present AND clean? keep it. Duplicated? regenerate it.
-    if '"$PY"' scripts/verify_pools.py --glob "$out" >/dev/null 2>&1; then
-      echo "SKIP clean: $out"; exit 0
+    # Reuse only if it is BOTH clean and generated under the parameters the plan asks
+    # for now. A config edit otherwise leaves stale pools that are silently reused, so
+    # the curve gets labelled with parameters its data was not generated under.
+    strat=$(echo "$line" | sed -n "s/.*--strategy \([^ ]*\).*/\1/p")
+    sets=$(echo "$line" | grep -oE -- "--set [^ ]+" | sed "s/--set /--set /" | tr "\n" " ")
+    if '"$PY"' scripts/verify_pools.py --glob "$out" >/dev/null 2>&1 &&
+       '"$PY"' scripts/pool_params_match.py --pool "$out" --strategy "$strat" $sets; then
+      echo "SKIP clean and current: $out"; exit 0
     fi
-    echo "REGENERATE (failed verification): $out"; rm -f "$out" "${out%.npz}__labeled.npz"
+    echo "REGENERATE (stale or failed verification): $out"; rm -f "$out" "${out%.npz}__labeled.npz"
   fi
   eval "'"$PY"' -m albench.cli ${line#albench }"')
 echo "  gen        $J1  (${NGEN} pools)"
