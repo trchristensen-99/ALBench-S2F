@@ -12,6 +12,7 @@ cd "$REPO" || exit 1
 # shellcheck disable=SC1091
 [ -f scripts/cluster/site.env ] && . scripts/cluster/site.env
 SQ="${ALBENCH_SQUEUE:-$(command -v squeue)}"
+SB="${ALBENCH_SBATCH:-$(command -v sbatch)}"
 PY="${ALBENCH_PYTHON:-uv run --no-sync python}"
 STATUS="$REPO/outputs/curves/STATUS.txt"
 note () { echo "[$(date '+%F %T')] $*" | tee -a "$STATUS"; }
@@ -20,7 +21,7 @@ restarts=0
 note "curve watchdog start"
 while true; do
   sleep 900
-  running=$($SQ -u "$USER" -h -n cv_gen,cv_verify_pools,cv_label,cv_verify_labels,cv_link,cv_train 2>/dev/null | wc -l)
+  running=$($SQ -u "$USER" -h -n cv_gen,cv_verify_pools,cv_label,cv_verify_labels,cv_link,cv_train,cv_w_fast,cv_w_def 2>/dev/null | wc -l)
   pools=$(ls outputs/curves/pools/*.npz 2>/dev/null | grep -vc labeled || echo 0)
   lab=$(ls outputs/curves/pools/*__labeled.npz 2>/dev/null | wc -l)
   pts=$(find outputs/curves/train -name result.json -size +0c 2>/dev/null | wc -l)
@@ -35,6 +36,18 @@ while true; do
     fi
     note "chain stalled with work outstanding -> resubmitting (finished work is skipped)"
     bash scripts/pipelines/curves_overnight.sh >> "$STATUS" 2>&1
+    # Priority-tier workers are separate submissions (their QoS rejects a 284-task
+    # array), so the chain script does not recreate them. Only add workers once the
+    # job list exists, or they would exit immediately having found nothing to do.
+    if [ -s outputs/curves/jobs.txt ]; then
+      for _ in 1 2; do
+        $SB --parsable --job-name=cv_w_fast --partition="${ALBENCH_GPU_PARTITION:-gpuq}" \
+          --qos=fast --gres=gpu:1 --cpus-per-task=8 --mem=64G --time=03:30:00 --chdir="$REPO" \
+          --output="$REPO/logs/curves/wfast-%j.out" \
+          --wrap="export TQDM_DISABLE=1 PYTHONUNBUFFERED=1 WORKER_SECONDS=11400; bash scripts/pipelines/curve_worker.sh" \
+          >> "$STATUS" 2>&1
+      done
+    fi
     restarts=$((restarts + 1))
   fi
 done

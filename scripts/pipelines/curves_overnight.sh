@@ -67,13 +67,36 @@ echo "  link+plan  $J5"
 # current plan and let the watchdog resubmit if the plan grew.
 $PY scripts/build_curve_plan.py --stage train >/dev/null
 NTR=$(wc -l < outputs/curves/jobs.txt)
-J6=$(sub train "$J5" "--partition=${ALBENCH_GPU_PARTITION:-gpuq} --qos=slow_nice --gres=gpu:1 --cpus-per-task=8 --mem=64G --time=11:30:00 --array=1-${NTR}%20" '
+# Train on ALL THREE tiers at once. They are independent allocations, so one array
+# per tier gets roughly 28 concurrent GPUs instead of slow_nice's 20 -- but three
+# arrays over one job list means two tasks can reach for the same curve point, so
+# each task must CLAIM its point atomically first.
+#
+# mkdir is the claim primitive on purpose: it is atomic on POSIX and, unlike flock,
+# behaves on NFS. A claim with no result that is older than 3h is stolen, so a task
+# killed by preemption (SIGKILL skips the trap) does not strand its point forever.
+TRAIN_BODY='
   line=$(sed -n "${ALBENCH_TASK_ID}p" outputs/curves/jobs.txt); [ -z "$line" ] && exit 0
   out=$(echo "$line" | sed -n "s/.*--output-dir \([^ ]*\).*/\1/p")
   if [ -n "$(find "$out" -name result.json -size +0c -print -quit 2>/dev/null)" ]; then
-    echo "SKIP $out"; exit 0; fi
-  eval "'"$PY"' $line"')
-echo "  train      $J6  (${NTR} points)"
+    echo "SKIP done: $out"; exit 0; fi
+  mkdir -p "$out"
+  if ! mkdir "$out/.claim" 2>/dev/null; then
+    if [ -n "$(find "$out/.claim" -maxdepth 0 -mmin +180 2>/dev/null)" ]; then
+      echo "stealing stale claim: $out"; rmdir "$out/.claim" 2>/dev/null
+      mkdir "$out/.claim" 2>/dev/null || { echo "SKIP claimed: $out"; exit 0; }
+    else
+      echo "SKIP claimed by another task: $out"; exit 0
+    fi
+  fi
+  trap "rmdir \"$out/.claim\" 2>/dev/null" EXIT
+  eval "'"$PY"' $line"'
+
+GPUBASE="--partition=${ALBENCH_GPU_PARTITION:-gpuq} --gres=gpu:1 --cpus-per-task=8 --mem=64G"
+J6=$(sub train "$J5" "$GPUBASE --qos=slow_nice --time=11:30:00 --array=1-${NTR}%20" "$TRAIN_BODY")
+J6b=$(sub train_fast "$J5" "$GPUBASE --qos=fast --time=03:30:00 --array=1-${NTR}%2" "$TRAIN_BODY")
+J6c=$(sub train_def "$J5" "$GPUBASE --qos=default --time=11:30:00 --array=1-${NTR}%4" "$TRAIN_BODY")
+echo "  train      $J6 (slow_nice %20) $J6b (fast %2) $J6c (default %4)  -- ${NTR} points"
 
 J7=$($SB --parsable --job-name=cv_wd --dependency=after:"$J1" \
      --partition="${ALBENCH_CPU_PARTITION:-cpuq}" --qos=slow_nice --cpus-per-task=1 --mem=2G \
