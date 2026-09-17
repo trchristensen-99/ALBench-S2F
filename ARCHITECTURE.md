@@ -107,7 +107,7 @@ ALBench-S2F/
 
 ## 3. Core Abstractions
 
-### 3.1 SequenceModel ([model.py](file:///Users/christen/Downloads/ALBench-S2F/albench/model.py))
+### 3.1 SequenceModel ([model.py](albench/model.py))
 
 > **Note**: Oracle and Student are no longer separate subclasses — both implement `SequenceModel`. `from albench import Oracle, Student` still works as a backward-compatible alias.
 
@@ -120,19 +120,19 @@ All oracles and students implement this interface:
 | `embed` | `(sequences: list[str]) → np.ndarray(N, D)` | 256-d pooled conv3 output before FC |
 | `fit` | `(sequences: list[str], labels: np.ndarray) → None` | Retrain on labeled data |
 
-### 3.2 ReservoirSampler ([reservoir/base.py](file:///Users/christen/Downloads/ALBench-S2F/albench/reservoir/base.py))
+### 3.2 ReservoirSampler ([reservoir/base.py](albench/reservoir/base.py))
 
 Generates or selects candidate sequences for the acquisition step.
 
-### 3.3 AcquisitionFunction ([acquisition/base.py](file:///Users/christen/Downloads/ALBench-S2F/albench/acquisition/base.py))
+### 3.3 AcquisitionFunction ([acquisition/base.py](albench/acquisition/base.py))
 
 Selects the most informative sequences from the candidate pool.
 
-### 3.4 TaskConfig ([data/task.py](file:///Users/christen/Downloads/ALBench-S2F/data/task.py))
+### 3.4 TaskConfig (`albench/task.py`)
 
 Dataclass holding all task-specific configuration: organism, sequence length, data paths, test sets, flanking sequences, etc.
 
-### 3.5 AL Loop ([loop.py](file:///Users/christen/Downloads/ALBench-S2F/albench/loop.py))
+### 3.5 AL Loop ([loop.py](albench/loop.py))
 
 `run_al_loop()` implements the core active learning cycle:
 1. Train student on initial labeled set
@@ -192,7 +192,7 @@ HashFrag prevents data leakage from homologous sequences:
 
 ## 5. Model Architecture: DREAM-RNN
 
-From [dream_rnn.py](file:///Users/christen/Downloads/ALBench-S2F/models/dream_rnn.py):
+From [dream_rnn.py](models/dream_rnn.py):
 
 ```
 Input: (B, C, L)  where C = input_channels, L = sequence_length
@@ -218,7 +218,7 @@ Linear(256, output_dim)   # output_dim=1 for K562, 18 for yeast
 
 ### DREAMRNNStudent Ensemble
 
-[dream_rnn_student.py](file:///Users/christen/Downloads/ALBench-S2F/models/dream_rnn_student.py) wraps an ensemble (`ensemble_size=3` default):
+[dream_rnn_student.py](models/dream_rnn_student.py) wraps an ensemble (`ensemble_size=3` default):
 - `predict()`: Mean across ensemble members (each in eval mode)
 - `uncertainty()`: Mean of per-member MC dropout variance (30 passes each, train mode)
 - `embed()`: Mean of per-member pooled conv3 features
@@ -228,7 +228,7 @@ Linear(256, output_dim)   # output_dim=1 for K562, 18 for yeast
 
 ## 6. AlphaGenome Oracle (Probing Setup)
 
-The AlphaGenome oracle will use a **frozen encoder + custom probing head**, not full fine-tuning (too expensive). Based on [`alphagenome_ft`](file:///Users/christen/Downloads/alphagenome_ft-main) package:
+The AlphaGenome oracle will use a **frozen encoder + custom probing head**, not full fine-tuning (too expensive). Based on `alphagenome_ft` (external package) package:
 
 - **Architecture**: `EncoderOnlyHead` (CNN features only, for short sequences < 1kb)
 - **Head configs to try**: Pool-flatten vs MLP variants (512→256, 512→512)
