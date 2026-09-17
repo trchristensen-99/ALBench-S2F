@@ -24,7 +24,16 @@ while true; do
   running=$($SQ -u "$USER" -h -n cv_gen,cv_verify_pools,cv_label,cv_verify_labels,cv_link,cv_train,cv_w_fast,cv_w_def 2>/dev/null | wc -l)
   pools=$(ls outputs/curves/pools/*.npz 2>/dev/null | grep -vc labeled || echo 0)
   lab=$(ls outputs/curves/pools/*__labeled.npz 2>/dev/null | wc -l)
-  pts=$(find outputs/curves/train -name result.json -size +0c 2>/dev/null | wc -l)
+  # Count against the PLAN, not a glob. Globbing counts result.json files left over
+  # from points that are no longer in jobs.txt -- deferred increments, retired arms --
+  # so the total exceeded the target and the watchdog declared completion with three
+  # planned points still unfinished and their claims stale.
+  pts=0
+  while IFS= read -r jl; do
+    jo=$(printf '%s' "$jl" | sed -n 's/.*--output-dir \([^ ]*\).*/\1/p')
+    [ -z "$jo" ] && continue
+    [ -n "$(find "$jo" -name result.json -size +0c -print -quit 2>/dev/null)" ] && pts=$((pts+1))
+  done < outputs/curves/jobs.txt
   want=$(wc -l < outputs/curves/jobs.txt 2>/dev/null || echo 0)
   note "pools=${pools} labelled=${lab} points=${pts}/${want} queued=${running} (restarts=${restarts})"
 

@@ -806,6 +806,39 @@ def _reg_acquisition() -> None:
         "uncertainty+diversity",
         {**_binned_params, "n_joint_samples": Param(2000, "samples for the joint term")},
     )
+    from albench.acquisition.uncertainty_variants import (
+        ActivityNormalisedUncertaintyAcquisition,
+        AggregateUncertaintyAcquisition,
+        DifferentialUncertaintyAcquisition,
+    )
+
+    _acq(
+        "uncertainty_aggregate",
+        AggregateUncertaintyAcquisition,
+        "Total variance summed across cell types. Variances add, uncertainties do "
+        "not. Needs a multitask student; raises rather than collapsing to the "
+        "single-condition rule.",
+        "uncertainty",
+    )
+    _acq(
+        "uncertainty_differential",
+        DifferentialUncertaintyAcquisition,
+        "|log variance ratio| between two cell types. Ratio not difference: variance "
+        "is strictly positive, so a ratio is scale-free and symmetric in log space. "
+        "Needs a multitask student.",
+        "uncertainty",
+    )
+    _acq(
+        "uncertainty_activity_normalised",
+        ActivityNormalisedUncertaintyAcquisition,
+        "Uncertainty EXCESS over the trend at that activity level. Raw uncertainty "
+        "correlates with activity in regression, so ranking by it largely re-ranks by "
+        "activity; this bins by predicted activity, takes a robust centre and spread "
+        "per bin, and scores the standardised residual -- the Pareto frontier of "
+        "uncertain-for-their-activity rather than merely active.",
+        "uncertainty",
+    )
+
     _acq(
         "badge_epistemic_only",
         EpistemicOnlyAcquisition,

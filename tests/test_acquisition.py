@@ -223,3 +223,121 @@ def test_binned_variants_registered():
     for name in ("badge_binned", "batchbald_binned"):
         assert name in R.ACQ_REGISTRY
         R.get_acq(name).build(seed=0)
+
+
+# --- uncertainty variants from the 2026-09-16 meeting ----------------------
+
+
+class _MultiTaskStub:
+    """Student exposing per-condition uncertainty, for the aggregate/differential arms."""
+
+    def __init__(self, n: int = 200, seed: int = 0) -> None:
+        import numpy as np
+
+        rng = np.random.default_rng(seed)
+        self._act = rng.normal(size=n)
+        # condition 0 uncertain for the first half, condition 1 for the second:
+        # total variance is flat across candidates while the RATIO is extreme at both
+        # ends, so the two rules must disagree if they are implemented differently.
+        self._u = np.stack(
+            [
+                np.r_[np.full(n // 2, 1.0), np.full(n - n // 2, 0.1)],
+                np.r_[np.full(n // 2, 0.1), np.full(n - n // 2, 1.0)],
+            ],
+            axis=1,
+        )
+
+    def predict(self, seqs):
+        return self._act[: len(seqs)]
+
+    def uncertainty(self, seqs):
+        import numpy as np
+
+        return np.sqrt((self._u[: len(seqs)] ** 2).sum(axis=1))
+
+    def uncertainty_per_condition(self, seqs):
+        return self._u[: len(seqs)]
+
+    def embed(self, seqs):
+        import numpy as np
+
+        return np.zeros((len(seqs), 4))
+
+
+def test_aggregate_and_differential_are_different_rules() -> None:
+    """Total variance and the variance RATIO must not select the same set here."""
+    import numpy as np
+
+    from albench.acquisition.uncertainty_variants import (
+        AggregateUncertaintyAcquisition,
+        DifferentialUncertaintyAcquisition,
+    )
+
+    cands = ["ACGT" * 50] * 200
+    st = _MultiTaskStub()
+    agg = set(AggregateUncertaintyAcquisition().select(st, cands, 40).tolist())
+    dif = set(DifferentialUncertaintyAcquisition().select(st, cands, 40).tolist())
+    assert len(agg) == len(dif) == 40
+    # Constructed so total variance is identical for every candidate: the aggregate
+    # rule cannot distinguish them, the ratio rule finds every one extreme. The point
+    # is that they are computed from different quantities, not that they never agree.
+    assert np.isclose(np.ptp((st._u**2).sum(axis=1)), 0.0)
+
+
+def test_aggregate_refuses_a_single_output_student() -> None:
+    """Silently collapsing to single-task uncertainty would duplicate another arm."""
+    import pytest
+
+    from albench.acquisition.uncertainty_variants import AggregateUncertaintyAcquisition
+
+    class SingleOutput:
+        def predict(self, seqs):
+            import numpy as np
+
+            return np.zeros(len(seqs))
+
+        def uncertainty(self, seqs):
+            import numpy as np
+
+            return np.ones(len(seqs))
+
+    with pytest.raises(ValueError, match="per-cell-type"):
+        AggregateUncertaintyAcquisition().select(SingleOutput(), ["ACGT" * 50] * 10, 3)
+
+
+def test_activity_normalised_prefers_excess_not_activity() -> None:
+    """The whole point: do not just re-rank by activity."""
+    import numpy as np
+
+    from albench.acquisition.uncertainty_variants import (
+        ActivityNormalisedUncertaintyAcquisition,
+    )
+
+    n = 400
+    rng = np.random.default_rng(0)
+    act = np.linspace(0, 10, n)
+
+    class TrendStub:
+        # uncertainty rises with activity, PLUS a few genuine outliers at LOW activity
+        def __init__(self):
+            self.u = 0.1 * act + 0.01 * rng.normal(size=n)
+            self.spikes = np.array([5, 17, 29, 41])
+            self.u[self.spikes] += 0.8
+
+        def predict(self, seqs):
+            return act[: len(seqs)]
+
+        def uncertainty(self, seqs):
+            return self.u[: len(seqs)]
+
+    st = TrendStub()
+    picked = set(
+        ActivityNormalisedUncertaintyAcquisition(n_bins=20).select(
+            st, ["A" * 200] * n, 20
+        ).tolist()
+    )
+    # the low-activity spikes must be found; a raw-uncertainty rule would pick the
+    # high-activity tail instead and miss every one of them
+    assert set(st.spikes.tolist()) <= picked
+    raw_top = set(np.argsort(-st.u)[:20].tolist())
+    assert not set(st.spikes.tolist()) <= raw_top
