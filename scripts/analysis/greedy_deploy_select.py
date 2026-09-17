@@ -178,17 +178,37 @@ def greedy_select(models, labels, max_n, prefilter, diversity, rng):
     return curve, [pool[i] for i in chosen]
 
 
-def knee_n(curve, frac=0.90):
+def knee_n(curve, frac=0.90, on="val"):
+    """Smallest ensemble reaching `frac` of the total gain.
+
+    `on="val"` is the default and the correct choice. The earlier version read
+    test_oracle_pearson, which meant the ensemble SIZE was chosen using the test set
+    even though the MEMBERS were chosen on validation. N* is only one integer, so the
+    leak is small, but it is exactly the kind of thing that undermines a claim that
+    the menu was selected without seeing the data it is evaluated on.
+
+    `on="test"` reproduces the old behaviour and exists only so the difference can be
+    measured rather than assumed negligible.
+    """
     if not curve:
         return 0
-    ys = np.array([c["test_oracle_pearson"] for c in curve])
-    y0 = ys[0]
-    gain = float(ys.max() - y0)
+    if on == "test":
+        ys = np.array([c["test_oracle_pearson"] for c in curve])
+        better = lambda a, b: a >= b  # noqa: E731 - maximising Pearson
+        y0 = ys[0]
+        gain = float(ys.max() - y0)
+        thresh = y0 + frac * gain
+    else:
+        # val_mse: lower is better, so the "gain" is the drop from the first point.
+        ys = np.array([c["val_mse"] for c in curve])
+        better = lambda a, b: a <= b  # noqa: E731 - minimising MSE
+        y0 = ys[0]
+        gain = float(y0 - ys.min())
+        thresh = y0 - frac * gain
     if gain <= 1e-6:
         return 1
-    thresh = y0 + frac * gain
     for c, y in zip(curve, ys):
-        if y >= thresh:
+        if better(y, thresh):
             return c["n"]
     return curve[-1]["n"]
 
