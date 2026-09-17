@@ -53,13 +53,11 @@ ALBench-S2F/
 │       └── prior_knowledge.py  # PriorKnowledgeAcquisition
 │
 ├── data/                       # Application data loading and task config
-│   ├── task.py                 # TaskConfig dataclass
 │   ├── base.py                 # SequenceDataset ABC
 │   ├── k562.py                 # K562Dataset — human lentiMPRA (200bp, 5ch)
 │   ├── k562_full.py            # K562FullDataset — chr-split version for oracle training
 │   ├── yeast.py                # YeastDataset — yeast random promoter (150bp, 6ch)
 │   ├── hashfrag_splits.py      # HashFragSplitter — homology-aware train/val/test splits
-│   ├── pool.py                 # Unlabeled pool management
 │   ├── sequence_utils.py       # one_hot_encode, reverse_complement, etc.
 │   └── utils.py                # Misc shared data utilities
 │
@@ -77,11 +75,8 @@ ALBench-S2F/
 │   └── embedding_cache.py      # Embedding cache build/load for no_shift mode
 │
 ├── evaluation/                 # Experiment-specific evaluation utilities
-│   ├── scaling.py              # evaluate_on_test_sets(), compute_scaling_curve()
-│   └── yeast_testsets.py       # Yeast test-set evaluation helpers
 │
 ├── experiments/                # Hydra entry-point scripts
-│   ├── exp0_scaling.py         # Experiment 0: scaling curves
 │   ├── exp1_benchmark.py       # Experiment 1: strategy benchmark (--multirun)
 │   └── exp2–5 stubs            # Experiments 2–5 (TODO)
 ├── configs/                    # Hydra YAML configs
