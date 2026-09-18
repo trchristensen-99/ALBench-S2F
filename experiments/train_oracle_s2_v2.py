@@ -170,13 +170,15 @@ def main() -> None:
     parser.add_argument(
         "--pad-mode",
         choices=["n_right", "n_centred", "n_uniform", "context"],
-        default="n_right",
+        default="context",
         help="how to handle cores shorter than 200bp (4.3%% of Gosai, min 163bp). "
         "n_right: all-zero columns flush right (what the RELEASED oracle did). "
         "n_centred: all-zero columns centred. n_uniform: 0.25 filler centred. "
         "context: no padding - the 600bp window just takes more REAL plasmid flank, "
-        "which is what the physical construct looks like. Default n_right for "
-        "backward compatibility; context is the principled choice.",
+        "which is what the physical construct looks like. DEFAULT: measured +0.0254 "
+        "over n_right on short cores (0.9035 vs 0.8781, n=3,620) against ~0.0009 seed "
+        "noise, with full-length cores unaffected. Pass --pad-mode n_right to "
+        "reproduce the released oracle byte-for-byte.",
     )
     parser.add_argument(
         "--max-train",
