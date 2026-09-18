@@ -77,6 +77,8 @@ def _merge(base, override):
 
 
 def _one_hot_200(seq: str) -> np.ndarray:
+    """LEGACY core encoder: right-flush N-pad to 200. Kept so --pad-mode n_right
+    reproduces the released oracle byte-for-byte."""
     seq = seq[:200].upper()
     if len(seq) < 200:
         seq = seq + "N" * (200 - len(seq))
@@ -86,6 +88,46 @@ def _one_hot_200(seq: str) -> np.ndarray:
         if j is not None:
             ohe[j, i] = 1.0
     return ohe
+
+
+def build_core(seq: str, pad_mode: str) -> np.ndarray:
+    """Encode one MPRA core as (L, 4). 4.3% of Gosai cores are <200bp (min 163).
+
+    n_right    pad to 200 with all-zero columns, flush right   (released oracle)
+    n_centred  pad to 200 with all-zero columns, centred
+    n_uniform  pad to 200 with 0.25 everywhere, centred
+    context    DO NOT pad. Return the real core at its true length; the 600bp
+               window is then a centred slice of UP+core+DOWN, so the missing
+               bases are filled by REAL plasmid sequence. This is the physically
+               correct representation - a short insert is ligated directly
+               between the vector arms, with no gap.
+    """
+    seq = seq[:200].upper()
+    L = len(seq)
+    if pad_mode == "context":
+        out = np.zeros((L, 4), dtype=np.float32)
+        for i, c in enumerate(seq):
+            j = _MAPPING.get(c)
+            if j is not None:
+                out[i, j] = 1.0
+        return out
+
+    pad = 200 - L
+    if pad_mode == "n_right":
+        left = 0
+    elif pad_mode in ("n_centred", "n_uniform"):
+        left = pad // 2
+    else:
+        raise ValueError(f"unknown pad_mode {pad_mode!r}")
+
+    fill = 0.25 if pad_mode == "n_uniform" else 0.0
+    out = np.full((200, 4), fill, dtype=np.float32)
+    out[left : left + L] = 0.0  # the real core region is one-hot, never filler
+    for i, c in enumerate(seq):
+        j = _MAPPING.get(c)
+        if j is not None:
+            out[left + i, j] = 1.0
+    return out
 
 
 def main() -> None:
@@ -124,6 +166,24 @@ def main() -> None:
         "chromosome-based folds with a rotating val/test instead of a random permutation: "
         "test=fold_id, val=(fold_id+1)%n_folds, train=the remaining folds. A real test fold is "
         "the point - a val fold is what early stopping selected on, so it is optimistic.",
+    )
+    parser.add_argument(
+        "--pad-mode",
+        choices=["n_right", "n_centred", "n_uniform", "context"],
+        default="n_right",
+        help="how to handle cores shorter than 200bp (4.3%% of Gosai, min 163bp). "
+        "n_right: all-zero columns flush right (what the RELEASED oracle did). "
+        "n_centred: all-zero columns centred. n_uniform: 0.25 filler centred. "
+        "context: no padding - the 600bp window just takes more REAL plasmid flank, "
+        "which is what the physical construct looks like. Default n_right for "
+        "backward compatibility; context is the principled choice.",
+    )
+    parser.add_argument(
+        "--max-train",
+        type=int,
+        default=None,
+        help="subsample the TRAIN split to this many rows (screening runs only; "
+        "val/test folds are untouched so numbers stay comparable).",
     )
     parser.add_argument(
         "--shift-mode",
@@ -183,8 +243,9 @@ def main() -> None:
     # Keep the FULL 300 bp of plasmid context on each side. The 600 bp model input is a centred
     # window of the 800 bp assembly, which leaves 100 bp of real sequence on each side to shift
     # into - so a shift augmentation never has to invent bases.
-    CTX = 300
-    PAD = CTX - 200  # 100 bp of spare context per side
+    CTX = 300  # full plasmid context retained per side; the 600bp window is a centred
+    # slice of UP[CTX] + core[L] + DOWN[CTX], leaving CTX-100 bp of real sequence to
+    # shift into, so augmentation never has to invent bases
     flank5_full = np.zeros((CTX, 4), dtype=np.float32)
     for _i, _c in enumerate(MPRA_UPSTREAM[-CTX:]):
         if _c in _MAPPING:
@@ -207,20 +268,28 @@ def main() -> None:
         bsz = len(batch)
         x = np.zeros((bsz, 600, 4), dtype=np.float32)
         y = np.zeros(bsz, dtype=np.float32)
-        for i, (seq_5ch, label) in enumerate(batch):
-            core = np.asarray(seq_5ch)[:4, :].T  # (200, 4)
+        for i, (raw_seq, label) in enumerate(batch):
+            core = build_core(raw_seq, args.pad_mode)  # (L, 4); L==200 unless pad_mode=="context"
             shift = 0
             if augment and args.max_shift > 0 and np.random.rand() > 0.5:
                 shift = int(np.random.randint(-args.max_shift, args.max_shift + 1))
 
             if args.shift_mode == "crop":
-                # window of the 800 bp assembly, offset by `shift`; PAD bounds the offset so the
-                # crop always stays inside real sequence
-                s = PAD + shift
-                s = max(0, min(2 * PAD, s))
-                wide = np.concatenate([flank5_full, core, flank3_full], axis=0)  # (800, 4)
-                full = wide[s:s + 600]
+                # Centred 600bp window of the REAL assembly UP[300] + core[L] + DOWN[300],
+                # offset by `shift` and clipped so the window never leaves real sequence.
+                # L==200 reproduces the released behaviour exactly (start0 == PAD == 100);
+                # L<200 under pad_mode=="context" fills the shortfall with real plasmid
+                # bases instead of an artificial all-zero gap.
+                wide = np.concatenate([flank5_full, core, flank3_full], axis=0)  # (600+L, 4)
+                start0 = (wide.shape[0] - 600) // 2
+                st = max(0, min(wide.shape[0] - 600, start0 + shift))
+                full = wide[st : st + 600]
             else:
+                if core.shape[0] != 200:
+                    raise ValueError(
+                        "--shift-mode roll/roll_n needs a fixed 200bp core; use "
+                        "--pad-mode n_right/n_centred/n_uniform, or --shift-mode crop"
+                    )
                 full = np.concatenate([flank5, core, flank3], axis=0)  # (600, 4)
                 if shift:
                     full = np.roll(full, shift, axis=0)
@@ -276,9 +345,11 @@ def main() -> None:
 
     # ── Per-group optimizer (head / encoder / frozen) ─────────────────────────
     unfreeze_all = args.unfreeze_blocks.strip().lower() == "all"
-    unfreeze_set = set() if unfreeze_all else {
-        f"downres_block_{b.strip()}" for b in args.unfreeze_blocks.split(",") if b.strip()
-    }
+    unfreeze_set = (
+        set()
+        if unfreeze_all
+        else {f"downres_block_{b.strip()}" for b in args.unfreeze_blocks.split(",") if b.strip()}
+    )
     logger.info("Unfreezing encoder: %s", "ALL blocks" if unfreeze_all else sorted(unfreeze_set))
 
     def _label_fn(path, _leaf):
@@ -326,7 +397,7 @@ def main() -> None:
             return len(all_seqs)
 
         def __getitem__(self, idx):
-            return _one_hot_200(all_seqs[idx]), float(all_labels[idx])
+            return all_seqs[idx], float(all_labels[idx])
 
     ds = FullSeqDataset()
 
@@ -341,8 +412,13 @@ def main() -> None:
         train_idx = np.where((fmap >= 0) & (fmap != test_fold) & (fmap != val_fold))[0]
         logger.info(
             "Fold %d: test=fold %d (%s) val=fold %d (%s) train=%s from %d folds",
-            args.fold_id, test_fold, f"{len(test_idx):,}", val_fold, f"{len(val_idx):,}",
-            f"{len(train_idx):,}", args.n_folds - 2,
+            args.fold_id,
+            test_fold,
+            f"{len(test_idx):,}",
+            val_fold,
+            f"{len(val_idx):,}",
+            f"{len(train_idx):,}",
+            args.n_folds - 2,
         )
         val_start = val_end = 0  # unused on this path
         perm = None
@@ -362,6 +438,29 @@ def main() -> None:
         f"{len(train_idx):,}",
         f"{len(val_idx):,}",
     )
+
+    if args.max_train is not None and args.max_train < len(train_idx):
+        # Screening runs only. Stratify so the short-core rows (the ones the pad
+        # mode actually affects) keep their natural 4.3% share instead of being
+        # thinned out by chance.
+        _rng = np.random.default_rng(args.seed)
+        _len = np.array([len(all_seqs[j]) for j in train_idx], dtype=np.int64)
+        _short, _full = train_idx[_len < 200], train_idx[_len == 200]
+        _frac = args.max_train / len(train_idx)
+        _ns, _nf = int(round(len(_short) * _frac)), int(round(len(_full) * _frac))
+        train_idx = np.concatenate(
+            [
+                _rng.choice(_short, size=min(_ns, len(_short)), replace=False),
+                _rng.choice(_full, size=min(_nf, len(_full)), replace=False),
+            ]
+        )
+        _rng.shuffle(train_idx)
+        logger.info(
+            "SCREEN: train subsampled to %s (%s short / %s full200)",
+            f"{len(train_idx):,}",
+            f"{_ns:,}",
+            f"{_nf:,}",
+        )
 
     train_loader = DataLoader(
         Subset(ds, train_idx.tolist()),
@@ -436,7 +535,10 @@ def main() -> None:
             epochs_no_improve = int(prog.get("epochs_no_improve", 0))
             logger.info(
                 "RESUMED at epoch %d/%d (best_val_pearson=%.4f from epoch %d)",
-                start_epoch + 1, args.epochs, best_val_pearson, best_epoch + 1,
+                start_epoch + 1,
+                args.epochs,
+                best_val_pearson,
+                best_epoch + 1,
             )
         else:
             logger.warning("progress.json present but no checkpoint; starting fresh")
@@ -497,16 +599,28 @@ def main() -> None:
             # test pass is fragile - the round trip can hand back a list rather than the mapping
             # haiku expects - and an in-memory copy removes that failure mode entirely.
             best_params = jax.device_get(model._params)
-            progress_path.write_text(json.dumps({
-                "next_epoch": epoch + 1, "best_val_pearson": best_val_pearson,
-                "best_epoch": best_epoch, "epochs_no_improve": 0,
-            }))
+            progress_path.write_text(
+                json.dumps(
+                    {
+                        "next_epoch": epoch + 1,
+                        "best_val_pearson": best_val_pearson,
+                        "best_epoch": best_epoch,
+                        "epochs_no_improve": 0,
+                    }
+                )
+            )
         else:
             epochs_no_improve += 1
-            progress_path.write_text(json.dumps({
-                "next_epoch": epoch + 1, "best_val_pearson": best_val_pearson,
-                "best_epoch": best_epoch, "epochs_no_improve": epochs_no_improve,
-            }))
+            progress_path.write_text(
+                json.dumps(
+                    {
+                        "next_epoch": epoch + 1,
+                        "best_val_pearson": best_val_pearson,
+                        "best_epoch": best_epoch,
+                        "epochs_no_improve": epochs_no_improve,
+                    }
+                )
+            )
             if epochs_no_improve >= args.early_stop_patience:
                 logger.info(
                     "Early stopping at epoch %d (best=%d, val_pearson=%.4f)",
@@ -535,8 +649,9 @@ def main() -> None:
             logger.warning("No improving epoch recorded; testing with final params")
         yt, yp = [], []
         for batch in test_loader:
-            p = eval_step(model._params, jnp.array(batch["sequences"]),
-                          jnp.array(batch["organism_index"]))
+            p = eval_step(
+                model._params, jnp.array(batch["sequences"]), jnp.array(batch["organism_index"])
+            )
             yp.append(np.array(p).reshape(-1))
             yt.append(np.array(batch["targets"]).reshape(-1))
         yt, yp = np.concatenate(yt), np.concatenate(yp)
@@ -546,10 +661,33 @@ def main() -> None:
             "spearman": _safe_corr(yt, yp, spearmanr),
             "mse": float(np.mean((yt - yp) ** 2)),
         }
-        np.savez_compressed(args.output_dir / "test_predictions.npz",
-                            idx=test_idx, y_true=yt, y_pred=yp)
-        logger.info("TEST fold %d: pearson=%.4f mse=%.4f n=%d", args.fold_id,
-                    test_metrics["pearson"], test_metrics["mse"], test_metrics["n"])
+        # Stratify by core length. The padding choice only touches cores <200bp
+        # (4.3% of rows), so the pooled number is far too diluted to rank pad
+        # modes -- the SHORT bucket is the one that decides it.
+        core_len = np.array([len(all_seqs[j]) for j in test_idx], dtype=np.int64)
+        for name, m in (("short", core_len < 200), ("full200", core_len == 200)):
+            if m.sum() >= 2:
+                test_metrics[f"{name}_n"] = int(m.sum())
+                test_metrics[f"{name}_pearson"] = _safe_corr(yt[m], yp[m], pearsonr)
+                test_metrics[f"{name}_mse"] = float(np.mean((yt[m] - yp[m]) ** 2))
+        np.savez_compressed(args.output_dir / "test_core_len.npz", idx=test_idx, core_len=core_len)
+        logger.info(
+            "TEST by core length: short n=%s r=%.4f | full200 n=%s r=%.4f",
+            test_metrics.get("short_n"),
+            test_metrics.get("short_pearson", float("nan")),
+            test_metrics.get("full200_n"),
+            test_metrics.get("full200_pearson", float("nan")),
+        )
+        np.savez_compressed(
+            args.output_dir / "test_predictions.npz", idx=test_idx, y_true=yt, y_pred=yp
+        )
+        logger.info(
+            "TEST fold %d: pearson=%.4f mse=%.4f n=%d",
+            args.fold_id,
+            test_metrics["pearson"],
+            test_metrics["mse"],
+            test_metrics["n"],
+        )
 
     result = {
         "fold_id": args.fold_id,
@@ -571,6 +709,8 @@ def main() -> None:
         "folds_npy": str(args.folds_npy) if args.folds_npy else None,
         "shift_mode": args.shift_mode,
         "max_shift": args.max_shift,
+        "pad_mode": args.pad_mode,
+        "max_train": args.max_train,
         "unfreeze_all": unfreeze_all,
         "seed": args.seed,
     }
