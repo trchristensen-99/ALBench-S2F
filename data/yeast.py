@@ -20,6 +20,48 @@ import pandas as pd
 from .base import SequenceDataset
 from .utils import one_hot_encode
 
+# ---------------------------------------------------------------------------
+# Single source of truth for yeast plasmid context.
+#
+# VERIFIED against the raw DREAM file: 100.00% of 400,000 sampled rows END with
+# YEAST_FLANK_3[:13] and START with YEAST_FLANK_5[37:54]. The yeast_f5/yeast_f3
+# literals that used to live in experiments/exp1_1_scaling.py matched 0.00% at
+# BOTH ends -- they were a different construct -- and have been removed.
+#
+# Rows already carry 17bp of 5' flank and 13bp of 3' flank, so anything that
+# re-attaches full flanks MUST strip the overlap or it duplicates them.
+YEAST_FLANK_5 = "GCTAGCAGGAATGATGCAAAAGGTTCCCGATTCGAACTGCATTTTTTTCACATC"  # 54bp
+YEAST_FLANK_3 = (
+    "GGTTACGGCTGTTTCTTAATTAAAAAAAGATAGAAAACATTAGGAGTGTAACACAAGACT"
+    "TTCGGATCCTGAGCAGGCAAGATAAACGA"
+)  # 89bp
+YEAST_EMBEDDED_5 = 17  # bases of YEAST_FLANK_5 already present at the row start
+YEAST_EMBEDDED_3 = 13  # bases of YEAST_FLANK_3 already present at the row end
+
+
+def build_yeast_context(seq: str, window: int = 384, pad_char: str = "N") -> str:
+    """Place one raw DREAM row in a `window`-bp input, using REAL plasmid context.
+
+    The row is 5'flank[17] + random + 3'flank[13]. We re-attach only the parts of
+    the full flanks that are NOT already there (+37bp upstream, +76bp downstream),
+    which is all the real sequence available. If that still falls short of
+    `window` the remainder is padded -- there is no more known plasmid sequence,
+    so padding is unavoidable in yeast, unlike human.
+
+    Shrinking `window` toward the true construct length is therefore the more
+    meaningful lever than the choice of pad character.
+    """
+    seq = seq.upper()
+    extra5 = YEAST_FLANK_5[:-YEAST_EMBEDDED_5]  # 37bp
+    extra3 = YEAST_FLANK_3[YEAST_EMBEDDED_3:]  # 76bp
+    full = extra5 + seq + extra3
+    if len(full) >= window:  # centre-crop
+        start = (len(full) - window) // 2
+        return full[start : start + window]
+    pad = window - len(full)
+    left = pad // 2
+    return pad_char * left + full + pad_char * (pad - left)
+
 
 class YeastDataset(SequenceDataset):
     """Yeast promoter MPRA dataset."""
@@ -116,7 +158,9 @@ class YeastDataset(SequenceDataset):
     def _add_plasmid_context(self, sequences: np.ndarray) -> np.ndarray:
         """Add plasmid flanking sequences to get 150bp sequences."""
         processed = []
-        partial_5_prime = self.FLANK_5_PRIME[-17:]
+        # The rows carry FLANK_5_PRIME[37:54], NOT the final 17bp -- FLANK_5_PRIME
+        # ends in an extra "TCG". Slicing [-17:] meant this strip never fired.
+        partial_5_prime = self.FLANK_5_PRIME[37:54]
 
         for seq in sequences:
             if seq.endswith(self.FLANK_3_PRIME):
@@ -147,12 +191,10 @@ class YeastDataset(SequenceDataset):
         processed = []
         flank5 = self.ALPHAGENOME_FLANK_5_PRIME
         flank3 = self.ALPHAGENOME_FLANK_3_PRIME
-        total_valid = len(flank5) + self.SEQUENCE_LENGTH + len(flank3)  # 293
-        left_pad = (self.ALPHAGENOME_SEQUENCE_LENGTH - total_valid) // 2  # 45
-        right_pad = self.ALPHAGENOME_SEQUENCE_LENGTH - total_valid - left_pad  # 46
+        del flank5, flank3  # superseded by build_yeast_context
 
         for seq in sequences_150bp:
-            expanded = "N" * left_pad + flank5 + seq + flank3 + "N" * right_pad
+            expanded = build_yeast_context(seq, window=self.ALPHAGENOME_SEQUENCE_LENGTH)
             if len(expanded) != self.ALPHAGENOME_SEQUENCE_LENGTH:
                 raise ValueError(
                     f"AlphaGenome-expanded sequence has length {len(expanded)} "

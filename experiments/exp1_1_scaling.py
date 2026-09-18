@@ -51,6 +51,7 @@ sys.path.insert(0, str(REPO))
 from albench.model import SequenceModel  # noqa: E402
 from experiments.test_set_guards import assert_label_cache_oracle  # noqa: E402
 
+
 def _ag_weights_path() -> str:
     """AlphaGenome checkpoint directory, resolved through albench.paths.
 
@@ -165,6 +166,12 @@ HP_GRIDS_LARGE_N = {
 # outputs/oracle_full_856k/s2/* — achieved mean OOD=0.7724 across 10 folds.
 # Unfreezing all [0..5] blocks gives marginally better in_dist (+0.005) but
 # tanks OOD by ~0.07 due to encoder over-specialization.
+
+# Yeast AlphaGenome input window. The true pTpA construct is only ~223bp, so the
+# historical 384 leaves ~42% of every input fabricated. Env-overridable so the
+# window-size screen can sweep it without editing code.
+YEAST_WINDOW = int(os.environ.get("ALBENCH_YEAST_WINDOW", "384"))
+
 S2_CONFIG = {
     "k562": {
         "unfreeze_blocks": [4, 5],  # top 2 downres blocks only (~41.5M of 90M params)
@@ -823,17 +830,13 @@ def _load_yeast_ag_oracle():
         params_list.append(jax.device_put(model._params))
 
     mapping = {"A": 0, "C": 1, "G": 2, "T": 3}
-    yeast_f5 = "GCTAGCGCCGATATCCTAACGAAGTCACTACTACGTACTGCCCTGCACGATAGC"
-    yeast_f3 = (
-        "CCTGCAGCAGACGTCGACACGCGTCGTAAAGTGACGTTGTCCGAAACCCTT"
-        "GCATTCGACACCAAACATTCTCTCAGTGCGTGCCCATGAAC"
-    )
 
     def _encode_yeast(seq: str) -> np.ndarray:
-        seq = seq.upper()[:150] if len(seq) >= 150 else seq.upper()
-        full = yeast_f5 + seq + yeast_f3
-        out = np.zeros((384, 4), dtype=np.float32)
-        start = max(0, (384 - len(full)) // 2)
+        from data.yeast import build_yeast_context
+
+        full = build_yeast_context(seq, window=YEAST_WINDOW)
+        out = np.zeros((YEAST_WINDOW, 4), dtype=np.float32)
+        start = 0
         for i, c in enumerate(full):
             if i + start < 384 and c in mapping:
                 out[i + start, mapping[c]] = 1.0
@@ -1336,24 +1339,15 @@ def _encode_sequences_for_ag(
 
     else:  # yeast
         # Yeast plasmid flanks for AlphaGenome (54bp 5' + 89bp 3')
-        yeast_f5 = "GCTAGCGCCGATATCCTAACGAAGTCACTACTACGTACTGCCCTGCACGATAGC"
-        yeast_f3 = (
-            "CCTGCAGCAGACGTCGACACGCGTCGTAAAGTGACGTTGTCCGAAACCCTT"
-            "GCATTCGACACCAAACATTCTCTCAGTGCGTGCCCATGAAC"
-        )
+
+        from data.yeast import build_yeast_context
 
         def _encode_one(seq: str) -> np.ndarray:
-            seq = seq.upper()
-            # Extract 150bp core (or use as-is)
-            core_str = seq[:150] if len(seq) >= 150 else seq
-            full_str = yeast_f5 + core_str + yeast_f3
-            full_len = len(full_str)
-            # Pad/center to 384bp
-            out = np.zeros((384, 4), dtype=np.float32)
-            start = max(0, (384 - full_len) // 2)
+            full_str = build_yeast_context(seq, window=YEAST_WINDOW)
+            out = np.zeros((YEAST_WINDOW, 4), dtype=np.float32)
             for i, c in enumerate(full_str):
-                if i + start < 384 and c in mapping:
-                    out[i + start, mapping[c]] = 1.0
+                if c in mapping:
+                    out[i, mapping[c]] = 1.0
             return out
 
     # Encode all sequences in batches
@@ -1814,21 +1808,14 @@ def _train_ag_s2_student(
                     out[i, mapping[c]] = 1.0
             return out
     else:
-        yeast_f5 = "GCTAGCGCCGATATCCTAACGAAGTCACTACTACGTACTGCCCTGCACGATAGC"
-        yeast_f3 = (
-            "CCTGCAGCAGACGTCGACACGCGTCGTAAAGTGACGTTGTCCGAAACCCTT"
-            "GCATTCGACACCAAACATTCTCTCAGTGCGTGCCCATGAAC"
-        )
+        from data.yeast import build_yeast_context
 
         def _encode_one(seq_str: str) -> np.ndarray:
-            seq_str = seq_str.upper()
-            core = seq_str[:150] if len(seq_str) >= 150 else seq_str
-            full_str = yeast_f5 + core + yeast_f3
-            out = np.zeros((384, 4), dtype=np.float32)
-            start = max(0, (384 - len(full_str)) // 2)
+            full_str = build_yeast_context(seq_str, window=YEAST_WINDOW)
+            out = np.zeros((YEAST_WINDOW, 4), dtype=np.float32)
             for i, c in enumerate(full_str):
-                if i + start < 384 and c in mapping:
-                    out[i + start, mapping[c]] = 1.0
+                if c in mapping:
+                    out[i, mapping[c]] = 1.0
             return out
 
     # Pre-encode all training sequences (one-hot, not embeddings)
