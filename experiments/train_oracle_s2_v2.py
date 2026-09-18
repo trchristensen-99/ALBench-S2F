@@ -689,7 +689,60 @@ def main() -> None:
             test_metrics["n"],
         )
 
+    # No --folds-npy means there is no held-out TEST fold (test_idx is empty), so the
+    # length-stratified numbers above never get computed. Fall back to the VAL split,
+    # which always exists. Early stopping selected on val, so these are optimistic in
+    # absolute terms -- but equally so for every pad mode, and a pad-mode screen is a
+    # COMPARISON between arms, not an absolute claim.
+    val_strat = None
+    if not len(test_idx) and len(val_idx):
+        val_loader_eval = DataLoader(
+            Subset(ds, val_idx.tolist()),
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            collate_fn=lambda b: collate(b, augment=False),
+            pin_memory=True,
+        )
+        if best_params is not None:
+            model._params = jax.device_put(best_params)
+        yt, yp = [], []
+        for batch in val_loader_eval:
+            pr = eval_step(
+                model._params, jnp.array(batch["sequences"]), jnp.array(batch["organism_index"])
+            )
+            yp.append(np.array(pr).reshape(-1))
+            yt.append(np.array(batch["targets"]).reshape(-1))
+        yt, yp = np.concatenate(yt), np.concatenate(yp)
+        core_len = np.array([len(all_seqs[j]) for j in val_idx], dtype=np.int64)
+        val_strat = {
+            "split": "val (optimistic: early stopping selected on it)",
+            "n": int(len(yt)),
+            "pearson": _safe_corr(yt, yp, pearsonr),
+            "mse": float(np.mean((yt - yp) ** 2)),
+        }
+        for name, m in (("short", core_len < 200), ("full200", core_len == 200)):
+            if m.sum() >= 2:
+                val_strat[f"{name}_n"] = int(m.sum())
+                val_strat[f"{name}_pearson"] = _safe_corr(yt[m], yp[m], pearsonr)
+                val_strat[f"{name}_mse"] = float(np.mean((yt[m] - yp[m]) ** 2))
+        np.savez_compressed(
+            args.output_dir / "val_predictions.npz",
+            idx=val_idx,
+            y_true=yt,
+            y_pred=yp,
+            core_len=core_len,
+        )
+        logger.info(
+            "VAL by core length: short n=%s r=%.4f | full200 n=%s r=%.4f",
+            val_strat.get("short_n"),
+            val_strat.get("short_pearson", float("nan")),
+            val_strat.get("full200_n"),
+            val_strat.get("full200_pearson", float("nan")),
+        )
+
     result = {
+        "val_stratified": val_strat,
         "fold_id": args.fold_id,
         "n_folds": args.n_folds,
         "max_idx": args.max_idx,
