@@ -11,6 +11,7 @@ Following DREAM challenge preprocessing:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -70,7 +71,9 @@ class YeastDataset(SequenceDataset):
     FLANK_3_PRIME = "GGTTACGGCTGTT"  # 13bp
 
     SEQUENCE_LENGTH = 150
-    ALPHAGENOME_SEQUENCE_LENGTH = 384
+    # Env-overridable so the window-size screen can sweep it. The true pTpA
+    # construct is only ~223bp, so 384 leaves ~42% of every input fabricated.
+    ALPHAGENOME_SEQUENCE_LENGTH = int(os.environ.get("ALBENCH_YEAST_WINDOW", "384"))
     RANDOM_REGION_LENGTH = 80
     NUM_CHANNELS = 6
     FIXED_VAL_SIZE = 20_000
