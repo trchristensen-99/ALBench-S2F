@@ -133,7 +133,18 @@ def build_core(seq: str, pad_mode: str) -> np.ndarray:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cache-dir", required=True, type=Path)
-    parser.add_argument("--stage1-dir", required=True, type=Path)
+    parser.add_argument(
+        "--stage1-dir",
+        type=Path,
+        default=None,
+        help="Stage-1 checkpoint to initialise from. OMIT to start from the base "
+        "AlphaGenome weights with a freshly initialised head -- combined with "
+        '--unfreeze-blocks "" this IS Stage 1, so both stages can be produced by '
+        "this one script under a SINGLE fold map. That matters: the previous "
+        "oracle_v2 took its S1 from a random-split run while S2 held out "
+        "chromosomes, which put 90.0% of every S2 test fold inside the S1 head's "
+        "training set.",
+    )
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--fold-id", required=True, type=int)
     parser.add_argument("--n-folds", type=int, default=10)
@@ -334,16 +345,24 @@ def main() -> None:
     # ── Restore Stage-1 fold checkpoint (full model: base encoder + trained head)
     # orbax requires an ABSOLUTE path; S1 saved a StandardCheckpointer checkpoint
     # at best_model/checkpoint via model.save_checkpoint(save_full_model=True).
-    s1_ckpt = (args.stage1_dir / "best_model" / "checkpoint").resolve()
-    if not s1_ckpt.exists():
-        raise FileNotFoundError(f"Stage-1 checkpoint not found: {s1_ckpt}")
+    if args.stage1_dir is None:
+        logger.info(
+            "No --stage1-dir: starting from base AlphaGenome weights with a fresh head "
+            "(this is the Stage-1 configuration when --unfreeze-blocks is empty)."
+        )
+        s1_ckpt = None
+    else:
+        s1_ckpt = (args.stage1_dir / "best_model" / "checkpoint").resolve()
+        if not s1_ckpt.exists():
+            raise FileNotFoundError(f"Stage-1 checkpoint not found: {s1_ckpt}")
     # S1's save_checkpoint() stored a TUPLE (params, state) via StandardCheckpointer.
     # orbax serializes that tuple as a top-level list, so a dict-target restore fails
     # with a dict-vs-list metadata mismatch. Restore with no target and unpack.
-    s1_params, s1_state = ocp.StandardCheckpointer().restore(str(s1_ckpt))
-    model._params = jax.device_put(s1_params)
-    model._state = jax.device_put(s1_state)
-    logger.info("Loaded Stage-1 checkpoint from %s", s1_ckpt)
+    if s1_ckpt is not None:
+        s1_params, s1_state = ocp.StandardCheckpointer().restore(str(s1_ckpt))
+        model._params = jax.device_put(s1_params)
+        model._state = jax.device_put(s1_state)
+        logger.info("Loaded Stage-1 checkpoint from %s", s1_ckpt)
 
     # ── Per-group optimizer (head / encoder / frozen) ─────────────────────────
     unfreeze_all = args.unfreeze_blocks.strip().lower() == "all"
@@ -755,7 +774,7 @@ def main() -> None:
         "head_lr": args.head_lr,
         "unfreeze_blocks": sorted(unfreeze_set),
         "head_name": HEAD_NAME,
-        "stage1_dir": str(args.stage1_dir),
+        "stage1_dir": (str(args.stage1_dir) if args.stage1_dir else None),
         "n_train": int(len(train_idx)),
         "n_val": int(len(val_idx)),
         "n_test": int(len(test_idx)),
