@@ -393,6 +393,10 @@ class HPConfig:
         1.0  # final/initial width ratio: <1 shrink, 1 flat, >1 grow (canonical ~2.0)
     )
     pool_downsample: int = 0  # number of 2x MaxPool stages (0=none, 4=16x=canonical MPRA-LegNet)
+    # Gradient clipping by global norm. 0 = off. Peter asked for this to be SAMPLED
+    # ({0.2, 0.3, 0.5}) rather than fixed at none; it previously existed only as the
+    # S2_GRAD_CLIP env var on the oracle path, so the student search never explored it.
+    gradient_clip: float = 0.0
     # Free-form, off-menu axes proposed by the LLM AutoResearch strategy when
     # LLM_ALLOW_NOVEL_AXES=1. Empty for all core-axis configs. Recognized keys
     # (see EXPERIMENTAL_KNOBS) are applied to training/model; unrecognized keys
@@ -584,6 +588,13 @@ def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) 
                 else [0, 1, 2, 3, 4]
             )
         ),
+        gradient_clip=float(
+            rng.choice(
+                [float(x) for x in os.environ["HP_GRAD_CLIP_MENU"].split(",")]
+                if os.environ.get("HP_GRAD_CLIP_MENU")
+                else [0.0, 0.2, 0.3, 0.5]
+            )
+        ),
         use_shift_aug=bool(rng.random() < 0.5),
         shift_max=int(rng.choice([5, 10, 15, 20])),
         use_evoaug=bool(rng.random() < 0.3),
@@ -755,6 +766,7 @@ def train_one_model(
         evoaug_intensity="medium" if hp.use_evoaug else None,
         shift_aug=hp.use_shift_aug,
         max_shift=hp.shift_max,
+        gradient_clip=float(getattr(hp, "gradient_clip", 0.0) or 0.0),
         num_workers=4,
         use_compile=use_compile,
         early_stopping_patience=early_stopping_patience,

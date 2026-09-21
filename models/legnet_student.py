@@ -125,6 +125,7 @@ class TrainConfig:
     use_reverse_complement: bool = False  # if True, train averages fwd+rc loss and predictions
     loss: str = "mse"  # {"mse", "huber", "smoothl1"} — single-task regression criterion
     huber_delta: float = 1.0  # delta for huber/smoothl1 loss
+    gradient_clip: float = 0.0  # clip_grad_norm_ threshold; 0 = off (prior behaviour)
 
 
 class _InMemorySequenceDataset(Dataset):
@@ -417,6 +418,9 @@ class LegNetStudent(SequenceModel):
                 shift_aug=self.train_config.shift_aug,
                 max_shift=self.train_config.max_shift,
                 multitask=self.multitask,
+                # 0.0 = off, which reproduces prior behaviour for any config that
+                # does not set it. Sampled by the HP search as {0, 0.2, 0.3, 0.5}.
+                gradient_clip=float(getattr(self.train_config, "gradient_clip", 0.0) or 0.0),
                 epoch_callback=epoch_callback,
                 extra_augment=extra_aug,
             )

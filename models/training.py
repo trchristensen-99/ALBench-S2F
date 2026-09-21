@@ -94,6 +94,7 @@ def train_epoch_optimized(
     max_shift: int = 15,
     multitask: bool = False,
     extra_augment: Optional[Any] = None,
+    gradient_clip: float = 0.0,
 ) -> Dict[str, float]:
     """
     Train for one epoch with optional mixed precision.
@@ -175,6 +176,9 @@ def train_epoch_optimized(
 
             scale_before = scaler.get_scale()
             scaler.scale(loss).backward()
+            if gradient_clip and gradient_clip > 0:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
             scaler.step(optimizer)
             scaler.update()
             optimizer_step_ran = scaler.get_scale() >= scale_before
@@ -205,6 +209,8 @@ def train_epoch_optimized(
                     predictions = predictions_fwd
                     loss = criterion(predictions, targets)
             loss.backward()
+            if gradient_clip and gradient_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
             optimizer.step()
             optimizer_step_ran = True
 
@@ -256,6 +262,7 @@ def train_model_optimized(
     multitask: bool = False,
     epoch_callback: Optional[Any] = None,
     extra_augment: Optional[Any] = None,
+    gradient_clip: float = 0.0,
 ) -> Dict[str, Any]:
     """
     Train a model with validation, checkpointing, and optimizations.
@@ -398,6 +405,7 @@ def train_model_optimized(
             max_shift=max_shift,
             multitask=multitask,
             extra_augment=extra_augment,
+            gradient_clip=gradient_clip,
         )
 
         # Validate (use standard evaluate function)
