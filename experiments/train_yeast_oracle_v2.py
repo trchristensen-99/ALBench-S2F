@@ -335,7 +335,34 @@ def main() -> int:
     )
 
     best_val, best_state, best_epoch = -np.inf, None, -1
-    for epoch in range(args.epochs):
+    start_epoch = 0
+
+    # Mid-training checkpoint. These folds run ~7.4h (332s/epoch x 80) and slow_nice is
+    # preemptible, so without this a preemption throws away the whole fold -- --resume
+    # only skips folds that already FINISHED. OneCycleLR is stateful (its schedule is
+    # defined over total_steps), so the scheduler state must be saved too, not just the
+    # weights.
+    ckpt_path = out / "train_state.pt"
+    if args.resume and ckpt_path.exists():
+        try:
+            ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+            model.load_state_dict(ck["model"])
+            optimizer.load_state_dict(ck["optimizer"])
+            if scheduler is not None and ck.get("scheduler") is not None:
+                scheduler.load_state_dict(ck["scheduler"])
+            start_epoch = ck["epoch"] + 1
+            best_val, best_epoch = ck["best_val"], ck["best_epoch"]
+            best_state = ck.get("best_state")
+            print(
+                f"RESUME fold {args.fold_id} from epoch {start_epoch}/{args.epochs} "
+                f"(best_val={best_val:.4f} @ epoch {best_epoch + 1})",
+                flush=True,
+            )
+        except Exception as e:  # a torn checkpoint must not wedge the fold forever
+            print(f"WARNING: could not load {ckpt_path} ({e}); restarting fold", flush=True)
+            start_epoch = 0
+
+    for epoch in range(start_epoch, args.epochs):
         t0 = time.time()
         model.train()
         tot, nb = 0.0, 0
@@ -361,6 +388,23 @@ def main() -> int:
             # the checkpoint VAL selected, not whatever the last epoch happened to be.
             best_val, best_epoch = v["pearson"], epoch
             best_state = {k: t.detach().cpu().clone() for k, t in model.state_dict().items()}
+
+        # Write AFTER the best-state update so a resume never loses the best epoch.
+        # tmp + replace keeps the checkpoint atomic if we are preempted mid-write.
+        _tmp = ckpt_path.with_suffix(".pt.tmp")
+        torch.save(
+            {
+                "epoch": epoch,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": (scheduler.state_dict() if scheduler is not None else None),
+                "best_val": best_val,
+                "best_epoch": best_epoch,
+                "best_state": best_state,
+            },
+            _tmp,
+        )
+        _tmp.replace(ckpt_path)
 
     if best_state is not None:
         model.load_state_dict(best_state)
