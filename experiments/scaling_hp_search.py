@@ -505,16 +505,23 @@ def batch_size_menu(D: int | None) -> list[int]:
     cost-suboptimal) to 2·B_crit (past peak val but cost-cheap — efficiency keeps
     rising past B_crit). See ~/Downloads/hp_strategy_curves/.
 
-    None / unknown D → full legacy menu (back-compat for ad-hoc runs)."""
-    if D is None:
-        return [32, 64, 128, 256, 512, 1024]
-    if D <= 5_000:
-        return [64, 128, 256, 512]
-    if D <= 50_000:
-        return [128, 256, 512, 1024]
-    if D <= 500_000:
-        return [256, 512, 1024, 2048]
-    return [512, 1024, 2048, 4096]
+    DISABLED as of the constant-space decision. The D-stepped windows below were
+    DISJOINT at the extremes -- at D=10k you could not sample 2048, at D=1M you could
+    not sample 64 -- so the reported "batch size grows with data" trend was partly
+    IMPOSED by the range rather than discovered. Worse, a search space that moves with
+    D confounds the scaling curve itself: the curve would conflate "more data helps"
+    with "we searched a better space at this D".
+
+    batch_size is now the full constant menu at every D, like every other axis. Set
+    HP_BS_MENU to override for an ad-hoc run. The historical windows are kept below in
+    a comment purely so the change is auditable.
+
+        D <=   5_000 -> [64, 128, 256, 512]
+        D <=  50_000 -> [128, 256, 512, 1024]
+        D <= 500_000 -> [256, 512, 1024, 2048]
+        D >  500_000 -> [512, 1024, 2048, 4096]
+    """
+    return [32, 64, 128, 256, 512, 1024, 2048, 4096]
 
 
 def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) -> HPConfig:
