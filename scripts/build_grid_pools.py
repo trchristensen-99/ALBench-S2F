@@ -25,10 +25,18 @@ DISJOINT REPLICATES (across replicates)
     replicates are therefore PARTITIONED into disjoint blocks of one shared
     permutation.
 
-    Consequence: with R replicates the genomic arm can only reach 314,981 // R per
-    replicate. At R=3 that is 104,993, so the genomic curve stops at +100k rather
-    than +300k. This is a property of the data, not of the code -- there are only
-    so many real CREs.
+    For a bounded pool, partitioning would cost most of the reachable range (at R=3
+    the genomic arm would stop at +100k instead of +300k). Instead each replicate
+    gets its OWN PERMUTATION of the full pool, so every replicate reaches the
+    maximum. The cost is that replicates share sequences: expected overlap between
+    two size-k subsets of a size-N pool is k/N, which for genomic is ~32% at +100k
+    and ~95% at +300k.
+
+    That is the honest trade -- there are only so many real CREs, and no scheme
+    manufactures more. What it means for reporting: the genomic replicate spread
+    narrows as D approaches the pool size, and at +300k it reflects training-seed
+    and subset-order variance on nearly the same data. It must NOT be read as
+    evidence that the genomic arm is more reproducible than the others.
 """
 
 from __future__ import annotations
@@ -54,25 +62,39 @@ RESEEDABLE = {
     "zoonomia",
     "zoonomia_orthologs",
 }
-# Strategies drawing from a fixed finite set: replicates must partition it.
-PARTITIONED = {"genomic"}
+# Strategies drawing from a fixed finite set. Replicates REORDER the full pool
+# rather than partitioning it, so every replicate can still reach the pool's
+# maximum -- partitioning would have cost 2/3 of the reachable range at R=3.
+REORDERED = {"genomic"}
 
 INCREMENTS = [10_000, 30_000, 100_000, 300_000, 1_000_000]
 
 
 def plan(strategy: str, n_replicates: int, pool_size: int) -> dict:
     """Return the per-replicate index plan and the honest ceiling for this strategy."""
-    if strategy in PARTITIONED:
-        per_rep = pool_size // n_replicates
-        ceiling = max([i for i in INCREMENTS if i <= per_rep], default=0)
+    if strategy in REORDERED:
+        ceiling = max([i for i in INCREMENTS if i <= pool_size], default=0)
+        # Replicates draw different subsets of the SAME finite pool, so they overlap.
+        # Expected overlap between two independent size-k subsets of a size-N pool is
+        # k^2/N, which approaches total identity as k approaches N.
+        # Two independent size-k subsets of a size-N pool share k^2/N sequences in
+        # expectation, i.e. a FRACTION k/N of each subset.
+        overlap = {i: min(1.0, i / pool_size) for i in INCREMENTS if i <= ceiling}
         return {
-            "mode": "partition",
+            "mode": "reorder",
             "pool_size": pool_size,
-            "per_replicate": per_rep,
+            "per_replicate": ceiling,
             "ceiling": ceiling,
+            "expected_replicate_overlap": {
+                f"+{i // 1000}k": round(o, 3) for i, o in overlap.items()
+            },
             "note": (
-                f"fixed pool of {pool_size:,}; {n_replicates} disjoint blocks of "
-                f"{per_rep:,}. Curve stops at +{ceiling // 1000}k."
+                f"fixed pool of {pool_size:,}; each replicate uses its OWN permutation "
+                f"of the whole pool, so all replicates reach +{ceiling // 1000}k. "
+                f"Replicates therefore SHARE sequences -- expected overlap is k/N, "
+                f"rising to {ceiling / pool_size:.0%} at +{ceiling // 1000}k. Their spread "
+                f"measures variance from subset choice and training seed, NOT from "
+                f"independent data, and must not be reported as reproducibility."
             ),
         }
     ceiling = max(INCREMENTS)
@@ -87,10 +109,11 @@ def plan(strategy: str, n_replicates: int, pool_size: int) -> dict:
 
 def replicate_indices(strategy: str, rep: int, n_replicates: int, pool_size: int, seed: int = 42):
     """Indices for one replicate. Partitioned strategies get a disjoint block."""
-    if strategy in PARTITIONED:
-        perm = np.random.default_rng(seed).permutation(pool_size)
-        per_rep = pool_size // n_replicates
-        return perm[rep * per_rep : (rep + 1) * per_rep]
+    if strategy in REORDERED:
+        # A DIFFERENT permutation per replicate: each still reaches the pool maximum,
+        # and nesting holds within a replicate because the prefix order is fixed.
+        perm = np.random.default_rng(seed + rep).permutation(pool_size)
+        return perm
     # reseeded pools are generated independently; the whole pool belongs to this replicate
     return np.arange(pool_size)
 
