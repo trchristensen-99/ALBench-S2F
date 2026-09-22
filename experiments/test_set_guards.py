@@ -92,7 +92,7 @@ def assert_battery_provenance(
             f"Battery at {battery_dir} has provenance {prov} but the canonical battery "
             f"requires oracle_id={require_oracle!r}, test_set_version={require_version!r}. "
             "Re-score + stamp it via scripts/reeval_chrsplit_ag_s2.py against the canonical "
-            "AG_S2 oracle (outputs/oracle_full856k_clean/s2), which writes PROVENANCE.json."
+            "AG_S2 oracle (outputs/oracle_v3/s2), which writes PROVENANCE.json."
         )
     return prov
 
