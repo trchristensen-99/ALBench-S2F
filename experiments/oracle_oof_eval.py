@@ -243,7 +243,7 @@ if __name__ == "__main__":
     ap.add_argument("--stage", choices=["foldmap", "predict"], required=True)
     ap.add_argument("--fold_id", type=int, default=int(os.environ.get("SLURM_ARRAY_TASK_ID", 0)))
     ap.add_argument("--battery_dir", default="data/k562/test_sets_ag_s2_chrsplit")
-    ap.add_argument("--oracle_dir", default="outputs/oracle_full856k_clean/s2")
+    ap.add_argument("--oracle_dir", default="outputs/oracle_v3/s2")
     ap.add_argument("--out_dir", default="outputs/oracle_oof")
     ap.add_argument("--head_name", default="oracle_k562_fullcv")
     ap.add_argument("--head_arch", default="boda-flatten-512-512")

@@ -153,12 +153,27 @@ def load_chr_train_pool(
         # canonical oracle. Re-score with scripts/rescore_reservoir_cache.py.
         # Override only for deliberate ad-hoc runs via HP_ALLOW_UNSTAMPED=1.
         if os.environ.get("HP_ALLOW_UNSTAMPED") != "1":
+            # Import rather than hardcode: a hardcoded id here silently rejected
+            # correctly-labelled pools the moment the canonical oracle moved.
+            from experiments.test_set_guards import (
+                CANONICAL_ORACLE_ID,
+                SUPERSEDED_ORACLE_IDS,
+            )
+
             stamp = str(z["oracle_id"]) if "oracle_id" in z.files else "UNSTAMPED"
-            if stamp != "full856k_clean":
+            if stamp != CANONICAL_ORACLE_ID:
+                why = (
+                    " That oracle is SUPERSEDED (its Stage-1 init leaked 90% of every "
+                    "test fold), so the labels themselves are suspect -- re-score, do "
+                    "not re-stamp."
+                    if stamp in SUPERSEDED_ORACLE_IDS
+                    else ""
+                )
                 raise RuntimeError(
                     f"reservoir cache {fname} has oracle_id={stamp!r}, expected "
-                    "'full856k_clean'. Re-score it (scripts/rescore_reservoir_cache.py) "
-                    "or set HP_ALLOW_UNSTAMPED=1 to bypass."
+                    f"{CANONICAL_ORACLE_ID!r}.{why} Re-score it "
+                    "(scripts/rescore_reservoir_cache.py) or set HP_ALLOW_UNSTAMPED=1 "
+                    "to bypass."
                 )
     else:
         fname = "chr_train_ref_only.npz" if ref_only else "chr_train_all_alleles.npz"

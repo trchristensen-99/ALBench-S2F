@@ -22,9 +22,19 @@ from pathlib import Path
 SNV_MONO_VERSION = "snv_mono_chrsplit_v1"
 
 # Canonical battery provenance. CANONICAL_ORACLE_ID is the 10-fold CV AG_S2 ensemble
-# trained on a random 90/10 split of the full 856,290-row pool (outputs/oracle_full856k_clean/s2).
-# BATTERY_VERSION is bumped whenever the battery sequences/labels are rebuilt.
-CANONICAL_ORACLE_ID = "full856k_clean"
+# at outputs/oracle_v3/s2: genomic+SNV split BY CHROMOSOME, designed rows split
+# randomly, 8-train/1-val/1-test rotation. Measured 0.00% S1->S2 leakage, TEST
+# pearson 0.9311 (sd 0.0051), --pad-mode context.
+#
+# SUPERSEDED: "full856k_clean" used a RANDOM 10-fold split and drew its Stage-1 init
+# from a different fold scheme, leaving 90.0% of every S2 test fold inside the
+# matching S1 fold's training set. Anything still stamped with it was labelled by
+# that oracle and must be re-scored, not merely re-stamped.
+#
+# This constant is the ONE place the canonical id is defined; import it rather than
+# hardcoding a string, so a future oracle bump cannot leave a guard behind.
+CANONICAL_ORACLE_ID = "oracle_v3"
+SUPERSEDED_ORACLE_IDS = frozenset({"full856k_clean", "oracle_v2", "no_designed"})
 BATTERY_VERSION = "ag_s2_chrsplit_v1"
 
 _UNSTAMPED = {"oracle_id": "unstamped", "test_set_version": "unstamped"}
