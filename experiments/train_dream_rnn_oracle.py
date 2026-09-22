@@ -1,5 +1,11 @@
 """Yeast DREAM-RNN oracle, 10-fold with ROTATING TEST FOLDS.
 
+Renamed from train_yeast_oracle_v2.py. The old name contained the literal substring
+"oracle_v2", so any grep for the superseded HUMAN oracle (outputs/oracle_v2) matched
+this file and made it look like live yeast jobs depended on an archived human oracle.
+The "v2" was this trainer's own revision number and had nothing to do with oracle
+versioning. Named for what it trains instead.
+
 Matches the human AG oracle v2 protocol so the two oracles are comparable:
 
     test fold = fold_id
