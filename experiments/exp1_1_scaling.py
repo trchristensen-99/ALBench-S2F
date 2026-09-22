@@ -971,11 +971,19 @@ def _load_k562_ag_s2_oracle():
         oracle_dir = Path(_override)
         logger.info("AG_S2 oracle dir overridden via AG_S2_ORACLE_DIR=%s", oracle_dir)
     else:
-        # Canonical AG_S2 oracle = full856k_clean (random 10-fold CV, seed=42,
-        # 90/10 per fold over the full pool). No silent fallback: a partial or
-        # missing ensemble would bias every downstream pseudo-label, so we
-        # hard-fail rather than quietly substitute a legacy/hashfrag oracle.
-        oracle_dir = REPO / "outputs" / "oracle_full856k_clean" / "s2"
+        # Canonical AG_S2 oracle = oracle_v3 (chromosome 10-fold: genomic+SNV split
+        # by chromosome, designed split randomly; 8-train/1-val/1-test rotation).
+        #
+        # Superseded full856k_clean, which used a RANDOM 10-fold split and took its
+        # Stage-1 init from a different fold scheme -- 90.0% of every S2 test fold sat
+        # in the matching S1 fold's training set. oracle_v3 measures 0.00% leakage,
+        # TEST pearson 0.9311 (sd 0.0051), and uses --pad-mode context.
+        #
+        # This default matters for provenance: label_pool.py only STAMPS its
+        # --oracle-id into the output, it does not use it to choose a checkpoint. If
+        # this default is stale, a pool can be labelled by one oracle and stamped as
+        # another, which is exactly the audit this project has already had to do once.
+        oracle_dir = REPO / "outputs" / "oracle_v3" / "s2"
         n_folds = (
             len(
                 [p for p in oracle_dir.glob("fold_*") if (p / "best_model" / "checkpoint").exists()]

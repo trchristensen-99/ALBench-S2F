@@ -35,7 +35,7 @@ def main() -> int:
     ap.add_argument("--oracle", default="ag_s2")
     ap.add_argument(
         "--oracle-id",
-        default="full856k_clean",
+        default="oracle_v3",
         help="provenance stamp written into the output; must name the ensemble actually used",
     )
     args = ap.parse_args()
@@ -49,6 +49,11 @@ def main() -> int:
 
     z = np.load(args.src, allow_pickle=True)
     seqs = [str(s) for s in z["sequences"]]
+    # The stamp must not be able to lie: --oracle-id is only RECORDED, while the
+    # checkpoint comes from _load_oracle / AG_S2_ORACLE_DIR. Record what was actually
+    # loaded alongside it so a mismatch is detectable after the fact.
+    _resolved = os.environ.get("AG_S2_ORACLE_DIR", "").strip() or "<default>"
+    print(f"oracle_id stamp = {args.oracle_id!r}; checkpoint dir = {_resolved}")
     oracle = _load_oracle(args.task, oracle_type=args.oracle)
     lab = np.asarray(_label_sequences(oracle, seqs), dtype=np.float32).ravel()
 
@@ -70,6 +75,7 @@ def main() -> int:
         params=z["params"],
         seed=z["seed"],
         oracle_id=args.oracle_id,
+        oracle_dir=_resolved,
     )
     os.replace(tmp, args.dst)
     print(f"wrote {len(lab):,} labels -> {args.dst}  mean={lab.mean():.3f} sd={lab.std():.3f}")
