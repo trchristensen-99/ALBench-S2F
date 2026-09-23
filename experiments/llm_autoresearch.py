@@ -49,7 +49,29 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-REPO = Path(_REPO_ROOT)
+
+def _find_repo_root() -> Path:
+    """Walk up to the directory that owns pyproject.toml.
+
+    `_REPO_ROOT` was referenced here but never defined or imported, so importing
+    this module raised NameError. run_search() imports it UNCONDITIONALLY to
+    register the llm_autoresearch strategy, so every HP search crashed on startup
+    -- including runs that had deliberately excluded the LLM strategy.
+
+    Anchored on pyproject.toml rather than parents[N]: a fixed index silently
+    breaks whenever a file moves between directories.
+    """
+    env = os.environ.get("ALBENCH_REPO")
+    if env:
+        return Path(env)
+    here = Path(__file__).resolve()
+    for cand in (here, *here.parents):
+        if (cand / "pyproject.toml").exists():
+            return cand
+    return here.parents[1]
+
+
+REPO = _find_repo_root()
 sys.path.insert(0, str(REPO))
 
 from experiments.hp_strategies import Strategy  # noqa: E402
@@ -447,7 +469,7 @@ def _call_claude_cli(system: str, user: str, model: str) -> str:
     prompt = f"<system>\n{system}\n</system>\n\n{user}"
     claude_bin = os.environ.get(
         "CLAUDE_BIN",
-        os.environ.get("CLAUDE_CLI", "claude")  # resolve on PATH by default,
+        os.environ.get("CLAUDE_CLI", "claude"),  # resolve on PATH by default,
     )
     # Strip date suffix from model id for CLI (CLI expects sonnet, opus, etc.)
     cli_model = model.split("-202")[0] if "-202" in model else model
