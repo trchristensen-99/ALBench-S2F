@@ -108,7 +108,9 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             min_motifs: Minimum motifs planted per sequence.
             max_motifs: Maximum motifs planted per sequence (inclusive).
             motif_set: ``"auto"``/``"k562"``/``"yeast"`` use the legacy hardcoded
-                consensus strings. ``"jaspar"`` builds a real vocabulary from JASPAR
+                consensus strings. ``"pfm"`` builds a real vocabulary from the installed
+                PFM database (CIS-BP if present, else JASPAR; ``"jaspar"`` is a
+                deprecated alias for this and does NOT force JASPAR)
                 PFMs via :mod:`albench.motifs.vocabulary`, which is what the
                 vocabulary-source and filter arms vary.
             include_rc_variants: Also plant reverse-complement orientations.
@@ -353,7 +355,12 @@ class MotifPlantedV2Sampler(ReservoirSampler):
 
     def generate(self, n_sequences: int, task: str = "k562") -> tuple[list[str], pd.DataFrame]:
         seq_len = 200 if task == "k562" else 80
-        use_vocab = self.motif_set == "jaspar"
+        # "pfm" = build a real PFM vocabulary from the installed motif database.
+        # The database is resolved by albench.motifs.vocabulary._default_meme(), which
+        # PREFERS CIS-BP and falls back to JASPAR -- so neither name belongs here.
+        # "jaspar" is accepted as a deprecated alias: it was the original value and it
+        # actively misleads, because with CIS-BP installed the vocabulary is CIS-BP.
+        use_vocab = str(self.motif_set).lower() in ("pfm", "vocab", "jaspar")
         if use_vocab:
             vocab = self._build_vocab()
             # Planting draws by entry; native-motif detection scans for literal
@@ -445,9 +452,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         meta = pd.DataFrame(
             {
                 "seq_idx": np.arange(n_sequences, dtype=np.int64),
-                "method": (
-                    "motif_planted_v2_jaspar" if use_vocab else "motif_planted_v2_gc_matched"
-                ),
+                "method": ("motif_planted_v2_pfm" if use_vocab else "motif_planted_v2_gc_matched"),
                 "source": "generated",
                 "vocab_size": len(motifs),  # entries (clusters), not orientations
                 "plant_mode": self.plant_mode if use_vocab else "consensus",

@@ -318,7 +318,6 @@ def _reg_evoaug() -> None:
         )
     )
 
-
     register(
         Spec(
             name="evoaug_paper2023",
@@ -407,7 +406,7 @@ def _reg_motif() -> None:
                 "preference is common across cell types."
             ),
             factory=lambda seed=None, **kw: MotifPlantedV2Sampler(
-                seed=seed, motif_set="jaspar", vocab_subset="shared_core", **kw
+                seed=seed, motif_set="pfm", vocab_subset="shared_core", **kw
             ),
             adapter=lambda s, n, ctx: s.generate(n, task=ctx.task),
             assets=("bg_cache",),
@@ -420,7 +419,7 @@ def _reg_motif() -> None:
             group="motif",
             doc="Motif vocabulary enriched for TFs active in the target cell types.",
             factory=lambda seed=None, **kw: MotifPlantedV2Sampler(
-                seed=seed, motif_set="jaspar", vocab_subset="ct_enriched", **kw
+                seed=seed, motif_set="pfm", vocab_subset="ct_enriched", **kw
             ),
             adapter=lambda s, n, ctx: s.generate(n, task=ctx.task),
             assets=("bg_cache",),
@@ -439,7 +438,7 @@ def _reg_motif() -> None:
                 "so grammar/interaction learning needs a narrow vocabulary."
             ),
             factory=lambda seed=None, **kw: MotifPlantedV2Sampler(
-                seed=seed, motif_set="jaspar", vocab_subset="syntax_core", **kw
+                seed=seed, motif_set="pfm", vocab_subset="syntax_core", **kw
             ),
             adapter=lambda s, n, ctx: s.generate(n, task=ctx.task),
             assets=("bg_cache",),
@@ -660,7 +659,6 @@ def _reg_sheet_additions() -> None:
             },
         )
     )
-
 
     from albench.reservoir.zoonomia_orthologs import ZoonomiaOrthologSampler
 
