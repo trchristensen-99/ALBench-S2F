@@ -71,9 +71,13 @@ def main() -> int:
         tmp,
         sequences=np.array(seqs, dtype=object),
         oracle_labels=lab,
-        strategy=z["strategy"],
-        params=z["params"],
-        seed=z["seed"],
+        # Optional provenance: reservoir pools carry these, but eval-set inputs and
+        # any ad-hoc {sequences}-only npz do not. Requiring them raised
+        # KeyError('strategy is not a file in the archive') and killed the whole job
+        # AFTER the oracle had already scored every sequence.
+        strategy=(z["strategy"] if "strategy" in z.files else "unknown"),
+        params=(z["params"] if "params" in z.files else "{}"),
+        seed=(z["seed"] if "seed" in z.files else -1),
         oracle_id=args.oracle_id,
         oracle_dir=_resolved,
     )
