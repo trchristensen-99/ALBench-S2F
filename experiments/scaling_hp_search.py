@@ -617,9 +617,19 @@ def sample_random_hp(rng: np.random.Generator, seed: int, D: int | None = None) 
                 else [0.0, 0.2, 0.3, 0.5]
             )
         ),
-        use_shift_aug=bool(rng.random() < 0.5),
+        # Reverse-complement and random-shift augmentation are ALWAYS ON: settled by
+        # earlier comparison, so searching them wastes budget re-deciding it. Set
+        # HP_SEARCH_SHIFT_AUG=1 to make it a searched axis again.
+        use_shift_aug=(
+            bool(rng.random() < 0.5) if os.environ.get("HP_SEARCH_SHIFT_AUG") == "1" else True
+        ),
         shift_max=int(rng.choice([5, 10, 15, 20])),
-        use_evoaug=bool(rng.random() < 0.3),
+        # EvoAug is a RESERVOIR strategy in this study, not a training augmentation.
+        # Leaving it on as an aug would confound "evoaug-generated data helps" with
+        # "evoaug-style augmentation during training helps". Off unless explicitly asked.
+        use_evoaug=(
+            bool(rng.random() < 0.3) if os.environ.get("HP_SEARCH_EVOAUG") == "1" else False
+        ),
         lr_schedule=str(
             rng.choice(
                 os.environ["HP_LR_SCHEDULE_MENU"].split(",")
@@ -788,6 +798,11 @@ def train_one_model(
         evoaug_intensity="medium" if hp.use_evoaug else None,
         shift_aug=hp.use_shift_aug,
         max_shift=hp.shift_max,
+        # Reverse-complement averaging is always on, for the same reason as shift:
+        # settled previously, so it is a fixed part of the recipe rather than a
+        # searched axis. An LLM proposal in `extra` can still override it via tr_over
+        # below, which is applied after this dict.
+        use_reverse_complement=True,
         gradient_clip=float(getattr(hp, "gradient_clip", 0.0) or 0.0),
         num_workers=4,
         use_compile=use_compile,
