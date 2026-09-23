@@ -102,7 +102,14 @@ def main() -> int:
         with np.load(lab, allow_pickle=True) as z:
             keys = list(z.keys())
             vy = z["val_labels"] if "val_labels" in keys else None
-            ty = next((z[k] for k in ("test_labels_genomic", "test_labels") if k in keys), None)
+            # The driver writes its held-out sets as oracle_<set>. Use oracle_genomic
+            # to match test_pred_genomic; these align by construction, whereas the
+            # separately re-labelled eval sets in outputs/eval_sets_v3 are a DIFFERENT
+            # sequence set (40,718 vs 31,435) and would silently misalign if zipped.
+            ty = next(
+                (z[k] for k in ("oracle_genomic", "test_oracle", "test_labels") if k in keys),
+                None,
+            )
         if vy is None or ty is None:
             print(f"  {cell.name}: labels.npz lacks val/test keys ({keys})", flush=True)
             continue
