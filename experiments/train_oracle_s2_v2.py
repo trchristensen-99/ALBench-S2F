@@ -2,7 +2,7 @@
 """DEFAULT oracle — Stage-2 encoder fine-tune, full-dataset random 10-fold CV.
 
 Initialises from the matching Stage-1 fold checkpoint
-(``outputs/oracle_full856k_clean/s1/oracle_{fold}``), unfreezes the top encoder
+(``outputs/oracle_v3/s1/oracle_{fold}``), unfreezes the top encoder
 downres blocks (proven ``s2c`` config: encoder_lr=1e-4, head_lr=1e-3, unfreeze
 downres_block_4,5), and fine-tunes on the FULL MPRA dataset
 (ref + alt + OOD designed, 856,252 rows) under the identical deterministic
@@ -21,9 +21,9 @@ with the MPRA context and trained with RC + shift augmentation.
 Usage (one fold)::
 
     uv run --no-sync python experiments/train_oracle_s2_fullcv.py \
-        --cache-dir outputs/oracle_full856k_clean/embedding_cache \
-        --stage1-dir outputs/oracle_full856k_clean/s1/oracle_0 \
-        --output-dir outputs/oracle_full856k_clean/s2/fold_0 \
+        --cache-dir outputs/oracle_v3/embedding_cache \
+        --stage1-dir outputs/oracle_v3/s1/oracle_0 \
+        --output-dir outputs/oracle_v3/s2/fold_0 \
         --fold-id 0 --n-folds 10
 """
 

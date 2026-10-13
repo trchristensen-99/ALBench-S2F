@@ -48,7 +48,7 @@ def fold_of(idx, pool, n_folds=N_FOLDS):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--battery_dir", default="data/k562/test_sets_ag_s2_chrsplit")
-    ap.add_argument("--cache_dir", default="outputs/oracle_full856k_clean")
+    ap.add_argument("--cache_dir", default="outputs/oracle_v3")
     ap.add_argument("--out", default="outputs/oracle_oof/foldmap.npz")
     args = ap.parse_args()
 

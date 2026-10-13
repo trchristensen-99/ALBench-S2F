@@ -84,7 +84,7 @@ class EvalSuite(Protocol):
 
 `Oracle.id` is not decoration. Label provenance has already bitten this project once:
 pools labelled by a non-canonical oracle are indistinguishable from good ones without
-a stamp, and `full856k_clean` became the canonical id only after an audit.
+a stamp, and `oracle_v3` became the canonical id only after an audit.
 
 `Fitted.embed` returning `None` is deliberate. BADGE and BatchBALD need embeddings; a
 student that cannot provide them should degrade to uncertainty-only selection rather

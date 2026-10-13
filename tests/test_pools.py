@@ -34,11 +34,11 @@ def test_pool_id_is_stable_and_parameter_sensitive():
 def test_write_and_load_roundtrip(tmp_path):
     seqs, lab = _pool()
     spec = PoolSpec("zoonomia", {"ti_tv": 2.0}, size=len(seqs))
-    p = write_pool(tmp_path / "x.npz", seqs, lab, spec, oracle_id="full856k_clean")
+    p = write_pool(tmp_path / "x.npz", seqs, lab, spec, oracle_id="oracle_v3")
     got = load_pool(p)
     assert got["sequences"] == seqs
     assert np.allclose(got["labels"], lab)
-    assert got["oracle_id"] == "full856k_clean"
+    assert got["oracle_id"] == "oracle_v3"
     assert got["params"] == {"ti_tv": 2.0}
 
 

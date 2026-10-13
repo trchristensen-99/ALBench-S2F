@@ -30,7 +30,7 @@ class Oracle(Protocol):
 
     Not decoration. Pools labelled by a non-canonical oracle are indistinguishable
     from good ones once written, and this project has already had to audit its way
-    back out of that: `full856k_clean` became the canonical id only after a label
+    back out of that: `oracle_v3` became the canonical id only after a label
     provenance review found unstamped batteries. Anything that writes labels must
     write this alongside them, and anything that reads labels should refuse a pool
     that lacks it.

@@ -230,10 +230,10 @@ def load_chr_train_pool(
         vz = np.load(vpath, allow_pickle=True)
         if os.environ.get("HP_ALLOW_UNSTAMPED") != "1":
             vstamp = str(vz["oracle_id"]) if "oracle_id" in vz.files else "UNSTAMPED"
-            if vstamp != "full856k_clean":
+            if vstamp != "oracle_v3":
                 raise RuntimeError(
                     f"reservoir_val_cache {vpath.name} has oracle_id={vstamp!r}, expected "
-                    "'full856k_clean'. Regenerate with --oracle_id_stamp full856k_clean."
+                    "'oracle_v3'. Regenerate with --oracle_id_stamp oracle_v3."
                 )
         vseqs = [str(s) for s in vz["sequences"]]
         vlabels = vz["oracle_labels"].astype(np.float32)

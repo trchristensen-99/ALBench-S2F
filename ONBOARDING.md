@@ -43,7 +43,7 @@ compute-efficient**, measured on cumulative GPU-seconds — see §4.
 
 - The oracle is a frozen AlphaGenome encoder + a trained probing head; it labels
   sequences so we never need real assays during the benchmark.
-- **Canonical oracle = `full856k_clean`.** All labels used for decisions must be
+- **Canonical oracle = `oracle_v3`.** All labels used for decisions must be
   stamped with this version. Caches/batteries carry a `PROVENANCE.json` recording
   `oracle_id` + test-set version; the pipeline hard-fails on unstamped caches.
 - AlphaGenome weights on HPC:

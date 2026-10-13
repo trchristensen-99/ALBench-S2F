@@ -58,7 +58,7 @@ def main() -> int:
     ap.add_argument("--set", action="append", metavar="KEY=VALUE", default=[])
     ap.add_argument("--out-dir", default="outputs/pools")
     ap.add_argument("--oracle", default="ag_s2")
-    ap.add_argument("--oracle-id", default="full856k_clean")
+    ap.add_argument("--oracle-id", default="oracle_v3")
     ap.add_argument(
         "--skip-existing",
         action="store_true",
