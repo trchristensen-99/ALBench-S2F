@@ -16,7 +16,7 @@ import os
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -1284,100 +1284,110 @@ def run_search(args):
             continue
 
         for i, (strat_name, hp) in enumerate(round_configs):
-            model_id = f"r{rd:02d}_{strat_name}_{i:02d}"
-            # Skip already-completed models (resume): meta file present = attempted.
-            # But a meta from a DIFFERENT regime must not be counted as done — that
-            # would leave a stale-regime result masquerading as current. The out-dir
-            # guard above already blocks the common case; this is defense-in-depth.
-            meta_path = out_dir / f"{model_id}_meta.json"
-            if meta_path.exists():
-                try:
-                    prior_meta = json.loads(meta_path.read_text())
-                except Exception:
-                    prior_meta = {}
-                if regime_key(prior_meta.get("regime")) != rk:
-                    raise SystemExit(
-                        f"{meta_path} exists under a different regime than the current run. "
-                        f"Use a fresh --out_dir for this regime."
+            # MULTI-SEED: train each proposed config with n_seeds distinct
+            # weight-init seeds (hp.seed+k). The _s{k} model_id suffix and the
+            # init_seed stamp are added ONLY when n_seeds>1, so single-seed runs
+            # keep origin's canonical r{rd}_{strat}_{i} naming and meta byte-for-byte.
+            n_seeds = max(1, getattr(args, "n_seeds", 1))
+            for _k in range(n_seeds):
+                hp_k = replace(hp, seed=hp.seed + _k)
+                suffix = f"_s{_k}" if n_seeds > 1 else ""
+                model_id = f"r{rd:02d}_{strat_name}_{i:02d}{suffix}"
+                # Skip already-completed models (resume): meta file present = attempted.
+                # But a meta from a DIFFERENT regime must not be counted as done — that
+                # would leave a stale-regime result masquerading as current. The out-dir
+                # guard above already blocks the common case; this is defense-in-depth.
+                meta_path = out_dir / f"{model_id}_meta.json"
+                if meta_path.exists():
+                    try:
+                        prior_meta = json.loads(meta_path.read_text())
+                    except Exception:
+                        prior_meta = {}
+                    if regime_key(prior_meta.get("regime")) != rk:
+                        raise SystemExit(
+                            f"{meta_path} exists under a different regime than the current run. "
+                            f"Use a fresh --out_dir for this regime."
+                        )
+                    # A meta counts as DONE only if it carries a real result (val_pearson).
+                    # An error-stub meta (written by the except branch on a transient
+                    # OOM/CUDA/preemption failure) must be RETRIED on resume, not treated
+                    # as complete — otherwise a single flake permanently drops that config.
+                    if "val_pearson" in prior_meta:
+                        print(f"  [resume] skip {model_id} (already done)")
+                        total += 1
+                        continue
+                    print(
+                        f"  [resume] retry {model_id} (prior attempt errored: "
+                        f"{str(prior_meta.get('error', '?'))[:80]})"
                     )
-                # A meta counts as DONE only if it carries a real result (val_pearson).
-                # An error-stub meta (written by the except branch on a transient
-                # OOM/CUDA/preemption failure) must be RETRIED on resume, not treated
-                # as complete — otherwise a single flake permanently drops that config.
-                if "val_pearson" in prior_meta:
-                    print(f"  [resume] skip {model_id} (already done)")
-                    total += 1
-                    continue
                 print(
-                    f"  [resume] retry {model_id} (prior attempt errored: "
-                    f"{str(prior_meta.get('error', '?'))[:80]})"
+                    f"\n  Training {model_id}: lr={hp_k.lr:.1e} bs={hp_k.batch_size} "
+                    f"layers={hp_k.n_layers} width={hp_k.width_base} opt={hp_k.optimizer} seed={hp_k.seed}"
                 )
-            print(
-                f"\n  Training {model_id}: lr={hp.lr:.1e} bs={hp.batch_size} "
-                f"layers={hp.n_layers} width={hp.width_base} opt={hp.optimizer}"
-            )
-            try:
-                result = train_one_model(
-                    hp,
-                    train_seqs,
-                    train_labels,
-                    val_seqs,
-                    val_labels,
-                    test_seqs,
-                    epochs=args.epochs,
-                    use_compile=False,
-                    early_stopping_patience=esp,
-                    min_delta=min_delta,
-                    extra_test_sets=all_test_sets,
-                )
-            except Exception as e:
-                print(f"    ERROR: {e}")
-                result = {
-                    "hp": _hp_to_dict(hp),
-                    "error": str(e),
-                    "strategy": strat_name,
-                    "round": rd,
-                }
-            result["model_id"] = model_id
-            result["strategy"] = strat_name
-            result["round"] = rd
-            result["regime"] = regime
-            _atomic_savez(
-                out_dir / f"{model_id}.npz",
-                **{k: v for k, v in result.items() if isinstance(v, np.ndarray)},
-            )
-            meta = {k: v for k, v in result.items() if not isinstance(v, np.ndarray)}
-            # meta written LAST + atomically: it is the resume gate (its presence
-            # means "model done"), so it must never exist in a partial state and
-            # must not appear before its companion .npz is fully on disk.
-            _atomic_write_text(
-                out_dir / f"{model_id}_meta.json", json.dumps(meta, indent=2, default=str)
-            )
-            # Log to global KB
-            if result.get("val_mse") is not None:
                 try:
-                    from experiments.hp_knowledge_base import get_kb
-
-                    get_kb().add(
-                        hp=result.get("hp", {}),
-                        val_metric=result.get("val_mse"),
-                        context={
-                            "D": args.D,
-                            "ref_only": args.ref_only,
-                            "epochs": args.epochs,
-                            "strategy": strat_name,
-                            "round": rd,
-                        },
+                    result = train_one_model(
+                        hp_k,
+                        train_seqs,
+                        train_labels,
+                        val_seqs,
+                        val_labels,
+                        test_seqs,
+                        epochs=args.epochs,
+                        use_compile=False,
+                        early_stopping_patience=esp,
+                        min_delta=min_delta,
+                        extra_test_sets=all_test_sets,
                     )
                 except Exception as e:
-                    print(f"    KB log failed: {e}", flush=True)
-            if "val_pearson" in result:
-                newly_trained[strat_name][0].append(hp)
-                newly_trained[strat_name][1].append(result["val_pearson"])
-            total += 1
-            print(
-                f"    val_pearson={result.get('val_pearson', 'ERR')}  time={result.get('train_time_sec', 0):.1f}s"
-            )
+                    print(f"    ERROR: {e}")
+                    result = {
+                        "hp": _hp_to_dict(hp_k),
+                        "error": str(e),
+                        "strategy": strat_name,
+                        "round": rd,
+                    }
+                result["model_id"] = model_id
+                result["strategy"] = strat_name
+                result["round"] = rd
+                result["regime"] = regime
+                if n_seeds > 1:
+                    result["init_seed"] = hp_k.seed
+                _atomic_savez(
+                    out_dir / f"{model_id}.npz",
+                    **{k: v for k, v in result.items() if isinstance(v, np.ndarray)},
+                )
+                meta = {k: v for k, v in result.items() if not isinstance(v, np.ndarray)}
+                # meta written LAST + atomically: it is the resume gate (its presence
+                # means "model done"), so it must never exist in a partial state and
+                # must not appear before its companion .npz is fully on disk.
+                _atomic_write_text(
+                    out_dir / f"{model_id}_meta.json", json.dumps(meta, indent=2, default=str)
+                )
+                # Log to global KB
+                if result.get("val_mse") is not None:
+                    try:
+                        from experiments.hp_knowledge_base import get_kb
+
+                        get_kb().add(
+                            hp=result.get("hp", {}),
+                            val_metric=result.get("val_mse"),
+                            context={
+                                "D": args.D,
+                                "ref_only": args.ref_only,
+                                "epochs": args.epochs,
+                                "strategy": strat_name,
+                                "round": rd,
+                            },
+                        )
+                    except Exception as e:
+                        print(f"    KB log failed: {e}", flush=True)
+                if "val_pearson" in result:
+                    newly_trained[strat_name][0].append(hp_k)
+                    newly_trained[strat_name][1].append(result["val_pearson"])
+                total += 1
+                print(
+                    f"    val_pearson={result.get('val_pearson', 'ERR')}  time={result.get('train_time_sec', 0):.1f}s"
+                )
 
         # Update each strategy with ONLY this run's newly-trained results
         # (preloaded history already accounts for results from prior runs).
@@ -1486,6 +1496,15 @@ def main():
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--hp_seed", type=int, default=0)
     ap.add_argument("--data_seed", type=int, default=0)
+    ap.add_argument(
+        "--n_seeds",
+        type=int,
+        default=1,
+        help="Train each proposed config with N distinct weight-init seeds "
+        "(hp.seed+0..hp.seed+N-1), each saved as its own model. N=1 (default) is "
+        "the original single-seed behaviour with unchanged model_id naming; N>1 "
+        "appends an _s{k} suffix and stamps init_seed.",
+    )
     ap.add_argument(
         "--reservoir_cache",
         type=str,
