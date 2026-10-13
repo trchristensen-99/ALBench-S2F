@@ -109,9 +109,8 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             max_motifs: Maximum motifs planted per sequence (inclusive).
             motif_set: ``"auto"``/``"k562"``/``"yeast"`` use the legacy hardcoded
                 consensus strings. ``"pfm"`` builds a real vocabulary from the installed
-                PFM database (CIS-BP if present, else JASPAR; ``"jaspar"`` is a
-                deprecated alias for this and does NOT force JASPAR)
-                PFMs via :mod:`albench.motifs.vocabulary`, which is what the
+                PFM database (CIS-BP if present, else JASPAR) via
+                :mod:`albench.motifs.vocabulary`, which is what the
                 vocabulary-source and filter arms vary.
             include_rc_variants: Also plant reverse-complement orientations.
             preserve_native_motifs: Keep motif matches already present in the
@@ -357,10 +356,9 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         seq_len = 200 if task == "k562" else 80
         # "pfm" = build a real PFM vocabulary from the installed motif database.
         # The database is resolved by albench.motifs.vocabulary._default_meme(), which
-        # PREFERS CIS-BP and falls back to JASPAR -- so neither name belongs here.
-        # "jaspar" is accepted as a deprecated alias: it was the original value and it
-        # actively misleads, because with CIS-BP installed the vocabulary is CIS-BP.
-        use_vocab = str(self.motif_set).lower() in ("pfm", "vocab", "jaspar")
+        # PREFERS CIS-BP and falls back to JASPAR -- so neither database name belongs
+        # here as a motif_set value; only "pfm" selects the vocabulary path.
+        use_vocab = str(self.motif_set).lower() == "pfm"
         if use_vocab:
             vocab = self._build_vocab()
             # Planting draws by entry; native-motif detection scans for literal
