@@ -298,6 +298,7 @@ TEST_SET_NAMES = [
     "ood",  # 22k designed sequences (out-of-distribution)
     "snv",  # SNV ref/alt pairs for SNV effect prediction
     "random_32k",  # 32k uniformly random
+    "gc_sweep",  # random 200bp at fixed GC bins 0.05..0.95 — probes the extreme-GC/OOD-composition regime
     "dinuc_shuffle",  # 32k dinuc-preserving shuffle of genomic
     "sub_low",
     "sub_med",

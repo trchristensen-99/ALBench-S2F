@@ -43,6 +43,7 @@ SET_SPEC = {
     "zoonomia": ("test_pred_zoonomia", "oracle_zoonomia", "zoonomia"),
     "ood": ("test_pred_ood", "oracle_ood", "ood"),
     "dinuc_shuffle": ("test_pred_dinuc_shuffle", "oracle_dinuc_shuffle", "dinuc_shuffle"),
+    "gc_sweep": ("test_pred_gc_sweep", "oracle_gc_sweep", "gc_sweep"),
 }
 
 
