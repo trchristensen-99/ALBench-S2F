@@ -59,13 +59,22 @@ composition effects are plausible but unestablished.
 """
 
 
-def build_arch_prompt(n: int, history: list[dict], *, seq_len: int = 200, D: int = 30000,
-                      max_params: int = 60_000_000, max_fwd_ms: float = 400.0,
-                      note: str | None = None) -> tuple[str, str]:
+def build_arch_prompt(
+    n: int,
+    history: list[dict],
+    *,
+    seq_len: int = 200,
+    D: int = 30000,
+    max_params: int = 60_000_000,
+    max_fwd_ms: float = 400.0,
+    note: str | None = None,
+) -> tuple[str, str]:
     """-> (system, user). `history` entries: {idea, layers, n_params, score, ok, reason}."""
     sys_p = SYSTEM.format(n=n)
-    parts = [TASK.format(D=D),
-             CONTRACT.format(seq_len=seq_len, max_params=max_params, max_fwd_ms=max_fwd_ms)]
+    parts = [
+        TASK.format(D=D),
+        CONTRACT.format(seq_len=seq_len, max_params=max_params, max_fwd_ms=max_fwd_ms),
+    ]
 
     tried = [h for h in history if h.get("ok")]
     failed = [h for h in history if not h.get("ok")]
@@ -73,8 +82,10 @@ def build_arch_prompt(n: int, history: list[dict], *, seq_len: int = 200, D: int
         parts.append("\nARCHITECTURES ALREADY TRIED (test Pearson r, higher is better):")
         for h in sorted(tried, key=lambda h: -(h.get("score") or -9))[:18]:
             lay = ",".join(sorted(h.get("layers") or {})) or "?"
-            parts.append(f"  r={h.get('score', float('nan')):.4f}  "
-                         f"{h.get('n_params', 0):>9,}p  [{lay}]  {h.get('idea', '')[:70]}")
+            parts.append(
+                f"  r={h.get('score', float('nan')):.4f}  "
+                f"{h.get('n_params', 0):>9,}p  [{lay}]  {h.get('idea', '')[:70]}"
+            )
     if failed:
         parts.append("\nPROPOSALS THAT WERE DISCARDED (do not repeat these mistakes):")
         for h in failed[:8]:
@@ -102,24 +113,33 @@ def parse_proposals(text: str) -> list[dict]:
     ideas = _IDEA.findall(text)
     whys = _WHY.findall(text)
     for i, src in enumerate(blocks):
-        out.append({
-            "idea": (ideas[i].strip() if i < len(ideas) else f"unnamed proposal {i+1}"),
-            "why": (whys[i].strip() if i < len(whys) else ""),
-            "source": src.strip(),
-        })
+        out.append(
+            {
+                "idea": (ideas[i].strip() if i < len(ideas) else f"unnamed proposal {i + 1}"),
+                "why": (whys[i].strip() if i < len(whys) else ""),
+                "source": src.strip(),
+            }
+        )
     return out
 
 
 def call_model(system: str, user: str, model: str | None = None, max_tokens: int = 16000) -> str:
     """Reuse the existing AutoResearch transport (CLI when a token is set, else API)."""
     import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__)))), "experiments"))
+
+    sys.path.insert(
+        0,
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "experiments",
+        ),
+    )
     from llm_autoresearch import _call_claude_api, _call_claude_cli
 
     mdl = model or os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
     use_cli = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")) and not os.environ.get(
-        "LLM_FORCE_API")
+        "LLM_FORCE_API"
+    )
     if use_cli:
         return _call_claude_cli(system, user, mdl)
     return _call_claude_api(system, user, mdl, max_tokens, temperature=None)

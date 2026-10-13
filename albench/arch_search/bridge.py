@@ -22,22 +22,30 @@ import os
 import time
 from pathlib import Path
 
-ROOT = Path(os.environ.get(
-    "LLM_BRIDGE_DIR",
-    "/grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/llm_bridge"))
+ROOT = Path(
+    os.environ.get(
+        "LLM_BRIDGE_DIR", "/grid/wsbs/home_norepl/christen/ALBench-S2F/outputs/llm_bridge"
+    )
+)
 REQ, RESP, CLAIMED = ROOT / "requests", ROOT / "responses", ROOT / "claimed"
 
 
 def _key(system: str, user: str, model: str) -> str:
     h = hashlib.sha256()
     for part in (model, system, user):
-        h.update(part.encode()); h.update(b"\x00")
+        h.update(part.encode())
+        h.update(b"\x00")
     return h.hexdigest()[:20]
 
 
-def request_completion(system: str, user: str, model: str = "sonnet",
-                       timeout_s: float = 3600, poll_s: float = 5.0,
-                       log=print) -> str:
+def request_completion(
+    system: str,
+    user: str,
+    model: str = "sonnet",
+    timeout_s: float = 3600,
+    poll_s: float = 5.0,
+    log=print,
+) -> str:
     """Ask the laptop-side poller for a completion; block until it answers.
 
     Raises TimeoutError if nobody serves it — the caller should treat that the
@@ -47,15 +55,25 @@ def request_completion(system: str, user: str, model: str = "sonnet",
         d.mkdir(parents=True, exist_ok=True)
     k = _key(system, user, model)
     rpath = RESP / f"{k}.json"
-    if rpath.exists():                      # already answered in a previous run
+    if rpath.exists():  # already answered in a previous run
         return json.loads(rpath.read_text())["text"]
 
     qpath = REQ / f"{k}.json"
     if not qpath.exists():
         tmp = qpath.with_suffix(".tmp")
-        tmp.write_text(json.dumps(
-            {"key": k, "model": model, "system": system, "user": user,
-             "created": time.time(), "host": os.uname().nodename}, indent=2))
+        tmp.write_text(
+            json.dumps(
+                {
+                    "key": k,
+                    "model": model,
+                    "system": system,
+                    "user": user,
+                    "created": time.time(),
+                    "host": os.uname().nodename,
+                },
+                indent=2,
+            )
+        )
         os.replace(tmp, qpath)
         log(f"  [bridge] queued request {k} ({len(user)} chars) — waiting for laptop poller")
 
@@ -65,17 +83,17 @@ def request_completion(system: str, user: str, model: str = "sonnet",
             payload = json.loads(rpath.read_text())
             if payload.get("error"):
                 raise RuntimeError(f"bridge returned error: {payload['error'][:200]}")
-            log(f"  [bridge] got response {k} after {time.time()-t0:.0f}s")
+            log(f"  [bridge] got response {k} after {time.time() - t0:.0f}s")
             return payload["text"]
         time.sleep(poll_s)
     raise TimeoutError(
         f"no response for request {k} after {timeout_s:.0f}s. Is the laptop poller "
-        f"running? (scripts/llm_bridge_poller.sh)")
+        f"running? (scripts/llm_bridge_poller.sh)"
+    )
 
 
 def pending() -> list[str]:
-    return sorted(p.stem for p in REQ.glob("*.json")
-                  if not (RESP / f"{p.stem}.json").exists())
+    return sorted(p.stem for p in REQ.glob("*.json") if not (RESP / f"{p.stem}.json").exists())
 
 
 class BridgeUnavailable(RuntimeError):
@@ -89,8 +107,9 @@ class BridgeUnavailable(RuntimeError):
     """
 
 
-def request_or_pause(system: str, user: str, model: str = "sonnet",
-                     timeout_s: float = 1800, log=print) -> str:
+def request_or_pause(
+    system: str, user: str, model: str = "sonnet", timeout_s: float = 1800, log=print
+) -> str:
     """request_completion, but raise BridgeUnavailable instead of TimeoutError.
 
     Overnight the laptop may sleep or the VPN may drop. Progress is already
@@ -119,8 +138,18 @@ def prefetch(system: str, user: str, model: str = "sonnet") -> str | None:
     qpath = REQ / f"{k}.json"
     if not qpath.exists():
         tmp = qpath.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"key": k, "model": model, "system": system,
-                                   "user": user, "created": time.time(),
-                                   "host": os.uname().nodename}, indent=2))
+        tmp.write_text(
+            json.dumps(
+                {
+                    "key": k,
+                    "model": model,
+                    "system": system,
+                    "user": user,
+                    "created": time.time(),
+                    "host": os.uname().nodename,
+                },
+                indent=2,
+            )
+        )
         os.replace(tmp, qpath)
     return None

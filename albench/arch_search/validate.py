@@ -35,31 +35,107 @@ from dataclasses import dataclass, field
 
 ALLOWED_IMPORTS = {
     # anything useful for expressing an architecture
-    "torch", "numpy", "math", "cmath", "random", "statistics",
+    "torch",
+    "numpy",
+    "math",
+    "cmath",
+    "random",
+    "statistics",
     # plumbing a layer definition legitimately needs
-    "typing", "dataclasses", "collections", "itertools", "functools",
-    "abc", "enum", "copy", "warnings", "contextlib", "operator", "re",
+    "typing",
+    "dataclasses",
+    "collections",
+    "itertools",
+    "functools",
+    "abc",
+    "enum",
+    "copy",
+    "warnings",
+    "contextlib",
+    "operator",
+    "re",
 }
 BANNED_NAMES = {
-    "exec", "eval", "compile", "__import__", "open", "input", "breakpoint",
-    "globals", "locals", "vars", "getattr", "setattr", "delattr", "memoryview",
+    "exec",
+    "eval",
+    "compile",
+    "__import__",
+    "open",
+    "input",
+    "breakpoint",
+    "globals",
+    "locals",
+    "vars",
+    "getattr",
+    "setattr",
+    "delattr",
+    "memoryview",
 }
 BANNED_ATTRS = {
-    "__subclasses__", "__globals__", "__code__", "__closure__", "__builtins__",
-    "__bases__", "__mro__", "__dict__", "__reduce__", "__class__",
+    "__subclasses__",
+    "__globals__",
+    "__code__",
+    "__closure__",
+    "__builtins__",
+    "__bases__",
+    "__mro__",
+    "__dict__",
+    "__reduce__",
+    "__class__",
 }
 
 SAFE_BUILTINS = {
-    "range", "len", "enumerate", "zip", "min", "max", "abs", "sum", "int", "float",
-    "bool", "str", "list", "tuple", "dict", "set", "sorted", "reversed", "round",
-    "isinstance", "issubclass", "super", "print", "any", "all", "map", "filter",
-    "ValueError", "TypeError", "RuntimeError", "NotImplementedError", "Exception",
-    "property", "staticmethod", "classmethod", "object", "type", "repr", "divmod",
-    "pow", "slice", "iter", "next", "hasattr", "format", "frozenset",
+    "range",
+    "len",
+    "enumerate",
+    "zip",
+    "min",
+    "max",
+    "abs",
+    "sum",
+    "int",
+    "float",
+    "bool",
+    "str",
+    "list",
+    "tuple",
+    "dict",
+    "set",
+    "sorted",
+    "reversed",
+    "round",
+    "isinstance",
+    "issubclass",
+    "super",
+    "print",
+    "any",
+    "all",
+    "map",
+    "filter",
+    "ValueError",
+    "TypeError",
+    "RuntimeError",
+    "NotImplementedError",
+    "Exception",
+    "property",
+    "staticmethod",
+    "classmethod",
+    "object",
+    "type",
+    "repr",
+    "divmod",
+    "pow",
+    "slice",
+    "iter",
+    "next",
+    "hasattr",
+    "format",
+    "frozenset",
     # the `class` statement compiles to a __build_class__ call, so defining any
     # nn.Module needs it; it is not an escape route on its own because the AST
     # pass already refused the dunder attributes that would make it one
-    "__build_class__", "__name__",
+    "__build_class__",
+    "__name__",
 }
 
 
@@ -102,8 +178,13 @@ def classify_layers(src: str) -> dict:
     """
     kinds = {
         "conv": ("Conv1d", "Conv2d", "ConvTranspose1d"),
-        "attention": ("MultiheadAttention", "scaled_dot_product_attention",
-                      "TransformerEncoder", "TransformerEncoderLayer", "softmax"),
+        "attention": (
+            "MultiheadAttention",
+            "scaled_dot_product_attention",
+            "TransformerEncoder",
+            "TransformerEncoderLayer",
+            "softmax",
+        ),
         "recurrent": ("LSTM", "GRU", "RNN"),
         "norm": ("BatchNorm1d", "LayerNorm", "GroupNorm", "InstanceNorm1d"),
         "pool": ("MaxPool1d", "AvgPool1d", "AdaptiveAvgPool1d", "AdaptiveMaxPool1d"),
@@ -122,9 +203,16 @@ def classify_layers(src: str) -> dict:
     return out
 
 
-def build_and_check(src: str, *, seq_len: int = 200, n_channels: int = 4,
-                    max_params: int = 60_000_000, max_fwd_ms: float = 8000.0,
-                    batch: int = 8, class_name: str = "Net") -> tuple[object, Verdict]:
+def build_and_check(
+    src: str,
+    *,
+    seq_len: int = 200,
+    n_channels: int = 4,
+    max_params: int = 60_000_000,
+    max_fwd_ms: float = 8000.0,
+    batch: int = 8,
+    class_name: str = "Net",
+) -> tuple[object, Verdict]:
     """Static-check, exec in a restricted namespace, then instantiate and probe.
 
     Returns (module_instance_or_None, Verdict). The caller trains it only if ok.
@@ -137,11 +225,11 @@ def build_and_check(src: str, *, seq_len: int = 200, n_channels: int = 4,
     import torch.nn as nn
     import torch.nn.functional as F
 
-    safe_builtins = {k: __builtins__[k] if isinstance(__builtins__, dict)
-                     else getattr(__builtins__, k)
-                     for k in SAFE_BUILTINS
-                     if (k in __builtins__ if isinstance(__builtins__, dict)
-                         else hasattr(__builtins__, k))}
+    safe_builtins = {
+        k: __builtins__[k] if isinstance(__builtins__, dict) else getattr(__builtins__, k)
+        for k in SAFE_BUILTINS
+        if (k in __builtins__ if isinstance(__builtins__, dict) else hasattr(__builtins__, k))
+    }
     import importlib
 
     def _gated_import(name, globals=None, locals=None, fromlist=(), level=0):
@@ -153,14 +241,17 @@ def build_and_check(src: str, *, seq_len: int = 200, n_channels: int = 4,
     safe_builtins["__import__"] = _gated_import
     ns = {"__builtins__": safe_builtins, "torch": torch, "nn": nn, "F": F, "math": math}
     try:
-        exec(compile(src, "<generated-arch>", "exec"), ns)          # noqa: S102
+        exec(compile(src, "<generated-arch>", "exec"), ns)  # noqa: S102
     except Exception as e:
         return None, Verdict(False, f"exec failed: {type(e).__name__}: {e}")
 
     cls = ns.get(class_name)
     if cls is None:
-        cands = [v for k, v in ns.items()
-                 if isinstance(v, type) and issubclass(v, nn.Module) and v is not nn.Module]
+        cands = [
+            v
+            for k, v in ns.items()
+            if isinstance(v, type) and issubclass(v, nn.Module) and v is not nn.Module
+        ]
         if not cands:
             return None, Verdict(False, f"no class named {class_name} and no nn.Module found")
         cls = cands[-1]
@@ -171,8 +262,9 @@ def build_and_check(src: str, *, seq_len: int = 200, n_channels: int = 4,
 
     n_params = sum(p.numel() for p in model.parameters())
     if n_params > max_params:
-        return None, Verdict(False, f"too many parameters: {n_params:,} > {max_params:,}",
-                             n_params=n_params)
+        return None, Verdict(
+            False, f"too many parameters: {n_params:,} > {max_params:,}", n_params=n_params
+        )
     if n_params == 0:
         return None, Verdict(False, "model has no parameters")
 
@@ -180,7 +272,7 @@ def build_and_check(src: str, *, seq_len: int = 200, n_channels: int = 4,
     model.eval()
     try:
         with torch.no_grad():
-            model(x)                                   # warm up, then time
+            model(x)  # warm up, then time
             t0 = time.perf_counter()
             y = model(x)
             fwd_ms = 1000 * (time.perf_counter() - t0)
@@ -189,13 +281,18 @@ def build_and_check(src: str, *, seq_len: int = 200, n_channels: int = 4,
 
     y = y.squeeze()
     if y.shape != (batch,):
-        return None, Verdict(False, f"wrong output shape {tuple(y.shape)}, expected ({batch},)",
-                             n_params=n_params)
+        return None, Verdict(
+            False, f"wrong output shape {tuple(y.shape)}, expected ({batch},)", n_params=n_params
+        )
     if not torch.isfinite(y).all():
         return None, Verdict(False, "forward produced non-finite output", n_params=n_params)
     if fwd_ms > max_fwd_ms:
-        return None, Verdict(False, f"forward too slow: {fwd_ms:.0f}ms > {max_fwd_ms:.0f}ms",
-                             n_params=n_params, fwd_ms=fwd_ms)
+        return None, Verdict(
+            False,
+            f"forward too slow: {fwd_ms:.0f}ms > {max_fwd_ms:.0f}ms",
+            n_params=n_params,
+            fwd_ms=fwd_ms,
+        )
     # a model that ignores its input would score like a constant predictor and
     # quietly pollute the ensemble, so require the output to actually move
     with torch.no_grad():
@@ -213,11 +310,15 @@ def build_and_check(src: str, *, seq_len: int = 200, n_channels: int = 4,
         xb = torch.randn(max(2, batch * 2), n_channels, seq_len)
         ob = model(xb).squeeze()
         if ob.shape[0] != xb.shape[0]:
-            return None, Verdict(False, f"train-mode output batch {tuple(ob.shape)} != {xb.shape[0]}",
-                                 n_params=n_params)
+            return None, Verdict(
+                False,
+                f"train-mode output batch {tuple(ob.shape)} != {xb.shape[0]}",
+                n_params=n_params,
+            )
         (((ob - torch.randn(ob.shape[0])) ** 2).mean()).backward()
     except Exception as e:
-        return None, Verdict(False, f"train-step probe failed: {type(e).__name__}: {e}",
-                             n_params=n_params)
+        return None, Verdict(
+            False, f"train-step probe failed: {type(e).__name__}: {e}", n_params=n_params
+        )
     model.zero_grad(set_to_none=True)
     return model, Verdict(True, "", n_params=n_params, fwd_ms=fwd_ms, layers=classify_layers(src))

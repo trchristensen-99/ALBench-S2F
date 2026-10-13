@@ -25,13 +25,14 @@ import time
 REPO = os.environ.get("LLM_BRIDGE_REPO", "trchristensen-99/albench-llm-bridge")
 
 
-ASK_AHEAD = int(os.environ.get("LLM_ASK_AHEAD", "1"))   # 1 = off; N = ask N rounds at once
+ASK_AHEAD = int(os.environ.get("LLM_ASK_AHEAD", "1"))  # 1 = off; N = ask N rounds at once
 BANK = os.path.expanduser("~/.config/albench/llm_bank")
 
 
 def bank_take(tag: str) -> str | None:
     """Pop one banked response for this cell, if any."""
     import glob as _g
+
     files = sorted(_g.glob(os.path.join(BANK, f"{tag}_*.txt")))
     if not files:
         return None
@@ -50,7 +51,8 @@ def bank_put(tag: str, texts: list[str]) -> int:
     for i, t in enumerate(texts):
         p = os.path.join(BANK, f"{tag}_{int(time.time())}_{i:03d}.txt")
         try:
-            open(p, "w").write(t); n += 1
+            open(p, "w").write(t)
+            n += 1
         except Exception:
             pass
     return n
@@ -72,7 +74,8 @@ def _key(system: str, user: str, model: str, nonce: str = "") -> str:
     """
     h = hashlib.sha256()
     for p in (model, system, user, nonce):
-        h.update(p.encode()); h.update(b"\x00")
+        h.update(p.encode())
+        h.update(b"\x00")
     return h.hexdigest()[:20]
 
 
@@ -83,8 +86,10 @@ def _token() -> str:
     compute job died with FileNotFoundError. The REST API is plain HTTPS and
     python is present everywhere, which removes the dependency entirely.
     """
-    for p in (os.environ.get("ALBENCH_GH_TOKEN_FILE"),
-              os.path.expanduser("~/.config/albench/gh_token")):
+    for p in (
+        os.environ.get("ALBENCH_GH_TOKEN_FILE"),
+        os.path.expanduser("~/.config/albench/gh_token"),
+    ):
         if p and os.path.exists(p):
             t = open(p).read().strip()
             if t:
@@ -93,21 +98,32 @@ def _token() -> str:
     if t:
         return t
     raise BridgeUnavailable(
-        "no GitHub token: expected ~/.config/albench/gh_token (0600) or GH_TOKEN")
+        "no GitHub token: expected ~/.config/albench/gh_token (0600) or GH_TOKEN"
+    )
 
 
-def _api(path: str, method: str = "GET", payload: dict | None = None,
-         timeout: int = 30, _retry: bool = False):
+def _api(
+    path: str,
+    method: str = "GET",
+    payload: dict | None = None,
+    timeout: int = 30,
+    _retry: bool = False,
+):
     import urllib.error
     import urllib.request
 
     url = f"https://api.github.com/repos/{REPO}/{path}"
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        "Authorization": f"Bearer {_token()}",
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "albench-llm-bridge",
-    })
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {_token()}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "albench-llm-bridge",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             _note_rate(r.headers)
@@ -123,15 +139,15 @@ def _api(path: str, method: str = "GET", payload: dict | None = None,
         if e.code == 403 and _RATE.get("remaining") == 0 and not _retry:
             wait = max(0.0, _RATE.get("reset", 0.0) - time.time()) + 5.0
             if 0 < wait <= 3900:
-                print(f"  [bridge] hourly API quota exhausted; waiting "
-                      f"{wait/60:.1f} min for reset", flush=True)
+                print(
+                    f"  [bridge] hourly API quota exhausted; waiting {wait / 60:.1f} min for reset",
+                    flush=True,
+                )
                 time.sleep(wait)
-                return _api(path, method=method, payload=payload,
-                            timeout=timeout, _retry=True)
+                return _api(path, method=method, payload=payload, timeout=timeout, _retry=True)
         raise
     except Exception:
         return None
-
 
 
 # The GitHub REST budget is 5,000 requests/hour PER USER, shared by every search
@@ -146,8 +162,11 @@ _RATE = {"remaining": None, "reset": 0.0}
 def _note_rate(headers) -> None:
     _CALLS["n"] += 1
     if _CALLS["n"] % 100 == 0:
-        print(f"  [bridge] {_CALLS['n']} API calls this process "
-              f"(budget remaining {_RATE.get('remaining')})", flush=True)
+        print(
+            f"  [bridge] {_CALLS['n']} API calls this process "
+            f"(budget remaining {_RATE.get('remaining')})",
+            flush=True,
+        )
     try:
         rem = headers.get("x-ratelimit-remaining")
         rst = headers.get("x-ratelimit-reset")
@@ -174,10 +193,12 @@ def _rate_guard(reserve: int = 150) -> None:
         return
     wait = max(0.0, _RATE.get("reset", 0.0) - time.time()) + 5.0
     if wait > 0:
-        print(f"  [bridge] API budget {rem} left; sleeping {wait/60:.1f} min "
-              f"until the hourly reset", flush=True)
+        print(
+            f"  [bridge] API budget {rem} left; sleeping {wait / 60:.1f} min "
+            f"until the hourly reset",
+            flush=True,
+        )
         time.sleep(min(wait, 3900))
-
 
 
 def _beat_stale(age: float | None, stale_s: float) -> bool:
@@ -234,17 +255,16 @@ def _put(path: str, text: str, message: str) -> bool:
     import urllib.error
 
     for attempt in range(_PUT_ATTEMPTS):
-        body = {"message": message,
-                "content": base64.b64encode(text.encode()).decode()}
+        body = {"message": message, "content": base64.b64encode(text.encode()).decode()}
         cur = _api(f"contents/{path}")
-        if cur and cur.get("sha"):      # updating an existing file needs its sha
+        if cur and cur.get("sha"):  # updating an existing file needs its sha
             body["sha"] = cur["sha"]
         try:
             return _api(f"contents/{path}", method="PUT", payload=body) is not None
         except urllib.error.HTTPError as e:
             if e.code not in (409, 422) or attempt == _PUT_ATTEMPTS - 1:
                 raise
-            time.sleep(min(8.0, 0.4 * 2 ** attempt) * (0.5 + random.random()))
+            time.sleep(min(8.0, 0.4 * 2**attempt) * (0.5 + random.random()))
     return False
 
 
@@ -264,9 +284,16 @@ def bridge_age_s() -> float | None:
         return None
 
 
-def request_completion(system: str, user: str, model: str = "sonnet",
-                       timeout_s: float = 5400, poll_s: float = 45.0,
-                       stale_s: float = 1500, nonce: str = "", log=print) -> str:
+def request_completion(
+    system: str,
+    user: str,
+    model: str = "sonnet",
+    timeout_s: float = 5400,
+    poll_s: float = 45.0,
+    stale_s: float = 1500,
+    nonce: str = "",
+    log=print,
+) -> str:
     k = _key(system, user, model, nonce)
     cached = _get(f"responses/{k}.json")
     if cached:
@@ -275,10 +302,21 @@ def request_completion(system: str, user: str, model: str = "sonnet",
             return payload["text"]
 
     if not _get(f"requests/{k}.json"):
-        ok = _put(f"requests/{k}.json",
-                  json.dumps({"key": k, "model": model, "system": system, "user": user,
-                              "created": time.time(), "host": os.uname().nodename}, indent=2),
-                  f"request {k}")
+        ok = _put(
+            f"requests/{k}.json",
+            json.dumps(
+                {
+                    "key": k,
+                    "model": model,
+                    "system": system,
+                    "user": user,
+                    "created": time.time(),
+                    "host": os.uname().nodename,
+                },
+                indent=2,
+            ),
+            f"request {k}",
+        )
         if not ok:
             raise BridgeUnavailable(f"could not push request {k} to {REPO}")
         log(f"  [gh-bridge] pushed request {k} ({len(user)} chars)")
@@ -290,9 +328,10 @@ def request_completion(system: str, user: str, model: str = "sonnet",
     age = bridge_age_s()
     if _beat_stale(age, stale_s):
         raise BridgeUnavailable(
-            f"poller heartbeat is {age/60:.0f} min old (> {stale_s/60:.0f} min): "
+            f"poller heartbeat is {age / 60:.0f} min old (> {stale_s / 60:.0f} min): "
             f"laptop is asleep or the poller is down. Exiting so the GPU is freed; "
-            f"the watchdog will resume this cell.")
+            f"the watchdog will resume this cell."
+        )
 
     t0 = time.time()
     # Poll interval GROWS while waiting. A fixed 20s across a dozen concurrent
@@ -309,16 +348,18 @@ def request_completion(system: str, user: str, model: str = "sonnet",
             age = bridge_age_s()
             if _beat_stale(age, stale_s):
                 raise BridgeUnavailable(
-                    f"poller went silent mid-wait ({age/60:.0f} min). Exiting to free the GPU.")
+                    f"poller went silent mid-wait ({age / 60:.0f} min). Exiting to free the GPU."
+                )
         raw = _get(f"responses/{k}.json")
         if raw:
             payload = json.loads(raw)
             if payload.get("error"):
                 raise BridgeUnavailable(f"bridge error: {payload['error'][:200]}")
             if payload.get("text"):
-                log(f"  [gh-bridge] answered {k} after {time.time()-t0:.0f}s")
+                log(f"  [gh-bridge] answered {k} after {time.time() - t0:.0f}s")
                 return payload["text"]
         time.sleep(cur_poll)
         cur_poll = min(cur_poll * 1.4, 120.0)
     raise BridgeUnavailable(
-        f"no response for {k} after {timeout_s:.0f}s — is the laptop poller running?")
+        f"no response for {k} after {timeout_s:.0f}s — is the laptop poller running?"
+    )

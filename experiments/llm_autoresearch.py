@@ -582,14 +582,17 @@ def call_claude(
     # its proposals should wait, never silently degrade to random.
     if os.environ.get("LLM_USE_BRIDGE") == "1":
         import sys as _sys
+
         _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        import glob as _g
+
         from albench.arch_search.gh_bridge import request_completion
 
-        import glob as _g
         _out = os.environ.get("ALBENCH_OUT_DIR", "")
         _n = len(_g.glob(os.path.join(_out, "r*_meta.json"))) if _out else 0
         return request_completion(
-            system, user,
+            system,
+            user,
             model=os.environ.get("LLM_BRIDGE_MODEL", "sonnet"),
             timeout_s=float(os.environ.get("LLM_BRIDGE_TIMEOUT", "5400")),
             nonce=f"{os.path.basename(_out)}:{_n}",
