@@ -571,7 +571,29 @@ def call_claude(
     model = model or os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
     if max_wait_seconds is None:
         max_wait_seconds = float(os.environ.get("LLM_MAX_WAIT_SECONDS", 6 * 3600))
-    use_cli = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
+    # Prefer the API whenever a key exists; a stale OAuth token (e.g. after the
+    # org disabled Claude Code subscription access) must not force the broken CLI.
+    use_cli = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")) and not os.environ.get(
+        "ANTHROPIC_API_KEY"
+    )
+    # LLM_USE_BRIDGE=1 routes the call through a request/response dir served by a
+    # poller on the researcher's laptop (this cluster cannot auth Claude Code, and
+    # an API key bills separately). Blocking is intended: a round that cannot get
+    # its proposals should wait, never silently degrade to random.
+    if os.environ.get("LLM_USE_BRIDGE") == "1":
+        import sys as _sys
+        _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from albench.arch_search.gh_bridge import request_completion
+
+        import glob as _g
+        _out = os.environ.get("ALBENCH_OUT_DIR", "")
+        _n = len(_g.glob(os.path.join(_out, "r*_meta.json"))) if _out else 0
+        return request_completion(
+            system, user,
+            model=os.environ.get("LLM_BRIDGE_MODEL", "sonnet"),
+            timeout_s=float(os.environ.get("LLM_BRIDGE_TIMEOUT", "5400")),
+            nonce=f"{os.path.basename(_out)}:{_n}",
+        )
 
     deadline = time.time() + max_wait_seconds
     attempt = 0
