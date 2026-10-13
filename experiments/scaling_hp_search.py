@@ -1473,7 +1473,7 @@ def main():
     ap.add_argument(
         "--strategies",
         default="random",
-        help="comma list, e.g. random,optuna_tpe,autoresearch_single",
+        help="comma list, e.g. random,optuna_tpe,evo_single",
     )
     ap.add_argument("--rounds", type=int, default=1)
     ap.add_argument(

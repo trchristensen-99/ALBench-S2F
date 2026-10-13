@@ -64,7 +64,6 @@ results back.
 | multi-fidelity | `ray_asha`, `ray_bohb` | async successive halving / Bayesian-Hyperband (own trial loop; special-cased, needs `ray[tune]`) |
 | LLM AutoResearch | `llm_autoresearch` | Claude proposes configs from run history + a domain knowledge-base + a persona prompt; never falls back to random |
 
-Deprecated `autoresearch_*` names alias to `evo_*` via `canonical_strategy()`.
 
 ## 5. The workflow (Phase 0 → 1 → 2)
 

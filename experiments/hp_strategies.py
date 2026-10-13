@@ -509,8 +509,7 @@ STRATEGY_REGISTRY = {
     "optuna_qmc": OptunaQMC,
     # Evolutionary / hill-climbing perturbation strategies. These were historically
     # (mis)named "autoresearch_*"; "AutoResearch" is reserved for the LLM-iterative
-    # search in llm_autoresearch.py. Old names are kept as aliases below for
-    # backward-compat with existing launchers and on-disk *_meta.json.
+    # search in llm_autoresearch.py. Only the evo_* names are accepted now.
     "evo_single": AutoResearchSingle,
     "evo_batch": AutoResearchBatch,
     "evo_explore": AutoResearchExplore,
@@ -520,25 +519,8 @@ STRATEGY_REGISTRY = {
     "evo_knowledgeable": AutoResearchKnowledgeable,
 }
 
-# Deprecated -> canonical aliases (resolve old strings transparently).
-STRATEGY_ALIASES = {
-    "autoresearch_single": "evo_single",
-    "autoresearch_batch": "evo_batch",
-    "autoresearch_explore": "evo_explore",
-    "autoresearch_exploit": "evo_exploit",
-    "autoresearch_massive": "evo_massive",
-    "autoresearch_adaptive": "evo_adaptive",
-    "autoresearch_knowledgeable": "evo_knowledgeable",
-}
-
-
-def canonical_strategy(name: str) -> str:
-    """Map deprecated strategy names to their canonical form (evo_*)."""
-    return STRATEGY_ALIASES.get(name, name)
-
 
 def get_strategy(name: str, seed: int = 0, D: int | None = None) -> Strategy:
-    name = canonical_strategy(name)
     if name not in STRATEGY_REGISTRY:
         raise ValueError(f"Unknown strategy: {name}. Available: {list(STRATEGY_REGISTRY)}")
     cls = STRATEGY_REGISTRY[name]

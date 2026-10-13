@@ -69,7 +69,7 @@ class HPKnowledgeBase:
     def filter(self, **context_constraints) -> list[dict]:
         """Return records matching ALL listed context constraints.
 
-        E.g., kb.filter(D=30000, strategy="autoresearch_batch")
+        E.g., kb.filter(D=30000, strategy="evo_batch")
         """
         out = []
         for r in self.load_all():
