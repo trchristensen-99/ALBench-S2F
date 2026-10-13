@@ -10,7 +10,7 @@ BASE=$R/outputs/scaling_canonical_oct13
 CACHE=$R/outputs/grid_pools/k562_cumulative
 mkdir -p "$BASE/logs"
 
-RES_LIST="random gc_matched dinuc_shuffle genomic zoonomia_flank_primates zoonomia_flank_mammals motif_ct_dense motif_ct_enriched motif_jaspar evoaug_paper2023 evoaug_prm005 evoaug_prm010 d3_steps64 d3_steps256"
+RES_LIST="genomic zoonomia_flank_primates random gc_matched dinuc_shuffle motif_jaspar motif_ct_enriched motif_grammar evoaug_paper2023 d3_steps64 evo2"
 D_LIST="10000 30000 100000"
 
 # QOS round-robin across cells; walltime matched to the qos cap.
@@ -56,7 +56,7 @@ for D in $D_LIST; do
       echo "#SBATCH --output=$BASE/logs/sc_${RES}_${D}_%j.log"
       emit_env "$OUT" "$RES" "$D"
       echo "uv run --no-sync python experiments/scaling_hp_search.py \\"
-      echo "  --strategies llm_autoresearch --rounds 30 --per_strategy_per_round 2 \\"
+      echo "  --strategies llm_autoresearch --rounds 20 --per_strategy_per_round 2 \\"
       echo "  --hp_seed \$ALBENCH_RUN_SEED --D ${D} --reservoir_cache ${CACHE_NPZ} \\"
       echo "  --out_dir ${OUT} --epochs 100 --chr_val"
     } > "$SB"

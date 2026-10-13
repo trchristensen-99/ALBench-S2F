@@ -11,7 +11,7 @@ set -u
 R=/grid/wsbs/home_norepl/christen/ALBench-S2F
 SB=/cm/shared/apps/slurm/current/bin
 BASE=$R/outputs/scaling_canonical_oct13
-TARGET=60
+TARGET=40
 CAP=10            # max concurrent scaling cells (bridge rate-limit budget)
 cd "$R"
 
