@@ -35,7 +35,7 @@ SNV_MONO_VERSION = "snv_mono_chrsplit_v1"
 # hardcoding a string, so a future oracle bump cannot leave a guard behind.
 CANONICAL_ORACLE_ID = "oracle_v3"
 SUPERSEDED_ORACLE_IDS = frozenset({"full856k_clean", "oracle_v2", "no_designed"})
-BATTERY_VERSION = "ag_s2_chrsplit_v1"
+BATTERY_VERSION = "ag_s2_chrsplit_v2"  # uniform oracle_v3 relabel (was v1: mixed-oracle battery)
 
 _UNSTAMPED = {"oracle_id": "unstamped", "test_set_version": "unstamped"}
 
