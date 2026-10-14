@@ -593,6 +593,61 @@ def build_task_context() -> str | None:
     return "\n".join(lines) if len(lines) > 1 else None
 
 
+def warmstart_context(D: int | None, k: int = 8) -> str | None:
+    """Warm-start / prior-transfer across scale (LLM_WARMSTART=1): surface the best configs found
+    at SMALLER training-set sizes (from the global KB, context D < this D) so a larger-D search
+    starts from prior-scale knowledge instead of cold. Good small-D settings often transfer;
+    larger D may want more capacity/regularization — the LLM adapts."""
+    if os.environ.get("LLM_WARMSTART", "0") != "1" or not D:
+        return None
+    try:
+        from experiments.hp_knowledge_base import get_kb
+
+        recs = get_kb().load_all()
+    except Exception:
+        return None
+    lower = [
+        r
+        for r in recs
+        if isinstance(r.get("context"), dict)
+        and isinstance(r["context"].get("D"), (int, float))
+        and r["context"]["D"] < D
+        and r.get("val_metric") is not None
+    ]
+    if not lower:
+        return None
+    lower.sort(key=lambda r: r["val_metric"])  # val_MSE: lower is better
+    keep = (
+        "block_class",
+        "optimizer",
+        "n_layers",
+        "width_base",
+        "ks",
+        "lr",
+        "conv_dropout",
+        "dense_dropout",
+        "lr_schedule",
+        "weight_decay",
+    )
+    lines = [
+        "PRIOR-SCALE RESULTS (best configs found at SMALLER training-set sizes — adapt for the "
+        "larger D here; good small-D settings often transfer, larger D may want more "
+        "capacity/regularization):"
+    ]
+    seen = set()
+    for r in lower:
+        hp = r.get("hp", {})
+        sig = tuple(hp.get(x) for x in ("block_class", "optimizer", "n_layers", "width_base", "ks"))
+        if sig in seen:
+            continue
+        seen.add(sig)
+        kv = ", ".join(f"{x}={hp[x]}" for x in keep if x in hp)
+        lines.append(f"  [D={int(r['context']['D'])}] {kv}")
+        if len(lines) > k:
+            break
+    return "\n".join(lines) if len(lines) > 1 else None
+
+
 def build_prompt(
     n: int,
     history: list[tuple],
@@ -603,6 +658,7 @@ def build_prompt(
     D: int | None = None,
     ensemble_summary: str | None = None,
     task_context: str | None = None,
+    warmstart: str | None = None,
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt).
 
@@ -640,6 +696,8 @@ def build_prompt(
         parts.append(ADVANCED_GUIDANCE)
     if allow_novel:
         parts.append(f"\n{EXPERIMENTAL_KNOBS_DOC}")
+    if warmstart:
+        parts.append("\n" + warmstart)
     if os.environ.get("LLM_HIDE_HISTORY") == "1":
         parts.append(
             "\nCURRENT SESSION OBSERVATIONS: (hidden — no feedback is provided this run; "
@@ -1048,6 +1106,7 @@ class LLMAutoResearch(Strategy):
             except Exception as e:
                 print(f"  [ensemble-aware] feedback unavailable: {e}", flush=True)
         task_ctx = build_task_context()
+        warm = warmstart_context(getattr(self, "D", None))
         if self.use_kb:
             try:
                 from experiments.hp_knowledge_base import get_kb
@@ -1075,6 +1134,7 @@ class LLMAutoResearch(Strategy):
                 D=getattr(self, "D", None),
                 ensemble_summary=ens_summary,
                 task_context=task_ctx,
+                warmstart=warm,
             )
             response = None
             try:
