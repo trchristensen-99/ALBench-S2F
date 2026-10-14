@@ -10,7 +10,7 @@ BASE=$R/outputs/scaling_canonical_oct13
 CACHE=$R/outputs/grid_pools/k562_cumulative
 mkdir -p "$BASE/logs"
 
-RES_LIST="genomic zoonomia_flank_primates random gc_matched dinuc_shuffle motif_jaspar motif_ct_enriched motif_grammar evoaug_paper2023 d3_steps64 evo2"
+RES_LIST="genomic zoonomia_flank_primates zoonomia_flank_mammals random gc_matched dinuc_shuffle motif_jaspar motif_ct_enriched motif_grammar evoaug_paper2023 evoaug_prm010 d3_steps64 evo2"
 D_LIST="10000 30000 100000"
 
 # QOS round-robin across cells; walltime matched to the qos cap.
@@ -40,6 +40,7 @@ EOF
 }
 
 i=0
+J30=0   # parent-shell counter for 30k H100/V100 alternation (NOT a $() subshell)
 for D in $D_LIST; do
   for RES in $RES_LIST; do
     CACHE_NPZ=$CACHE/${RES}_d${D}.npz
@@ -48,10 +49,17 @@ for D in $D_LIST; do
     W=${WALL[$QOS]}
     OUT=$BASE/${RES}_d${D}
     SB=$BASE/sc_${RES}_${D}.sbatch
+    # Per-D GPU routing: 10k->V100, 100k->H100, 30k alternates H100/V100.
+    case "$D" in
+      10000)  GRES="gpu:v100:1" ;;
+      100000) GRES="gpu:h100:1" ;;
+      30000)  if (( J30 % 2 == 0 )); then GRES="gpu:h100:1"; else GRES="gpu:v100:1"; fi; J30=$((J30+1)) ;;
+      *)      GRES="gpu:h100:1" ;;
+    esac
     {
       echo '#!/bin/bash'
       echo "#SBATCH --job-name=sc_${RES}_${D}"
-      echo "#SBATCH --partition=gpuq --qos=${QOS} --gres=gpu:h100:1"
+      echo "#SBATCH --partition=gpuq --qos=${QOS} --gres=${GRES}"
       echo "#SBATCH --cpus-per-task=8 --mem=90G --time=${W} --requeue"
       echo "#SBATCH --output=$BASE/logs/sc_${RES}_${D}_%j.log"
       emit_env "$OUT" "$RES" "$D"
