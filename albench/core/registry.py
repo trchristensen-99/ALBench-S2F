@@ -610,6 +610,43 @@ def _reg_sheet_additions() -> None:
         )
     )
 
+    from albench.reservoir.gc_random import GCRandomSampler
+
+    register(
+        Spec(
+            name="random_gc65",
+            group="baseline",
+            doc=(
+                "Uniform-random DNA at a FIXED high GC (0.65). Probes the high-GC arm of the "
+                "random activity response directly, with no pool and no dinucleotide/motif "
+                "structure -- the composition control for 'does high GC alone drive activity?'."
+            ),
+            factory=lambda seed=None, **kw: GCRandomSampler(seed=seed, **kw),
+            adapter=lambda s, n, ctx: s.generate(n, task=ctx.task),
+            params={"target_gc": Param(0.65, "fixed GC fraction for every sequence")},
+        )
+    )
+    register(
+        Spec(
+            name="random_gc_sweep",
+            group="baseline",
+            doc=(
+                "Uniform-random DNA spread EVENLY across GC levels {0.25..0.75}, each level "
+                "synthesised as its own batch then pooled. One reservoir spanning a GC range "
+                "instead of committing to a single GC; cost is linear in the number of levels."
+            ),
+            factory=lambda seed=None, **kw: GCRandomSampler(seed=seed, **kw),
+            adapter=lambda s, n, ctx: s.generate(n, task=ctx.task),
+            params={
+                "gc_levels": Param(
+                    "0.25,0.35,0.45,0.55,0.65,0.75",
+                    "comma-separated GC levels sampled in equal proportion",
+                ),
+                "target_gc": Param(0.5, "unused when gc_levels is set"),
+            },
+        )
+    )
+
     def _ise(seed=None, **kw):
         return InSilicoEvolutionGenerativeSampler(seed=seed, **kw)
 
