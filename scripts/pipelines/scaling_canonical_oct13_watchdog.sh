@@ -9,6 +9,10 @@
 #   16 concurrent cells is comfortable until the per-user GitHub quota says otherwise.
 # - A cell is DONE at >=TARGET USABLE models: metas WITHOUT an "error" field (a crashed
 #   model still writes a meta, so counting all metas would falsely look done).
+# - Cells are processed LEAST-COVERED-FIRST so coverage balances across all reservoirs
+#   (alphabetical order starved genomic/motif/random/zoonomia/gc_matched while it drove
+#   the alphabetically-early arms to completion). This gives every reservoir a
+#   preliminary point at every D before any single cell is driven to saturation.
 # - Each cell resubmits to its OWN sbatch so its qos/walltime/gres is preserved; the
 #   driver resumes and skips models already present.
 set -u
@@ -22,6 +26,9 @@ CAP=$CAP_MAX      # current adaptive cap (persists across sweeps)
 RATE_LO=800       # GitHub-bridge budget below this -> back off toward CAP_MIN
 RATE_HI=2000      # budget above this -> recover toward CAP_MAX
 cd "$R"
+
+# usable-model count for a cell out-dir (metas with no "error" field)
+cell_count() { grep -L '"error"' "$1"/r*_meta.json 2>/dev/null | wc -l; }
 
 while true; do
   echo "=== sc sweep $(date -u +%FT%TZ) ==="
@@ -58,18 +65,26 @@ print(f\"{int(a) if a is not None else 99999}|{r if r is not None else -1}\")
   nrun=$(echo "$running" | grep -cE "^sc_" || true)
   echo "  running sc cells: $nrun / cap $CAP"
 
-  for f in "$BASE"/sc_*.sbatch; do
+  # Build the sweep order: least-covered cell first (balances reservoirs).
+  mapfile -t ORDER < <(
+    for f in "$BASE"/sc_*.sbatch; do
+      job=$(basename "$f" .sbatch)
+      [ "$job" = "sc_watchdog" ] && continue
+      case "$job" in sc_smoke_*) continue;; esac
+      rest=${job#sc_}; D=${rest##*_}; RES=${rest%_*}
+      printf '%06d\t%s\n' "$(cell_count "$BASE/${RES}_d${D}")" "$f"
+    done | sort -n -k1,1 | cut -f2-
+  )
+
+  for f in "${ORDER[@]}"; do
     job=$(basename "$f" .sbatch)
-    [ "$job" = "sc_watchdog" ] && continue
-    case "$job" in sc_smoke_*) continue;; esac
     # already running (allow a trailing qos/variant char)?
     echo "$running" | grep -qE "^${job}[vw]?$" && continue
-    # derive out_dir: sc_<res>_<D> -> <res>_d<D>
     rest=${job#sc_}
     D=${rest##*_}
     RES=${rest%_*}
     out="$BASE/${RES}_d${D}"
-    n=$(grep -L '"error"' "$out"/r*_meta.json 2>/dev/null | wc -l)
+    n=$(cell_count "$out")
     [ "$n" -ge "$TARGET" ] && continue
     if [ "$nrun" -ge "$CAP" ]; then
       echo "  at cap ($nrun); defer $job ($n/$TARGET)"
