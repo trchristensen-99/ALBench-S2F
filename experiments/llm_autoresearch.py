@@ -434,31 +434,39 @@ def ensemble_feedback(
         d = np.sqrt((a * a).sum() * (b * b).sum())
         return float((a * b).sum() / d) if d > 0 else 0.0
 
+    # Canonical deploy protocol (constant K across reservoirs & D): start from the best single
+    # model, then greedily add the model that most improves the ElasticNetCV ensemble on val,
+    # up to exactly K members. No variable knee -> fair, identical cutoff everywhere.
+    K = int(os.environ.get("LLM_ENSEMBLE_K", "5"))
     solo = np.array([pear(Vs[:, j], ys) for j in range(M)])
     cand = list(np.argsort(solo)[::-1][: min(prefilter, M)])
-    chosen: list[int] = []
-    marg: list[float] = []
-    best = -2.0
-    A = np.column_stack([np.ones(len(ys)), Vs])
-    while cand and len(chosen) < max_members:
-        bi, br = None, best
+
+    def ens_val_r(cols):
+        try:
+            en = ElasticNetCV(positive=True, cv=3, n_alphas=20, max_iter=3000).fit(Vs[:, cols], ys)
+            return pear(en.predict(Vs[:, cols]), ys)
+        except Exception:
+            A = np.column_stack([np.ones(len(ys)), Vs[:, cols]])
+            w, *_ = np.linalg.lstsq(A, ys, rcond=None)
+            return pear(A @ w, ys)
+
+    best_single = int(np.argmax(solo))
+    chosen: list[int] = [best_single]
+    best = ens_val_r(chosen)
+    marg: list[float] = [best]
+    if best_single in cand:
+        cand.remove(best_single)
+    while cand and len(chosen) < K:
+        bi, br = None, -2.0
         for j in cand:
-            cols = [0] + [c + 1 for c in chosen + [j]]
-            w, *_ = np.linalg.lstsq(A[:, cols], ys, rcond=None)
-            r = pear(A[:, cols] @ w, ys)
+            r = ens_val_r(chosen + [j])
             if bi is None or r > br:
                 bi, br = j, r
-        if len(chosen) >= 1 and br <= best + 1e-5:
-            break
-        marg.append(br - best if chosen else br)
+        marg.append(br - best)
         best = br
         chosen.append(bi)
         cand.remove(bi)
-    try:
-        en = ElasticNetCV(positive=True, cv=5, n_alphas=40, max_iter=5000).fit(Vs[:, chosen], ys)
-        ens_r = pear(en.predict(Vs[:, chosen]), ys)
-    except Exception:
-        ens_r = best
+    ens_r = best
     keep = (
         "block_class",
         "optimizer",
@@ -479,6 +487,47 @@ def ensemble_feedback(
     return f"ensemble_val_r={ens_r:.4f}  ({len(chosen)} members, pool={M})\n" + "\n".join(lines)
 
 
+def build_task_context() -> str | None:
+    """Neutral task context (LLM_STRATEGY_CONTEXT=1): tell the LLM the reservoir / acquisition
+    strategy NAMES, how the sequences were generated, the val set, and that there is a broad
+    eval suite — WITHOUT any hint about strengths/weaknesses, so it reasons for itself. All from
+    env so the launcher controls what (if anything) is revealed."""
+    if os.environ.get("LLM_STRATEGY_CONTEXT", "0") != "1":
+        return None
+    res = os.environ.get("LLM_RESERVOIR_NAME", "").strip()
+    acq = os.environ.get("LLM_ACQUISITION_NAME", "").strip()
+    val = os.environ.get("LLM_VAL_DESC", "held-out chromosomes (chr19/21/X)").strip()
+    note = os.environ.get("LLM_TASK_NOTE", "").strip()
+    lines = [
+        "TASK CONTEXT (reason for yourself — no judgement is offered on which choices are better):"
+    ]
+    if res:
+        lines.append(f'- Training sequences come from reservoir strategy: "{res}".')
+    if acq and acq.lower() not in ("", "none"):
+        lines.append(f'- Acquisition strategy: "{acq}".')
+    if note:
+        lines.append(f"- How the sequences were generated: {note}")
+    lines.append(f"- Validation set: {val} (this may change in future experiments).")
+    lines.append("- Trained models are scored on a broad suite of held-out evaluation sets.")
+    cache = os.environ.get("LLM_RESERVOIR_CACHE", "").strip()
+    try:
+        n_ex = int(os.environ.get("LLM_SHOW_EXAMPLES", "0") or "0")
+    except ValueError:
+        n_ex = 0
+    if cache and n_ex > 0 and os.path.exists(cache):
+        try:
+            import numpy as np
+
+            z = np.load(cache, allow_pickle=True)
+            seqs = [str(x) for x in z["sequences"][:n_ex]]
+            if seqs:
+                lines.append("- Example training sequences:")
+                lines.extend(f"    {s}" for s in seqs)
+        except Exception:
+            pass
+    return "\n".join(lines) if len(lines) > 1 else None
+
+
 def build_prompt(
     n: int,
     history: list[tuple],
@@ -488,6 +537,7 @@ def build_prompt(
     context: str = "full",
     D: int | None = None,
     ensemble_summary: str | None = None,
+    task_context: str | None = None,
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt).
 
@@ -518,6 +568,8 @@ def build_prompt(
     spec = HP_SPACE_SPEC.replace(
         _BS_SPEC_PLACEHOLDER, "{" + ", ".join(str(x) for x in bs_menu) + "}"
     )
+    if task_context:
+        spec = task_context + "\n\n" + spec
     parts = [spec]
     if include_guidance:
         parts.append(ADVANCED_GUIDANCE)
@@ -930,6 +982,7 @@ class LLMAutoResearch(Strategy):
                 ens_summary = ensemble_feedback(os.environ.get("ALBENCH_OUT_DIR"))
             except Exception as e:
                 print(f"  [ensemble-aware] feedback unavailable: {e}", flush=True)
+        task_ctx = build_task_context()
         if self.use_kb:
             try:
                 from experiments.hp_knowledge_base import get_kb
@@ -956,6 +1009,7 @@ class LLMAutoResearch(Strategy):
                 context=self.context,
                 D=getattr(self, "D", None),
                 ensemble_summary=ens_summary,
+                task_context=task_ctx,
             )
             response = None
             try:
