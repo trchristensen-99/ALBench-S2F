@@ -508,7 +508,8 @@ def build_task_context() -> str | None:
     if note:
         lines.append(f"- How the sequences were generated: {note}")
     lines.append(f"- Validation set: {val} (this may change in future experiments).")
-    lines.append("- Trained models are scored on a broad suite of held-out evaluation sets.")
+    eval_desc = os.environ.get("LLM_EVAL_DESC", "a broad suite of held-out evaluation sets").strip()
+    lines.append(f"- Trained models are scored on {eval_desc}.")
     cache = os.environ.get("LLM_RESERVOIR_CACHE", "").strip()
     try:
         n_ex = int(os.environ.get("LLM_SHOW_EXAMPLES", "0") or "0")
