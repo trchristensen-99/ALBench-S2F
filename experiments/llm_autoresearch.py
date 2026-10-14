@@ -372,6 +372,113 @@ def summarize_kb(kb_summary: dict) -> str:
     return "\n".join(lines)
 
 
+def ensemble_feedback(
+    out_dir: str | None, max_members: int = 8, prefilter: int = 24, val_sub: int = 6000
+) -> str | None:
+    """Greedy ElasticNetCV ensemble on the VAL set, computed from the per-model predictions
+    already saved in ``out_dir`` (the same artifacts the deploy selector uses). Returns a
+    prompt-ready summary — the ensemble's val R, its members, each member's solo val R and the
+    marginal val-R gain it contributed when greedily added — or None if <2 usable models.
+
+    This is the signal for ENSEMBLE-AWARE search (LLM_ENSEMBLE_AWARE=1): the loop optimizes the
+    greedy ElasticNetCV ensemble we actually deploy, not solo val R, so the LLM is asked to
+    propose configs that COMPLEMENT the current members rather than duplicate the best single.
+    """
+    import glob
+
+    try:
+        import numpy as np
+        from sklearn.linear_model import ElasticNetCV
+    except Exception:
+        return None
+    od = out_dir or os.environ.get("ALBENCH_OUT_DIR")
+    if not od or not os.path.isdir(od):
+        return None
+    lab_p = os.path.join(od, "labels.npz")
+    if not os.path.exists(lab_p):
+        return None
+    try:
+        yv = np.load(lab_p)["val_labels"].astype(np.float64)
+    except Exception:
+        return None
+    vals, hps = [], []
+    for mp in sorted(glob.glob(os.path.join(od, "r*_meta.json"))):
+        try:
+            m = json.load(open(mp))
+        except Exception:
+            continue
+        if "error" in m or "val_pearson" not in m:
+            continue
+        npz = mp.replace("_meta.json", ".npz")
+        if not os.path.exists(npz):
+            continue
+        try:
+            z = np.load(npz)
+            if "val_pred" not in z.files:
+                continue
+            vals.append(z["val_pred"].astype(np.float64))
+            hps.append(m.get("hp", {}))
+        except Exception:
+            continue
+    if len(vals) < 2:
+        return None
+    V = np.column_stack(vals)
+    M = V.shape[1]
+    rng = np.random.default_rng(0)
+    idx = np.arange(len(yv)) if len(yv) <= val_sub else rng.choice(len(yv), val_sub, replace=False)
+    Vs, ys = V[idx], yv[idx]
+
+    def pear(a, b):
+        a = a - a.mean()
+        b = b - b.mean()
+        d = np.sqrt((a * a).sum() * (b * b).sum())
+        return float((a * b).sum() / d) if d > 0 else 0.0
+
+    solo = np.array([pear(Vs[:, j], ys) for j in range(M)])
+    cand = list(np.argsort(solo)[::-1][: min(prefilter, M)])
+    chosen: list[int] = []
+    marg: list[float] = []
+    best = -2.0
+    A = np.column_stack([np.ones(len(ys)), Vs])
+    while cand and len(chosen) < max_members:
+        bi, br = None, best
+        for j in cand:
+            cols = [0] + [c + 1 for c in chosen + [j]]
+            w, *_ = np.linalg.lstsq(A[:, cols], ys, rcond=None)
+            r = pear(A[:, cols] @ w, ys)
+            if bi is None or r > br:
+                bi, br = j, r
+        if len(chosen) >= 1 and br <= best + 1e-5:
+            break
+        marg.append(br - best if chosen else br)
+        best = br
+        chosen.append(bi)
+        cand.remove(bi)
+    try:
+        en = ElasticNetCV(positive=True, cv=5, n_alphas=40, max_iter=5000).fit(Vs[:, chosen], ys)
+        ens_r = pear(en.predict(Vs[:, chosen]), ys)
+    except Exception:
+        ens_r = best
+    keep = (
+        "block_class",
+        "optimizer",
+        "n_layers",
+        "width_base",
+        "ks",
+        "lr",
+        "conv_dropout",
+        "dense_dropout",
+        "lr_schedule",
+        "weight_decay",
+    )
+    lines = []
+    for rank, (c, dg) in enumerate(zip(chosen, marg)):
+        d = hps[c] if isinstance(hps[c], dict) else {}
+        kv = ", ".join(f"{k}={d[k]}" for k in keep if k in d)
+        lines.append(f"  #{rank + 1} solo_val_r={solo[c]:.4f} marginal_dR={dg:+.4f}: {kv}")
+    return f"ensemble_val_r={ens_r:.4f}  ({len(chosen)} members, pool={M})\n" + "\n".join(lines)
+
+
 def build_prompt(
     n: int,
     history: list[tuple],
@@ -380,6 +487,7 @@ def build_prompt(
     allow_novel: bool = False,
     context: str = "full",
     D: int | None = None,
+    ensemble_summary: str | None = None,
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt).
 
@@ -430,6 +538,18 @@ def build_prompt(
         parts.append(
             f"\nCURRENT SESSION TOP {shown} OBSERVATIONS "
             f"({order_desc}):\n{summarize_history(hist, max_items=max_items, order=order)}"
+        )
+    if ensemble_summary:
+        parts.append(
+            "\nCURRENT DEPLOYED ENSEMBLE (greedy top-K ElasticNetCV on the VAL set — THIS is the "
+            "metric we optimize and ship, not solo val_r):\n" + ensemble_summary + "\n"
+            "Your objective is to RAISE the ENSEMBLE val_r. Propose configs that COMPLEMENT the "
+            "members above: introduce diverse, decorrelated predictions (e.g. a different "
+            "block_class / optimizer / lr_schedule / depth-width regime) so the ElasticNet stack "
+            "gains from adding them. A config that is individually slightly weaker but decorrelated "
+            "with the current ensemble is MORE valuable than another near-duplicate of the top "
+            "solo model. Members with small marginal_dR show where the ensemble is already "
+            "saturated — avoid that region."
         )
     if include_kb and kb_summary:
         parts.append(
@@ -796,10 +916,20 @@ class LLMAutoResearch(Strategy):
         # Off-menu axes: only when explicitly enabled (default OFF keeps behavior
         # identical to the core-15-axis search).
         self.allow_novel = os.environ.get("LLM_ALLOW_NOVEL_AXES", "0") == "1"
+        # Ensemble-aware search: feed the running greedy ElasticNetCV ensemble (on val) back
+        # into the prompt so the LLM proposes configs that COMPLEMENT it (the deploy metric),
+        # not merely high solo val_r.
+        self.ensemble_aware = os.environ.get("LLM_ENSEMBLE_AWARE", "0") == "1"
 
     def suggest(self, n: int) -> list[HPConfig]:
         # Build context
         kb_summary = {}
+        ens_summary = None
+        if self.ensemble_aware:
+            try:
+                ens_summary = ensemble_feedback(os.environ.get("ALBENCH_OUT_DIR"))
+            except Exception as e:
+                print(f"  [ensemble-aware] feedback unavailable: {e}", flush=True)
         if self.use_kb:
             try:
                 from experiments.hp_knowledge_base import get_kb
@@ -825,6 +955,7 @@ class LLMAutoResearch(Strategy):
                 allow_novel=self.allow_novel,
                 context=self.context,
                 D=getattr(self, "D", None),
+                ensemble_summary=ens_summary,
             )
             response = None
             try:
