@@ -398,10 +398,25 @@ def ensemble_feedback(
     if not os.path.exists(lab_p):
         return None
     try:
-        yv = np.load(lab_p)["val_labels"].astype(np.float64)
+        lab = np.load(lab_p)
+        yv = lab["val_labels"].astype(np.float64)
     except Exception:
         return None
+    # oracle labels for generalization-stress eval sets (graceful if absent)
+    evalsets = [
+        e.strip() for e in os.environ.get("LLM_ENSEMBLE_EVALS", "ood,snv").split(",") if e.strip()
+    ]
+    ora: dict = {}
+    for e in evalsets:
+        if e == "snv" and "oracle_snv_ref" in lab.files and "oracle_snv_alt" in lab.files:
+            ora["snv"] = (
+                lab["oracle_snv_ref"].astype(np.float64),
+                lab["oracle_snv_alt"].astype(np.float64),
+            )
+        elif f"oracle_{e}" in lab.files:
+            ora[e] = lab[f"oracle_{e}"].astype(np.float64)
     vals, hps = [], []
+    tpred: dict = {e: [] for e in ora}
     for mp in sorted(glob.glob(os.path.join(od, "r*_meta.json"))):
         try:
             m = json.load(open(mp))
@@ -418,6 +433,22 @@ def ensemble_feedback(
                 continue
             vals.append(z["val_pred"].astype(np.float64))
             hps.append(m.get("hp", {}))
+            for e in ora:
+                if e == "snv":
+                    tpred["snv"].append(
+                        (
+                            z["test_pred_snv_ref"].astype(np.float64),
+                            z["test_pred_snv_alt"].astype(np.float64),
+                        )
+                        if "test_pred_snv_ref" in z.files and "test_pred_snv_alt" in z.files
+                        else None
+                    )
+                else:
+                    tpred[e].append(
+                        z[f"test_pred_{e}"].astype(np.float64)
+                        if f"test_pred_{e}" in z.files
+                        else None
+                    )
         except Exception:
             continue
     if len(vals) < 2:
@@ -484,7 +515,40 @@ def ensemble_feedback(
         d = hps[c] if isinstance(hps[c], dict) else {}
         kv = ", ".join(f"{k}={d[k]}" for k in keep if k in d)
         lines.append(f"  #{rank + 1} solo_val_r={solo[c]:.4f} marginal_dR={dg:+.4f}: {kv}")
-    return f"ensemble_val_r={ens_r:.4f}  ({len(chosen)} members, pool={M})\n" + "\n".join(lines)
+    # Per-eval readout: how the current ensemble does on the generalization-stress sets, so the
+    # LLM can propose configs that lift robustness (OOD / variant-effect), not just val fit.
+    eval_line = ""
+    try:
+        enf = ElasticNetCV(positive=True, cv=3, n_alphas=20, max_iter=3000).fit(Vs[:, chosen], ys)
+        parts_e = []
+        for e in ora:
+            if e == "snv":
+                if any(tpred["snv"][c] is None for c in chosen):
+                    continue
+                ref = np.column_stack([tpred["snv"][c][0] for c in chosen])
+                alt = np.column_stack([tpred["snv"][c][1] for c in chosen])
+                dp = enf.predict(alt) - enf.predict(ref)
+                do = ora["snv"][1] - ora["snv"][0]
+                parts_e.append(f"SNV-effect R={pear(dp, do):.4f}")
+            else:
+                if any(tpred[e][c] is None for c in chosen):
+                    continue
+                P = np.column_stack([tpred[e][c] for c in chosen])
+                parts_e.append(f"{e} R={pear(enf.predict(P), ora[e]):.4f}")
+        if parts_e:
+            eval_line = (
+                "\nThis ensemble on generalization-stress sets: "
+                + ", ".join(parts_e)
+                + ". Also try to lift these (robustness to distribution shift / variant effects), "
+                "not just val fit."
+            )
+    except Exception:
+        pass
+    return (
+        f"ensemble_val_r={ens_r:.4f}  ({len(chosen)} members, pool={M})\n"
+        + "\n".join(lines)
+        + eval_line
+    )
 
 
 def build_task_context() -> str | None:
