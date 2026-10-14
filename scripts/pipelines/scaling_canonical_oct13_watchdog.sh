@@ -1,39 +1,33 @@
 #!/bin/bash
 # Watchdog for the canonical scaling-curve HP-search (outputs/scaling_canonical_oct13).
-# - Holds ALL cells while the laptop GitHub-bridge heartbeat is stale (resubmitting
-#   then just burns a job that reads a stale heartbeat and exits with LLM_FAIL_HARD).
-# - ADAPTIVE concurrency cap: targets CAP_MAX (16) so H100+V100 fill together, but
-#   backs off toward CAP_MIN (10) when the GitHub-bridge budget runs thin or a cell
-#   logs a rate-limit, then recovers (step +1) once the budget refills. The single
-#   poller serialises proposals and each cell only needs one every few minutes, so
-#   16 concurrent cells is comfortable until the per-user GitHub quota says otherwise.
-# - A cell is DONE at >=TARGET USABLE models: metas WITHOUT an "error" field (a crashed
-#   model still writes a meta, so counting all metas would falsely look done).
-# - Cells are processed LEAST-COVERED-FIRST so coverage balances across all reservoirs
-#   (alphabetical order starved genomic/motif/random/zoonomia/gc_matched while it drove
-#   the alphabetically-early arms to completion). This gives every reservoir a
-#   preliminary point at every D before any single cell is driven to saturation.
-# - Each cell resubmits to its OWN sbatch so its qos/walltime/gres is preserved; the
-#   driver resumes and skips models already present.
+# - Holds ALL cells while the laptop GitHub-bridge heartbeat is stale.
+# - LEAST-COVERED-FIRST ordering -> even coverage across reservoirs x D.
+# - DYNAMIC QOS: each submitted cell is placed on the highest-priority qos with a free
+#   slot for its GPU type (fast -> default -> slow_nice), so every non-preemptible slot
+#   (fast 2H+2V, default 4H+4V) stays full and freed GPUs go to the neediest cell on a
+#   qos that actually wins them. slow_nice (and fast) use a SHORT 4h walltime so they can
+#   backfill onto momentarily-free cluster GPUs; default keeps 12h. qos/time are passed
+#   as sbatch CLI overrides, so the per-cell sbatch files are left untouched.
+# - Done = >=TARGET usable models (metas with no "error" field).
 set -u
 R=/grid/wsbs/home_norepl/christen/ALBench-S2F
 SB=/cm/shared/apps/slurm/current/bin
 BASE=$R/outputs/scaling_canonical_oct13
 TARGET=40
-CAP_MAX=16        # concurrency ceiling (fills H100 + V100 together)
-CAP_MIN=10        # floor under bridge rate-limit pressure
-CAP=$CAP_MAX      # current adaptive cap (persists across sweeps)
-RATE_LO=800       # GitHub-bridge budget below this -> back off toward CAP_MIN
-RATE_HI=2000      # budget above this -> recover toward CAP_MAX
+CAP_MAX=18        # total in-queue ceiling (run+pend); keeps non-preempt full + backfill buffer
+CAP_MIN=10
+CAP=$CAP_MAX
+RATE_LO=800
+RATE_HI=2000
+# per-user qos GPU caps (admin-set): fast 2, default 4 for each of h100/v100
+FAST_CAP=2
+DEF_CAP=4
 cd "$R"
 
-# usable-model count for a cell out-dir (metas with no "error" field)
 cell_count() { grep -L '"error"' "$1"/r*_meta.json 2>/dev/null | wc -l; }
 
 while true; do
   echo "=== sc sweep $(date -u +%FT%TZ) ==="
-  # One probe returns BOTH the heartbeat age and the live GitHub-bridge budget
-  # (bridge_age_s makes an API read, which populates the rate state).
   PROBE=$(PYTHONPATH=$R uv run --no-sync python -c "
 import sys; sys.path.insert(0,'$R')
 import albench.arch_search.gh_bridge as g
@@ -48,7 +42,6 @@ print(f\"{int(a) if a is not None else 99999}|{r if r is not None else -1}\")
   fi
   echo "  bridge heartbeat ${BRIDGE_AGE}s old -> alive (budget remaining=${REMAIN})"
 
-  # --- adaptive cap: back off on a thin budget OR a recent cell rate-limit log ---
   RL=$(find "$BASE/logs" -name 'sc_*.log' -mmin -8 2>/dev/null -print0 \
        | xargs -0 grep -lE "RateLimitExceeded|usage/rate limit|rate limit|overloaded" 2>/dev/null | wc -l)
   if { [ "${REMAIN}" -ge 0 ] && [ "${REMAIN}" -lt "$RATE_LO" ]; } || [ "${RL:-0}" -ge 1 ]; then
@@ -61,11 +54,18 @@ print(f\"{int(a) if a is not None else 99999}|{r if r is not None else -1}\")
     CAP=$NEW
   fi
 
-  running=$($SB/squeue -u christen -h -o "%j" 2>/dev/null)
-  nrun=$(echo "$running" | grep -cE "^sc_" || true)
-  echo "  running sc cells: $nrun / cap $CAP"
+  running_all=$($SB/squeue -u christen -h -o "%j" 2>/dev/null)         # run + pend (dedup)
+  nq=$(echo "$running_all" | grep -cE "^sc_" || true)                  # total in queue
+  echo "  sc cells in queue: $nq / cap $CAP"
 
-  # Build the sweep order: least-covered cell first (balances reservoirs).
+  # free non-preempt slots per (qos,gpu), from RUNNING jobs only
+  RJ=$($SB/squeue -u christen -t RUNNING -h -o "%q|%b" 2>/dev/null)
+  cnt() { echo "$RJ" | grep -cE "$1"; }
+  ffh=$(( FAST_CAP - $(cnt '^fast\|.*h100') )); ffv=$(( FAST_CAP - $(cnt '^fast\|.*v100') ))
+  fdh=$(( DEF_CAP  - $(cnt '^default\|.*h100') )); fdv=$(( DEF_CAP - $(cnt '^default\|.*v100') ))
+  echo "  free non-preempt slots  H100: fast=$ffh default=$fdh  |  V100: fast=$ffv default=$fdv"
+
+  # least-covered-first order
   mapfile -t ORDER < <(
     for f in "$BASE"/sc_*.sbatch; do
       job=$(basename "$f" .sbatch)
@@ -78,19 +78,27 @@ print(f\"{int(a) if a is not None else 99999}|{r if r is not None else -1}\")
 
   for f in "${ORDER[@]}"; do
     job=$(basename "$f" .sbatch)
-    # already running (allow a trailing qos/variant char)?
-    echo "$running" | grep -qE "^${job}[vw]?$" && continue
-    rest=${job#sc_}
-    D=${rest##*_}
-    RES=${rest%_*}
-    out="$BASE/${RES}_d${D}"
-    n=$(cell_count "$out")
+    echo "$running_all" | grep -qE "^${job}[vw]?$" && continue
+    rest=${job#sc_}; D=${rest##*_}; RES=${rest%_*}
+    n=$(cell_count "$BASE/${RES}_d${D}")
     [ "$n" -ge "$TARGET" ] && continue
-    if [ "$nrun" -ge "$CAP" ]; then
-      echo "  at cap ($nrun); defer $job ($n/$TARGET)"
-      continue
+    if [ "$nq" -ge "$CAP" ]; then
+      echo "  at cap ($nq); defer $job ($n/$TARGET)"; continue
     fi
-    $SB/sbatch "$f" >/dev/null 2>&1 && { nrun=$((nrun+1)); echo "  submitted $job ($n/$TARGET) -> running $nrun"; }
+    # GPU type from the cell's own gres; qos = highest-priority free slot for it
+    g=$(grep -oE 'gpu:(h100|v100)' "$f" | head -1); g=${g##*:}
+    if [ "$g" = h100 ]; then
+      if   [ "$ffh" -gt 0 ]; then Q=fast;      T=4:00:00;     ffh=$((ffh-1))
+      elif [ "$fdh" -gt 0 ]; then Q=default;   T=12:00:00;    fdh=$((fdh-1))
+      else                        Q=slow_nice; T=4:00:00; fi
+    else
+      if   [ "$ffv" -gt 0 ]; then Q=fast;      T=4:00:00;     ffv=$((ffv-1))
+      elif [ "$fdv" -gt 0 ]; then Q=default;   T=12:00:00;    fdv=$((fdv-1))
+      else                        Q=slow_nice; T=4:00:00; fi
+    fi
+    if $SB/sbatch --qos="$Q" --time="$T" "$f" >/dev/null 2>&1; then
+      nq=$((nq+1)); echo "  submitted $job ($n/$TARGET) qos=$Q[$g] -> queue $nq"
+    fi
   done
   sleep 420
 done
