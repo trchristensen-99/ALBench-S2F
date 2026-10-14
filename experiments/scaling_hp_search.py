@@ -1130,6 +1130,81 @@ def run_search(args):
                 ),
             )
 
+        # MULTI-FIDELITY SCREEN (opt-in, --screen_epochs>0): cheaply train every candidate at
+        # screen_epochs, keep the top screen_keep_frac by val Pearson, and full-train only those.
+        # Screened-out configs are recorded as light `_screen.json` metas (resume skips them) and
+        # never full-trained -- the compute saving. Sequential path only. We keep ORIGINAL indices
+        # (via _keep_idx) so model_ids and resume stay aligned.
+        _keep_idx = None
+        if (
+            getattr(args, "screen_epochs", 0)
+            and args.screen_epochs > 0
+            and args.screen_epochs < args.epochs
+            and args.parallel_gpus <= 1
+            and len(round_configs) > 2
+        ):
+            screened = []
+            for i, (strat_name, hp) in enumerate(round_configs):
+                sid = f"r{rd:02d}_{strat_name}_{i:02d}"
+                full_meta = out_dir / f"{sid}_meta.json"
+                scr_meta = out_dir / f"{sid}_screen.json"
+                # Already full-trained (resume) -> auto-keep; already screened -> reuse score.
+                if full_meta.exists():
+                    try:
+                        sv = json.loads(full_meta.read_text()).get("val_pearson")
+                    except Exception:
+                        sv = None
+                    screened.append((i, strat_name, hp, sv if sv is not None else -1.0, True))
+                    continue
+                if scr_meta.exists():
+                    try:
+                        sv = json.loads(scr_meta.read_text()).get("screen_val_pearson", -1.0)
+                    except Exception:
+                        sv = -1.0
+                    screened.append((i, strat_name, hp, float(sv), False))
+                    continue
+                try:
+                    sr = train_one_model(
+                        hp,
+                        train_seqs,
+                        train_labels,
+                        val_seqs,
+                        val_labels,
+                        test_seqs,
+                        epochs=args.screen_epochs,
+                        use_compile=False,
+                        early_stopping_patience=esp,
+                        min_delta=min_delta,
+                    )
+                    sv = float(sr.get("val_pearson", -1.0))
+                except Exception as e:
+                    print(f"    [screen] {sid} errored: {e}")
+                    sv = -1.0
+                _atomic_write_text(
+                    scr_meta,
+                    json.dumps(
+                        {
+                            "model_id": sid,
+                            "screen_val_pearson": sv,
+                            "screen_epochs": args.screen_epochs,
+                            "round": rd,
+                        },
+                        default=str,
+                    ),
+                )
+                print(f"    [screen] {sid} val_pearson={sv:.4f} ({args.screen_epochs}ep)")
+            # keep already-full-trained + top screen_keep_frac of the rest
+            keep_n = max(1, int(round(args.screen_keep_frac * len(screened))))
+            fulls = [s for s in screened if s[4]]
+            cands = sorted([s for s in screened if not s[4]], key=lambda s: -s[3])
+            keep = fulls + cands[: max(0, keep_n - len(fulls))]
+            _keep_idx = {s[0] for s in keep}
+            print(
+                f"  [screen] round {rd}: kept {len(keep)}/{len(round_configs)} for full training "
+                f"(indices {sorted(_keep_idx)}; keep_frac={args.screen_keep_frac}, "
+                f"screen_epochs={args.screen_epochs})"
+            )
+
         # Train each config sequentially (single-GPU for now) OR in parallel
         # when --parallel_gpus > 1 (per-round configs dispatched across GPUs).
         # Track only models trained in THIS run; preloaded history already covers
@@ -1284,6 +1359,9 @@ def run_search(args):
             continue
 
         for i, (strat_name, hp) in enumerate(round_configs):
+            # Multi-fidelity: skip configs the screen filtered out (never full-train them).
+            if _keep_idx is not None and i not in _keep_idx:
+                continue
             # MULTI-SEED: train each proposed config with n_seeds distinct
             # weight-init seeds (hp.seed+k). The _s{k} model_id suffix and the
             # init_seed stamp are added ONLY when n_seeds>1, so single-seed runs
@@ -1490,6 +1568,11 @@ def main():
         help="which strategies get the canonical anchor at round 0",
     )
     ap.add_argument("--per_strategy_per_round", type=int, default=5)
+    # Multi-fidelity screening (opt-in; 0 = off). Train each round's configs at
+    # --screen_epochs first (cheap), keep the top --screen_keep_frac by val Pearson,
+    # then full-train only those. ASHA-style successive halving at the round level.
+    ap.add_argument("--screen_epochs", type=int, default=0)
+    ap.add_argument("--screen_keep_frac", type=float, default=0.4)
     ap.add_argument("--D", type=int, default=10_000)
     ap.add_argument("--ref_only", action="store_true")
     ap.add_argument("--out_dir", required=True)

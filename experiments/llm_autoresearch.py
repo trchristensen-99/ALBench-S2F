@@ -648,6 +648,28 @@ def warmstart_context(D: int | None, k: int = 8) -> str | None:
     return "\n".join(lines) if len(lines) > 1 else None
 
 
+def _hp_feats(hp) -> list[float]:
+    """Numeric feature vector for a surrogate (hybrid-BO). Log-scales lr/wd, ordinal-encodes
+    categoricals. Accepts an HPConfig or a dict."""
+    import math
+
+    d = asdict(hp) if not isinstance(hp, dict) else hp
+    bc = {"plain": 0, "eff": 1, "ag": 2}
+    op = {"adam": 0, "adamw": 1, "muon": 2}
+    return [
+        math.log10(max(float(d.get("lr", 1e-3)), 1e-8)),
+        math.log10(max(float(d.get("weight_decay", 1e-3)), 1e-10)),
+        float(d.get("n_layers", 6)),
+        float(d.get("width_base", 64)),
+        float(d.get("ks", 9)),
+        float(d.get("conv_dropout", 0.0)),
+        float(d.get("dense_dropout", 0.0)),
+        float(bc.get(d.get("block_class"), 1)),
+        float(op.get(d.get("optimizer"), 1)),
+        float(d.get("batch_size", 256)),
+    ]
+
+
 def build_prompt(
     n: int,
     history: list[tuple],
@@ -1165,6 +1187,45 @@ class LLMAutoResearch(Strategy):
                         f"len={len(response)} repr={response[:1500]!r}",
                         flush=True,
                     )
+
+        # HYBRID LLM+BO (opt-in LLM_HYBRID_BO=1): fit a surrogate on history, generate extra
+        # BO candidates, and return the top-n blend of LLM + BO proposals. Needs enough history.
+        if (
+            os.environ.get("LLM_HYBRID_BO", "0") == "1"
+            and len(self.history) >= 8
+            and len(configs) >= n
+        ):
+            try:
+                import numpy as _np
+                from sklearn.ensemble import RandomForestRegressor
+
+                from experiments.scaling_hp_search import sample_random_hp
+
+                Xh = [_hp_feats(h) for h, _ in self.history]
+                yh = [m for _, m in self.history]
+                rf = RandomForestRegressor(n_estimators=120, random_state=0, n_jobs=1).fit(Xh, yh)
+                extra = []
+                for _ in range(n * 2):
+                    try:
+                        extra.append(
+                            sample_random_hp(
+                                self.rng, int(self.rng.integers(2**31)), getattr(self, "D", None)
+                            )
+                        )
+                    except Exception:
+                        break
+                pool = list(configs) + extra
+                order = _np.argsort(rf.predict([_hp_feats(c) for c in pool]))[::-1]
+                picked = [pool[i] for i in order[:n]]
+                n_bo = sum(1 for i in order[:n] if i >= len(configs))
+                print(
+                    f"  [hybrid-bo] blended {n - n_bo} LLM + {n_bo} BO-generated "
+                    f"(surrogate-ranked from {len(pool)} candidates)",
+                    flush=True,
+                )
+                configs = picked
+            except Exception as e:
+                print(f"  [hybrid-bo] skipped: {e}", flush=True)
 
         if len(configs) < n:
             raise RuntimeError(
