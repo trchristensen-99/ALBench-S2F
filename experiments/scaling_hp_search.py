@@ -1073,13 +1073,24 @@ def run_search(args):
     # rounds. "Best so far" is read back from every meta on disk, so the signal
     # is monotonic (a max) and resume-safe — a relaunch accounts for models
     # trained in earlier launches too.
+    # The knee tracks the ENSEMBLE signal (mean of the top-K individual
+    # val_pearson), not best-single: an AutoResearch run is building a deployable
+    # ensemble, so a single lucky model must not end the search. It is also
+    # guarded by LLM_KNEE_MIN_MODELS so it can never stop before a full pool
+    # exists. Default OFF — the standing decision is to run AutoResearch to full
+    # rounds; efficiency comes from the per-D proposal schedule below, not from
+    # truncating context. Use the knee only as a conservative safety cap.
     _knee_on = os.environ.get("LLM_KNEE_STOP", "0") == "1"
-    _knee_patience = int(os.environ.get("LLM_KNEE_PATIENCE", "3"))
+    _knee_patience = int(os.environ.get("LLM_KNEE_PATIENCE", "4"))
     _knee_eps = float(os.environ.get("LLM_KNEE_EPS", "0.002"))
-    _knee_min_rounds = int(os.environ.get("LLM_KNEE_MIN_ROUNDS", "5"))
+    _knee_min_rounds = int(os.environ.get("LLM_KNEE_MIN_ROUNDS", "6"))
+    _knee_min_models = int(os.environ.get("LLM_KNEE_MIN_MODELS", "24"))
+    _knee_topk = int(os.environ.get("LLM_KNEE_TOPK", "5"))
 
-    def _best_val_on_disk() -> float:
-        best = -2.0
+    def _knee_signal() -> tuple[int, float]:
+        """(n_models_on_disk, mean of top-K val_pearson) — a monotone-ish proxy
+        for the deployable ensemble that plateaus later than best-single."""
+        vals = []
         for mf in out_dir.glob("r*_meta.json"):
             if mf.name.endswith("_screen.json"):
                 continue
@@ -1087,11 +1098,33 @@ def run_search(args):
                 v = json.loads(mf.read_text()).get("val_pearson")
             except Exception:
                 continue
-            if isinstance(v, (int, float)) and float(v) > best:
-                best = float(v)
-        return best
+            if isinstance(v, (int, float)):
+                vals.append(float(v))
+        if not vals:
+            return 0, -2.0
+        vals.sort(reverse=True)
+        k = min(_knee_topk, len(vals))
+        return len(vals), sum(vals[:k]) / k
 
     _knee_hist: list[float] = []
+
+    # Per-D proposal schedule (user idea): propose MORE configs/round at small D
+    # (cheap, explore widely) and FEWER as D grows (expensive). Env form:
+    # LLM_PER_ROUND_BY_D="10000:5,30000:4,100000:3,300000:2". Falls back to
+    # --per_strategy_per_round for any D not listed. Lets a single launcher keep
+    # ensemble size matched to the cost of each scale.
+    _per_round_by_d: dict[int, int] = {}
+    _prbd_env = os.environ.get("LLM_PER_ROUND_BY_D", "").strip()
+    if _prbd_env:
+        for _tok in _prbd_env.split(","):
+            if ":" in _tok:
+                _dk, _nk = _tok.split(":", 1)
+                try:
+                    _per_round_by_d[int(_dk)] = int(_nk)
+                except ValueError:
+                    print(f"  [per-D] ignoring malformed token {_tok!r}", flush=True)
+        if _per_round_by_d:
+            print(f"  [per-D] proposal schedule = {_per_round_by_d}", flush=True)
 
     total = 0
     rd = -1
@@ -1128,7 +1161,9 @@ def run_search(args):
             round_configs = []
             try:
                 for name, strat in strategies.items():
-                    n_per_strat = args.per_strategy_per_round
+                    n_per_strat = _per_round_by_d.get(
+                        int(getattr(args, "D", 0) or 0), args.per_strategy_per_round
+                    )
                     configs = strat.suggest(n_per_strat)
                     for c in configs:
                         round_configs.append((name, c))
@@ -1524,23 +1559,29 @@ def run_search(args):
             if cs:
                 strat.update(cs, vs)
 
-        # Adaptive knee-stop: treat --rounds as a cap and break once the best
-        # val_pearson has plateaued. The signal is a running max, so the gap is
-        # always >= 0; we stop when < EPS of improvement accrued over PATIENCE
-        # rounds, after a LLM_KNEE_MIN_ROUNDS warmup.
+        # Adaptive knee-stop (conservative safety cap; default OFF): break only
+        # once the ENSEMBLE signal (mean top-K val) has plateaued AND a full pool
+        # of >= LLM_KNEE_MIN_MODELS already exists, so a single lucky model can
+        # never end the search and the deployable ensemble is never truncated.
         if _knee_on:
-            _knee_hist.append(_best_val_on_disk())
-            if (rd + 1) >= _knee_min_rounds and len(_knee_hist) > _knee_patience:
+            _n_models, _ens_val = _knee_signal()
+            _knee_hist.append(_ens_val)
+            if (
+                _n_models >= _knee_min_models
+                and (rd + 1) >= _knee_min_rounds
+                and len(_knee_hist) > _knee_patience
+            ):
                 gain = _knee_hist[-1] - _knee_hist[-1 - _knee_patience]
                 print(
-                    f"  [knee] best_val_so_far={_knee_hist[-1]:.4f} "
+                    f"  [knee] n_models={_n_models} ens_top{_knee_topk}_val={_ens_val:.4f} "
                     f"gain_over_last_{_knee_patience}rd={gain:.4f} (eps={_knee_eps})",
                     flush=True,
                 )
                 if gain < _knee_eps:
                     print(
-                        f"=== [knee] val plateaued (gain {gain:.4f} < {_knee_eps}) after "
-                        f"round {rd + 1}/{args.rounds}; stopping early to free GPU. ===",
+                        f"=== [knee] ensemble val plateaued (gain {gain:.4f} < {_knee_eps}, "
+                        f"{_n_models} models) after round {rd + 1}/{args.rounds}; "
+                        f"stopping early to free GPU. ===",
                         flush=True,
                     )
                     break
