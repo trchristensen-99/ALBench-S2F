@@ -1193,6 +1193,11 @@ def run_search(args):
                     ),
                 )
                 print(f"    [screen] {sid} val_pearson={sv:.4f} ({args.screen_epochs}ep)")
+                # Freshly-screened configs must enter the ranking pool too — without
+                # this append only RESUMED (pre-existing _screen.json / _meta.json)
+                # configs were ever considered, so a clean run screened everything but
+                # kept nothing (screened==[] -> keep_n=1, cands=[] -> kept 0/round).
+                screened.append((i, strat_name, hp, sv, False))
             # keep already-full-trained + top screen_keep_frac of the rest
             keep_n = max(1, int(round(args.screen_keep_frac * len(screened))))
             fulls = [s for s in screened if s[4]]
