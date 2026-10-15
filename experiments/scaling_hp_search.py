@@ -1049,7 +1049,35 @@ def run_search(args):
     if n_preloaded:
         print(f"=== Resume: preloaded {n_preloaded} prior model results ===")
 
+    # --- Adaptive round-stopping (knee) --------------------------------------
+    # Fixed round counts waste GPU once val has plateaued. When LLM_KNEE_STOP=1,
+    # --rounds becomes a CAP: after a warmup we stop early if the best
+    # val_pearson seen so far has not improved by > EPS over the last PATIENCE
+    # rounds. "Best so far" is read back from every meta on disk, so the signal
+    # is monotonic (a max) and resume-safe — a relaunch accounts for models
+    # trained in earlier launches too.
+    _knee_on = os.environ.get("LLM_KNEE_STOP", "0") == "1"
+    _knee_patience = int(os.environ.get("LLM_KNEE_PATIENCE", "3"))
+    _knee_eps = float(os.environ.get("LLM_KNEE_EPS", "0.002"))
+    _knee_min_rounds = int(os.environ.get("LLM_KNEE_MIN_ROUNDS", "5"))
+
+    def _best_val_on_disk() -> float:
+        best = -2.0
+        for mf in out_dir.glob("r*_meta.json"):
+            if mf.name.endswith("_screen.json"):
+                continue
+            try:
+                v = json.loads(mf.read_text()).get("val_pearson")
+            except Exception:
+                continue
+            if isinstance(v, (int, float)) and float(v) > best:
+                best = float(v)
+        return best
+
+    _knee_hist: list[float] = []
+
     total = 0
+    rd = -1
     for rd in range(args.rounds):
         print(f"\n=== Round {rd + 1}/{args.rounds} ===")
         # Proposal checkpoint: persist this round's configs so a resumed run reuses
@@ -1479,10 +1507,32 @@ def run_search(args):
             if cs:
                 strat.update(cs, vs)
 
+        # Adaptive knee-stop: treat --rounds as a cap and break once the best
+        # val_pearson has plateaued. The signal is a running max, so the gap is
+        # always >= 0; we stop when < EPS of improvement accrued over PATIENCE
+        # rounds, after a LLM_KNEE_MIN_ROUNDS warmup.
+        if _knee_on:
+            _knee_hist.append(_best_val_on_disk())
+            if (rd + 1) >= _knee_min_rounds and len(_knee_hist) > _knee_patience:
+                gain = _knee_hist[-1] - _knee_hist[-1 - _knee_patience]
+                print(
+                    f"  [knee] best_val_so_far={_knee_hist[-1]:.4f} "
+                    f"gain_over_last_{_knee_patience}rd={gain:.4f} (eps={_knee_eps})",
+                    flush=True,
+                )
+                if gain < _knee_eps:
+                    print(
+                        f"=== [knee] val plateaued (gain {gain:.4f} < {_knee_eps}) after "
+                        f"round {rd + 1}/{args.rounds}; stopping early to free GPU. ===",
+                        flush=True,
+                    )
+                    break
+
     # Final summary
     summary = {
         "strategies": list(strategies),
         "rounds": args.rounds,
+        "rounds_run": rd + 1,
         "per_strategy_per_round": args.per_strategy_per_round,
         "total_models": total,
         "D": args.D,
