@@ -757,7 +757,13 @@ def train_one_model(
     early_stopping_patience: int = 8,
     min_delta: float = 1e-3,
     extra_test_sets: dict | None = None,
+    init_from: str | None = None,
+    save_state_to: str | None = None,
 ):
+    # init_from / save_state_to enable WEIGHT transfer across D (not just HP
+    # transfer): warm-init the student from a parent checkpoint of the SAME
+    # architecture and fine-tune. File-path based so no tensors leak into the
+    # JSON-serialised result. Both default None -> ordinary from-scratch training.
     import sys
 
     sys.path.insert(0, str(REPO))
@@ -829,9 +835,20 @@ def train_one_model(
         dense_dropout=hp.dense_dropout,
         **md_over,  # activation / se_reduction
     )
+    if init_from:
+        # Warm-init from a same-architecture parent checkpoint. strict=True so a
+        # shape/key mismatch (i.e. a different arch) fails loudly rather than
+        # silently training from scratch.
+        sd = torch.load(init_from, map_location=device)
+        student.models[0].load_state_dict(sd, strict=True)
+        print(f"  [weight-transfer] warm-initialised from {init_from}", flush=True)
     t0 = time.time()
     student.fit(train_seqs, train_labels, val_sequences=val_seqs, val_labels=val_labels)
     train_time = time.time() - t0
+    if save_state_to:
+        Path(save_state_to).parent.mkdir(parents=True, exist_ok=True)
+        torch.save(student.models[0].state_dict(), save_state_to)
+        print(f"  [weight-transfer] saved parent checkpoint -> {save_state_to}", flush=True)
 
     val_pred = student.predict(val_seqs)
     test_pred = student.predict(test_seqs)
