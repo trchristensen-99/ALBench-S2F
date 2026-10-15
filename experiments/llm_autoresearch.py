@@ -681,6 +681,7 @@ def build_prompt(
     ensemble_summary: str | None = None,
     task_context: str | None = None,
     warmstart: str | None = None,
+    reflect: bool = False,
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt).
 
@@ -774,6 +775,16 @@ def build_prompt(
     if allow_novel:
         closing += (
             '\nOptionally add an "extra" object per dict for the experimental axes described above.'
+        )
+    if reflect:
+        parts.append(
+            "\nREFLECTION CHECKPOINT — before you propose, pause and reflect: (1) What patterns in "
+            "the observations above are clearly working, and what has consistently underperformed? "
+            "(2) Restate the objective in your own terms — maximize the deployed greedy "
+            "ElasticNetCV ensemble val-R, robust across a broad held-out eval battery, not just "
+            "single-model fit. (3) Which regions of the HP space have you under-explored or "
+            "abandoned too early? Let this reflection shape the proposals (you may note it briefly "
+            "before the JSON, but still end with ONLY the JSON array)."
         )
     parts.append(closing)
     return system, "\n".join(parts)
@@ -1117,6 +1128,10 @@ class LLMAutoResearch(Strategy):
         # into the prompt so the LLM proposes configs that COMPLEMENT it (the deploy metric),
         # not merely high solo val_r.
         self.ensemble_aware = os.environ.get("LLM_ENSEMBLE_AWARE", "0") == "1"
+        # Periodic reflection/reorientation: every N suggest() calls, ask the model to pause,
+        # review what has/hasn't worked, restate the objective, and note under-explored regions.
+        self.reflect_every = int(os.environ.get("LLM_REFLECT_EVERY", "0") or 0)
+        self._suggest_n = 0
 
     def suggest(self, n: int) -> list[HPConfig]:
         # Build context
@@ -1129,6 +1144,12 @@ class LLMAutoResearch(Strategy):
                 print(f"  [ensemble-aware] feedback unavailable: {e}", flush=True)
         task_ctx = build_task_context()
         warm = warmstart_context(getattr(self, "D", None))
+        self._suggest_n += 1
+        reflect = (
+            self.reflect_every > 0
+            and self._suggest_n > 1
+            and self._suggest_n % self.reflect_every == 0
+        )
         if self.use_kb:
             try:
                 from experiments.hp_knowledge_base import get_kb
@@ -1157,6 +1178,7 @@ class LLMAutoResearch(Strategy):
                 ensemble_summary=ens_summary,
                 task_context=task_ctx,
                 warmstart=warm,
+                reflect=reflect,
             )
             response = None
             try:
