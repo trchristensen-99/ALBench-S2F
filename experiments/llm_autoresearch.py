@@ -881,7 +881,7 @@ def call_claude(
     system: str,
     user: str,
     model: str = None,
-    max_tokens: int = 4000,
+    max_tokens: int = int(os.environ.get("LLM_MAX_TOKENS", "4000") or 4000),
     temperature: float | None = None,
     max_wait_seconds: float | None = None,
     base_backoff: float = 60.0,
