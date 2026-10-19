@@ -254,7 +254,8 @@ def main():
     ap.add_argument("--per_round", type=int, default=4)
     ap.add_argument("--seq_len", type=int, default=200)
     ap.add_argument("--max_params", type=int, default=40_000_000)
-    ap.add_argument("--base_cap_min", type=float, default=18.0)   # per-model cap in H100-equiv min (x2.5 on V100)
+    ap.add_argument("--base_cap_min", type=float, default=None)   # per-model cap, H100-equiv min (x2.5 on V100)
+    ap.add_argument("--model_max_min", type=float, default=None)  # back-compat: flat per-model cap (no GPU scale)
     ap.add_argument("--full_control", action="store_true")        # model writes the whole training loop
     ap.add_argument("--budget_hours", type=float, default=40.0)    # per-cell total train budget
     args = ap.parse_args()
@@ -267,7 +268,12 @@ def main():
     import torch as _t
     gpu = _t.cuda.get_device_name(0) if _t.cuda.is_available() else "cpu"
     gpu_factor = 2.5 if "V100" in gpu else 1.0
-    cap_min = args.base_cap_min * gpu_factor
+    if args.base_cap_min is not None:
+        cap_min = args.base_cap_min * gpu_factor
+    elif args.model_max_min is not None:
+        cap_min = args.model_max_min
+    else:
+        cap_min = 20.0 * gpu_factor
     print(f"  GPU={gpu} factor={gpu_factor} -> per-model cap={cap_min:.0f}min; full_control={args.full_control}", flush=True)
     tr_s, tr_y, va_s, va_y = load_chr_train_pool(
         args.D, ref_only=True, val_frac=0.1, seed=0, reservoir_cache=args.reservoir_cache, chr_val=True)
