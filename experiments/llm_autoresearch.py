@@ -1111,6 +1111,11 @@ class LLMAutoResearch(Strategy):
     def __init__(self, seed: int = 0, D: int | None = None):
         super().__init__(seed, D=D)
         self.style = os.environ.get("LLM_PROMPT_STYLE", "default")
+        # Per-ROUND style schedule: comma list cycled by round (e.g.
+        # "explore,explore,exploit,exploit" = 2 arch-exploration rounds then 2 HP-refine
+        # rounds, repeating). Empty -> fixed self.style (byte-identical default behaviour).
+        self.style_schedule = [x.strip() for x in
+            os.environ.get("LLM_STYLE_SCHEDULE", "").split(",") if x.strip()]
         self.model = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
         # Context level (full | nokb | none); no-prior styles force "none".
         self.context = os.environ.get("LLM_CONTEXT", "full")
@@ -1145,6 +1150,10 @@ class LLMAutoResearch(Strategy):
         task_ctx = build_task_context()
         warm = warmstart_context(getattr(self, "D", None))
         self._suggest_n += 1
+        cur_style = self.style
+        if self.style_schedule:
+            cur_style = self.style_schedule[(self._suggest_n - 1) % len(self.style_schedule)]
+            print(f"  [style-schedule] round {self._suggest_n}: style={cur_style}", flush=True)
         reflect = (
             self.reflect_every > 0
             and self._suggest_n > 1
@@ -1171,7 +1180,7 @@ class LLMAutoResearch(Strategy):
                 need,
                 self.history,
                 kb_summary,
-                style=self.style,
+                style=cur_style,
                 allow_novel=self.allow_novel,
                 context=self.context,
                 D=getattr(self, "D", None),
