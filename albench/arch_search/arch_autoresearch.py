@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(REPO, "experiments"))
 
 from albench.arch_search.propose import build_arch_prompt, call_model, parse_proposals
 from albench.arch_search.train_generated import one_hot, predict
-from albench.arch_search.validate import build_and_check
+from albench.arch_search.validate import build_and_check, static_check
 
 TRAIN_NOTE = (
     "SETUP: you write ONLY the architecture (the Net class, always required and complete). A fixed "
@@ -45,6 +45,18 @@ TRAIN_NOTE = (
     "### TRAIN, reasonable settings are sampled for you — so feel free to specify only what you care about."
 )
 _TRAIN = re.compile(r"###\s*TRAIN:\s*(\{.*?\})", re.S)
+FULL_NOTE = (
+    "FULL CONTROL: besides the Net class, you may ALSO write a function "
+    "`def train(model, Xtr, ytr, Xva, yva, device, time_budget_s):` that performs the ENTIRE "
+    "training yourself (optimizer, schedule, augmentation — anything in torch/numpy) and returns the "
+    "trained model. Xtr/Xva are float32 arrays (N,4,200) one-hot ACGT; ytr/yva are float32 (N,). You "
+    "MUST return within time_budget_s (~{max_min:.0f} min of GPU wall-clock here) — checkpoint your "
+    "best and stop in time. Reverse-complement + random-shift augmentation are good defaults but now "
+    "YOURS to include or not. If you omit train(), a default harness (muon/adamw, RC+shift) is used. "
+    "Model params <= {max_params:,}. Each tried architecture below reports test r AND train seconds; "
+    "prefer ideas that are strong and efficient.\n\n"
+    "You may add ### TRAIN: {{...}} for the default harness instead, if you did not write train()."
+)
 
 
 def pear(a, b):
@@ -175,6 +187,64 @@ def predict_rc(model, X):  # RC-averaged prediction
     return np.concatenate(out)
 
 
+import builtins as _bi
+_SAFE_BUILTINS = {k: getattr(_bi, k) for k in (
+    "range len enumerate zip min max sum abs int float bool str bytes list dict tuple set "
+    "frozenset sorted reversed map filter any all round pow print isinstance issubclass super "
+    "getattr setattr hasattr delattr type object Exception ValueError RuntimeError TypeError "
+    "KeyError IndexError StopIteration slice iter next repr format divmod complex callable id "
+    "True False None NotImplemented"
+).split() if hasattr(_bi, k)}
+from albench.arch_search.validate import ALLOWED_IMPORTS as _ALLOWED
+
+
+def _gated_import(name, *a, **k):
+    import importlib
+    if name.split(".")[0] not in {i.split(".")[0] for i in _ALLOWED}:
+        raise ImportError(f"import of {name!r} not permitted")
+    return importlib.__import__(name, *a, **k)
+
+
+def extract_train(src):
+    """Return the model-written train() if the source defines one and is AST-safe, else None."""
+    if static_check(src):   # non-None = unsafe
+        return None
+    import torch, numpy, math, random
+    import torch.nn as nn, torch.nn.functional as F
+    sb = dict(_SAFE_BUILTINS); sb["__import__"] = _gated_import
+    ns = {"__builtins__": sb, "torch": torch, "nn": nn, "F": F,
+          "np": numpy, "numpy": numpy, "math": math, "random": random}
+    try:
+        exec(compile(src, "<gen-train>", "exec"), ns)   # noqa: S102 (AST-checked + sandboxed builtins)
+    except Exception:
+        return None
+    t = ns.get("train")
+    return t if callable(t) else None
+
+
+def run_full_control(tfn, model, Xtr, ytr, Xva, yva, cap_s):
+    """Run a model-written train() under a hard wall-clock cap (SIGALRM)."""
+    import signal
+
+    class _TO(Exception):
+        pass
+
+    def _h(sig, frm):
+        raise _TO()
+    old = signal.signal(signal.SIGALRM, _h)
+    signal.alarm(int(cap_s * 1.3))
+    try:
+        m = tfn(model, Xtr, ytr, Xva, yva, "cuda", cap_s)
+        return (m if m is not None else model), {"best_val_mse": None, "epochs_trained": None}, "model_train"
+    except _TO:
+        return None, {"error": "full-control train() exceeded hard cap"}, "model_train"
+    except Exception as e:
+        return None, {"error": f"model train() failed: {type(e).__name__}: {str(e)[:80]}"}, "model_train"
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reservoir_cache", required=True)
@@ -184,7 +254,8 @@ def main():
     ap.add_argument("--per_round", type=int, default=4)
     ap.add_argument("--seq_len", type=int, default=200)
     ap.add_argument("--max_params", type=int, default=40_000_000)
-    ap.add_argument("--model_max_min", type=float, default=15.0)   # per-model train cap
+    ap.add_argument("--base_cap_min", type=float, default=18.0)   # per-model cap in H100-equiv min (x2.5 on V100)
+    ap.add_argument("--full_control", action="store_true")        # model writes the whole training loop
     ap.add_argument("--budget_hours", type=float, default=40.0)    # per-cell total train budget
     args = ap.parse_args()
 
@@ -193,6 +264,11 @@ def main():
         load_all_test_sets, load_chr_test_genomic, load_chr_train_pool,
     )
     os.makedirs(args.out_dir, exist_ok=True)
+    import torch as _t
+    gpu = _t.cuda.get_device_name(0) if _t.cuda.is_available() else "cpu"
+    gpu_factor = 2.5 if "V100" in gpu else 1.0
+    cap_min = args.base_cap_min * gpu_factor
+    print(f"  GPU={gpu} factor={gpu_factor} -> per-model cap={cap_min:.0f}min; full_control={args.full_control}", flush=True)
     tr_s, tr_y, va_s, va_y = load_chr_train_pool(
         args.D, ref_only=True, val_frac=0.1, seed=0, reservoir_cache=args.reservoir_cache, chr_val=True)
     te_s, te_oracle, te_true = load_chr_test_genomic()
@@ -213,7 +289,7 @@ def main():
             print(f"  [budget {args.budget_hours}h reached at round {rd}] stopping", flush=True); break
         try:
             sys_p, user = build_arch_prompt(args.per_round, history, seq_len=args.seq_len,
-                                            D=args.D, max_params=args.max_params, note=TRAIN_NOTE.format(max_min=args.model_max_min, max_params=args.max_params))
+                                            D=args.D, max_params=args.max_params, note=(FULL_NOTE if args.full_control else TRAIN_NOTE).format(max_min=cap_min, max_params=args.max_params))
             text = call_model(sys_p, user)
             props = parse_proposals(text)
             trains = _TRAIN.findall(text)
@@ -236,8 +312,11 @@ def main():
             torch.manual_seed(1000 + midx)
             t0 = time.time()
             try:
-                model, info, used = train_one(model, Xtr, ytr, Xva, yva, tc,
-                                              max_sec=args.model_max_min * 60)
+                tfn = extract_train(p["source"]) if args.full_control else None
+                if tfn is not None:
+                    model, info, used = run_full_control(tfn, model, Xtr, ytr, Xva, yva, cap_min * 60)
+                else:
+                    model, info, used = train_one(model, Xtr, ytr, Xva, yva, tc, max_sec=cap_min * 60)
             except Exception as e:
                 history.append({"idea": p["idea"], "ok": False, "reason": f"train err {type(e).__name__}"})
                 print(f"    train-err: {type(e).__name__}: {str(e)[:60]}", flush=True); continue
