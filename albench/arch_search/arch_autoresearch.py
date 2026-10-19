@@ -128,7 +128,7 @@ def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=pri
                     batch_size=bs, shuffle=True, drop_last=True)
     if tc["lr_schedule"] == "onecycle":
         sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=tc["lr"], epochs=epochs,
-                                                    steps_per_epoch=max(1, len(dl)))
+                                                    steps_per_epoch=max(1, len(dl)), cycle_momentum=False)
         per_step = True
     elif tc["lr_schedule"] == "cosine":
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs); per_step = False
