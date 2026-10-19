@@ -81,10 +81,11 @@ def build_arch_prompt(
     if tried:
         parts.append("\nARCHITECTURES ALREADY TRIED (test Pearson r, higher is better):")
         for h in sorted(tried, key=lambda h: -(h.get("score") or -9))[:18]:
-            lay = ",".join(sorted(h.get("layers") or {})) or "?"
+            ts = h.get("train_s")
+            tcol = f"  {ts:>4.0f}s" if ts else ""
             parts.append(
                 f"  r={h.get('score', float('nan')):.4f}  "
-                f"{h.get('n_params', 0):>9,}p  [{lay}]  {h.get('idea', '')[:70]}"
+                f"{h.get('n_params', 0):>9,}p{tcol}  {h.get('idea', '')[:66]}"
             )
     if failed:
         parts.append("\nPROPOSALS THAT WERE DISCARDED (do not repeat these mistakes):")

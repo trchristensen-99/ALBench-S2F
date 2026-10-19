@@ -30,6 +30,13 @@ from albench.arch_search.train_generated import one_hot, predict
 from albench.arch_search.validate import build_and_check
 
 TRAIN_NOTE = (
+    "SETUP: you write ONLY the architecture (the Net class, always required and complete). A fixed "
+    "harness trains it: reverse-complement + random-shift augmentation are ALWAYS applied, optimizers "
+    "available are muon (orthogonalized momentum, often best on conv stacks) / adamw / adam, with "
+    "onecycle|plateau|cosine schedules. BUDGET: each model must train within ~{max_min:.0f} min of GPU "
+    "wall-clock (slow models are stopped early and keep their best epoch) and <= {max_params:,} params; "
+    "design within that. Each tried architecture below reports its test r AND its train seconds, so "
+    "prefer ideas that are both strong and efficient.\n\n"
     "You may ALSO choose the TRAINING recipe for each architecture. After its code block, add a line:\n"
     '  ### TRAIN: {"optimizer":"muon|adamw|adam","lr":2e-3,"weight_decay":1e-5,'
     '"batch_size":128,"epochs":80,"lr_schedule":"onecycle|plateau|cosine"}\n'
@@ -206,7 +213,7 @@ def main():
             print(f"  [budget {args.budget_hours}h reached at round {rd}] stopping", flush=True); break
         try:
             sys_p, user = build_arch_prompt(args.per_round, history, seq_len=args.seq_len,
-                                            D=args.D, max_params=args.max_params, note=TRAIN_NOTE)
+                                            D=args.D, max_params=args.max_params, note=TRAIN_NOTE.format(max_min=args.model_max_min, max_params=args.max_params))
             text = call_model(sys_p, user)
             props = parse_proposals(text)
             trains = _TRAIN.findall(text)
@@ -251,7 +258,8 @@ def main():
             _atomic_savez(Path(args.out_dir) / f"{mid}.npz",
                           **{k: np.asarray(x, np.float32) for k, x in res.items()})
             _atomic_write_text(Path(args.out_dir) / f"{mid}_meta.json", json.dumps(meta, indent=2, default=str))
-            history.append({"idea": p["idea"], "ok": True, "score": r, "n_params": verdict.n_params, "val": vr})
+            history.append({"idea": p["idea"], "ok": True, "score": r, "n_params": verdict.n_params,
+                            "val": vr, "train_s": time.time() - t0})
             midx += 1
             print(f"    {mid} r={r:.4f} val={vr:.4f} {verdict.n_params:,}p {used} "
                   f"{info.get('epochs_trained')}ep {time.time()-t0:.0f}s  {p['idea'][:46]}", flush=True)
