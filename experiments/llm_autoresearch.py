@@ -99,7 +99,6 @@ _CORE_KEYS = {
     "weight_decay",
     "use_shift_aug",
     "shift_max",
-    "use_evoaug",
     "lr_schedule",
 }
 
@@ -206,9 +205,13 @@ HP_SPACE_SPEC = """HP SEARCH SPACE for LegNet sequence-to-function predictor:
   optimizer      : categorical {"adam", "adamw", "muon"}
                    (muon = Keller Jordan's; orthogonalized momentum, often outperforms AdamW on conv stacks)
   weight_decay   : log-uniform in [1e-6, 1e-2]
-  use_shift_aug  : bool   (training-time random shift augmentation)
+  use_shift_aug  : bool   (training-time random shift augmentation; ON by default)
   shift_max      : categorical {5, 10, 15, 20}  (max shift if use_shift_aug)
-  use_evoaug     : bool   (training-time evolutionary augmentation, intensity=medium)
+
+DEFAULTS & CONSTRAINTS:
+* Reverse-complement averaging is ALWAYS ON and shift augmentation is ON by default (both are established to help) — keep use_shift_aug=true unless you have a specific reason.
+* Do NOT enable EvoAug. It is a separate reservoir / data-generation strategy; using it as a training augmentation here confounds the augmentation with the data source and corrupts the scaling comparison.
+* Prior importance analysis (2000+ models): lr, weight_decay, dropout, ks, block_class and width_base move performance most; gradient_clip, pool_downsample and width_ratio have shown LOW importance — you may still explore them, but need not prioritize them.
 """
 
 
@@ -760,7 +763,7 @@ def build_prompt(
         f"\nPropose {n} new HP configs. Output ONLY a valid JSON array, no extra text. "
         "Each dict must have these keys (in this order):\n"
         "  lr, batch_size, conv_dropout, dense_dropout, n_layers, width_base, width_jitter, "
-        "block_class, ks, pct_start, optimizer, weight_decay, use_shift_aug, shift_max, use_evoaug, "
+        "block_class, ks, pct_start, optimizer, weight_decay, use_shift_aug, shift_max, "
         "lr_schedule\n"
         "`width_jitter` should be a list of length n_layers."
     )
@@ -1070,9 +1073,9 @@ def dict_to_hpconfig(
             else "adamw"
         ),
         weight_decay=max(1e-6, min(1e-2, float(d.get("weight_decay", 1e-4)))),
-        use_shift_aug=bool(d.get("use_shift_aug", False)),
+        use_shift_aug=bool(d.get("use_shift_aug", True)),  # shift aug ON by default
         shift_max=int(d.get("shift_max", 15)),
-        use_evoaug=bool(d.get("use_evoaug", False)),
+        use_evoaug=False,  # EvoAug removed from HP search (it is a reservoir strategy)
         # On-menu names build directly; an off-menu torch class name is allowed (built
         # generically in LegNetStudent, falls back to plateau). Accept any string.
         lr_schedule=str(d.get("lr_schedule", "plateau")) or "plateau",
