@@ -1,17 +1,20 @@
-"""Iterative free-architecture AutoResearch: each round the model WRITES new Net(nn.Module)
-classes (no HP schema, no family names), they are validated + trained in the same harness as the
-LegNet configs, and their test scores are fed back so the next round improves. Writes the same
-val_pred/test_pred_* npz + meta as the HP-menu driver, so free-arch models drop straight into the
-same greedy/enet_all_pos deploy scoring → directly comparable to the HP-menu grid.
+"""Iterative free-architecture AutoResearch, now with the SAME training levers the HP-menu path
+has. Each round the model WRITES a Net(nn.Module) AND may specify its training recipe (optimizer
+incl. muon, lr, weight_decay, batch_size, epochs, lr_schedule). Reverse-complement + random-shift
+augmentation are ALWAYS applied (the two settled defaults); anything it omits is randomly sampled,
+so defaults vary rather than being fixed. Results feed back so the next round improves.
 
-Usage: python arch_autoresearch.py --reservoir_cache <npz> --D <int> --out_dir <dir>
-       --rounds 12 --per_round 4 --epochs 80
+COST CONTROL: per-model training wall-clock cap (--model_max_min) + a per-cell total training
+budget (--budget_hours) that stops starting new rounds; plus the proposal param/latency caps.
+Writes the same val_pred/test_pred_* npz + meta -> comparable to the HP-menu grid via enet_all_pos.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -23,15 +26,146 @@ sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "experiments"))
 
 from albench.arch_search.propose import build_arch_prompt, call_model, parse_proposals
-from albench.arch_search.train_generated import one_hot, predict, train_one
+from albench.arch_search.train_generated import one_hot, predict
 from albench.arch_search.validate import build_and_check
+
+TRAIN_NOTE = (
+    "You may ALSO choose the TRAINING recipe for each architecture. After its code block, add a line:\n"
+    '  ### TRAIN: {"optimizer":"muon|adamw|adam","lr":2e-3,"weight_decay":1e-5,'
+    '"batch_size":128,"epochs":80,"lr_schedule":"onecycle|plateau|cosine"}\n'
+    "muon (orthogonalized momentum) often beats AdamW on conv stacks. Reverse-complement and "
+    "random-shift augmentation are ALWAYS applied for you, so do not implement them. If you omit "
+    "### TRAIN, reasonable settings are sampled for you — so feel free to specify only what you care about."
+)
+_TRAIN = re.compile(r"###\s*TRAIN:\s*(\{.*?\})", re.S)
 
 
 def pear(a, b):
-    a = np.asarray(a, float); b = np.asarray(b, float)
-    a = a - a.mean(); b = b - b.mean()
+    a = np.asarray(a, float) - np.mean(a); b = np.asarray(b, float) - np.mean(b)
     d = (a * a).sum() ** 0.5 * (b * b).sum() ** 0.5
     return float((a * b).sum() / d) if d > 0 else 0.0
+
+
+def rc(x):  # (B,4,L) ACGT one-hot -> reverse complement
+    return x.flip(-1)[:, [3, 2, 1, 0], :]
+
+
+def shift(x, m):  # padded random shift along length
+    if m <= 0:
+        return x
+    import torch
+    s = random.randint(-m, m)
+    if s == 0:
+        return x
+    y = torch.zeros_like(x)
+    if s > 0:
+        y[:, :, s:] = x[:, :, :-s]
+    else:
+        y[:, :, :s] = x[:, :, -s:]
+    return y
+
+
+def build_opt(model, name, lr, wd):
+    import torch
+    name = (name or "adamw").lower()
+    if name == "muon":
+        try:
+            from muon import SingleDeviceMuonWithAuxAdam
+            p2 = [p for p in model.parameters() if p.ndim >= 2 and p.requires_grad]
+            p1 = [p for p in model.parameters() if p.ndim < 2 and p.requires_grad]
+            groups = [dict(params=p2, use_muon=True, lr=lr, weight_decay=wd, momentum=0.95)]
+            if p1:
+                groups.append(dict(params=p1, use_muon=False, lr=lr, weight_decay=wd, betas=(0.9, 0.95)))
+            return SingleDeviceMuonWithAuxAdam(groups), "muon"
+        except Exception as e:
+            print(f"    [muon unavailable: {e}; falling back to adamw]", flush=True)
+            name = "adamw"
+    cls = torch.optim.Adam if name == "adam" else torch.optim.AdamW
+    return cls(model.parameters(), lr=lr, weight_decay=wd), name
+
+
+def sample_train(spec):
+    """Fill missing training HPs with randomly-varied defaults."""
+    r = random.Random()
+    out = {
+        "optimizer": spec.get("optimizer", r.choice(["muon", "muon", "adamw"])),
+        "lr": float(spec.get("lr", 10 ** r.uniform(-3.3, -2.3))),
+        "weight_decay": float(spec.get("weight_decay", 10 ** r.uniform(-6, -3))),
+        "batch_size": int(spec.get("batch_size", r.choice([64, 128, 256]))),
+        "epochs": int(spec.get("epochs", 80)),
+        "lr_schedule": spec.get("lr_schedule", r.choice(["onecycle", "plateau", "cosine"])),
+    }
+    return out
+
+
+def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=print):
+    import torch
+    from torch.utils.data import DataLoader, TensorDataset
+    dev = torch.device(device if torch.cuda.is_available() else "cpu")
+    model = model.to(dev)
+    opt, used = build_opt(model, tc["optimizer"], tc["lr"], tc["weight_decay"])
+    bs, epochs = tc["batch_size"], tc["epochs"]
+    dl = DataLoader(TensorDataset(torch.from_numpy(Xtr), torch.from_numpy(ytr)),
+                    batch_size=bs, shuffle=True, drop_last=True)
+    if tc["lr_schedule"] == "onecycle":
+        sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=tc["lr"], epochs=epochs,
+                                                    steps_per_epoch=max(1, len(dl)))
+        per_step = True
+    elif tc["lr_schedule"] == "cosine":
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs); per_step = False
+    else:
+        sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=3); per_step = False
+    lossf = torch.nn.MSELoss()
+    Xva_t = torch.from_numpy(Xva).to(dev); yva_t = torch.from_numpy(yva).to(dev)
+    best, best_state, bad = np.inf, None, 0
+    t0 = time.time()
+    for ep in range(epochs):
+        model.train()
+        for xb, yb in dl:
+            xb = shift(xb.to(dev), 10); yb = yb.to(dev)
+            opt.zero_grad()
+            out = model(xb).squeeze()
+            # RC consistency: average fwd + reverse-complement prediction in the loss
+            out_rc = model(rc(xb)).squeeze()
+            loss = 0.5 * (lossf(out, yb) + lossf(out_rc, yb))
+            if not torch.isfinite(loss):
+                return None, {"error": f"non-finite loss ep{ep}"}, used
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
+            if per_step:
+                sched.step()
+        model.eval()
+        with torch.no_grad():
+            vp = torch.cat([(model(Xva_t[i:i+512]).squeeze() + model(rc(Xva_t[i:i+512])).squeeze()) / 2
+                            for i in range(0, len(Xva_t), 512)])
+            vmse = float(((vp - yva_t) ** 2).mean())
+        if not per_step:
+            sched.step(vmse) if tc["lr_schedule"] == "plateau" else sched.step()
+        if vmse < best - 1e-4:
+            best, bad = vmse, 0
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        else:
+            bad += 1
+            if bad >= 8:
+                break
+        if time.time() - t0 > max_sec:
+            log(f"    [time cap {max_sec}s hit at ep{ep}]"); break
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return model, {"best_val_mse": best, "epochs_trained": ep + 1, "optimizer_used": used}, used
+
+
+def predict_rc(model, X):  # RC-averaged prediction
+    import torch
+    dev = next(model.parameters()).device
+    model.eval(); out = []
+    with torch.no_grad():
+        for i in range(0, len(X), 512):
+            xb = torch.from_numpy(X[i:i+512]).to(dev)
+            p = (model(xb).squeeze() + model(rc(xb)).squeeze()) / 2
+            out.append(p.cpu().numpy())
+    return np.concatenate(out)
 
 
 def main():
@@ -41,77 +175,87 @@ def main():
     ap.add_argument("--out_dir", required=True)
     ap.add_argument("--rounds", type=int, default=12)
     ap.add_argument("--per_round", type=int, default=4)
-    ap.add_argument("--epochs", type=int, default=80)
     ap.add_argument("--seq_len", type=int, default=200)
+    ap.add_argument("--max_params", type=int, default=40_000_000)
+    ap.add_argument("--model_max_min", type=float, default=15.0)   # per-model train cap
+    ap.add_argument("--budget_hours", type=float, default=40.0)    # per-cell total train budget
     args = ap.parse_args()
 
     from scaling_hp_search import (
         _atomic_savez, _atomic_write_text,
         load_all_test_sets, load_chr_test_genomic, load_chr_train_pool,
     )
-
     os.makedirs(args.out_dir, exist_ok=True)
     tr_s, tr_y, va_s, va_y = load_chr_train_pool(
-        args.D, ref_only=True, val_frac=0.1, seed=0,
-        reservoir_cache=args.reservoir_cache, chr_val=True)
+        args.D, ref_only=True, val_frac=0.1, seed=0, reservoir_cache=args.reservoir_cache, chr_val=True)
     te_s, te_oracle, te_true = load_chr_test_genomic()
     tests = load_all_test_sets()
-    print(f"  train={len(tr_s):,} val={len(va_s):,} test={len(te_s):,} eval_sets={len(tests)}", flush=True)
-
     Xtr, ytr = one_hot(tr_s, args.seq_len), np.asarray(tr_y, np.float32)
     Xva, yva = one_hot(va_s, args.seq_len), np.asarray(va_y, np.float32)
     Xte = one_hot(te_s, args.seq_len)
     Xsets = {k: one_hot(v[0], args.seq_len) for k, v in tests.items()}
-
     labels = {"val_labels": yva, "test_oracle": te_oracle, "test_true": te_true}
     for k, v in tests.items():
         labels[f"oracle_{k}"] = v[1]
     _atomic_savez(Path(args.out_dir) / "labels.npz", **labels)
+    print(f"  train={len(tr_s):,} val={len(va_s):,} test={len(te_s):,} evals={len(tests)}", flush=True)
 
-    history = []
-    midx = 0
+    history, midx, t_start = [], 0, time.time()
     for rd in range(args.rounds):
+        if time.time() - t_start > args.budget_hours * 3600:
+            print(f"  [budget {args.budget_hours}h reached at round {rd}] stopping", flush=True); break
         try:
-            sys_p, user = build_arch_prompt(args.per_round, history, seq_len=args.seq_len, D=args.D)
+            sys_p, user = build_arch_prompt(args.per_round, history, seq_len=args.seq_len,
+                                            D=args.D, max_params=args.max_params, note=TRAIN_NOTE)
             text = call_model(sys_p, user)
             props = parse_proposals(text)
+            trains = _TRAIN.findall(text)
         except Exception as e:
-            print(f"  [round {rd}] propose failed: {type(e).__name__}: {e}", flush=True)
-            continue
+            print(f"  [round {rd}] propose failed: {type(e).__name__}: {e}", flush=True); continue
         print(f"  [round {rd}] {len(props)} proposals", flush=True)
-        for p in props:
-            model, verdict = build_and_check(p["source"], seq_len=args.seq_len)
+        for pi, p in enumerate(props):
+            model, verdict = build_and_check(p["source"], seq_len=args.seq_len, max_params=args.max_params)
             if model is None:
                 history.append({"idea": p["idea"], "ok": False, "reason": verdict.reason})
-                print(f"    discard: {verdict.reason[:70]}", flush=True)
-                continue
+                print(f"    discard: {verdict.reason[:75]}", flush=True); continue
+            spec = {}
+            try:
+                if pi < len(trains):
+                    spec = json.loads(trains[pi])
+            except Exception:
+                spec = {}
+            tc = sample_train(spec)
             import torch
             torch.manual_seed(1000 + midx)
             t0 = time.time()
-            model, info = train_one(model, Xtr, ytr, Xva, yva, epochs=args.epochs)
+            try:
+                model, info, used = train_one(model, Xtr, ytr, Xva, yva, tc,
+                                              max_sec=args.model_max_min * 60)
+            except Exception as e:
+                history.append({"idea": p["idea"], "ok": False, "reason": f"train err {type(e).__name__}"})
+                print(f"    train-err: {type(e).__name__}: {str(e)[:60]}", flush=True); continue
             if model is None:
-                history.append({"idea": p["idea"], "ok": False, "reason": info.get("error", "train fail")})
-                continue
-            res = {"val_pred": predict(model, Xva), "test_pred": predict(model, Xte)}
+                history.append({"idea": p["idea"], "ok": False, "reason": info.get("error", "fail")})
+                print(f"    train-fail: {info.get('error')}", flush=True); continue
+            res = {"val_pred": predict_rc(model, Xva), "test_pred": predict_rc(model, Xte)}
             for k, Xk in Xsets.items():
-                res[f"test_pred_{k}"] = predict(model, Xk)
+                res[f"test_pred_{k}"] = predict_rc(model, Xk)
             r = pear(res["test_pred"], te_oracle); vr = pear(res["val_pred"], yva)
             mid = f"r{rd:02d}_arch_{midx:02d}"
-            meta = {"model_id": mid, "strategy": "arch_search", "round": rd,
-                    "idea": p["idea"], "why": p.get("why", ""), "n_params": verdict.n_params,
-                    "val_pearson": vr, "best_val_pearson": vr, "test_oracle_pearson": r,
-                    "val_mse": info.get("best_val_mse"), "epochs_trained": info.get("epochs_trained"),
+            meta = {"model_id": mid, "strategy": "arch_search", "round": rd, "idea": p["idea"],
+                    "why": p.get("why", ""), "n_params": verdict.n_params, "train_config": tc,
+                    "optimizer_used": used, "val_pearson": vr, "best_val_pearson": vr,
+                    "test_oracle_pearson": r, "val_mse": info.get("best_val_mse"),
+                    "epochs_trained": info.get("epochs_trained"),
                     "train_time_sec": time.time() - t0, "source": p["source"]}
             _atomic_savez(Path(args.out_dir) / f"{mid}.npz",
                           **{k: np.asarray(x, np.float32) for k, x in res.items()})
-            _atomic_write_text(Path(args.out_dir) / f"{mid}_meta.json",
-                               json.dumps(meta, indent=2, default=str))
-            history.append({"idea": p["idea"], "ok": True, "score": r,
-                            "n_params": verdict.n_params, "val": vr})
+            _atomic_write_text(Path(args.out_dir) / f"{mid}_meta.json", json.dumps(meta, indent=2, default=str))
+            history.append({"idea": p["idea"], "ok": True, "score": r, "n_params": verdict.n_params, "val": vr})
             midx += 1
-            print(f"    {mid} r={r:.4f} val={vr:.4f} {verdict.n_params:,}p {info.get('epochs_trained')}ep "
-                  f"{time.time()-t0:.0f}s  {p['idea'][:50]}", flush=True)
-    print(f"DONE_ARCH trained={midx}", flush=True)
+            print(f"    {mid} r={r:.4f} val={vr:.4f} {verdict.n_params:,}p {used} "
+                  f"{info.get('epochs_trained')}ep {time.time()-t0:.0f}s  {p['idea'][:46]}", flush=True)
+    print(f"DONE_ARCH trained={midx} elapsed={(time.time()-t_start)/3600:.1f}h", flush=True)
 
 
 if __name__ == "__main__":
