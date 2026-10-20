@@ -35,11 +35,11 @@ TRAIN_NOTE = (
     "available are muon (orthogonalized momentum, often best on conv stacks) / adamw / adam, with "
     "onecycle|plateau|cosine schedules. BUDGET: each model must train within ~{max_min:.0f} min of GPU "
     "wall-clock (slow models are stopped early and keep their best epoch) and <= {max_params:,} params; "
-    "design within that. Each tried architecture below reports its test r AND its train seconds, so "
+    "design within that. Each tried architecture below reports its validation r AND its train seconds, so "
     "prefer ideas that are both strong and efficient.\n\n"
     "You may ALSO choose the TRAINING recipe for each architecture. After its code block, add a line:\n"
-    '  ### TRAIN: {"optimizer":"muon|adamw|adam","lr":2e-3,"weight_decay":1e-5,'
-    '"batch_size":128,"epochs":80,"lr_schedule":"onecycle|plateau|cosine"}\n'
+    '  ### TRAIN: {{"optimizer":"muon|adamw|adam","lr":2e-3,"weight_decay":1e-5,'
+    '"batch_size":128,"epochs":80,"lr_schedule":"onecycle|plateau|cosine"}}\n'
     "muon (orthogonalized momentum) often beats AdamW on conv stacks. Reverse-complement and "
     "random-shift augmentation are ALWAYS applied for you, so do not implement them. If you omit "
     "### TRAIN, reasonable settings are sampled for you — so feel free to specify only what you care about."
@@ -53,7 +53,7 @@ FULL_NOTE = (
     "MUST return within time_budget_s (~{max_min:.0f} min of GPU wall-clock here) — checkpoint your "
     "best and stop in time. Reverse-complement + random-shift augmentation are good defaults but now "
     "YOURS to include or not. If you omit train(), a default harness (muon/adamw, RC+shift) is used. "
-    "Model params <= {max_params:,}. Each tried architecture below reports test r AND train seconds; "
+    "Model params <= {max_params:,}. Each tried architecture below reports validation r AND train seconds; "
     "prefer ideas that are strong and efficient.\n\n"
     "You may add ### TRAIN: {{...}} for the default harness instead, if you did not write train()."
 )
@@ -290,6 +290,7 @@ def main():
     print(f"  train={len(tr_s):,} val={len(va_s):,} test={len(te_s):,} evals={len(tests)}", flush=True)
 
     history, midx, t_start = [], 0, time.time()
+    last_err, streak = None, 0
     for rd in range(args.rounds):
         if time.time() - t_start > args.budget_hours * 3600:
             print(f"  [budget {args.budget_hours}h reached at round {rd}] stopping", flush=True); break
@@ -300,7 +301,14 @@ def main():
             props = parse_proposals(text)
             trains = _TRAIN.findall(text)
         except Exception as e:
-            print(f"  [round {rd}] propose failed: {type(e).__name__}: {e}", flush=True); continue
+            msg = f"{type(e).__name__}: {e}"
+            print(f"  [round {rd}] propose failed: {msg}", flush=True)
+            streak = streak + 1 if msg == last_err else 1
+            last_err = msg
+            if midx == 0 and streak >= 4:
+                print(f"FAILED_ARCH: identical propose failure x{streak} with nothing trained; aborting", flush=True)
+                raise SystemExit(3)
+            continue
         print(f"  [round {rd}] {len(props)} proposals", flush=True)
         for pi, p in enumerate(props):
             model, verdict = build_and_check(p["source"], seq_len=args.seq_len, max_params=args.max_params)
@@ -343,12 +351,15 @@ def main():
             _atomic_savez(Path(args.out_dir) / f"{mid}.npz",
                           **{k: np.asarray(x, np.float32) for k, x in res.items()})
             _atomic_write_text(Path(args.out_dir) / f"{mid}_meta.json", json.dumps(meta, indent=2, default=str))
-            history.append({"idea": p["idea"], "ok": True, "score": r, "n_params": verdict.n_params,
+            history.append({"idea": p["idea"], "ok": True, "score": vr, "n_params": verdict.n_params,
                             "val": vr, "train_s": time.time() - t0})
             midx += 1
             print(f"    {mid} r={r:.4f} val={vr:.4f} {verdict.n_params:,}p {used} "
                   f"{info.get('epochs_trained')}ep {time.time()-t0:.0f}s  {p['idea'][:46]}", flush=True)
     print(f"DONE_ARCH trained={midx} elapsed={(time.time()-t_start)/3600:.1f}h", flush=True)
+    if midx == 0:
+        print("FAILED_ARCH: 0 models trained", flush=True)
+        raise SystemExit(3)
 
 
 if __name__ == "__main__":

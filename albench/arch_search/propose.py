@@ -79,7 +79,7 @@ def build_arch_prompt(
     tried = [h for h in history if h.get("ok")]
     failed = [h for h in history if not h.get("ok")]
     if tried:
-        parts.append("\nARCHITECTURES ALREADY TRIED (test Pearson r, higher is better):")
+        parts.append("\nARCHITECTURES ALREADY TRIED (validation Pearson r, higher is better):")
         for h in sorted(tried, key=lambda h: -(h.get("score") or -9))[:18]:
             ts = h.get("train_s")
             tcol = f"  {ts:>4.0f}s" if ts else ""
