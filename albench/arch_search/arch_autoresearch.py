@@ -45,6 +45,93 @@ TRAIN_NOTE = (
     "### TRAIN, reasonable settings are sampled for you — so feel free to specify only what you care about."
 )
 _TRAIN = re.compile(r"###\s*TRAIN:\s*(\{.*?\})", re.S)
+REFERENCE_SRC = """\
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class SE(nn.Module):
+    def __init__(self, c, r=4):
+        super().__init__()
+        h = max(c // r, 4)
+        self.fc1 = nn.Linear(c, h)
+        self.fc2 = nn.Linear(h, c)
+
+    def forward(self, x):
+        s = torch.sigmoid(self.fc2(F.silu(self.fc1(x.mean(-1)))))
+        return x * s.unsqueeze(-1)
+
+
+class EffBlock(nn.Module):
+    # inverted residual + squeeze-excitation (LegNet-style)
+    def __init__(self, cin, cout, ks=7, expand=2):
+        super().__init__()
+        mid = cin * expand
+        self.body = nn.Sequential(
+            nn.Conv1d(cin, mid, 1, bias=False), nn.BatchNorm1d(mid), nn.SiLU(),
+            nn.Conv1d(mid, mid, ks, padding=ks // 2, groups=mid, bias=False), nn.BatchNorm1d(mid), nn.SiLU(),
+        )
+        self.se = SE(mid)
+        self.proj = nn.Sequential(nn.Conv1d(mid, cout, 1, bias=False), nn.BatchNorm1d(cout))
+        self.skip = nn.Conv1d(cin, cout, 1, bias=False) if cin != cout else nn.Identity()
+
+    def forward(self, x):
+        return self.skip(x) + self.proj(self.se(self.body(x)))
+
+
+class Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        widths = [64, 96, 128, 128, 128, 96, 64]
+        self.stem = nn.Sequential(nn.Conv1d(4, widths[0], 7, padding=3, bias=False), nn.BatchNorm1d(widths[0]), nn.SiLU())
+        blocks, c = [], widths[0]
+        for i, w in enumerate(widths):
+            blocks.append(EffBlock(c, w, ks=7 if i % 2 == 0 else 9))
+            c = w
+            if i in (1, 3, 5):
+                blocks.append(nn.MaxPool1d(2))
+        self.blocks = nn.Sequential(*blocks)
+        self.head = nn.Sequential(nn.Dropout(0.3), nn.Linear(c * 2, 64), nn.SiLU(), nn.Dropout(0.1), nn.Linear(64, 1))
+
+    def forward(self, x):
+        h = self.blocks(self.stem(x))
+        h = torch.cat([h.mean(-1), h.amax(-1)], dim=1)
+        return self.head(h).squeeze(-1)
+"""
+
+KNOWN_GOOD = (
+    "WHAT WE ALREADY KNOW WORKS ON THIS TASK (from thousands of earlier training runs on this and related datasets; "
+    "a starting point, not a constraint):\n"
+    "- Reverse-complement and shift augmentation are applied for you; do not re-implement them.\n"
+    "- Optimizer: muon (orthogonalized momentum) had the highest mean validation Pearson of the three optimizers we tried "
+    "(muon 0.76 vs adamw and adam lower). Typical muon settings: lr 1e-3 to 5e-3, weight decay 1e-5 to 3e-4, "
+    "onecycle or cosine schedule, batch size 256 to 512.\n"
+    "- Backbone: LegNet-style inverted-residual blocks with squeeze-excitation had the highest mean validation Pearson of "
+    "the conv block types we tried (0.77). Good settings: 8 to 12 blocks, base width 64 to 128 with a wider middle, "
+    "kernel size 7 to 9, low conv dropout (about 0.05 to 0.1) and higher dense dropout (about 0.3 to 0.4).\n"
+    "- Free-form architectures reached validation Pearson 0.80 to 0.82 when they paired a convolutional motif stem with "
+    "residual/squeeze-excite towers, a U-Net style encoder-decoder, or one small attention layer; purely hand-built "
+    "motif-grammar, frequency-domain or wavelet models scored clearly lower (0.55 to 0.74).\n"
+    "- A good single model reaches validation Pearson of about 0.78 to 0.82 with 30,000 training sequences."
+)
+PHASE_EXPLOIT = (
+    "PHASE 1 - BUILD ON WHAT WORKS: for these rounds, propose variations on the reference network below and on the best "
+    "architectures already tried (change depth, width, kernel size or block design; add squeeze-excitation, gating or one "
+    "small attention layer; change pooling or residual wiring), keeping what makes them strong. Do not propose unrelated "
+    "designs yet."
+)
+PHASE_EXPLORE = (
+    "PHASE 2 - EXPLORE WIDER: the well-known designs are now covered. Propose structurally different architectures that "
+    "could complement the best ones (different inductive biases; different ways of modelling motif spacing, arrangement "
+    "and composition), while still using ingredients known to work (muon, residual structure, normalisation). Avoid "
+    "near-duplicates of anything in the tried list."
+)
+ENSEMBLE_NOTE = (
+    "Your models are combined by an ElasticNet ensemble fit on validation predictions, so ensemble value matters: a "
+    "decorrelated architecture that is slightly weaker alone can be worth more than another near-duplicate of the best. "
+    "Propose architectures that differ from each other as well as from those already tried."
+)
 FULL_NOTE = (
     "FULL CONTROL: besides the Net class, you may ALSO write a function "
     "`def train(model, Xtr, ytr, Xva, yva, device, time_budget_s):` that performs the ENTIRE "
@@ -245,6 +332,23 @@ def run_full_control(tfn, model, Xtr, ytr, Xva, yva, cap_s):
         signal.signal(signal.SIGALRM, old)
 
 
+def _round_note(args, rd, cap_min):
+    """Per-round prompt note. Default (no --guidance) is byte-identical to the old behaviour."""
+    base = (FULL_NOTE if args.full_control else TRAIN_NOTE).format(max_min=cap_min, max_params=args.max_params)
+    if args.guidance != "known_good":
+        return base
+    parts = [KNOWN_GOOD]
+    if args.phase_split and rd < args.phase_split:
+        parts += [PHASE_EXPLOIT, "REFERENCE IMPLEMENTATION (a LegNet-style network that trains in this harness; copy or "
+                  "modify it):\n```python\n" + REFERENCE_SRC + "```"]
+    elif args.phase_split:
+        parts.append(PHASE_EXPLORE)
+    if args.ensemble_aware:
+        parts.append(ENSEMBLE_NOTE)
+    parts.append(base)
+    return "\n\n".join(parts)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reservoir_cache", required=True)
@@ -258,6 +362,10 @@ def main():
     ap.add_argument("--model_max_min", type=float, default=None)  # back-compat: flat per-model cap (no GPU scale)
     ap.add_argument("--full_control", action="store_true")        # model writes the whole training loop
     ap.add_argument("--budget_hours", type=float, default=40.0)    # per-cell total train budget
+    ap.add_argument("--guidance", default="none", choices=["none", "known_good"])  # prior knowledge block in the prompt
+    ap.add_argument("--phase_split", type=int, default=0)  # rounds < split: build on known-good; after: explore wider (0 = off)
+    ap.add_argument("--ensemble_aware", action="store_true")  # tell the proposer the deploy metric is an ensemble
+    ap.add_argument("--resume", action="store_true")  # rebuild history from out_dir and continue (safe under requeue)
     args = ap.parse_args()
 
     from scaling_hp_search import (
@@ -290,13 +398,37 @@ def main():
     print(f"  train={len(tr_s):,} val={len(va_s):,} test={len(te_s):,} evals={len(tests)}", flush=True)
 
     history, midx, t_start = [], 0, time.time()
-    last_err, streak = None, 0
-    for rd in range(args.rounds):
+    last_err, streak, start_rd, budget_hit = None, 0, 0, False
+    out_p = Path(args.out_dir)
+    (out_p / "prompts").mkdir(exist_ok=True)
+    if args.resume:
+        rows = []
+        for f in sorted(out_p.glob("r*_arch_*_meta.json")):
+            try:
+                m = json.loads(f.read_text())
+            except Exception:
+                continue
+            if m.get("strategy") == "arch_search" and (out_p / (m["model_id"] + ".npz")).exists():
+                rows.append(m)
+        rows.sort(key=lambda m: (int(m["round"]), m["model_id"]))
+        for m in rows:
+            history.append({"idea": m["idea"], "ok": True, "score": m.get("val_pearson"), "n_params": m.get("n_params"),
+                            "val": m.get("val_pearson"), "train_s": m.get("train_time_sec")})
+        if rows:
+            midx = 1 + max(int(m["model_id"].split("_")[-1]) for m in rows)
+            start_rd = 1 + max(int(m["round"]) for m in rows)
+            print(f"  [resume] {len(rows)} models on disk; continuing at round {start_rd}, model index {midx}", flush=True)
+    _atomic_write_text(out_p / "config.json", json.dumps(
+        {"args": vars(args), "LLM_MODEL": os.environ.get("LLM_MODEL"), "argv": sys.argv, "resumed_from_round": start_rd},
+        indent=2, default=str))
+    for rd in range(start_rd, args.rounds):
         if time.time() - t_start > args.budget_hours * 3600:
-            print(f"  [budget {args.budget_hours}h reached at round {rd}] stopping", flush=True); break
+            print(f"  [budget {args.budget_hours}h reached at round {rd}] stopping", flush=True); budget_hit = True; break
         try:
             sys_p, user = build_arch_prompt(args.per_round, history, seq_len=args.seq_len,
-                                            D=args.D, max_params=args.max_params, note=(FULL_NOTE if args.full_control else TRAIN_NOTE).format(max_min=cap_min, max_params=args.max_params))
+                                            D=args.D, max_params=args.max_params, note=_round_note(args, rd, cap_min))
+            if rd in (start_rd, args.phase_split):
+                _atomic_write_text(out_p / "prompts" / f"prompt_r{rd:02d}.txt", sys_p + "\n\n=====\n\n" + user)
             text = call_model(sys_p, user)
             props = parse_proposals(text)
             trains = _TRAIN.findall(text)
@@ -347,7 +479,7 @@ def main():
                     "optimizer_used": used, "val_pearson": vr, "best_val_pearson": vr,
                     "test_oracle_pearson": r, "val_mse": info.get("best_val_mse"),
                     "epochs_trained": info.get("epochs_trained"),
-                    "train_time_sec": time.time() - t0, "source": p["source"]}
+                    "train_time_sec": time.time() - t0, "gpu": gpu, "source": p["source"]}
             _atomic_savez(Path(args.out_dir) / f"{mid}.npz",
                           **{k: np.asarray(x, np.float32) for k, x in res.items()})
             _atomic_write_text(Path(args.out_dir) / f"{mid}_meta.json", json.dumps(meta, indent=2, default=str))
@@ -357,6 +489,8 @@ def main():
             print(f"    {mid} r={r:.4f} val={vr:.4f} {verdict.n_params:,}p {used} "
                   f"{info.get('epochs_trained')}ep {time.time()-t0:.0f}s  {p['idea'][:46]}", flush=True)
     print(f"DONE_ARCH trained={midx} elapsed={(time.time()-t_start)/3600:.1f}h", flush=True)
+    if not budget_hit and midx > 0:
+        (out_p / "COMPLETE").write_text(f"rounds={args.rounds} models={midx}\n")
     if midx == 0:
         print("FAILED_ARCH: 0 models trained", flush=True)
         raise SystemExit(3)
