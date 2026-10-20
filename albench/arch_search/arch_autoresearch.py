@@ -267,7 +267,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     import torch as _t
     gpu = _t.cuda.get_device_name(0) if _t.cuda.is_available() else "cpu"
-    gpu_factor = 2.5 if "V100" in gpu else 1.0
+    gpu_factor = 5.0 if "V100" in gpu else 1.0  # V100 ~8x slower on compute (measured); 5x end-to-end
     if args.base_cap_min is not None:
         cap_min = args.base_cap_min * gpu_factor
     elif args.model_max_min is not None:
