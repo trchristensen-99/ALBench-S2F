@@ -416,12 +416,16 @@ def main():
                             "val": m.get("val_pearson"), "train_s": m.get("train_time_sec")})
         if rows:
             midx = 1 + max(int(m["model_id"].split("_")[-1]) for m in rows)
-            start_rd = 1 + max(int(m["round"]) for m in rows)
+            start_rd = len({int(m["round"]) for m in rows})  # productive rounds; failed/empty rounds are redone
             print(f"  [resume] {len(rows)} models on disk; continuing at round {start_rd}, model index {midx}", flush=True)
     _atomic_write_text(out_p / "config.json", json.dumps(
         {"args": vars(args), "LLM_MODEL": os.environ.get("LLM_MODEL"), "argv": sys.argv, "resumed_from_round": start_rd},
         indent=2, default=str))
-    for rd in range(start_rd, args.rounds):
+    target = args.rounds * args.per_round  # every cell ends with the same number of TRAINED models, not rounds
+    max_rounds = args.rounds + max(6, args.rounds // 4)
+    rd = start_rd - 1
+    while midx < target and rd + 1 < max_rounds:
+        rd += 1
         if time.time() - t_start > args.budget_hours * 3600:
             print(f"  [budget {args.budget_hours}h reached at round {rd}] stopping", flush=True); budget_hit = True; break
         try:
@@ -435,6 +439,9 @@ def main():
         except Exception as e:
             msg = f"{type(e).__name__}: {e}"
             print(f"  [round {rd}] propose failed: {msg}", flush=True)
+            if type(e).__name__ == "RateLimitExceeded":
+                print(f"RATE_LIMITED at round {rd} ({midx} models so far): exiting 75 so the dispatcher backs off; no rounds burned", flush=True)
+                raise SystemExit(75)
             streak = streak + 1 if msg == last_err else 1
             last_err = msg
             if midx == 0 and streak >= 4:
@@ -470,6 +477,10 @@ def main():
                 history.append({"idea": p["idea"], "ok": False, "reason": info.get("error", "fail")})
                 print(f"    train-fail: {info.get('error')}", flush=True); continue
             res = {"val_pred": predict_rc(model, Xva), "test_pred": predict_rc(model, Xte)}
+            _vp = res["val_pred"]
+            if (not np.isfinite(_vp).all()) or float(np.abs(_vp).max()) > 1e3:  # finite-but-absurd outputs (seen: ~1e20) wreck any ensemble
+                history.append({"idea": p["idea"], "ok": False, "reason": "exploded predictions (|pred|>1e3)"})
+                print("    train-fail: exploded predictions (|pred|>1e3)", flush=True); continue
             for k, Xk in Xsets.items():
                 res[f"test_pred_{k}"] = predict_rc(model, Xk)
             r = pear(res["test_pred"], te_oracle); vr = pear(res["val_pred"], yva)
@@ -490,7 +501,7 @@ def main():
                   f"{info.get('epochs_trained')}ep {time.time()-t0:.0f}s  {p['idea'][:46]}", flush=True)
     print(f"DONE_ARCH trained={midx} elapsed={(time.time()-t_start)/3600:.1f}h", flush=True)
     if not budget_hit and midx > 0:
-        (out_p / "COMPLETE").write_text(f"rounds={args.rounds} models={midx}\n")
+        (out_p / "COMPLETE").write_text(f"rounds_run={rd + 1} models={midx} target={target}\n")
     if midx == 0:
         print("FAILED_ARCH: 0 models trained", flush=True)
         raise SystemExit(3)
