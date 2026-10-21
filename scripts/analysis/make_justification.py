@@ -74,7 +74,7 @@ def load_cell(d, pattern="r*_meta.json"):
             continue
         vp = z["val_pred"].astype(float)
         tp = {e: z[f"test_pred_{e}"].astype(float) for e in yt}
-        if not (np.isfinite(vp).all() and all(np.isfinite(t).all() for t in tp.values())) or np.abs(vp).max() > 1e3:
+        if not (np.isfinite(vp).all() and all(np.isfinite(t).all() for t in tp.values())) or max(np.abs(vp).max(), *[np.abs(t).max() for t in tp.values()]) > 1e3:
             continue  # diverged / exploded models never enter an ensemble
         rows.append((int(m.get("round", 0)), m.get("model_id", f), vp, tp, m))
     if not rows:
@@ -426,15 +426,32 @@ def fig_llm_vs_classical(out):
     ax.set_xlabel("round"); ax.set_ylabel("mean validation r of proposals"); ax.set_title("LLM proposals are good from round 0"); ax.legend()
     ax = axes[2]
     base = R / "outputs/baseline_oct20"
-    done = {}
-    for arm in ("random_broad", "prior_marginal", "prior_tpe"):
+    done, cmp_ = {}, {}
+    N_EQ = 20
+    spec = [("random_broad", "random\nfull box", GREY), ("prior_marginal", "random\nLLM-like prior", TEAL), ("prior_tpe", "TPE\nLLM-like box", ORANGE)]
+    for i, (arm, lab, col) in enumerate(spec):
         done[arm] = [len([f for f in glob.glob(str(base / arm / f"run{k}/r*_meta.json")) if not f.endswith("_screen.json")]) for k in range(1, 7)]
-    labs = [("random_broad", "random,\nfull box", GREY), ("prior_marginal", "random,\nLLM-like prior", TEAL), ("prior_tpe", "TPE,\nLLM-like box", ORANGE)]
-    for i, (arm, lab, col) in enumerate(labs):
-        ax.barh(i, sum(done[arm]), color=col, height=0.6, zorder=2)
-        ax.text(sum(done[arm]) + 3, i, f"{sum(done[arm])} / 180", va="center", fontsize=8.5)
-    ax.set_yticks(range(3)); ax.set_yticklabels([l[1] for l in labs], fontsize=8.5); ax.invert_yaxis(); ax.set_xlim(0, 200)
-    ax.set_xlabel("models trained so far (6 runs x 30 per arm)"); ax.set_title("Repaired baselines: progress")
+        vals = []
+        for k in range(1, 7):
+            c = load_cell(base / arm / f"run{k}")
+            if c is not None and c["V"].shape[1] >= 20:
+                vals.append(enet(c["V"], c["yv"], c["T"], c["yt"], range(min(N_EQ, c["V"].shape[1])))[0]["genomic"])
+        cmp_[arm] = vals
+        ax.scatter(np.full(len(vals), i) + jitter(len(vals), 0.07, i + 20), vals, s=26, color=col, zorder=3)
+        if vals:
+            ax.hlines(np.mean(vals), i - 0.22, i + 0.22, color=col, lw=2)
+    vals = []
+    for r in (1, 2, 3):
+        c = load_cell(R / f"outputs/scaling_rep_oct16/genomic_d30000/rep{r}")
+        if c is not None and c["V"].shape[1] >= N_EQ:
+            vals.append(enet(c["V"], c["yv"], c["T"], c["yt"], range(N_EQ))[0]["genomic"])
+    cmp_["llm_first30"] = vals
+    ax.scatter(np.full(len(vals), 3) + jitter(len(vals), 0.07, 30), vals, s=26, color=BLUE, zorder=3)
+    if vals:
+        ax.hlines(np.mean(vals), 3 - 0.22, 3 + 0.22, color=BLUE, lw=2)
+    ax.set_xticks(range(4)); ax.set_xticklabels([x[1] for x in spec] + ["LLM 2x30\n(first 30)"], fontsize=7.8)
+    ax.set_ylabel(f"ensemble test r of {N_EQ} models, genomic 30k"); ax.set_title("Equal-size comparison (HP-only, 30k)")
+    DATA["baselines_vs_llm"] = {k: [float(x) for x in v] for k, v in cmp_.items()}
     DATA["baselines_progress"] = done
     fig.tight_layout()
     save(fig, "llm_vs_classical.png", out)
@@ -530,14 +547,18 @@ def fig_context(out):
         for r in range(1, 5):
             n = len(glob.glob(str(R / f"outputs/ctx100_oct20/{a}/rep{r}/r*_meta.json")))
             prog[a][r - 1] = n
+    full = {k: v for k, v in cells.items() if v["V"].shape[1] >= 30}
+    if len(full) >= 4:  # compare only finished replicates at the full 30 models
+        cells = full
     if cells:
-        n_eq = max(6, int(min(c["V"].shape[1] for c in cells.values()) // 2 * 2))
+        n_eq = max(6, int(min(30, min(c["V"].shape[1] for c in cells.values())) // 2 * 2))
         for ai, (a, col) in enumerate(arms.items()):
             e = [enet(c["V"], c["yv"], c["T"], c["yt"], range(n_eq))[0]["genomic"] for (aa, r), c in cells.items() if aa == a]
             if e:
                 ax.scatter(np.full(len(e), ai) + jitter(len(e), 0.06, ai), e, s=34, color=col, zorder=3); ax.hlines(np.mean(e), ai - 0.2, ai + 0.2, color=col, lw=2)
         ax.set_ylabel(f"ensemble test r at equal n = {n_eq} models")
         ax.set_title("NEW: context 30k -> 100k, 4 reps/arm (running)")
+        DATA["ctx100"] = {"n_eq": n_eq, **{a: [float(enet(c["V"], c["yv"], c["T"], c["yt"], range(n_eq))[0]["genomic"]) for (aa, r), c in cells.items() if aa == a] for a in arms}}
         ax.set_xticks(range(4)); ax.set_xticklabels(["none", "T top-by-val\n(30k)", "J T+trajectory\n(30k)", "X top-by-val\n(10k)"], fontsize=8)
     else:
         for ai, (a, col) in enumerate(arms.items()):
@@ -591,11 +612,15 @@ def fig_menu_fam(out):
     gstat = {e: dict(val=np.mean([r["val"] for r in v]), test=np.mean([r["test"] for r in v])) for e, v in g[2].items()}
     res = {}
     for f, _ in fams:
-        yv, yt, ent = load_menu([str(base / f"f30k_{f}")])
+        yv, yt, ent = load_menu([str(base / f"f30k_{f}"), str(base / f"f30k_{f}_seeds12")])
         if len(ent) >= 8:
             res[f] = (yv, yt, ent)
-    prog = {f: len(load_menu([str(base / f"f30k_{f}")])[2]) for f, _ in fams}
-    DATA["menu_fam"] = dict(progress=prog, n_menu=len(gstat))
+    prog = {f: len(load_menu([str(base / f"f30k_{f}"), str(base / f"f30k_{f}_seeds12")])[2]) for f, _ in fams}
+    a0 = load_menu([str(base / "g30k")])[2]; a1 = load_menu([str(base / "g30k_seeds12")])[2]
+    both = sorted(set(a0) & set(a1))
+    if len(both) >= 8:  # retest ceiling: how well does one genomic retraining predict another?
+        DATA.setdefault("menu_fam", {})["retest_spearman_genomic"] = float(spearmanr([np.mean([r["test"] for r in a0[c]]) for c in both], [np.mean([r["test"] for r in a1[c]]) for c in both])[0])
+    DATA.setdefault("menu_fam", {}).update(progress=prog, n_menu=len(gstat))
     fig, axes = plt.subplots(1, 3, figsize=(12.6, 4.2))
     ax = axes[0]
     for i, (f, col) in enumerate(fams):
@@ -636,6 +661,43 @@ def fig_menu_fam(out):
             ax.axis("off"); ax.text(0.5, 0.5, "running: results appear when at least\n8 menu entries are done per reservoir", ha="center", va="center", transform=ax.transAxes, color=MUTED)
     fig.tight_layout()
     save(fig, "menu_families.png", out)
+
+
+def fig_menu_300k(out):
+    """Does the 30k->100k rank agreement continue to 300k? (decides whether the menu can be chosen at 100k and reused at 300k)"""
+    base = R / "outputs/menu_retrain_v0"
+    _, _, e3 = load_menu([str(base / "g300k")])
+    _, _, e1 = load_menu([str(base / "g100k"), str(base / "g100k_seeds12")])
+    _, _, e30 = load_menu([str(base / "g30k"), str(base / "g30k_seeds12")])
+    n3 = len(e3)
+    DATA["menu300"] = dict(done=n3, n_menu=len(e1))
+    fig, axes = plt.subplots(1, 3, figsize=(12.0, 4.0))
+    ax = axes[0]
+    ax.barh(0, n3, color=BLUE, height=0.5, zorder=2); ax.set_xlim(0, max(len(e1), 1) * 1.2); ax.set_yticks([])
+    ax.text(n3 + 0.4, 0, f"{n3} / {len(e1)}", va="center"); ax.set_xlabel("menu architectures retrained at 300k"); ax.set_title("300k retraining: progress")
+    both = sorted(set(e3) & set(e1))
+    if len(both) >= 8:
+        t3 = np.array([np.mean([r["test"] for r in e3[c]]) for c in both]); t1 = np.array([np.mean([r["test"] for r in e1[c]]) for c in both])
+        v3 = np.array([np.mean([r["val"] for r in e3[c]]) for c in both]); v1 = np.array([np.mean([r["val"] for r in e1[c]]) for c in both])
+        c30 = sorted(set(e3) & set(e30)); t30 = [np.mean([r["test"] for r in e30[c]]) for c in c30]; t3b = [np.mean([r["test"] for r in e3[c]]) for c in c30]
+        ax = axes[1]
+        isref = np.array([c == "reference_legnet_eff" for c in both])
+        ax.scatter(t1[~isref], t3[~isref], s=26, color=BLUE, alpha=0.8); ax.scatter(t1[isref], t3[isref], s=80, marker="*", color=ORANGE, label="reference LegNet-eff")
+        ax.set_xlabel("test r at 100k"); ax.set_ylabel("test r at 300k"); ax.legend(loc="lower right")
+        ax.set_title("Same architectures, 100k vs 300k"); note(ax, f"Spearman: test {spearmanr(t1, t3)[0]:.2f}, validation {spearmanr(v1, v3)[0]:.2f}")
+        ax = axes[2]
+        order = sorted(both, key=lambda c: -np.mean([r["test"] for r in e3[c]]))
+        r100 = sorted(both, key=lambda c: -np.mean([r["test"] for r in e1[c]]))
+        ax.scatter([r100.index(c) + 1 for c in order], [order.index(c) + 1 for c in order], s=22, color=TEAL)
+        ax.plot([1, len(both)], [1, len(both)], color=GREY, lw=1); ax.set_xlabel("rank at 100k"); ax.set_ylabel("rank at 300k"); ax.set_title("Rank change")
+        DATA["menu300"].update(spearman_test_100k_300k=float(spearmanr(t1, t3)[0]), spearman_val_100k_300k=float(spearmanr(v1, v3)[0]),
+                               spearman_test_30k_300k=float(spearmanr(t30, t3b)[0]) if len(c30) >= 8 else None,
+                               top5_overlap=len(set(sorted(both, key=lambda c: -np.mean([r["test"] for r in e3[c]]))[:5]) & set(sorted(both, key=lambda c: -np.mean([r["test"] for r in e1[c]]))[:5])))
+    else:
+        for ax in axes[1:]:
+            ax.axis("off"); ax.text(0.5, 0.5, "running: scatter appears once 8 architectures\nhave finished at 300k", ha="center", va="center", transform=ax.transAxes, color=MUTED)
+    fig.tight_layout()
+    save(fig, "menu_300k.png", out)
 
 
 def fig_budget(out):
@@ -692,7 +754,7 @@ def main():
     steps = [("loop", fig_loop), ("menu", fig_menu), ("instances", fig_instances),
              ("prompt", lambda o: arm_figure(ARMS, "Prompt structure (Sonnet 5.5, genomic 30k, 30 rounds x 2)", "prompt_arms.png", "prompt_arms", o)),
              ("proposer", lambda o: arm_figure(PROP, "Proposer model (build-on-what-works prompt, genomic 30k)", "proposer_models.png", "proposer", o)),
-             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("family", fig_family), ("menufam", fig_menu_fam), ("budget", fig_budget)]
+             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("family", fig_family), ("menufam", fig_menu_fam), ("menu300", fig_menu_300k), ("budget", fig_budget)]
     for name, fn in steps:
         if a.only and name not in a.only.split(","):
             continue

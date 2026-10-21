@@ -24,6 +24,9 @@ NARROW = {"arch_vs_legnet.png", "replicates.png", "kb_prompts.png"}
 OLD_ARTIFACT = "https://claude.ai/artifact/98NSVuNvp3F41LHBdGgvPp"
 
 CHANGELOG = [
+    ("2026-10-21 09:30", "Overnight results: guidance beats wide-open for the proposer (N is 0.02 behind at 50 models; P = W); prior-box baselines match the LLM in HP-only; context hand-off shows no gain yet; menu ranks agree across reservoirs near the retest ceiling except random; menu at 300k is 23/33 done."),
+    ("2026-10-21 05:25", "Menu retraining at 300k queued on idle H100s (6 shards) to test whether 100k rankings carry to 300k."),
+    ("2026-10-21 00:55", "Menu retrained on random / motif / evo2 / evoaug at 30k: rank agreement with genomic is 0.4-0.6, about the genomic retest ceiling (0.55). Second-seed retests for each family are queued."),
     ("2026-10-20 23:00", "First version. Ten evidence figures, sixteen decisions. Context-transfer (16 cells), reservoir-family AutoResearch (12), "
                          "menu-by-reservoir retraining (12) and the repaired baselines launched or still running."),
 ]
@@ -50,6 +53,7 @@ def build(d: dict) -> list[dict]:
     top5 = T.get("ens", [0] * 7)
     cadg = lambda r, a: cad.get(f"{r}|{a}", [float("nan"), 0])
     ctx = d.get("ctx100_progress", {})
+    c100 = d.get("ctx100", {})
     n_ctx = sum(sum(v) for v in ctx.values())
     fam = d.get("family", {}).get("progress", {})
     n_fam = {f: sum(v for k, v in fam.items() if k.startswith(f + "|")) for f in ("random", "motif_ct_enriched", "evo2", "evoaug_paper2023")}
@@ -58,6 +62,7 @@ def build(d: dict) -> list[dict]:
     mean = lambda v: sum(v) / len(v) if v else float("nan")
     bp = d.get("baselines_progress", {})
     bt = {k: sum(v) for k, v in bp.items()}
+    bv = d.get("baselines_vs_llm", {})
     B = d.get("budget", {})
     mf = d.get("menu_fam", {})
 
@@ -75,22 +80,30 @@ def build(d: dict) -> list[dict]:
              choice="Do not claim an architecture advantage for free-form search. Its value is diversity for the ensemble and a wide, assumption-free search.",
              points=[f"LegNet-eff HP-search winners: {', '.join(f3(v) for v in d['arch_vs_legnet']['LegNet-eff configs'])}. Top-3 free-form architectures: {', '.join(f3(v) for v in d['arch_vs_legnet']['free-form architectures'])}.",
                      "Single seeds scatter by about +-0.005, so these are indistinguishable.",
-                     f"Retraining the full 33-model menu puts the reference LegNet at rank {rr.get('10k', '?')} / {rr.get('30k', '?')} / {rr.get('100k', '?')} at 10k / 30k / 100k, so it is a strong baseline once D >= 30k."],
+                     f"Retraining the 33-model menu three times each puts the reference LegNet at rank {rr.get('10k', '?')} / {rr.get('30k', '?')} / {rr.get('100k', '?')} of 33 at 10k / 30k / 100k. With one or two seeds it had looked like 2nd-3rd at 30k and 100k, so rankings within this pack are seed-noise dominated and no architecture, LegNet included, is distinguishable from the pack."],
              caveat="Genomic reservoir at 30k only; 3 seeds per architecture."),
         dict(id="menu", group="Dataset-size ladder", status="supported", figs=["menu_across_D.png"],
              q="Can we pick architectures at a small D and reuse them at a larger D?",
              choice="No. Retrain the whole candidate pool at every D and ensemble there; do not pre-select the top few at 10k.",
              points=[f"Rank correlation of the same {M.get('n_entries', 33)} architectures between D: 10k vs 30k, validation {f3(sp['spearman_10k_30k'].get('val'), 2)} / test {f3(sp['spearman_10k_30k'].get('test'), 2)}; 30k vs 100k, validation {f3(sp['spearman_30k_100k'].get('val'), 2)} / test {f3(sp['spearman_30k_100k'].get('test'), 2)}.",
-                     f"Ensemble of the whole retrained menu: {', '.join(f3(v) for v in ens.get('all', []))} at 10k / 30k / 100k. Top-5 chosen at 10k and retrained: {', '.join(f3(v) for v in ens.get('top5_at_10k', []))}. HP-only search (old loop): {', '.join(f3(v) for v in ens.get('hp_only', []))}.",
+                     f"Ensemble of the whole retrained menu: {', '.join(f3(v) for v in ens.get('all', []))} at 10k / 30k / 100k. Top-5 chosen at 10k and retrained: {', '.join(f3(v) for v in ens.get('top5_at_10k', []))}, i.e. {', '.join(sgn(a - b) for a, b in zip(ens.get('top5_at_10k', []), ens.get('all', [])))} against the whole pool. HP-only search (old loop): {', '.join(f3(v) for v in ens.get('hp_only', []))}.",
                      "Retrainings per architecture so far: " + ", ".join(f"{k} {v}" for k, v in M.get("seeds_per_D", {}).items()) + " (more are running; the correlations are noisier than they look)."],
-             caveat="Retest noise is not yet separated from true rank change: second and third seeds for 10k and 30k are still arriving. Menu is genomic only; family menus are running (see below). The HP-only comparison mixes harnesses.",
+             caveat="Three retrainings per architecture at every D. The 10k-to-30k agreement (test 0.13) is well below the 0.55 retest ceiling measured at genomic 30k, so the ranking really changes with D; 30k-to-100k sits at that ceiling. The practical cost of choosing the top 5 at 10k anyway is small (a few thousandths in ensemble r), so the case for retraining everything is about robustness, not size. The HP-only comparison mixes harnesses.",
              change="If rank stability between two seeds at one D is also near zero, the 10k-30k result is noise, and top-k selection at small D would be fine."),
-        dict(id="menufam", group="Dataset-size ladder", status="running", figs=["menu_families.png"],
+        dict(id="menufam", group="Dataset-size ladder", status="provisional", figs=["menu_families.png"],
              q="Do the same architectures do well on random, motif, evo2 and evoaug data, or does each reservoir need its own search?",
              choice="Menu is reservoir-agnostic and retrained per reservoir (decided earlier). This tests that on the new loop.",
              points=[f"Progress so far (of {mf.get('n_menu', 33)}): " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in mf.get("progress", {}).items()) + ".",
-                     "Plots fill in once at least 8 menu entries per reservoir finish."],
-             caveat="30k only. Runs on V100 as well as H100 with GPU-scaled time caps."),
+                     "Rank agreement with genomic (Spearman of test r): " + (", ".join(f"{k.replace('_', ' ')} {v:.2f}" for k, v in mf.get("spearman_vs_genomic", {}).items()) or "pending") + (f". Retest ceiling (genomic, one retraining vs another): {mf['retest_spearman_genomic']:.2f}." if "retest_spearman_genomic" in mf else ".")],
+             caveat="30k only; three retrainings per entry on each reservoir, but the retest ceiling (0.55) comes from genomic only. Random is the exception: its ranking agrees with genomic far less than the others do. Runs on V100 as well as H100 with GPU-scaled time caps.",
+             change="If a second seed shows retest correlation well above the cross-reservoir correlation, rankings are reservoir-specific and each reservoir needs its own search."),
+        dict(id="menu300", group="Dataset-size ladder", status="running", figs=["menu_300k.png"],
+             q="Can the architecture pool chosen at 100k be reused at 300k, or does 300k need its own retraining?",
+             choice="Retrain the whole pool at 300k once, then check how well 100k ranks predict 300k ranks. If they agree, the 300k stage needs no extra search.",
+             points=[f"Retrained so far: {d.get('menu300', {}).get('done', 0)} of {d.get('menu300', {}).get('n_menu', 33)} architectures (6 H100 shards, 120-minute cap per model)."]
+                    + ([f"Rank agreement 100k vs 300k: test {d['menu300']['spearman_test_100k_300k']:.2f}, validation {d['menu300']['spearman_val_100k_300k']:.2f}; {d['menu300'].get('top5_overlap', '?')} of the top 5 are shared."] if "spearman_test_100k_300k" in d.get("menu300", {}) else ["Scatter fills in once 8 architectures finish."]),
+             caveat="Single seed per architecture at 300k, so the agreement is bounded by retest noise (30k-100k agreement was 0.6-0.7).",
+             change="If 100k ranks do not predict 300k ranks, the ladder needs a full retrain at 300k, which is the most expensive stage."),
         dict(id="inst", group="Search and pooling", status="supported", figs=["instances_and_topk.png"],
              q="How many models should one AutoResearch instance train, how many should we keep, and how many instances do we need?",
              choice="About 20-30 models per instance, keep the top 8 by validation, pool several independent instances.",
@@ -107,42 +120,45 @@ def build(d: dict) -> list[dict]:
         dict(id="llm", group="Proposer and prompt", status="provisional", figs=["llm_vs_classical.png"],
              q="Is an LLM proposer better than classical samplers, and if so is it because of search or because of its prior?",
              choice="Use the LLM with 2 proposals x 30 rounds, but do not claim it out-searches classical methods.",
-             points=[f"Cadence study, genomic: LLM 2x30 {f3(cadg('genomic', 'llm2x30')[0])}, 6x10 {f3(cadg('genomic', 'llm6x10')[0])}, 1x60 {f3(cadg('genomic', 'llm1x60')[0])} (incomplete), classical multi6 {f3(cadg('genomic', 'multi6')[0])}; the LLM leads by +0.02 to +0.045.",
-                     "The LLM's mean proposal quality is already high in round 0 and does not climb, so its edge is its prior, not search.",
-                     f"Repaired baselines (random in the LLM-like prior box; TPE seeded from that prior; 6 runs x 30 models each) are running: random-full-box {bt.get('random_broad', 0)}, random-prior {bt.get('prior_marginal', 0)}, TPE-prior {bt.get('prior_tpe', 0)} of 180 models each."],
-             caveat="The classical arm in the cadence study was weak by construction (<= 11 trials per sampler, no prior, four anchor copies). The repaired baselines exist to close that gap. If the prior-box baselines match the LLM, the case for the LLM is diversity and prior knowledge, which still justifies it for the free-architecture search.",
-             change="If prior-box TPE matches the LLM at equal n, we say so in the paper and keep the LLM only for the architecture-writing step."),
+             points=[f"Cadence study, genomic: LLM 2x30 {f3(cadg('genomic', 'llm2x30')[0])}, 6x10 {f3(cadg('genomic', 'llm6x10')[0])}, 1x60 {f3(cadg('genomic', 'llm1x60')[0])} (incomplete), classical multi6 {f3(cadg('genomic', 'multi6')[0])}; the LLM led by +0.02 to +0.045, but its proposal quality is flat from round 0, so the edge is its prior.",
+                     "Repaired baselines (6 runs each, HP-only, genomic 30k, ensemble of the first 20 models): " + "; ".join(f"{lab} mean {mean(bv.get(k, [])):.3f} (range {min(bv[k]):.3f}-{max(bv[k]):.3f}, n = {len(bv[k])})" for k, lab in (("random_broad", "random in the full box"), ("prior_marginal", "random in the LLM-like prior box"), ("prior_tpe", "TPE in that box"), ("llm_first30", "LLM 2x30 first 20")) if bv.get(k)) + ".",
+                     "Sampling the box the LLM tends to propose from, with no LLM at all, matches the LLM in this HP-only setting; plain random sampling in the full box is about 0.004-0.005 behind, inside the single-run SD of 0.009."],
+             caveat="HP-only, one reservoir, one size; n = 5-6 runs per baseline and 2 LLM runs with 20 models. The case for the LLM therefore rests on what the baselines cannot do: write new architectures, and propose with knowledge of what has been tried.",
+             change="If baselines also matched the LLM on the free-architecture task (which they cannot run), the LLM would be unnecessary."),
         dict(id="kb", group="Proposer and prompt", status="supported", figs=["kb_prompts.png"],
              q="Does the knowledge base or a particular prompt wording make the proposer better?",
              choice="Keep the default prompt; do not spend more budget on prompt wording.",
              points=[f"Knowledge base on vs off, 5 cells: mean {sgn(kb.get('mean'))}, individual differences {', '.join(sgn(x) for x in kb.get('diffs', []) if x is not None)}.",
                      "Six prompt styles x 2 reps at genomic 30k: explore and reflect sit about +0.01 above the default, critic below, but each style's two reps straddle the single-run noise."],
              caveat="HP-only harness. Effects below about 0.01 are not detectable at one run per cell."),
-        dict(id="prompt", group="Proposer and prompt", status="running", figs=["prompt_arms.png"],
+        dict(id="prompt", group="Proposer and prompt", status="supported", figs=["prompt_arms.png"],
              q="Should the free-architecture proposer be given guidance (known-good pieces, a reference LegNet, a build-then-explore schedule) or be left wide open?",
-             choice="Wide open unless the evidence shows a clear benefit.",
+             choice="Give it the known-good guidance and the ensemble note, without a phase schedule (arm W). Leaving it wide open (N) is measurably worse.",
              points=["Arms: P = guidance + reference + build-on-what-works for 6 rounds then explore; W = guidance only; N = nothing. Three independent runs per arm.",
-                     f"At equal n = {d.get('prompt_arms', {}).get('n_eq', '?')} models, mean ensemble r: P {f3(mean(pe.get('P', [])))}, W {f3(mean(pe.get('W', [])))}, N {f3(mean(pe.get('N', [])))}. N is behind early; P and W are indistinguishable so far.",
-                     "Counts per cell are unequal while runs finish; the figure labels each point with its model count."],
-             caveat="Unequal model counts: read the right-hand panel only at equal n. P cells are complete; W and N were interrupted by the usage limit and resumed.",
-             change="If N catches up by 60 models, the guidance only saves rounds and the wide-open prompt wins on principle."),
+                     f"At equal n = {d.get('prompt_arms', {}).get('n_eq', '?')} models, mean ensemble test r: P {f3(mean(pe.get('P', [])))}, W {f3(mean(pe.get('W', [])))}, N {f3(mean(pe.get('N', [])))}; N is {sgn(mean(pe.get('N', [])) - mean(pe.get('W', [])))} from W, about four times the between-run SD of 0.005.",
+                     "Top-5 validation r per run: P 0.823-0.833, W 0.830-0.833, N 0.793-0.817. The build-then-explore phases add nothing over plain guidance."],
+             caveat="Sonnet 5.5, genomic 30k only; 3 reps per arm. The wide-open preference is kept as the default for everything the guidance does not cover (architecture families, depth, width).",
+             change="If N matched W on another reservoir, we would drop the guidance there too."),
         dict(id="proposer", group="Proposer and prompt", status="running", figs=["proposer_models.png"],
              q="Which model should write the architectures?",
              choice="Sonnet 5.5 (cost and rate-limit headroom), unless Opus clearly wins.",
              points=["Same prompt (P), genomic 30k, three runs each for Sonnet 5.5, Sonnet 4.5, Opus 5.5.",
                      "Opus 5.5 cells are queued behind the LLM concurrency cap and have only a few models so far."],
              caveat="Not yet decisive; Opus has too few models to compare."),
-        dict(id="ctx", group="Dataset-size ladder", status="running", figs=["context_transfer.png"],
+        dict(id="ctx", group="Dataset-size ladder", status="provisional", figs=["context_transfer.png"],
              q="When AutoResearch moves from 30k to 100k, should the proposer see what worked at 30k?",
              choice="Test four arms with four reps each: no context, top architectures by validation from 30k (T), T plus a trajectory summary (J), and top architectures from 10k (X) as the stale-context control.",
-             points=[f"Earlier HP-only pilot (n = 1): no robust effect; the one +0.03 gain at 100k did not replicate on a repeat (0.802 vs 0.771).",
-                     f"New test: 16 cells x 15 rounds x 2 proposals at 100k; {n_ctx} models trained so far."],
-             caveat="Cells are H100-only and sit in the lowest-priority queue, so results arrive slowly. Only validation numbers go into the context text."),
+             points=["Earlier HP-only pilot (n = 1): no robust effect; the one +0.03 gain at 100k did not replicate on a repeat (0.802 vs 0.771).",
+                     "New test at 100k, 15 rounds x 2 proposals, ensemble test r at equal n = " + str(c100.get("n_eq", "?")) + " models: " + "; ".join(f"{k} {mean(c100[k]):.3f} (n = {len(c100[k])})" for k in ("none", "T", "J", "X") if c100.get(k)) + ".",
+                     f"Models trained so far per arm (reps 1-4): " + "; ".join(f"{k} {v}" for k, v in ctx.items()) + "."],
+             caveat="Two to three finished reps per arm; every arm is within about 0.005 of no-context, i.e. inside the noise. Reps 3-4 are still running. Only validation numbers go into the context text.",
+             change="A gain of 0.01 or more for T or J across all four reps would justify the ladder hand-off."),
         dict(id="fam", group="Search and pooling", status="running", figs=["families.png"],
              q="Does AutoResearch find equally good models on every reservoir family?",
              choice="Run three independent instances on one member of each family, pool the top few by validation.",
              points=["Families: genomic, random, motif_ct_enriched, evo2, evoaug_paper2023. Prompt W, 30k, 30 rounds x 2.",
-                     "Models trained so far: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in n_fam.items()) + "."],
+                     "Models trained so far: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in n_fam.items()) + ".",
+                     "Mean validation r of each run's 5 best models (each family on its own data): " + "; ".join(f"{k.replace('_', ' ')} {min(v):.3f}-{max(v):.3f}" for k, v in d.get("family", {}).get("top5", {}).items()) + "."],
              caveat="Genomic bars reuse the W cells, which are themselves unfinished."),
         dict(id="ens", group="Ensembling", status="carried", figs=[],
              q="How should the pooled candidates be combined?",
