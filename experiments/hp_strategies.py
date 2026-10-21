@@ -500,6 +500,146 @@ class AutoResearchKnowledgeable(AutoResearchAdaptive):
         return configs
 
 
+# ---------------------------------------------------------------------------------------------
+# Prior-matched classical baselines (Oct-20). The cadence "LLM vs classical" comparison could not say
+# whether the LLM's edge is its PRIOR (what it tends to propose) or its SEARCH (adapting to feedback):
+# the classical arm searched the full BROAD box with no prior, at 10 trials per sampler. These two arms
+# take the prior away from the LLM and give it to classical search:
+#   prior_marginal    — i.i.d. draws from the EMPIRICAL per-axis marginals of a reference set of LLM
+#                       proposals (no feedback at all) => the prior alone
+#   optuna_prior_tpe  — TPE restricted to the LLM-informed box (observed levels / observed ranges, the
+#                       axes the LLM never varies fixed at their defaults) => prior + classical search
+# Reference set: JSON list of hp dicts at $PRIOR_REF_JSON (see scratchpad/make_prior_ref.py).
+# ---------------------------------------------------------------------------------------------
+def _prior_ref() -> list[dict]:
+    import json
+    import os
+
+    path = os.environ.get("PRIOR_REF_JSON", "")
+    if not path or not os.path.exists(path):
+        raise RuntimeError("PRIOR_REF_JSON must point at a JSON list of reference LLM-proposal hp dicts")
+    ref = json.load(open(path))
+    if len(ref) < 20:
+        raise RuntimeError(f"prior reference too small ({len(ref)}); need >= 20 proposals")
+    return ref
+
+
+class PriorMarginalRandom(Strategy):
+    """Random search whose per-axis marginals are the empirical marginals of LLM proposals."""
+
+    name = "prior_marginal"
+
+    def __init__(self, seed: int = 0, D: int | None = None):
+        super().__init__(seed, D=D)
+        self.ref = _prior_ref()
+
+    def _pick(self, key, default=None):
+        c = self.ref[int(self.rng.integers(len(self.ref)))]
+        return c.get(key, default)
+
+    def _one(self) -> HPConfig:
+        r = self.rng
+        n_layers = int(self._pick("n_layers"))
+        donors = [c for c in self.ref if int(c["n_layers"]) == n_layers]
+        wj = [float(x) for x in donors[int(r.integers(len(donors)))]["width_jitter"]]
+        donor = self.ref[int(r.integers(len(self.ref)))]
+        extra = {k: v for k, v in (donor.get("extra") or {}).items()}
+        jitter = lambda v: float(v) * float(10 ** r.uniform(-0.15, 0.15))  # noqa: E731
+        return HPConfig(
+            lr=jitter(self._pick("lr")),
+            batch_size=int(self._pick("batch_size")),
+            conv_dropout=float(max(0.0, self._pick("conv_dropout") + r.normal(0, 0.02))),
+            dense_dropout=float(max(0.0, self._pick("dense_dropout") + r.normal(0, 0.02))),
+            n_layers=n_layers,
+            width_base=int(self._pick("width_base")),
+            width_jitter=wj,
+            block_class=str(self._pick("block_class")),
+            ks=int(self._pick("ks")),
+            pct_start=float(self._pick("pct_start")),
+            optimizer=str(self._pick("optimizer")),
+            weight_decay=jitter(self._pick("weight_decay")),
+            use_shift_aug=True,
+            shift_max=int(self._pick("shift_max")),
+            use_evoaug=False,
+            lr_schedule=str(self._pick("lr_schedule", "plateau")),
+            width_ratio=float(self._pick("width_ratio", 1.0)),
+            pool_downsample=int(self._pick("pool_downsample", 0)),
+            gradient_clip=float(self._pick("gradient_clip", 0.0)),
+            seed=int(r.integers(2**31)),
+            extra=extra,
+        )
+
+    def suggest(self, n: int) -> list[HPConfig]:
+        return [self._one() for _ in range(n)]
+
+
+class OptunaPriorTPE(_OptunaSamplerBase):
+    """TPE inside the LLM-informed box; axes the LLM never varies are held at their defaults."""
+
+    name = "optuna_prior_tpe"
+
+    def make_sampler(self, seed: int):
+        import os
+
+        import optuna
+
+        return optuna.samplers.TPESampler(
+            seed=seed, n_startup_trials=int(os.environ.get("PRIOR_TPE_STARTUP", "10"))
+        )
+
+    def __init__(self, seed: int = 0, D: int | None = None):
+        self.ref = _prior_ref()
+        super().__init__(seed, D=D)
+
+    def _lv(self, key, default=None):
+        """Levels the LLM actually uses (>= 5% of its proposals); a level it tried once is not its prior."""
+        cnt: dict = {}
+        for c in self.ref:
+            v = c.get(key, default)
+            cnt[v] = cnt.get(v, 0) + 1
+        keep = [v for v, k in cnt.items() if k >= 0.05 * len(self.ref)]
+        return sorted(keep or list(cnt), key=str)
+
+    def _sample_one(self) -> tuple[Any, HPConfig]:
+        trial = self.study.ask()
+        ref = self.ref
+        nl = [int(c["n_layers"]) for c in ref]
+        n_layers = trial.suggest_int("n_layers", min(nl), max(nl))
+        wj = [trial.suggest_float(f"width_jitter_{i}", 0.5, 2.0) for i in range(max(nl))][:n_layers]
+        rng_ = lambda key: (  # noqa: E731
+            float(np.quantile([c[key] for c in ref], 0.02)),
+            float(np.quantile([c[key] for c in ref], 0.98)),
+        )
+        lo, hi = rng_("lr")
+        wlo, whi = rng_("weight_decay")
+        cd = [c["conv_dropout"] for c in ref]
+        dd = [c["dense_dropout"] for c in ref]
+        extra: dict = {}
+        acts = [a for a in {(c.get("extra") or {}).get("activation") for c in ref} if a]
+        if acts:
+            extra["activation"] = trial.suggest_categorical("activation", sorted(acts) + ["silu"])
+        return trial, HPConfig(
+            lr=trial.suggest_float("lr", lo, hi, log=True),
+            batch_size=trial.suggest_categorical("batch_size", self._lv("batch_size")),
+            conv_dropout=trial.suggest_float("conv_dropout", float(min(cd)), float(max(cd))),
+            dense_dropout=trial.suggest_float("dense_dropout", float(min(dd)), float(max(dd))),
+            n_layers=n_layers,
+            width_base=trial.suggest_categorical("width_base", self._lv("width_base")),
+            width_jitter=wj,
+            block_class=trial.suggest_categorical("block_class", self._lv("block_class")),
+            ks=trial.suggest_categorical("ks", self._lv("ks")),
+            pct_start=trial.suggest_categorical("pct_start", self._lv("pct_start")),
+            optimizer=trial.suggest_categorical("optimizer", self._lv("optimizer")),
+            weight_decay=trial.suggest_float("weight_decay", wlo, whi, log=True),
+            use_shift_aug=True,
+            shift_max=trial.suggest_categorical("shift_max", self._lv("shift_max")),
+            use_evoaug=False,
+            lr_schedule=trial.suggest_categorical("lr_schedule", self._lv("lr_schedule", "plateau")),
+            seed=int(self.rng.integers(2**31)),
+            extra=extra,
+        )
+
+
 STRATEGY_REGISTRY = {
     "random": RandomStrategy,
     "optuna_tpe": OptunaStrategy,
@@ -507,6 +647,8 @@ STRATEGY_REGISTRY = {
     "optuna_cmaes": OptunaCmaEs,
     "optuna_gp": OptunaGP,
     "optuna_qmc": OptunaQMC,
+    "prior_marginal": PriorMarginalRandom,
+    "optuna_prior_tpe": OptunaPriorTPE,
     # Evolutionary / hill-climbing perturbation strategies. These were historically
     # (mis)named "autoresearch_*"; "AutoResearch" is reserved for the LLM-iterative
     # search in llm_autoresearch.py. Only the evo_* names are accepted now.
