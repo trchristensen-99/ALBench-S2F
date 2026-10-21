@@ -335,9 +335,12 @@ def run_full_control(tfn, model, Xtr, ytr, Xva, yva, cap_s):
 def _round_note(args, rd, cap_min):
     """Per-round prompt note. Default (no --guidance) is byte-identical to the old behaviour."""
     base = (FULL_NOTE if args.full_control else TRAIN_NOTE).format(max_min=cap_min, max_params=args.max_params)
+    ctx = ""
+    if getattr(args, "context_file", ""):
+        ctx = open(args.context_file).read().strip()  # pre-built cross-D hand-off (see scripts/analysis/make_ladder_context.py)
     if args.guidance != "known_good":
-        return base
-    parts = [KNOWN_GOOD]
+        return (ctx + "\n\n" + base) if ctx else base
+    parts = [KNOWN_GOOD] + ([ctx] if ctx else [])
     if args.phase_split and rd < args.phase_split:
         parts += [PHASE_EXPLOIT, "REFERENCE IMPLEMENTATION (a LegNet-style network that trains in this harness; copy or "
                   "modify it):\n```python\n" + REFERENCE_SRC + "```"]
@@ -365,6 +368,7 @@ def main():
     ap.add_argument("--guidance", default="none", choices=["none", "known_good"])  # prior knowledge block in the prompt
     ap.add_argument("--phase_split", type=int, default=0)  # rounds < split: build on known-good; after: explore wider (0 = off)
     ap.add_argument("--ensemble_aware", action="store_true")  # tell the proposer the deploy metric is an ensemble
+    ap.add_argument("--context_file", default="")  # text block with results from a smaller dataset size (cross-D context)
     ap.add_argument("--resume", action="store_true")  # rebuild history from out_dir and continue (safe under requeue)
     args = ap.parse_args()
 
