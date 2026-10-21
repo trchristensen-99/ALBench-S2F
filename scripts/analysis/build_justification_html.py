@@ -24,6 +24,7 @@ NARROW = {"arch_vs_legnet.png", "replicates.png", "kb_prompts.png"}
 OLD_ARTIFACT = "https://claude.ai/artifact/98NSVuNvp3F41LHBdGgvPp"
 
 CHANGELOG = [
+    ("2026-10-21 09:40", "Experiment audit: ctx prompts carry the context (T/J/X yes, none no), family cells use the right pools, 300k models were not time-capped; 16 of 2,040 models had exploded predictions on some eval set. Dispatcher: LLM cap 14 to 22, default-queue overflow now goes to slow_nice, 300k seeds 2-3 queued."),
     ("2026-10-21 09:30", "Overnight results: guidance beats wide-open for the proposer (N is 0.02 behind at 50 models; P = W); prior-box baselines match the LLM in HP-only; context hand-off shows no gain yet; menu ranks agree across reservoirs near the retest ceiling except random; menu at 300k is 23/33 done."),
     ("2026-10-21 05:25", "Menu retraining at 300k queued on idle H100s (6 shards) to test whether 100k rankings carry to 300k."),
     ("2026-10-21 00:55", "Menu retrained on random / motif / evo2 / evoaug at 30k: rank agreement with genomic is 0.4-0.6, about the genomic retest ceiling (0.55). Second-seed retests for each family are queued."),
@@ -100,7 +101,7 @@ def build(d: dict) -> list[dict]:
         dict(id="menu300", group="Dataset-size ladder", status="running", figs=["menu_300k.png"],
              q="Can the architecture pool chosen at 100k be reused at 300k, or does 300k need its own retraining?",
              choice="Retrain the whole pool at 300k once, then check how well 100k ranks predict 300k ranks. If they agree, the 300k stage needs no extra search.",
-             points=[f"Retrained so far: {d.get('menu300', {}).get('done', 0)} of {d.get('menu300', {}).get('n_menu', 33)} architectures (6 H100 shards, 120-minute cap per model)."]
+             points=[f"Retrained so far: {d.get('menu300', {}).get('done', 0)} of {d.get('menu300', {}).get('n_menu', 33)} architectures (6 H100 shards, 120-minute cap per model; none hit the cap, median 32 minutes). Two more seeds per architecture are queued on 12 shards to measure the retest ceiling at 300k."]
                     + ([f"Rank agreement 100k vs 300k: test {d['menu300']['spearman_test_100k_300k']:.2f}, validation {d['menu300']['spearman_val_100k_300k']:.2f}; {d['menu300'].get('top5_overlap', '?')} of the top 5 are shared."] if "spearman_test_100k_300k" in d.get("menu300", {}) else ["Scatter fills in once 8 architectures finish."]),
              caveat="Single seed per architecture at 300k, so the agreement is bounded by retest noise (30k-100k agreement was 0.6-0.7).",
              change="If 100k ranks do not predict 300k ranks, the ladder needs a full retrain at 300k, which is the most expensive stage."),
@@ -164,7 +165,8 @@ def build(d: dict) -> list[dict]:
              q="How should the pooled candidates be combined?",
              choice="Non-negative ElasticNet on the validation predictions of all models (enet_all_pos), z-scored per model so that one diverged model cannot zero the fit.",
              points=["Beat greedy top-K selection by about +0.01 in the earlier ensemble-construction study; uncertainty weighting and diversity (DPP) selection gave no gain.",
-                     "The z-scored version was added after one exploded model (predictions ~1e20) zeroed the raw ElasticNet."],
+                     "The z-scored version was added after one exploded model (predictions ~1e20) zeroed the raw ElasticNet.",
+                     "Audit of 2,040 saved free-form and menu models: 16 (0.8%) output |prediction| > 1e3 on at least one evaluation set while validating normally (the worst reached 1e24). The architecture loop and menu retraining only check the validation predictions, so the ensemble step must screen every evaluation set before fitting; this screen is now in the ledger generator and has to be in the final pipeline."],
              caveat=f"Earlier experiments are in the previous artifact: {OLD_ARTIFACT}"),
         dict(id="sched", group="Dataset-size ladder", status="planned", figs=[],
              q="How many rounds should each D get as the ladder climbs?",
