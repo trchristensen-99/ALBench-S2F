@@ -24,6 +24,7 @@ NARROW = {"arch_vs_legnet.png", "replicates.png", "kb_prompts.png"}
 OLD_ARTIFACT = "https://claude.ai/artifact/98NSVuNvp3F41LHBdGgvPp"
 
 CHANGELOG = [
+    ("2026-10-22 17:00", "Corrected the reservoir-mixing claim: the union used the genomic-derived architectures and was not count-controlled; with equal counts mixing gains +0.005 over genomic alone and motif alone does as well or better. Launched the architecture-source, run-count-curve, unseen-reservoir and mixture experiments."),
     ("2026-10-22 14:30", "Independent pools: three independent draws beat three seeds on one pool in all 12 comparisons (menu, 30k). Per-reservoir search again matches the retrained menu at 100k. Models trained on several reservoirs ensemble better than genomic-only. Nested genomic ladder lands within 0.01 of the old ladder. Opus +0.005 over Sonnet 5.5, not significant. Added a setup-choices table at the top."),
     ("2026-10-21 21:20", "All 16 context cells, 15 family runs, 300k menu (3 seeds) and the baselines are done. Results: no benefit from cross-D context; a fresh search per reservoir matches the retrained menu at 30k (within 0.006); one instance saturates faster at 100k than at 30k; menu-ensemble scaling in the corrected loop reaches 0.863 at 300k (genomic). Only the Opus and Sonnet 4.5 proposer cells still run."),
     ("2026-10-21 09:40", "Experiment audit: ctx prompts carry the context (T/J/X yes, none no), family cells use the right pools, 300k models were not time-capped; 16 of 2,040 models had exploded predictions on some eval set. Dispatcher: LLM cap 14 to 22, default-queue overflow now goes to slow_nice, 300k seeds 2-3 queued."),
@@ -67,6 +68,7 @@ def build(d: dict) -> list[dict]:
     bt = {k: sum(v) for k, v in bp.items()}
     bv = d.get("baselines_vs_llm", {})
     rt = M.get("retest", {})
+    mc = d.get("mix_controlled", {}).get("rows", {})
     ind = d.get("indep30", {})
     i100 = d.get("indep100_genomic", {})
     f100 = d.get("family100", {}).get("ens", {})
@@ -137,14 +139,23 @@ def build(d: dict) -> list[dict]:
                      (f"AutoResearch at genomic 100k: three runs with their own pools pool to {i100['independent']['pooled']:.3f} (single runs {min(i100['independent']['single']):.3f}-{max(i100['independent']['single']):.3f}) against {i100['shared']['pooled']:.3f} for runs sharing the old 100k pool (single runs {min(i100['shared']['single']):.3f}-{max(i100['shared']['single']):.3f}). This comparison is confounded: the shared pool was the old, biased genomic 100k set." if i100 else "100k comparison pending.")],
              caveat="The clean test is the 30k menu comparison (same code, same pools, only the data draw differs). The 100k search comparison points the same way but cannot separate independence from the old pool's bias. The final retrain at each size should still use one nested corpus.",
              change="If nine seeds on one pool matched three pools of three seeds, the gain would be model count and not data diversity."),
-        dict(id="mix", group="Search and pooling", status="provisional", figs=["family_union.png"],
-             q="Should the final ensemble use models trained on several reservoirs, or on genomic data only?",
-             choice="Use several. Genomic alone is the weakest single choice for genomic held-out sequences; genomic plus motif already captures nearly all of the union's gain.",
-             points=["Ensemble test r at 30k (genomic held-out / out-of-distribution / random sequences): " + "; ".join(f"{k} {un[k]['genomic']:.3f} / {un[k]['ood']:.3f} / {un[k]['random_32k']:.3f}" for k in ("genomic only", "motif only", "random only", "genomic + motif", "all four non-genomic", "all five") if k in un) + ".",
-                     ("Dropping motif from the union costs the most on genomic sequences (" + f"{un['all five']['genomic']:.3f} to {un['all five minus motif']['genomic']:.3f}" + "); dropping genomic costs nothing (" + f"{un['all five']['genomic']:.4f} to {un['all five minus genomic']['genomic']:.4f}" + ")." if un else "Union results pending."),
-                     "On out-of-distribution and random sequences the best single reservoir (motif or random) beats the union, so the union is a compromise: better than genomic alone everywhere, not the best on every evaluation set."],
-             caveat="These are ensembles of models that were each trained on one reservoir, not models trained on a mixed corpus. Which sequences to put in the library is a corpus-mixing question that this does not answer. The union also has up to five times as many models.",
-             change="A mixed-corpus training run (for example genomic plus motif at equal total size) would show whether mixing at the data level matches mixing at the model level."),
+        dict(id="mix", group="Search and pooling", status="provisional", figs=["mix_controlled.png", "family_union.png"],
+             q="Do models trained on several reservoirs ensemble better than models trained on genomic data only?",
+             choice="Not settled. After matching model counts the gain from mixing is small (+0.005 over genomic alone on genomic sequences, none out of distribution) and motif data alone does as well or better. The mixture sweep and architecture-source test now running decide it.",
+             points=["What the first comparison was: the same 31-33 architectures (the genomic-derived menu), retrained on each reservoir's data, then ensembled. The architectures did not come from searches on the other reservoirs, and the first union had 165 models against 33 for genomic alone, so it was not count-controlled.",
+                     ("Count-controlled version (same architectures, k independent pools of one reservoir against one pool from each of k different reservoirs; genomic eval): " + "; ".join(f"k = {k}: mixed {r['mixed']['genomic']:.4f}, same-reservoir mean {r['same_mean']['genomic']:.4f}, genomic only {r['same']['genomic']['genomic']:.4f}, motif only {r['same']['motif_ct_enriched']['genomic']:.4f}" for k, r in mc.items() if k != "1") + "." if mc else "Count-controlled comparison pending."),
+                     ("Out of distribution the mixed ensemble and the same-reservoir mean are equal (" + ", ".join(f"{r['mixed']['ood']:.3f} vs {r['same_mean']['ood']:.3f}" for k, r in mc.items() if k != "1") + "), and on random sequences mixing is below the same-reservoir mean, so mixing is not a free improvement." if mc else "")],
+             caveat="Model-level mixing of genomic-derived architectures only. Whether architectures searched on several reservoirs, or a training corpus that mixes reservoirs, does better is what the running experiments test.",
+             change="A mixed-corpus or mixed-search configuration that beats motif-only by more than the run-to-run noise (about 0.005) would settle it in favour of mixing."),
+        dict(id="program", group="Experiments in progress", status="running", figs=[],
+             q="What is running now, and which setup question does each experiment answer?",
+             choice="Four experiments launched Oct 22, all on independent nested pools; the ledger fills in as they finish.",
+             points=["Architecture source: 15 independent search runs on genomic only, 15 on random only, a genomic+random mix (8 + 7) and the existing 5-reservoir mix (15 runs); top 3 per run, the same number of candidate architectures in every arm, each arm retrained on genomic, random and motif data. Answers whether the search reservoir biases the architectures and whether the final retrain target matters.",
+                     "Run-count curves: ensemble accuracy against the number of independent runs (genomic at 10k, 30k and 100k; random and motif at 30k) to find the point where more runs stop helping.",
+                     "Bespoke vs fixed menu on reservoirs the menu never saw (motif_shared_core, motif_syntax_core, zoonomia_orthologs, mutagenesis, gc_matched, dinuc_shuffle): three bespoke search runs each, against the genomic-derived menu retrained on the same pools.",
+                     "Mixture sweep: 21 mixed training corpora at 30k (pairs, trios, a quad, uneven mixes, within-family mixes, an eight-way mix), 33 architectures each, then an ensemble across the best mixtures."],
+             caveat="About 80 search runs (roughly 10M LLM tokens) plus a few thousand retrainings; at the current cap of 15 concurrent LLM runs this takes around 12-16 hours, in priority order: genomic and random runs first.",
+             change="Any arm that beats the fixed menu by more than the run-to-run noise (about 0.005) would argue for per-reservoir search."),
         dict(id="inst", group="Search and pooling", status="supported", figs=["instances_and_topk.png"],
              q="How many models should one AutoResearch instance train, how many should we keep, and how many instances do we need?",
              choice="About 20-30 models per instance, keep the top 8 by validation, pool several independent instances.",

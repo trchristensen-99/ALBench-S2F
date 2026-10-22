@@ -1056,6 +1056,59 @@ def fig_family_union(out):
     save(fig, "family_union.png", out)
 
 
+def fig_mix_controlled(out):
+    """Mixed reservoirs vs the same number of independent pools of ONE reservoir: same 33 architectures, equal model counts (menu, 30k)."""
+    import itertools
+    base = R / "outputs/menu_retrain_v0"
+    srcs = {"genomic": [["g30k", "g30k_seeds12"], ["ind30k_genomic_r1"], ["ind30k_genomic_r2"], ["ind30k_genomic_r3"]],
+            "random": [["f30k_random", "f30k_random_seeds12"], ["ind30k_random_r1"], ["ind30k_random_r2"], ["ind30k_random_r3"]],
+            "motif_ct_enriched": [["f30k_motif_ct_enriched", "f30k_motif_ct_enriched_seeds12"], ["ind30k_motif_ct_enriched_r1"], ["ind30k_motif_ct_enriched_r2"], ["ind30k_motif_ct_enriched_r3"]],
+            "evoaug_paper2023": [["f30k_evoaug_paper2023", "f30k_evoaug_paper2023_seeds12"], ["ind30k_evoaug_paper2023_r1"], ["ind30k_evoaug_paper2023_r2"], ["ind30k_evoaug_paper2023_r3"]]}
+    pools, yv, yt = {}, None, None
+    for res, plist in srcs.items():
+        for pi, dirs in enumerate(plist):
+            y1, y2, ent = load_menu([str(base / d) for d in dirs])
+            if len(ent) < 30:
+                return
+            if yv is None:
+                yv, yt = y1, y2
+            pools[(res, pi)] = ent
+    keys = sorted(set.intersection(*[set(e) for e in pools.values()]))
+    cols = {}
+    for k_, ent in pools.items():
+        cols[k_] = (np.column_stack([np.mean([r["vp"] for r in ent[c]], 0) for c in keys]), {e: np.column_stack([np.mean([r["tp"][e] for r in ent[c]], 0) for c in keys]) for e in EV})
+
+    def ens(members):
+        V = np.column_stack([cols[m][0] for m in members])
+        T = {e: np.column_stack([cols[m][1][e] for m in members]) for e in EV}
+        return {e: float(v) for e, v in enet(V, yv, T, yt, range(V.shape[1]))[0].items()}
+    resl = list(srcs)
+    out_rows = {}
+    for k in (1, 2, 3, 4):
+        same = {r: [ens([(r, p) for p in combo]) for combo in itertools.combinations(range(4), k)] for r in resl}
+        mixed = []
+        for rs in itertools.combinations(resl, k):
+            for pi in range(1, 4):  # the three independent replicate pools; the legacy pool is skipped for mixed members
+                mixed.append(ens([(r, pi) for r in rs]))
+        row = dict(same={r: {e: float(np.mean([x[e] for x in v])) for e in EV} for r, v in same.items()}, mixed={e: float(np.mean([x[e] for x in mixed])) for e in EV},
+                   same_mean={e: float(np.mean([np.mean([x[e] for x in v]) for v in same.values()])) for e in EV}, n_mixed=len(mixed), n_columns=len(keys) * k)
+        out_rows[str(k)] = row
+    DATA["mix_controlled"] = dict(n_arch=len(keys), rows=out_rows)
+    fig, axes = plt.subplots(1, 3, figsize=(12.4, 3.9))
+    for ax, ev, ttl in zip(axes, EV, ("Genomic held-out", "Out-of-distribution", "Random sequences")):
+        ks = [1, 2, 3, 4]
+        for r, col in zip(resl, (BLUE, ORANGE, TEAL, GREY)):
+            ax.plot(ks, [out_rows[str(k)]["same"][r][ev] for k in ks], "-o", color=col, lw=1.2, ms=3, alpha=0.7, label=f"{r.split('_')[0]} only")
+        ax.plot(ks, [out_rows[str(k)]["mixed"][ev] for k in ks], "-D", color=INK, lw=2.2, ms=5, label="mixed reservoirs")
+        ax.set_xticks(ks)
+        ax.set_xlabel("pools in the ensemble (33 architectures each)")
+        ax.set_ylabel("ensemble test r")
+        ax.set_title(ttl)
+    axes[0].legend(fontsize=7.5, loc="lower right")
+    fig.tight_layout()
+    save(fig, "mix_controlled.png", out)
+
+
 def fig_budget(out):
     root = Path("/grid/wsbs/home_norepl/christen/.claude/projects")
     EDT = dt.timezone(dt.timedelta(hours=-4))
@@ -1110,7 +1163,7 @@ def main():
     steps = [("loop", fig_loop), ("menu", fig_menu), ("instances", fig_instances),
              ("prompt", lambda o: arm_figure(ARMS, "Prompt structure (Sonnet 5.5, genomic 30k, 30 rounds x 2)", "prompt_arms.png", "prompt_arms", o)),
              ("proposer", lambda o: arm_figure(PROP, "Proposer model (build-on-what-works prompt, genomic 30k)", "proposer_models.png", "proposer", o)),
-             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("menufam", fig_menu_fam), ("family", fig_family), ("menu300", fig_menu_300k), ("scaling", fig_menu_scaling), ("fam100", fig_family100), ("indep30", fig_indep30), ("union", fig_family_union), ("sat100", fig_saturation100), ("budget", fig_budget)]
+             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("menufam", fig_menu_fam), ("family", fig_family), ("menu300", fig_menu_300k), ("scaling", fig_menu_scaling), ("fam100", fig_family100), ("indep30", fig_indep30), ("union", fig_family_union), ("mixctrl", fig_mix_controlled), ("sat100", fig_saturation100), ("budget", fig_budget)]
     for name, fn in steps:
         if a.only and name not in a.only.split(","):
             continue
