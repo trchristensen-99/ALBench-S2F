@@ -24,6 +24,7 @@ NARROW = {"arch_vs_legnet.png", "replicates.png", "kb_prompts.png"}
 OLD_ARTIFACT = "https://claude.ai/artifact/98NSVuNvp3F41LHBdGgvPp"
 
 CHANGELOG = [
+    ("2026-10-22 18:00", "Restructured: the page now opens with the assumptions to justify (with the goal and the simplest recipe so far), then results by experiment, with live progress for the running experiments."),
     ("2026-10-22 17:00", "Corrected the reservoir-mixing claim: the union used the genomic-derived architectures and was not count-controlled; with equal counts mixing gains +0.005 over genomic alone and motif alone does as well or better. Launched the architecture-source, run-count-curve, unseen-reservoir and mixture experiments."),
     ("2026-10-22 14:30", "Independent pools: three independent draws beat three seeds on one pool in all 12 comparisons (menu, 30k). Per-reservoir search again matches the retrained menu at 100k. Models trained on several reservoirs ensemble better than genomic-only. Nested genomic ladder lands within 0.01 of the old ladder. Opus +0.005 over Sonnet 5.5, not significant. Added a setup-choices table at the top."),
     ("2026-10-21 21:20", "All 16 context cells, 15 family runs, 300k menu (3 seeds) and the baselines are done. Results: no benefit from cross-D context; a fresh search per reservoir matches the retrained menu at 30k (within 0.006); one instance saturates faster at 100k than at 30k; menu-ensemble scaling in the corrected loop reaches 0.863 at 300k (genomic). Only the Opus and Sonnet 4.5 proposer cells still run."),
@@ -148,13 +149,14 @@ def build(d: dict) -> list[dict]:
              caveat="Model-level mixing of genomic-derived architectures only. Whether architectures searched on several reservoirs, or a training corpus that mixes reservoirs, does better is what the running experiments test.",
              change="A mixed-corpus or mixed-search configuration that beats motif-only by more than the run-to-run noise (about 0.005) would settle it in favour of mixing."),
         dict(id="program", group="Experiments in progress", status="running", figs=[],
-             q="What is running now, and which setup question does each experiment answer?",
-             choice="Four experiments launched Oct 22, all on independent nested pools; the ledger fills in as they finish.",
-             points=["Architecture source: 15 independent search runs on genomic only, 15 on random only, a genomic+random mix (8 + 7) and the existing 5-reservoir mix (15 runs); top 3 per run, the same number of candidate architectures in every arm, each arm retrained on genomic, random and motif data. Answers whether the search reservoir biases the architectures and whether the final retrain target matters.",
-                     "Run-count curves: ensemble accuracy against the number of independent runs (genomic at 10k, 30k and 100k; random and motif at 30k) to find the point where more runs stop helping.",
-                     "Bespoke vs fixed menu on reservoirs the menu never saw (motif_shared_core, motif_syntax_core, zoonomia_orthologs, mutagenesis, gc_matched, dinuc_shuffle): three bespoke search runs each, against the genomic-derived menu retrained on the same pools.",
-                     "Mixture sweep: 21 mixed training corpora at 30k (pairs, trios, a quad, uneven mixes, within-family mixes, an eight-way mix), 33 architectures each, then an ensemble across the best mixtures."],
-             caveat="About 80 search runs (roughly 10M LLM tokens) plus a few thousand retrainings; at the current cap of 15 concurrent LLM runs this takes around 12-16 hours, in priority order: genomic and random runs first.",
+             q="What is running now, and which assumption does each experiment test?",
+             choice="Four experiments launched Oct 22, all on independent nested pools. This card shows live progress; results get their own cards as they finish.",
+             points=[("Progress (done of total cells, running now): " + "; ".join(f"{k} {v['done']} of {v['total']} ({v['running']} running)" for k, v in d.get("program_status", {}).get("groups", {}).items())) if d.get("program_status") else "Progress pending.",
+                     "Architecture source (assumptions C2, A5): 15 independent search runs on genomic only, 15 on random only, a genomic+random mix (8 + 7) and the existing 5-reservoir mix; top 3 per run, equal candidate counts, each arm retrained on genomic, random and motif data.",
+                     "Run-count curves (A5): ensemble accuracy against the number of independent runs, genomic at 10k, 30k and 100k, random and motif at 30k.",
+                     "Unseen reservoirs (C1, C3): three bespoke search runs each on motif_shared_core, motif_syntax_core, zoonomia_orthologs, mutagenesis, gc_matched and dinuc_shuffle, against the genomic-derived menu retrained on the same pools.",
+                     "Mixture sweep (C4): 21 mixed training corpora at 30k, 33 architectures each, then an ensemble across the best mixtures."],
+             caveat="About 80 search runs plus a few thousand retrainings. The cluster is nearly full, so finish times depend on other users' load; the expected completion is tomorrow midday to evening.",
              change="Any arm that beats the fixed menu by more than the run-to-run noise (about 0.005) would argue for per-reservoir search."),
         dict(id="inst", group="Search and pooling", status="supported", figs=["instances_and_topk.png"],
              q="How many models should one AutoResearch instance train, how many should we keep, and how many instances do we need?",
@@ -298,10 +300,10 @@ h2.grp{margin:34px 0 12px;font-size:12px;letter-spacing:.09em;text-transform:upp
 .log h2{margin:0 0 8px;font-size:15px}.log ol{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13.5px}
 .log time{font:12px var(--mono);color:var(--muted)}
 .tblwrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;margin:0 0 26px}
-.choices table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:720px}
+.choices table{width:100%;border-collapse:collapse;font-size:13px;min-width:900px}
 .choices th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line)}
 .choices td{vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line);max-width:46ch}
-.choices tr:last-child td{border-bottom:0}.choices td:first-child{font-weight:600;white-space:nowrap}
+.choices tr:last-child td{border-bottom:0}.choices tr.gr td{background:var(--bg);font-weight:700;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);white-space:normal}.goal{max-width:78ch;margin:0 0 10px}.choices td:first-child{font-weight:600;min-width:210px}
 footer{margin-top:26px;font-size:12.5px;color:var(--muted)}
 @media (max-width:640px){h1{font-size:23px}.card>.hd{flex-direction:column-reverse;gap:8px}}
 @media (prefers-reduced-motion:no-preference){.card{transition:border-color .15s}.card:hover{border-color:var(--accent)}}
@@ -353,6 +355,69 @@ def build_choices(d: dict) -> list[dict]:
     return rows
 
 
+def build_assumptions(d: dict) -> list[dict]:
+    """The assumptions behind the simplest procedure, each with why it matters, the experiment that tests it, its status and the result so far."""
+    ch = {r["aspect"]: r for r in build_choices(d)}
+    al = d.get("arch_vs_legnet", {})
+    ev = lambda k: ch[k]["ev"]  # noqa: E731
+    g = lambda grp, label: d.get("program_status", {}).get("groups", {}).get(label, {})  # noqa: E731
+    prog = lambda label: (lambda x: f"{x.get('done', 0)} of {x.get('total', 0)} done, {x.get('running', 0)} running" if x else "not started")(g(None, label))
+    rows = [
+        # --- model side
+        dict(grp="A. Marginalizing over architecture and training choices", a="All models, whatever their source, are trained and scored in one common loop.",
+             why="Otherwise loop differences masquerade as architecture or data effects.", test="Same network in both loops; flip each loop ingredient.", status="supported", ev=ev("Training and evaluation loop"), card="loop"),
+        dict(grp="A. Marginalizing over architecture and training choices", a="A free-form architecture search adds diversity to the pool, not a better single architecture.",
+             why="Decides how much search is worth buying.", test="Free-form vs tuned LegNet in the same loop; menu retrains.",
+             status="supported", ev=("Tuned LegNet 0.730-0.732, top free-form 0.724-0.732 (genomic 30k, single models)." if al else "see card"), card="arch"),
+        dict(grp="A. Marginalizing over architecture and training choices", a="The proposer model and prompt do not change the conclusions.",
+             why="The search is the source of the architecture sample.", test="Three prompt arms; three proposer models, three runs each.", status="supported", ev=ev("Prompt") + " " + ev("Proposer model"), card="prompt"),
+        dict(grp="A. Marginalizing over architecture and training choices", a="An ensemble of searched models stands in for the best achievable model, so scaling results are not tied to one architecture.",
+             why="The scaling claims must hold across architectures.", test="Non-negative ElasticNet vs greedy; pooled-run ensembles; exploded-model screen.", status="carried", ev=ev("Ensemble method"), card="ens"),
+        dict(grp="A. Marginalizing over architecture and training choices", a="Three independent runs per reservoir are enough.",
+             why="Number of runs sets compute and what noise remains.", test="Pooled vs single runs (done); ensemble against run count at 10k, 30k, 100k (running).",
+             status="provisional", ev=ev("Independent runs per reservoir") + " Run-count curves: " + prog("genomic 30k search runs") + " (genomic 30k).", card="rep"),
+        dict(grp="A. Marginalizing over architecture and training choices", a="Each independent run should have its own labelled pool.",
+             why="Shared pools understate variance and give up data diversity.", test="Menu on three seeds of one pool vs three independent pools, equal model counts.", status="supported", ev=ev("Independent pool per run"), card="indep"),
+        dict(grp="A. Marginalizing over architecture and training choices", a="About 20 to 60 models per run, 2 proposals per round, and the top 3 to 5 per run are enough.",
+             why="These set the LLM budget at every dataset size.", test="Saturation curves at 30k and 100k; top-k curves; cadence study.", status="provisional",
+             ev=ev("Rounds per D") + " " + ev("Top models kept per run") + " " + ev("Proposals per round"), card="sched"),
+        # --- ladder
+        dict(grp="B. The dataset-size ladder", a="Nothing learned at a smaller D has to be handed to a larger D.",
+             why="Lets every D be run independently and cheaply.", test="Context hand-off arms at 100k; top-5-from-10k retrains.", status="supported", ev=ev("Lower D informing higher D"), card="ctx"),
+        dict(grp="B. The dataset-size ladder", a="Retraining the whole candidate pool at each D is the robust choice, because architecture rankings are noise-limited.",
+             why="Decides whether architectures chosen at one D can be reused.", test="Rank agreement across D with 3 seeds (done); nested 3-seed ladder (planned).", status="provisional",
+             ev="Agreement across sizes is low to moderate and noise-limited; the nested one-seed ladder did not repeat the old three-seed pattern.", card="menu"),
+        dict(grp="B. The dataset-size ladder", a="Nested pools give an undistorted scaling curve.",
+             why="Otherwise D is confounded with which sequences were drawn.", test="Audit of legacy pools; nested genomic ladder vs old ladder.", status="supported", ev=ev("Pools"), card="remeasure"),
+        dict(grp="B. The dataset-size ladder", a="Conclusions at 10k to 300k carry to the 3.2M library.",
+             why="The recommendation is for a library 10 times larger than the largest tested size.", test="Menu at 300k (done); a search at 300k and a fitted extrapolation (not run).", status="open",
+             ev="Menu ensembles still rise at 300k (genomic 0.863, gain per doubling 0.023 and falling); out-of-distribution accuracy is still accelerating.", card="menu300"),
+        # --- reservoir generality
+        dict(grp="C. Generality across reservoirs", a="A search on genomic data alone finds the architectures every other reservoir needs.",
+             why="Would let one search serve all reservoirs and sizes.", test="Bespoke search vs retrained menu on four reservoirs at 30k and 100k; six unseen reservoirs (running).", status="supported",
+             ev=ev("Reservoir families to search") + " Unseen reservoirs: " + prog("unseen-reservoir search runs") + ".", card="fam"),
+        dict(grp="C. Generality across reservoirs", a="Architectures searched on one reservoir are not biased toward that reservoir.",
+             why="A genomic-only search could favour genomic-like data.", test="15 genomic-only, 15 random-only, a mixed and the 5-reservoir search arms, all retrained on genomic, random and motif data (running).",
+             status="running", ev="Search runs: genomic " + prog("genomic 30k search runs") + "; random " + prog("random 30k search runs") + ". Retrains start when the runs finish.", card="program"),
+        dict(grp="C. Generality across reservoirs", a="One representative per family stands for its family.",
+             why="Four reservoirs were tested; the families are larger.", test="Six unseen reservoirs including motif variants, zoonomia, mutagenesis, gc_matched, dinuc_shuffle (running).", status="running",
+             ev="Unseen-reservoir menu retrains: " + prog("unseen-reservoir menu retrains") + ".", card="program"),
+        dict(grp="C. Generality across reservoirs", a="Mixing reservoirs, in the ensemble or the corpus, beats the best single reservoir.",
+             why="Decides whether the library should mix sources.", test="Count-controlled model-level mixing (done); 21 mixed corpora (running).", status="provisional",
+             ev=ev("Reservoirs feeding the final ensemble") + " Mixed corpora: " + prog("mixture-corpus retrains") + ".", card="mix"),
+        # --- measurement
+        dict(grp="D. Measurement validity", a="Differences under about 0.005 in ensemble r are noise, so 'no improvement' means within that margin.",
+             why="Defines what counts as proving a more complicated approach does not help.", test="Replicate spreads and retest ceilings.", status="supported",
+             ev="Between-run SD of a pooled ensemble is about 0.002 to 0.005; a single run's SD is about 0.009.", card="rep"),
+        dict(grp="D. Measurement validity", a="Oracle labels are a faithful stand-in for the experiment.",
+             why="Every number here is against oracle labels.", test="Earlier oracle-vs-experiment ceilings; no new test.", status="carried",
+             ev="Established in earlier work (oracle ceiling on held-out genomic sequences about 0.95); not retested in this program.", card="ens"),
+        dict(grp="D. Measurement validity", a="Models that explode on shifted evaluation sets are screened out before ensembling.",
+             why="One such model can ruin an ensemble.", test="Audit of 2,040 saved models.", status="supported", ev="16 of 2,040 (0.8%) exploded on some evaluation set; now screened in the generator and in new runs.", card="ens"),
+    ]
+    return rows
+
+
 def render(cards, d):
     esc = html.escape
     counts = {k: sum(1 for c in cards if c["status"] == k) for k in STATUS}
@@ -365,8 +430,21 @@ def render(cards, d):
     out.append('<div class="summary"><button class="filter" data-k="all" aria-pressed="true">All ' + str(len(cards)) + "</button>" +
                "".join(f'<button class="filter" data-k="{k}" aria-pressed="false">{STATUS[k][0]} {n}</button>' for k, n in counts.items() if n) + "</div>")
     out.append('<div class="legend">' + "".join(f'<div><span class="chip s-{k}">{STATUS[k][0]}</span> {esc(STATUS[k][1])}</div>' for k in STATUS) + "</div>")
-    out.append('<section class="choices" id="choices"><h2 class="grp">Setup choices at a glance</h2><div class="tblwrap"><table><thead><tr><th>Aspect</th><th>Current choice</th><th>Evidence</th><th>Status</th></tr></thead><tbody>' + "".join(
-        f'<tr><td><a href="#{r["card"]}">{esc(r["aspect"])}</a></td><td>{esc(r["choice"])}</td><td>{esc(r["ev"])}</td><td><span class="chip s-{r["status"]}">{STATUS[r["status"]][0]}</span></td></tr>' for r in build_choices(d)) + "</tbody></table></div></section>")
+    rows = build_assumptions(d)
+    parts = ['<section class="choices" id="assumptions"><h2 class="grp">Assumptions to justify</h2>'
+             '<p class="goal"><b>Goal.</b> Take the simplest approach that approximates ideal performance across reservoirs and dataset sizes, while marginalizing over factors such as architecture so the scaling results are general. '
+             'A more complicated approach has to beat it by more than the noise (about 0.005 in ensemble r) to earn its cost.</p>'
+             '<p class="goal"><b>Simplest recipe so far.</b> One search on genomic data (three independent runs, each on its own pool, about 20 to 30 models per run, top 3 to 5 kept), retrained at every dataset size and reservoir with three seeds, combined by a non-negative ElasticNet ensemble. '
+             'Nothing more elaborate has helped beyond noise yet; the running experiments try to overturn it with per-reservoir searches, mixed searches and mixed corpora.</p>'
+             '<div class="tblwrap"><table><thead><tr><th>Assumption</th><th>Why it matters</th><th>How it is tested</th><th>Status</th><th>Result so far</th></tr></thead><tbody>']
+    last = None
+    for r in rows:
+        if r["grp"] != last:
+            parts.append(f'<tr class="gr"><td colspan="5">{esc(r["grp"])}</td></tr>')
+            last = r["grp"]
+        parts.append(f'<tr><td><a href="#{r["card"]}">{esc(r["a"])}</a></td><td>{esc(r["why"])}</td><td>{esc(r["test"])}</td><td><span class="chip s-{r["status"]}">{STATUS[r["status"]][0]}</span></td><td>{esc(r["ev"])}</td></tr>')
+    parts.append("</tbody></table></div></section>")
+    out.append("".join(parts))
     out.append('<nav class="flow" aria-label="Pipeline">' + "".join(
         f'<a href="#{c["id"]}"><span class="chip s-{c["status"]}">{STATUS[c["status"]][0]}</span><b>{esc(t)}</b><span class="t">{esc(s)}</span></a>'
         for t, s, cid in [("D ladder", "10k, 30k, 100k, 300k", "menu"), ("Proposer", "Sonnet 5.5, 2 x 30 rounds", "proposer"),
@@ -377,6 +455,8 @@ def render(cards, d):
     for c in cards:
         if c["group"] not in seen:
             seen.append(c["group"])
+    ORDER = ["Experiments in progress", "Training and evaluation", "Proposer and prompt", "Search and pooling", "Dataset-size ladder", "Compute and limits"]
+    seen = [g_ for g_ in ORDER if g_ in seen] + [g_ for g_ in seen if g_ not in ORDER]
     for g in seen:
         out.append(f'<h2 class="grp" data-group="{esc(g)}">{esc(g)}</h2>')
         for c in [x for x in cards if x["group"] == g]:
@@ -404,6 +484,8 @@ def main() -> None:
     a = ap.parse_args()
     src = Path(a.src)
     d = json.load(open(src / "data.json"))
+    if (src / "program_status.json").exists():
+        d["program_status"] = json.load(open(src / "program_status.json"))
     cards = build(d)
     (src / "index.html").write_text(render(cards, d))
     print("wrote", src / "index.html", len(cards), "cards")
