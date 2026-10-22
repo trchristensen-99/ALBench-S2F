@@ -750,6 +750,7 @@ def fig_menu_scaling(out):
     for f, _ in fams[1:]:
         spec[f] = {10: [f"f10k_{f}"], 30: [f"f30k_{f}", f"f30k_{f}_seeds12"], 100: [f"f100k_{f}"]}
     spec["random"][300] = ["f300k_random"]
+    nested = {D: [f"nest_genomic_r1_d{D}k"] for D in (10, 30, 100, 300)}
     res = {}
     for f, _ in fams:
         for D, dirs in spec[f].items():
@@ -763,6 +764,24 @@ def fig_menu_scaling(out):
             res.setdefault(f, {})[D] = {e: float(v) for e, v in en.items()}
             res[f][D]["n_entries"] = len(ent)
             res[f][D]["seeds"] = int(round(np.mean([len(v) for v in ent.values()])))
+    nres, nent = {}, {}
+    for D, dirs in nested.items():
+        yv, yt, ent = load_menu([str(base / d) for d in dirs])
+        if len(ent) < 25:
+            continue
+        keys = sorted(ent)
+        V = np.column_stack([np.mean([r["vp"] for r in ent[c]], 0) for c in keys])
+        T = {e: np.column_stack([np.mean([r["tp"][e] for r in ent[c]], 0) for c in keys]) for e in EV}
+        nres[D] = {e: float(v) for e, v in enet(V, yv, T, yt, range(V.shape[1]))[0].items()}
+        nres[D]["n_entries"] = len(ent)
+        nent[D] = {c: float(np.mean([r["test"] for r in ent[c]])) for c in ent}
+    sp = {}
+    ds = sorted(nent)
+    for a, b in zip(ds[:-1], ds[1:]):
+        cm = sorted(set(nent[a]) & set(nent[b]))
+        if len(cm) >= 20:
+            sp[f"{a}k-{b}k"] = float(spearmanr([nent[a][c] for c in cm], [nent[b][c] for c in cm])[0])
+    DATA["nested_ladder"] = dict(ens={str(D): v for D, v in nres.items()}, spearman=sp)
     DATA["menu_scaling"] = {f: {str(D): v for D, v in dd.items()} for f, dd in res.items()}
     fig, axes = plt.subplots(1, 2, figsize=(10.4, 4.1))
     for ax, ev, ttl in ((axes[0], "genomic", "Genomic held-out sequences"), (axes[1], "ood", "Out-of-distribution sequences")):
@@ -777,57 +796,98 @@ def fig_menu_scaling(out):
         ax.set_xlabel("training sequences (D)")
         ax.set_ylabel("ensemble test r of the retrained menu")
         ax.set_title(ttl)
+        if nres:
+            xs = sorted(nres)
+            ax.plot(xs, [nres[x][ev] for x in xs], "--s", color=INK, lw=1.4, ms=4, label="genomic, nested pool (1 seed)")
     axes[0].legend(fontsize=7.5, loc="lower right")
     fig.tight_layout()
     save(fig, "menu_scaling.png", out)
 
 
 def fig_family100(out):
-    """Per-reservoir AutoResearch at 100k (20 models per run) against the retrained menu at 100k."""
-    fams = [("genomic", BLUE), ("random", ORANGE), ("motif_ct_enriched", TEAL), ("evo2", PURPLE), ("evoaug_paper2023", GREY)]
+    """Per-reservoir AutoResearch at 100k on independent pools (20 models per run) against the retrained menu at 100k."""
+    fams = [("genomic", BLUE), ("random", ORANGE), ("motif_ct_enriched", TEAL), ("evoaug_paper2023", GREY)]
     NM = 20
 
     def trunc(c):
         return dict(V=c["V"][:, :NM], T={e: c["T"][e][:, :NM] for e in c["T"]}, yv=c["yv"], yt=c["yt"], val=c["val"][:NM])
+
+    def pooled_top8(cells):
+        Vs, Ts = [], {e: [] for e in EV}
+        for c in cells:
+            idx = np.argsort(-c["val"])[:8]
+            Vs.append(c["V"][:, idx])
+            for e in EV:
+                Ts[e].append(c["T"][e][:, idx])
+        V, T = np.column_stack(Vs), {e: np.column_stack(Ts[e]) for e in EV}
+        return enet(V, cells[0]["yv"], T, cells[0]["yt"], range(V.shape[1]))[0]
+
+    def single(c):
+        return float(enet(c["V"], c["yv"], c["T"], c["yt"], range(c["V"].shape[1]))[0]["genomic"])
     fens, prog = {}, {}
     ms = DATA.get("menu_scaling", {})
     for f, col in fams:
-        if f == "genomic":
-            dirs = [R / f"outputs/ctx100_oct20/none/rep{r}" for r in (1, 2, 3)]
-        else:
-            dirs = [R / f"outputs/archsearch_family100k_oct21/{f}/rep{r}" for r in (1, 2, 3)]
         cells = []
-        for d in dirs:
-            prog[f"{f}|{d.name}"] = len(glob.glob(str(d / "r*_meta.json")))
+        for r in (1, 2, 3):
+            d = R / f"outputs/archsearch_reps100k_oct21/{f}/rep{r}"
+            prog[f"{f}|rep{r}"] = len(glob.glob(str(d / "r*_meta.json")))
             c = load_cell(d)
             if c is not None and c["V"].shape[1] >= NM:
                 cells.append(trunc(c))
         if len(cells) >= 2:
-            Vs, Ts = [], {e: [] for e in EV}
-            for c in cells:
-                idx = np.argsort(-c["val"])[:8]
-                Vs.append(c["V"][:, idx])
-                for e in EV:
-                    Ts[e].append(c["T"][e][:, idx])
-            V, T = np.column_stack(Vs), {e: np.column_stack(Ts[e]) for e in EV}
-            en = enet(V, cells[0]["yv"], T, cells[0]["yt"], range(V.shape[1]))[0]
-            fens[f] = dict(ar_top8=float(en["genomic"]), ar_top8_ood=float(en["ood"]), n_instances=len(cells),
+            en = pooled_top8(cells)
+            fens[f] = dict(ar_top8=float(en["genomic"]), ar_top8_ood=float(en["ood"]), single=[single(c) for c in cells], n_instances=len(cells),
                            menu=ms.get(f, {}).get("100", {}).get("genomic"), menu_ood=ms.get(f, {}).get("100", {}).get("ood"))
+    shared = [trunc(c) for c in (load_cell(R / f"outputs/ctx100_oct20/none/rep{r}") for r in (1, 2, 3, 4)) if c is not None and c["V"].shape[1] >= NM]
+    ind = [trunc(c) for c in (load_cell(R / f"outputs/archsearch_reps100k_oct21/genomic/rep{r}") for r in (1, 2, 3)) if c is not None and c["V"].shape[1] >= NM]
+    if len(shared) >= 3 and len(ind) >= 3:
+        DATA["indep100_genomic"] = dict(shared=dict(single=[single(c) for c in shared], pooled=float(pooled_top8(shared[:3])["genomic"]), pooled_ood=float(pooled_top8(shared[:3])["ood"])),
+                                        independent=dict(single=[single(c) for c in ind], pooled=float(pooled_top8(ind)["genomic"]), pooled_ood=float(pooled_top8(ind)["ood"])))
+    topk = {}
+    for f, _ in fams:
+        cells = []
+        for r in (1, 2, 3):
+            c = load_cell(R / f"outputs/archsearch_reps100k_oct21/{f}/rep{r}")
+            if c is not None and c["V"].shape[1] >= NM:
+                cells.append(trunc(c))
+        if len(cells) == 3:
+            row = {}
+            for k in (1, 2, 3, 5, 8, 12, NM):
+                Vs, Ts = [], {e: [] for e in EV}
+                for c in cells:
+                    idx = np.argsort(-c["val"])[:k]
+                    Vs.append(c["V"][:, idx])
+                    for e in EV:
+                        Ts[e].append(c["T"][e][:, idx])
+                V, T = np.column_stack(Vs), {e: np.column_stack(Ts[e]) for e in EV}
+                row[str(k)] = float(enet(V, cells[0]["yv"], T, cells[0]["yt"], range(V.shape[1]))[0]["genomic"])
+            topk[f] = row
+    DATA["topk100"] = topk
     DATA["family100"] = dict(progress=prog, ens=fens)
-    fig, axes = plt.subplots(1, 2, figsize=(10.4, 3.9))
+    fig, axes = plt.subplots(1, 3, figsize=(12.4, 3.9), gridspec_kw=dict(width_ratios=[1.1, 1.1, 0.9]))
     for ax, key, mkey, ttl in ((axes[0], "ar_top8", "menu", "Genomic held-out sequences"), (axes[1], "ar_top8_ood", "menu_ood", "Out-of-distribution sequences")):
         for fi, (f, col) in enumerate(fams):
             if f in fens:
                 ax.bar(fi - 0.2, fens[f][key], 0.38, color=col, zorder=2)
                 if fens[f].get(mkey) is not None:
                     ax.bar(fi + 0.2, fens[f][mkey], 0.38, color=col, alpha=0.35, zorder=2)
-        ax.set_xticks(range(5))
+        ax.set_xticks(range(4))
         ax.set_xticklabels([f.replace("_", "\n") for f, _ in fams], fontsize=7.5)
-        ax.set_title(ttl + "\nDark: top 8 of 3 runs. Pale: retrained menu", fontsize=9.5)
+        ax.set_title(ttl + "\nDark: search, top 8 of 3 runs. Pale: retrained menu", fontsize=9)
         ax.set_ylabel("ensemble test r at 100k")
     if fens:
         lo = min(min(v["ar_top8"], v.get("menu") or 1) for v in fens.values())
         axes[0].set_ylim(max(0, lo - 0.05), max(max(v["ar_top8"], v.get("menu") or 0) for v in fens.values()) + 0.02)
+    ax = axes[2]
+    if "indep100_genomic" in DATA:
+        d = DATA["indep100_genomic"]
+        for j, (k, c2, lab) in enumerate((("shared", GREY, "one pool"), ("independent", BLUE, "own pool"))):
+            ax.scatter(np.full(len(d[k]["single"]), j) + jitter(len(d[k]["single"]), 0.05, j + 40), d[k]["single"], s=28, color=c2, zorder=3)
+            ax.scatter([j], [d[k]["pooled"]], marker="D", s=60, color=c2, edgecolor=INK, zorder=4)
+        ax.set_xticks([0, 1])
+        ax.set_xticklabels(["runs share\none pool", "each run has\nits own pool"], fontsize=8)
+        ax.set_ylabel("ensemble test r (20 models per run)")
+        ax.set_title("Genomic 100k: dots = runs,\ndiamond = top 8 of 3 pooled", fontsize=9)
     fig.tight_layout()
     save(fig, "families_100k.png", out)
 
@@ -859,6 +919,141 @@ def fig_saturation100(out):
     DATA["saturation100"] = dict(n=ns, mean100=[float(x) for x in a100.mean(0)], mean30=[float(x) for x in a30.mean(0)], n100=len(c100), n30=len(c30))
     fig.tight_layout()
     save(fig, "saturation_100k.png", out)
+
+
+def _runs_by_seed(ent, keys, seed):
+    out = {}
+    for k in keys:
+        r = [x for x in ent[k] if x.get("seed", 0) == seed]
+        if not r:
+            return None
+        out[k] = r[0]
+    return out
+
+
+def _ens_of(rep, keys, yv, yt):
+    V = np.column_stack([rep[k]["vp"] for k in keys])
+    T = {e: np.column_stack([rep[k]["tp"][e] for k in keys]) for e in EV}
+    return {e: float(v) for e, v in enet(V, yv, T, yt, range(len(keys)))[0].items()}
+
+
+def _pooled_of(reps, keys, yv, yt):
+    V = np.column_stack([rp[k]["vp"] for rp in reps for k in keys])
+    T = {e: np.column_stack([rp[k]["tp"][e] for rp in reps for k in keys]) for e in EV}
+    return {e: float(v) for e, v in enet(V, yv, T, yt, range(V.shape[1]))[0].items()}
+
+
+def _rank_agree(reps, keys):
+    vals = [np.array([rp[k]["test"] for k in keys]) for rp in reps]
+    cs = [spearmanr(vals[i], vals[j])[0] for i in range(len(vals)) for j in range(i + 1, len(vals))]
+    return float(np.mean(cs))
+
+
+def fig_indep30(out):
+    """Menu on three independent 30k draws (B) vs three training seeds on one draw (A)."""
+    base = R / "outputs/menu_retrain_v0"
+    sts = [("genomic", BLUE), ("random", ORANGE), ("motif_ct_enriched", TEAL), ("evoaug_paper2023", GREY)]
+    res = {}
+    for st, _ in sts:
+        reps = {}
+        for r in (1, 2, 3):
+            yv, yt, ent = load_menu([str(base / f"ind30k_{st}_r{r}")])
+            if len(ent) >= 30:
+                reps[r] = ent
+        if len(reps) < 3:
+            continue
+        has = lambda ent, k, sd: any(x.get("seed", 0) == sd for x in ent.get(k, []))  # noqa: E731
+        keys = sorted(k for k in set.intersection(*[set(e) for e in reps.values()])
+                      if all(has(reps[r], k, 0) for r in (1, 2, 3)) and all(has(reps[1], k, sd) for sd in (1, 2)))
+        B = [_runs_by_seed(reps[r], keys, 0) for r in (1, 2, 3)]
+        A = [_runs_by_seed(reps[1], keys, s) for s in (0, 1, 2)]
+        if any(x is None for x in B) or any(x is None for x in A):
+            continue
+        eB, eA = [_ens_of(x, keys, yv, yt) for x in B], [_ens_of(x, keys, yv, yt) for x in A]
+        res[st] = dict(
+            n_entries=len(keys),
+            A=dict(ens=[e["genomic"] for e in eA], ens_ood=[e["ood"] for e in eA], pooled=_pooled_of(A, keys, yv, yt), single=[float(np.mean([x[k]["test"] for k in keys])) for x in A], rank=_rank_agree(A, keys)),
+            B=dict(ens=[e["genomic"] for e in eB], ens_ood=[e["ood"] for e in eB], pooled=_pooled_of(B, keys, yv, yt), single=[float(np.mean([x[k]["test"] for k in keys])) for x in B], rank=_rank_agree(B, keys)))
+    DATA["indep30"] = res
+    if not res:
+        return
+    fig, axes = plt.subplots(1, 3, figsize=(12.4, 4.0))
+    ax = axes[0]
+    for i, (st, col) in enumerate(sts):
+        if st in res:
+            for j, (cond, c2) in enumerate((("A", GREY), ("B", col))):
+                v = res[st][cond]["ens"]
+                ax.scatter(np.full(3, i + (j - 0.5) * 0.3) + jitter(3, 0.03, i * 2 + j), v, s=28, color=c2, zorder=3)
+                ax.hlines(np.mean(v), i + (j - 0.5) * 0.3 - 0.12, i + (j - 0.5) * 0.3 + 0.12, color=c2, lw=2)
+    ax.set_xticks(range(4))
+    ax.set_xticklabels([s.replace("_", "\n") for s, _ in sts], fontsize=7.5)
+    ax.set_ylabel("ensemble test r of one replicate (33 models)")
+    ax.set_title("Grey: 3 seeds, one pool. Colour: 3 pools", fontsize=9.5)
+    ax = axes[1]
+    for i, (st, col) in enumerate(sts):
+        if st in res:
+            ax.bar(i - 0.2, res[st]["A"]["pooled"]["genomic"], 0.38, color=GREY, zorder=2)
+            ax.bar(i + 0.2, res[st]["B"]["pooled"]["genomic"], 0.38, color=col, zorder=2)
+    ax.set_xticks(range(4))
+    ax.set_xticklabels([s.replace("_", "\n") for s, _ in sts], fontsize=7.5)
+    vals = [res[s][c]["pooled"]["genomic"] for s in res for c in "AB"]
+    ax.set_ylim(min(vals) - 0.01, max(vals) + 0.005)
+    ax.set_ylabel("ensemble of all 99 models")
+    ax.set_title("Pooling the three replicates")
+    ax = axes[2]
+    for i, (st, col) in enumerate(sts):
+        if st in res:
+            ax.bar(i - 0.2, res[st]["A"]["rank"], 0.38, color=GREY, zorder=2)
+            ax.bar(i + 0.2, res[st]["B"]["rank"], 0.38, color=col, zorder=2)
+    ax.set_xticks(range(4))
+    ax.set_xticklabels([s.replace("_", "\n") for s, _ in sts], fontsize=7.5)
+    ax.set_ylabel("mean Spearman of architecture ranks")
+    ax.set_title("Do architecture rankings repeat?")
+    fig.tight_layout()
+    save(fig, "independent_pools_30k.png", out)
+
+
+def fig_family_union(out):
+    """Do models trained on different reservoirs ensemble better than models trained on genomic data alone? (menu, 30k)"""
+    base = R / "outputs/menu_retrain_v0"
+    srcs = {"genomic": ["g30k", "g30k_seeds12"], **{f: [f"f30k_{f}", f"f30k_{f}_seeds12"] for f in ("random", "motif_ct_enriched", "evo2", "evoaug_paper2023")}}
+    cols = {}
+    yv = yt = None
+    for f, dirs in srcs.items():
+        yv_, yt_, ent = load_menu([str(base / d) for d in dirs])
+        if len(ent) < 30:
+            return
+        if yv is None:
+            yv, yt = yv_, yt_
+        keys = sorted(ent)
+        cols[f] = (np.column_stack([np.mean([r["vp"] for r in ent[c]], 0) for c in keys]), {e: np.column_stack([np.mean([r["tp"][e] for r in ent[c]], 0) for c in keys]) for e in EV})
+    fams = list(cols)
+
+    def combo(names):
+        V = np.column_stack([cols[n][0] for n in names])
+        T = {e: np.column_stack([cols[n][1][e] for n in names]) for e in EV}
+        return {k: float(v) for k, v in enet(V, yv, T, yt, range(V.shape[1]))[0].items()} | {"n_columns": int(V.shape[1])}
+    sets = {"genomic only": ["genomic"], "random only": ["random"], "motif only": ["motif_ct_enriched"], "evo2 only": ["evo2"], "evoaug only": ["evoaug_paper2023"],
+            "genomic + motif": ["genomic", "motif_ct_enriched"], "genomic + random": ["genomic", "random"], "all four non-genomic": [f for f in fams if f != "genomic"], "all five": fams}
+    for f in fams:
+        sets[f"all five minus {f.split('_')[0]}"] = [x for x in fams if x != f]
+    res = {k: combo(v) for k, v in sets.items()}
+    DATA["family_union"] = res
+    show = ["genomic only", "random only", "motif only", "evo2 only", "evoaug only", "genomic + motif", "all four non-genomic", "all five"]
+    fig, axes = plt.subplots(1, 3, figsize=(12.4, 3.9), sharey=False)
+    for ax, ev, ttl in zip(axes, EV, ("Genomic held-out", "Out-of-distribution", "Random sequences")):
+        v = [res[s][ev] for s in show]
+        ax.barh(range(len(show)), v, color=[BLUE if s == "genomic only" else (TEAL if s == "all five" else GREY) for s in show], zorder=2)
+        ax.set_yticks(range(len(show)))
+        ax.set_yticklabels(show if ev == EV[0] else [""] * len(show), fontsize=8)
+        ax.invert_yaxis()
+        ax.set_xlim(min(v) - 0.02, max(v) + 0.012)
+        for i, x in enumerate(v):
+            ax.text(x + 0.001, i, f"{x:.3f}", va="center", fontsize=7.5)
+        ax.set_title(ttl)
+        ax.set_xlabel("ensemble test r (30k models)")
+    fig.tight_layout()
+    save(fig, "family_union.png", out)
 
 
 def fig_budget(out):
@@ -915,7 +1110,7 @@ def main():
     steps = [("loop", fig_loop), ("menu", fig_menu), ("instances", fig_instances),
              ("prompt", lambda o: arm_figure(ARMS, "Prompt structure (Sonnet 5.5, genomic 30k, 30 rounds x 2)", "prompt_arms.png", "prompt_arms", o)),
              ("proposer", lambda o: arm_figure(PROP, "Proposer model (build-on-what-works prompt, genomic 30k)", "proposer_models.png", "proposer", o)),
-             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("menufam", fig_menu_fam), ("family", fig_family), ("menu300", fig_menu_300k), ("scaling", fig_menu_scaling), ("fam100", fig_family100), ("sat100", fig_saturation100), ("budget", fig_budget)]
+             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("menufam", fig_menu_fam), ("family", fig_family), ("menu300", fig_menu_300k), ("scaling", fig_menu_scaling), ("fam100", fig_family100), ("indep30", fig_indep30), ("union", fig_family_union), ("sat100", fig_saturation100), ("budget", fig_budget)]
     for name, fn in steps:
         if a.only and name not in a.only.split(","):
             continue

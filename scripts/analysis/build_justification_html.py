@@ -24,6 +24,7 @@ NARROW = {"arch_vs_legnet.png", "replicates.png", "kb_prompts.png"}
 OLD_ARTIFACT = "https://claude.ai/artifact/98NSVuNvp3F41LHBdGgvPp"
 
 CHANGELOG = [
+    ("2026-10-22 14:30", "Independent pools: three independent draws beat three seeds on one pool in all 12 comparisons (menu, 30k). Per-reservoir search again matches the retrained menu at 100k. Models trained on several reservoirs ensemble better than genomic-only. Nested genomic ladder lands within 0.01 of the old ladder. Opus +0.005 over Sonnet 5.5, not significant. Added a setup-choices table at the top."),
     ("2026-10-21 21:20", "All 16 context cells, 15 family runs, 300k menu (3 seeds) and the baselines are done. Results: no benefit from cross-D context; a fresh search per reservoir matches the retrained menu at 30k (within 0.006); one instance saturates faster at 100k than at 30k; menu-ensemble scaling in the corrected loop reaches 0.863 at 300k (genomic). Only the Opus and Sonnet 4.5 proposer cells still run."),
     ("2026-10-21 09:40", "Experiment audit: ctx prompts carry the context (T/J/X yes, none no), family cells use the right pools, 300k models were not time-capped; 16 of 2,040 models had exploded predictions on some eval set. Dispatcher: LLM cap 14 to 22, default-queue overflow now goes to slow_nice, 300k seeds 2-3 queued."),
     ("2026-10-21 09:30", "Overnight results: guidance beats wide-open for the proposer (N is 0.02 behind at 50 models; P = W); prior-box baselines match the LLM in HP-only; context hand-off shows no gain yet; menu ranks agree across reservoirs near the retest ceiling except random; menu at 300k is 23/33 done."),
@@ -66,6 +67,13 @@ def build(d: dict) -> list[dict]:
     bt = {k: sum(v) for k, v in bp.items()}
     bv = d.get("baselines_vs_llm", {})
     rt = M.get("retest", {})
+    ind = d.get("indep30", {})
+    i100 = d.get("indep100_genomic", {})
+    f100 = d.get("family100", {}).get("ens", {})
+    un = d.get("family_union", {})
+    nl = d.get("nested_ladder", {})
+    tk100 = d.get("topk100", {})
+    pr = d.get("proposer", {}).get("summary", {})
     ms = d.get("menu_scaling", {})
     fe = d.get("family_ens", {})
     sat = d.get("saturation100", {})
@@ -83,7 +91,7 @@ def build(d: dict) -> list[dict]:
              points=[f"Same network, same HPs, three configs: reported test r {f3(min(nat))}-{f3(max(nat))} in the old loop vs {f3(min(arch))}-{f3(max(arch))} in the arch loop ({sgn(L.get('total_gap'))} on average).",
                      f"Two parts: reverse-complement averaging at test time {sgn(L.get('rc_avg'))}; the loop itself {sgn(L.get('loop_fwd_matched'))} on matched forward-only predictions.",
                      f"Inside the loop, the per-sample crop-shift ({sgn(L['flips'].get('A_flip_shift'))}) and fp16 ({sgn(L['flips'].get('A_flip_amp'))}) cost accuracy; early-stop rule, gradient clip and the time cap do not matter (within noise)."],
-             caveat="Every scaling-law number measured before Oct 20 used the old loop and forward-only predictions. The shape of the curves probably survives; the absolute levels do not. Re-measuring them in the common loop is a decision still owed (see 'Scaling law re-measure' below).",
+             caveat="Every scaling-law number measured before Oct 20 used the old loop and forward-only predictions. The shape of the curves probably survives; the absolute levels do not. The retrained-menu ensembles re-measure the ladder in the common loop (see the scaling card below), and a nested genomic pool reproduces the old curve within about 0.01.",
              change="A config where the old loop wins would mean the ingredients interact with the architecture and we need per-architecture loops."),
         dict(id="arch", group="Training and evaluation", status="supported", figs=["arch_vs_legnet.png"],
              q="Does a freely-designed architecture beat a well-tuned LegNet once both are trained the same way?",
@@ -98,9 +106,10 @@ def build(d: dict) -> list[dict]:
              points=[f"Rank correlation of the same {M.get('n_entries', 33)} architectures between D: 10k vs 30k, validation {f3(sp['spearman_10k_30k'].get('val'), 2)} / test {f3(sp['spearman_10k_30k'].get('test'), 2)}; 30k vs 100k, validation {f3(sp['spearman_30k_100k'].get('val'), 2)} / test {f3(sp['spearman_30k_100k'].get('test'), 2)}.",
                      f"Ensemble of the whole retrained menu: {', '.join(f3(v) for v in ens.get('all', []))} at 10k / 30k / 100k. Top-5 chosen at 10k and retrained: {', '.join(f3(v) for v in ens.get('top5_at_10k', []))}, i.e. {', '.join(sgn(a - b) for a, b in zip(ens.get('top5_at_10k', []), ens.get('all', [])))} against the whole pool. HP-only search (old loop): {', '.join(f3(v) for v in ens.get('hp_only', []))}.",
                      (f"Within-D retest ceiling (one seed against the mean of the others): 10k {rt['10k']:.2f}, 30k {rt['30k']:.2f}, 100k {rt['100k']:.2f}. The 10k-to-30k agreement is far below these, so the ranking really changes; 30k-to-100k sits at them." if all(rt.get(k) is not None for k in ("10k", "30k", "100k")) else "Retest ceilings pending."),
-                     "Retrainings per architecture: " + ", ".join(f"{k} {v}" for k, v in M.get("seeds_per_D", {}).items()) + "."],
+                     "Retrainings per architecture: " + ", ".join(f"{k} {v}" for k, v in M.get("seeds_per_D", {}).items()) + ".",
+                     ("On the nested genomic pool (one seed per size) the agreement is 10k-30k " + f"{nl['spearman'].get('10k-30k', float('nan')):.2f}, 30k-100k {nl['spearman'].get('30k-100k', float('nan')):.2f}, 100k-300k {nl['spearman'].get('100k-300k', float('nan')):.2f}" + ", against 0.13 / 0.66 / 0.43 on the old three-seed ladder. The pattern does not repeat, so rank agreement across sizes is low to moderate everywhere and mostly noise-limited; it is not evidence that small-D picks transfer or fail to." if nl.get("spearman") else "Nested-pool rank agreement pending.")],
              caveat="Three retrainings per architecture at every D. The practical cost of choosing the top 5 at 10k anyway is small (a few thousandths in ensemble r), so the case for retraining everything is about robustness, not size. The HP-only comparison mixes harnesses.",
-             change="If rank stability between two seeds at one D is also near zero, the 10k-30k result is noise, and top-k selection at small D would be fine."),
+             change="Three seeds on the nested pools would settle whether any rank carries over between sizes; until then retraining everything is the safe choice."),
         dict(id="menufam", group="Dataset-size ladder", status="supported", figs=["menu_families.png"],
              q="Do the same architectures do well on random, motif, evo2 and evoaug data, or does each reservoir need its own search?",
              choice="Menu is reservoir-agnostic: retrain the same pool on each reservoir's data.",
@@ -118,13 +127,32 @@ def build(d: dict) -> list[dict]:
                     + ([f"Ensemble of the retrained menu at 300k: genomic {m3['ensemble']['genomic']:.3f}, out-of-distribution {m3['ensemble']['ood']:.3f}."] if m3.get("ensemble") else []),
              caveat="Genomic reservoir only at 300k. Both sizes use three-seed means.",
              change="If a search run at 300k found architectures well outside this pool, retraining the old pool would not be enough there."),
+        dict(id="indep", group="Search and pooling", status="supported", figs=["independent_pools_30k.png"],
+             q="Should every independent search run get its own labelled pool, or should all runs share one?",
+             choice="Give each independent run its own pool (a separate labelled draw), nested across sizes inside it. Keep one nested corpus for the final retrain.",
+             points=["Menu test at 30k (33 architectures): three seeds on one pool (A) against three independent pools (B), equal model counts (99 each). Pooled ensemble, genomic evaluation, A vs B: " + "; ".join(f"{k.replace('_', ' ')} {v['A']['pooled']['genomic']:.3f} vs {v['B']['pooled']['genomic']:.3f} ({v['B']['pooled']['genomic'] - v['A']['pooled']['genomic']:+.3f})" for k, v in ind.items()) + ".",
+                     "Independent pools win in every reservoir on all three evaluation sets (12 of 12 comparisons). Out-of-distribution gain " + ", ".join(f"{v['B']['pooled']['ood'] - v['A']['pooled']['ood']:+.3f}" for v in ind.values()) + "; random-sequence gain " + ", ".join(f"{v['B']['pooled']['random_32k'] - v['A']['pooled']['random_32k']:+.3f}" for v in ind.values()) + ".",
+                     "Spread of one replicate's ensemble across the three replicates (SD): seeds on one pool " + ", ".join(f"{__import__('statistics').stdev(v['A']['ens']):.4f}" for v in ind.values()) + "; separate pools " + ", ".join(f"{__import__('statistics').stdev(v['B']['ens']):.4f}" for v in ind.values()) + ". Shared-pool replicates understate run-to-run variance.",
+                     "Architecture rankings repeat about equally well across seeds and across pools (Spearman " + ", ".join(f"{v['A']['rank']:.2f}/{v['B']['rank']:.2f}" for v in ind.values()) + " for seeds/pools), so ranking noise is mostly training noise.",
+                     (f"AutoResearch at genomic 100k: three runs with their own pools pool to {i100['independent']['pooled']:.3f} (single runs {min(i100['independent']['single']):.3f}-{max(i100['independent']['single']):.3f}) against {i100['shared']['pooled']:.3f} for runs sharing the old 100k pool (single runs {min(i100['shared']['single']):.3f}-{max(i100['shared']['single']):.3f}). This comparison is confounded: the shared pool was the old, biased genomic 100k set." if i100 else "100k comparison pending.")],
+             caveat="The clean test is the 30k menu comparison (same code, same pools, only the data draw differs). The 100k search comparison points the same way but cannot separate independence from the old pool's bias. The final retrain at each size should still use one nested corpus.",
+             change="If nine seeds on one pool matched three pools of three seeds, the gain would be model count and not data diversity."),
+        dict(id="mix", group="Search and pooling", status="provisional", figs=["family_union.png"],
+             q="Should the final ensemble use models trained on several reservoirs, or on genomic data only?",
+             choice="Use several. Genomic alone is the weakest single choice for genomic held-out sequences; genomic plus motif already captures nearly all of the union's gain.",
+             points=["Ensemble test r at 30k (genomic held-out / out-of-distribution / random sequences): " + "; ".join(f"{k} {un[k]['genomic']:.3f} / {un[k]['ood']:.3f} / {un[k]['random_32k']:.3f}" for k in ("genomic only", "motif only", "random only", "genomic + motif", "all four non-genomic", "all five") if k in un) + ".",
+                     ("Dropping motif from the union costs the most on genomic sequences (" + f"{un['all five']['genomic']:.3f} to {un['all five minus motif']['genomic']:.3f}" + "); dropping genomic costs nothing (" + f"{un['all five']['genomic']:.4f} to {un['all five minus genomic']['genomic']:.4f}" + ")." if un else "Union results pending."),
+                     "On out-of-distribution and random sequences the best single reservoir (motif or random) beats the union, so the union is a compromise: better than genomic alone everywhere, not the best on every evaluation set."],
+             caveat="These are ensembles of models that were each trained on one reservoir, not models trained on a mixed corpus. Which sequences to put in the library is a corpus-mixing question that this does not answer. The union also has up to five times as many models.",
+             change="A mixed-corpus training run (for example genomic plus motif at equal total size) would show whether mixing at the data level matches mixing at the model level."),
         dict(id="inst", group="Search and pooling", status="supported", figs=["instances_and_topk.png"],
              q="How many models should one AutoResearch instance train, how many should we keep, and how many instances do we need?",
              choice="About 20-30 models per instance, keep the top 8 by validation, pool several independent instances.",
              points=[f"One instance's ensemble saturates around 20-40 models (mean of runs: {', '.join(f3(v) for v in I.get('mean', []))} at n = {I.get('n')}).",
                      f"Pooling the top-k of three instances: k = 1: {f3(top5[0])}, k = 3: {f3(top5[2])}, k = 8: {f3(top5[4])}, all: {f3(top5[6])}. Single instances with all their models: {f3(min(T.get('singles', [0])))}-{f3(max(T.get('singles', [0])))}.",
-                     f"Between-instance spread of the final ensemble: SD {f3(I.get('sd_between_runs'), 4)}."],
-             caveat="Three Sonnet-5.5 instances, genomic 30k."),
+                     f"Between-instance spread of the final ensemble: SD {f3(I.get('sd_between_runs'), 4)}.",
+                     ("At 100k on independent pools (20 models per run, three runs pooled), keeping the top k from each run gives genomic " + ", ".join(f"k={k}: {v:.4f}" for k, v in tk100.get("genomic", {}).items() if k in ("1", "3", "5", "8", "20")) + "; motif, random and evoaug flatten by k = 2-3 as well. Three to five per run is enough at 100k." if tk100.get("genomic") else "100k top-k pending.")],
+             caveat="Three Sonnet-5.5 instances at 30k; three per reservoir at 100k."),
         dict(id="rep", group="Search and pooling", status="supported", figs=["replicates.png"],
              q="Is pooling independent runs actually better than a single run, and by how much?",
              choice="Always run several independent instances per reservoir and pool them.",
@@ -153,15 +181,14 @@ def build(d: dict) -> list[dict]:
                      "Top-5 validation r per run: P 0.823-0.833, W 0.830-0.833, N 0.793-0.817. The build-then-explore phases add nothing over plain guidance."],
              caveat="Sonnet 5.5, genomic 30k only; 3 reps per arm. The wide-open preference is kept as the default for everything the guidance does not cover (architecture families, depth, width).",
              change="If N matched W on another reservoir, we would drop the guidance there too."),
-        dict(id="proposer", group="Proposer and prompt", status="running", figs=["proposer_models.png"],
+        dict(id="proposer", group="Proposer and prompt", status="supported", figs=["proposer_models.png"],
              q="Which model should write the architectures?",
-             choice="Sonnet 5.5 (cost and rate-limit headroom), unless Opus clearly wins.",
-             points=["Same prompt (P), genomic 30k, three runs each for Sonnet 5.5, Sonnet 4.5, Opus 5.5.",
-                     f"Ensemble test r at equal n = {d.get('proposer', {}).get('n_eq', '?')} models (mean over runs): " + "; ".join(f"{k} {mean(v.get('ens_at_n', [])):.3f}" for k, v in d.get("proposer", {}).get("summary", {}).items() if v.get("ens_at_n")) + ".",
-                     "Mean validation r of the 5 best models per run: " + "; ".join(f"{k} {min(x for x in v['top5_val'] if x == x):.3f}-{max(x for x in v['top5_val'] if x == x):.3f}" for k, v in d.get("proposer", {}).get("summary", {}).items() if v.get("top5_val")) + ". Opus is about +0.005 ahead and Sonnet 4.5 slightly behind, all within run-to-run noise so far.",
-                     "Models trained so far: " + "; ".join(f"{k.replace('|', ' run ')} {v}" for k, v in d.get("proposer", {}).get("cells", {}).items() if k.startswith(("Opus", "Sonnet 4.5"))) + " of 60. These cells are the last still running."],
-             caveat="Opus and Sonnet 4.5 runs are incomplete (the comparison uses the first 20 models of each). Not decisive yet.",
-             change="A gain of 0.01 or more for Opus at equal models would justify its higher token cost."),
+             choice="Sonnet 5.5. Opus 5.5 is about +0.005 ahead, which is not enough to justify its cost; Sonnet 4.5 is slightly behind.",
+             points=["Same prompt (build-on-what-works), genomic 30k, three runs each for Sonnet 5.5, Sonnet 4.5 and Opus 5.5; all nine runs are complete.",
+                     f"Ensemble test r at equal n = {d.get('proposer', {}).get('n_eq', '?')} models (mean over runs): " + "; ".join(f"{k} {mean(v.get('ens_at_n', [])):.4f}" for k, v in pr.items() if v.get("ens_at_n")) + ". Run-to-run SD is about 0.002-0.005, so Opus is ahead by under two standard errors.",
+                     "Models per run: " + "; ".join(f"{k.replace('|', ' run ')} {v}" for k, v in d.get("proposer", {}).get("cells", {}).items()) + "."],
+             caveat="Genomic 30k only. A +0.005 gain would matter if confirmed on another reservoir.",
+             change="A gain of 0.01 or more for Opus at equal models on a second reservoir would justify its higher token cost."),
         dict(id="ctx", group="Dataset-size ladder", status="supported", figs=["context_transfer.png"],
              q="When AutoResearch moves from 30k to 100k, should the proposer see what worked at 30k?",
              choice="No. Start every D's search from the same prompt; handing results across sizes does not help.",
@@ -170,15 +197,15 @@ def build(d: dict) -> list[dict]:
                      "T and J are within +0.002 of no context. The stale 10k context scores highest (about +0.0035, under 2 standard errors), which is the opposite of what useful context would predict. Earlier 30k pilot and the replicate of the one 100k gain also showed nothing."],
              caveat="One J run and one T run are missing from the counts because the exploded-prediction screen removed models. Genomic reservoir only.",
              change="A gain of 0.01 or more for T or J across runs would justify the hand-off."),
-        dict(id="fam", group="Search and pooling", status="supported", figs=["families.png"],
+        dict(id="fam", group="Search and pooling", status="supported", figs=["families.png", "families_100k.png"],
              q="Does a separate AutoResearch search on each reservoir beat reusing the genomic-derived architecture pool?",
-             choice="Reuse the pool: retrain the menu on each reservoir's data. A fresh per-reservoir search matches it at 30k but costs LLM budget.",
-             points=["Five reservoirs x three independent runs (60 models each, arm W, 30k); all 15 runs are complete.",
-                     "Mean validation r of each run's 5 best models: " + "; ".join(f"{k.replace('_', ' ')} {min(v):.3f}-{max(v):.3f}" for k, v in d.get("family", {}).get("top5", {}).items()) + ". Runs on the same reservoir agree to about 0.003, so three runs are plenty to see the reservoir effect.",
-                     "Pooled ensemble test r (top 8 of 3 runs / all models / retrained menu): " + "; ".join(f"{k.replace('_', ' ')} {v['ar_top8']:.3f} / {v['ar_all']:.3f} / {v['menu']:.3f}" for k, v in fe.items() if v.get("menu") is not None) + ".",
-                     "Fresh search and frozen menu are within 0.006 on every reservoir (menu ahead on evo2 and evoaug, search ahead on genomic and random), so a search per reservoir adds nothing measurable at 30k."],
-             caveat="30k only. The menu was distilled from genomic searches at 30k, so this tests transfer, and says nothing about 100k and 300k where architecture rankings move.",
-             change="If per-reservoir search at 100k beat the retrained menu there, it would earn its cost at larger D."),
+             choice="Reuse the pool: search on genomic data and retrain the pool on each reservoir's data. A fresh per-reservoir search matches it at 30k and at 100k but costs LLM budget.",
+             points=["30k: five reservoirs x three independent runs (60 models each, guidance-only prompt). Mean validation r of each run's 5 best models: " + "; ".join(f"{k.replace('_', ' ')} {min(v):.3f}-{max(v):.3f}" for k, v in d.get("family", {}).get("top5", {}).items()) + ". Runs on the same reservoir agree to about 0.003.",
+                     "30k pooled ensemble test r (top 8 of 3 runs / all models / retrained menu): " + "; ".join(f"{k.replace('_', ' ')} {v['ar_top8']:.3f} / {v['ar_all']:.3f} / {v['menu']:.3f}" for k, v in fe.items() if v.get("menu") is not None) + ". Search and menu are within 0.006 everywhere.",
+                     "100k, each run on its own pool, 20 models per run, top 8 of 3 pooled, against the retrained menu (genomic eval): " + "; ".join(f"{k.replace('_', ' ')} {v['ar_top8']:.3f} vs {v['menu']:.3f}" for k, v in f100.items() if v.get("menu") is not None) + ". Again within 0.004, with the menu a little ahead out of distribution.",
+                     "So a search on one reservoir finds nothing that the retrained pool does not already have, on any of the four reservoirs tested, at either size."],
+             caveat="Tested on one representative member per family (motif_ct_enriched, evoaug_paper2023, random, genomic); other members of each family were not tested. The menu was distilled from genomic searches at 30k, so this is a transfer result.",
+             change="If other members of a family (for example motif_jaspar or motif_grammar) showed a gap between search and menu, the family representatives would be too narrow."),
         dict(id="ens", group="Ensembling", status="carried", figs=[],
              q="How should the pooled candidates be combined?",
              choice="Non-negative ElasticNet on the validation predictions of all models (enet_all_pos), z-scored per model so that one diverged model cannot zero the fit.",
@@ -200,9 +227,9 @@ def build(d: dict) -> list[dict]:
              points=[f"Genomic reservoir, ensemble test r at 10k / 30k / 100k / 300k: {g(10):.3f} / {g(30):.3f} / {g(100):.3f} / {g(300):.3f}. Gain per doubling: {per_dbl(10, 30):.3f}, {per_dbl(30, 100):.3f}, {per_dbl(100, 300):.3f}, so returns diminish but the curve is not flat at 300k.",
                      f"Out-of-distribution sequences, same sizes: {g(10, 'ood'):.3f} / {g(30, 'ood'):.3f} / {g(100, 'ood'):.3f} / {g(300, 'ood'):.3f}; this curve keeps accelerating (gain per doubling {per_dbl(10, 30, 'ood'):.3f}, {per_dbl(30, 100, 'ood'):.3f}, {per_dbl(100, 300, 'ood'):.3f}).",
                      "Other reservoirs at 10k / 30k / 100k (genomic eval): " + "; ".join(f"{k.replace('_', ' ')} {ms[k]['10']['genomic']:.3f} / {ms[k]['30']['genomic']:.3f} / {ms[k]['100']['genomic']:.3f}" for k in ms if k != "genomic" and all(x in ms[k] for x in ("10", "30", "100"))) + ". Motif-enriched is highest on genomic sequences; random is lowest there but highest out of distribution at 100k (" + (f"{ms['random']['100']['ood']:.3f}" if "random" in ms and "100" in ms["random"] else "n/a") + ")."],
-             caveat="These are menu ensembles, not AutoResearch cells, and non-genomic reservoirs have one seed at 10k and 100k. The old HP-only numbers (0.686 / 0.743 / 0.780 on genomic) are lower at every size.",
+             caveat=("The old genomic pools were not nested and differed in label distribution by size. Repeating the ladder on a properly nested genomic pool (one seed) gives " + "; ".join(f"{k}k {nl['ens'][k]['genomic']:.3f}" for k in ("10", "30", "100", "300") if k in nl.get("ens", {})) + ", within about 0.01 of the old ladder at every size, and the out-of-distribution curve agrees to within 0.02. The old scaling conclusions stand. " if nl.get("ens") else "") + "These are menu ensembles, not AutoResearch cells, and non-genomic reservoirs have one seed at 10k and 100k. The old HP-only numbers (0.686 / 0.743 / 0.780 on genomic) are lower at every size.",
              change="A full AutoResearch re-run per size would be needed only if the menu is thought to understate what search finds at 100k and 300k."),
-        dict(id="budget", group="Compute and limits", status="running", figs=["llm_budget.png"],
+        dict(id="budget", group="Compute and limits", status="supported", figs=["llm_budget.png"],
              q="Can we afford the remaining programme within the LLM usage limit?",
              choice="Dispatcher pauses on the session limit, resumes after the reset, and caps concurrent LLM cells at 14.",
              points=["One usage-limit stop on Oct 21 at 11:03 with 18 concurrent LLM cells; the dispatcher paused, probed after the 12:10 reset and resumed at 12:12 without help. The cap is now 15 cells (about 0.65M tokens an hour), which leaves room for interactive use.",
@@ -259,6 +286,11 @@ h2.grp{margin:34px 0 12px;font-size:12px;letter-spacing:.09em;text-transform:upp
 .log{margin:34px 0 0;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px 18px}
 .log h2{margin:0 0 8px;font-size:15px}.log ol{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13.5px}
 .log time{font:12px var(--mono);color:var(--muted)}
+.tblwrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;margin:0 0 26px}
+.choices table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:720px}
+.choices th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line)}
+.choices td{vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line);max-width:46ch}
+.choices tr:last-child td{border-bottom:0}.choices td:first-child{font-weight:600;white-space:nowrap}
 footer{margin-top:26px;font-size:12.5px;color:var(--muted)}
 @media (max-width:640px){h1{font-size:23px}.card>.hd{flex-direction:column-reverse;gap:8px}}
 @media (prefers-reduced-motion:no-preference){.card{transition:border-color .15s}.card:hover{border-color:var(--accent)}}
@@ -273,6 +305,43 @@ btns.forEach(b=>b.addEventListener('click',()=>apply(b.dataset.k)));
 """
 
 
+def build_choices(d: dict) -> list[dict]:
+    I, T = d.get("instances", {}), d.get("topk", {})
+    c100 = d.get("ctx100", {})
+    ind = d.get("indep30", {})
+    f100 = d.get("family100", {}).get("ens", {})
+    fe = d.get("family_ens", {})
+    un = d.get("family_union", {})
+    sat = d.get("saturation100", {})
+    tk100 = d.get("topk100", {})
+    pr = d.get("proposer", {}).get("summary", {})
+    pa = {k.split()[0]: v.get("ens_at_n", []) for k, v in d.get("prompt_arms", {}).get("summary", {}).items()}
+    m = lambda v: sum(v) / len(v) if v else float("nan")  # noqa: E731
+    gain = [v["B"]["pooled"]["genomic"] - v["A"]["pooled"]["genomic"] for v in ind.values()]
+    rows = [
+        dict(aspect="Lower D informing higher D", choice="No hand-off. Retrain the whole candidate pool at every D and start each D's search from the same prompt.",
+             ev=("Context from 30k or a trajectory summary changes 100k ensembles by at most +0.002 (the useless 10k context scored highest, +0.0035). Picking the top 5 at 10k and retraining costs 0.001-0.006 against retraining everything. Architecture rankings agree across sizes only weakly."), status="supported", card="ctx"),
+        dict(aspect="Rounds per D", choice="About 30 rounds x 2 models at 10k-30k, about 10 rounds x 2 at 100k and above.",
+             ev=(f"One instance gains {sat['mean30'][-1] - sat['mean30'][0]:.4f} from 6 to 30 models at 30k and {sat['mean100'][-1] - sat['mean100'][0]:.4f} at 100k; the last 12 models add at or below noise at 100k. 300k not measured." if sat.get("mean100") else "pending"), status="provisional", card="sched"),
+        dict(aspect="Proposals per round", choice="2 per round.", ev="Cadence study (one run per cell): 2 x 30 beat 6 x 10 and 1 x 60 on genomic and motif, tied on random. Per-round proposal quality is flat, so the edge is the LLM prior, not feedback.", status="provisional", card="llm"),
+        dict(aspect="Independent runs per reservoir", choice="Three, pooled.", ev="Pooling three runs beats the best single run in 8 of 9 cells and the average run in 9 of 9; between-run SD about 0.005. More than three has not been tested.", status="provisional", card="rep"),
+        dict(aspect="Independent pool per run", choice="Yes: each run gets its own labelled pool, nested across sizes inside it.",
+             ev=("At equal model counts, pooling three independent pools beats pooling three seeds on one pool by " + ", ".join(f"{g:+.3f}" for g in gain) + " (genomic, random, motif, evoaug), 12 of 12 comparisons positive across evaluation sets." if ind else "pending"), status="supported", card="indep"),
+        dict(aspect="Top models kept per run", choice="Top 5 by validation from each run.",
+             ev=("At 30k the top 8 of each of three runs equals the whole pool. At 100k, k = 3 to 5 is within 0.001 of keeping all 20." if tk100.get("genomic") else "At 30k the top 8 equals the whole pool."), status="supported", card="inst"),
+        dict(aspect="Reservoir families to search", choice="Search on genomic only, then retrain the pool on each reservoir's data.",
+             ev=("Fresh per-reservoir searches match the retrained pool within 0.006 at 30k and within 0.004 at 100k (" + "; ".join(f"{k.replace('_', ' ')} {v['ar_top8'] - v['menu']:+.3f}" for k, v in f100.items() if v.get("menu") is not None) + " at 100k). Tested on one representative per family only." if f100 else "pending"), status="supported", card="fam"),
+        dict(aspect="Reservoirs feeding the final ensemble", choice="Several; genomic plus motif captures most of the gain.",
+             ev=("Ensemble on genomic held-out sequences: genomic only " + f"{un['genomic only']['genomic']:.3f}, genomic + motif {un['genomic + motif']['genomic']:.3f}, all five {un['all five']['genomic']:.3f}. Out of distribution the best single reservoir beats the union. Ensembles of single-reservoir models, not a mixed corpus." if un else "pending"), status="provisional", card="mix"),
+        dict(aspect="Proposer model", choice="Sonnet 5.5.", ev="Equal-n ensemble: " + ", ".join(f"{k} {m(v.get('ens_at_n', [])):.4f}" for k, v in pr.items() if v.get("ens_at_n")) + ". Opus is ahead by under two standard errors.", status="supported", card="proposer"),
+        dict(aspect="Prompt", choice="Guidance (known-good pieces, ensemble note), no phase schedule.", ev=f"At 50 models: guidance + phases {m(pa.get('P', [])):.3f}, guidance only {m(pa.get('W', [])):.3f}, nothing {m(pa.get('N', [])):.3f}.", status="supported", card="prompt"),
+        dict(aspect="Ensemble method", choice="Non-negative ElasticNet on validation predictions of all models, with a screen for exploded predictions on every evaluation set.", ev="Beat greedy top-K by about +0.01 earlier; 0.8% of free-form models explode on a shifted evaluation set.", status="carried", card="ens"),
+        dict(aspect="Training and evaluation loop", choice="One common loop with reverse-complement averaging for every model.", ev="Same network scores 0.69-0.70 in the old loop and 0.73 in the common loop; reverse-complement averaging is +0.014 of that.", status="supported", card="loop"),
+        dict(aspect="Pools", choice="Nested canonical pools and independent nested replicates; legacy per-size pools only to reproduce old numbers.", ev=("A nested genomic ladder (one seed) lands within about 0.01 of the old ladder at every size, so the earlier scaling numbers stand." if d.get("nested_ladder", {}).get("ens") else "nested ladder pending"), status="supported", card="remeasure"),
+    ]
+    return rows
+
+
 def render(cards, d):
     esc = html.escape
     counts = {k: sum(1 for c in cards if c["status"] == k) for k in STATUS}
@@ -285,6 +354,8 @@ def render(cards, d):
     out.append('<div class="summary"><button class="filter" data-k="all" aria-pressed="true">All ' + str(len(cards)) + "</button>" +
                "".join(f'<button class="filter" data-k="{k}" aria-pressed="false">{STATUS[k][0]} {n}</button>' for k, n in counts.items() if n) + "</div>")
     out.append('<div class="legend">' + "".join(f'<div><span class="chip s-{k}">{STATUS[k][0]}</span> {esc(STATUS[k][1])}</div>' for k in STATUS) + "</div>")
+    out.append('<section class="choices" id="choices"><h2 class="grp">Setup choices at a glance</h2><div class="tblwrap"><table><thead><tr><th>Aspect</th><th>Current choice</th><th>Evidence</th><th>Status</th></tr></thead><tbody>' + "".join(
+        f'<tr><td><a href="#{r["card"]}">{esc(r["aspect"])}</a></td><td>{esc(r["choice"])}</td><td>{esc(r["ev"])}</td><td><span class="chip s-{r["status"]}">{STATUS[r["status"]][0]}</span></td></tr>' for r in build_choices(d)) + "</tbody></table></div></section>")
     out.append('<nav class="flow" aria-label="Pipeline">' + "".join(
         f'<a href="#{c["id"]}"><span class="chip s-{c["status"]}">{STATUS[c["status"]][0]}</span><b>{esc(t)}</b><span class="t">{esc(s)}</span></a>'
         for t, s, cid in [("D ladder", "10k, 30k, 100k, 300k", "menu"), ("Proposer", "Sonnet 5.5, 2 x 30 rounds", "proposer"),
