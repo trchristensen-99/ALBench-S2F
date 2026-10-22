@@ -224,8 +224,20 @@ def load_menu(tag_dirs):
                 continue
             ent.setdefault(m["menu_entry"], []).append(dict(
                 val=pear(vp, yv), vp=vp, tp={e: z[f"test_pred_{e}"].astype(float) for e in EV},
-                test=m["test_oracle_pearson"], idea=m.get("idea", "")))
+                test=m["test_oracle_pearson"], idea=m.get("idea", ""), seed=int(m.get("round", 0))))
     return yv, yt, ent
+
+
+def retest(ent):
+    """Within-D retest ceiling: Spearman between an architecture's seed-0 test r and the mean of its other seeds."""
+    a, b = [], []
+    for runs in ent.values():
+        s0 = [r["test"] for r in runs if r.get("seed", 0) == 0]
+        s1 = [r["test"] for r in runs if r.get("seed", 0) >= 1]
+        if s0 and s1:
+            a.append(np.mean(s0))
+            b.append(np.mean(s1))
+    return float(spearmanr(a, b)[0]) if len(a) >= 8 else None
 
 
 def fig_menu(out):
@@ -237,7 +249,7 @@ def fig_menu(out):
     stat = {k: {e: dict(val=np.mean([r["val"] for r in v]), test=np.mean([r["test"] for r in v]), n=len(v)) for e, v in d[2].items()} for k, d in data.items()}
     common = sorted(set.intersection(*[set(s) for s in stat.values()]))
     nseeds = {k: max(s["n"] for s in stat[k].values()) for k in stat}
-    DATA["menu"] = dict(n_entries=len(common), seeds_per_D=nseeds)
+    DATA["menu"] = dict(n_entries=len(common), seeds_per_D=nseeds, retest={k: retest(d[2]) for k, d in data.items()})
     fig, axes = plt.subplots(2, 2, figsize=(10.6, 8.2))
     for ax, (a, b) in zip(axes[0], (("10k", "30k"), ("30k", "100k"))):
         va = np.array([stat[a][c]["val"] for c in common]); vb = np.array([stat[b][c]["val"] for c in common])
@@ -264,7 +276,7 @@ def fig_menu(out):
         ax.annotate(f"rank {rk}/{len(common)}\n{bt} free-form models beat it", (i, rk), textcoords="offset points", xytext=(9, 0) if i == 0 else (0, -24), ha="left" if i == 0 else "center", va="center", fontsize=8.3)
     ax.set_xticks(range(3)); ax.set_xticklabels(["D = 10k", "D = 30k", "D = 100k"]); ax.set_ylim(len(common) + 2, -2); ax.set_xlim(-0.3, 2.9)
     ax.set_ylabel("test-r rank of reference LegNet (1 = best)")
-    ax.set_title("A fixed LegNet moves up the ranking as D grows")
+    ax.set_title("Rank of the reference LegNet among 33 retrained")
     DATA["menu"]["reference_rank"] = dict(zip(("10k", "30k", "100k"), map(int, ranks)))
     ax = axes[1][1]
     ens_all, ens_top5, ens_hp = [], [], []
@@ -574,32 +586,57 @@ def fig_context(out):
 
 
 def fig_family(out):
-    fams = ["genomic", "random", "motif_ct_enriched", "evo2", "evoaug_paper2023"]
-    fig, axes = plt.subplots(1, 2, figsize=(11, 3.9), gridspec_kw=dict(width_ratios=[1.1, 1]))
+    fams = [("genomic", BLUE), ("random", ORANGE), ("motif_ct_enriched", TEAL), ("evo2", PURPLE), ("evoaug_paper2023", GREY)]
+    dirs = lambda f, r: R / ("outputs/archsearch_final_oct20/son55_wide" if f == "genomic" else f"outputs/archsearch_family_oct20/{f}") / f"rep{r}"  # noqa: E731
+    fig, axes = plt.subplots(1, 2, figsize=(11.6, 4.1))
     ax = axes[0]
-    prog = {}
-    for fi, f in enumerate(fams):
+    prog, best, fens = {}, {}, {}
+    menu_rows = {r["res"]: r for r in DATA.get("menu_fam", {}).get("rows", [])}
+    for fi, (f, col) in enumerate(fams):
+        cells = []
         for r in (1, 2, 3):
-            d = R / ("outputs/archsearch_final_oct20/son55_wide" if f == "genomic" else f"outputs/archsearch_family_oct20/{f}") / f"rep{r}"
-            n = len(glob.glob(str(d / "r*_arch_*_meta.json")))
-            prog[f"{f}|{r}"] = n
-            ax.barh(fi * 4 + r, n, color=[BLUE, TEAL, ORANGE, PURPLE, GREY][fi], height=0.8)
-    ax.axvline(60, color=INK, ls="--", lw=0.8)
-    ax.set_yticks([fi * 4 + 2 for fi in range(5)]); ax.set_yticklabels(fams, fontsize=8.5); ax.invert_yaxis()
-    ax.set_xlabel("models trained (target 60 per run)"); ax.set_title("Reservoir-family AutoResearch runs (3 each): progress")
-    ax = axes[1]
-    best = {}
-    for fi, f in enumerate(fams):
-        for r in (1, 2, 3):
-            d = R / ("outputs/archsearch_final_oct20/son55_wide" if f == "genomic" else f"outputs/archsearch_family_oct20/{f}") / f"rep{r}"
-            c = load_cell(d)
+            c = load_cell(dirs(f, r))
+            prog[f"{f}|{r}"] = len(glob.glob(str(dirs(f, r) / "r*_meta.json")))
             if c is not None and c["V"].shape[1] >= 8:
+                cells.append(c)
                 v = np.sort(c["val"])[-5:].mean()
-                ax.scatter([fi + jitter(1, 0.07, fi * 3 + r)[0]], [v], s=30, color=[BLUE, TEAL, ORANGE, PURPLE, GREY][fi], zorder=3)
                 best.setdefault(f, []).append(float(v))
-    ax.set_xticks(range(5)); ax.set_xticklabels([f.replace("_", "\n") for f in fams], fontsize=7.5)
-    ax.set_ylabel("mean validation r of the 5 best models"); ax.set_title("Best models per family (each on its own data)")
+                ax.scatter([fi + jitter(1, 0.08, fi * 3 + r)[0]], [v], s=30, color=col, zorder=3)
+        if len(cells) >= 2:
+            def build(top, cells=cells):
+                Vs, Ts = [], {e: [] for e in EV}
+                for c in cells:
+                    idx = np.argsort(-c["val"])[: top or c["V"].shape[1]]
+                    Vs.append(c["V"][:, idx])
+                    for e in EV:
+                        Ts[e].append(c["T"][e][:, idx])
+                return np.column_stack(Vs), {e: np.column_stack(Ts[e]) for e in EV}
+            row = {}
+            for key, top in (("ar_top8", 8), ("ar_all", None)):
+                V, T = build(top)
+                row[key] = float(enet(V, cells[0]["yv"], T, cells[0]["yt"], range(V.shape[1]))[0]["genomic"])
+            row["menu"] = menu_rows.get(f, {}).get("ensemble")
+            row["n_instances"] = len(cells)
+            fens[f] = row
+    labels = [f.replace("_", "\n") for f, _ in fams]
+    ax.set_xticks(range(5))
+    ax.set_xticklabels(labels, fontsize=7.5)
+    ax.set_ylabel("mean validation r of each run's 5 best models")
+    ax.set_title("Best models found, one dot per instance")
+    ax = axes[1]
+    for fi, (f, col) in enumerate(fams):
+        if f in fens:
+            for j, (key, al) in enumerate((("ar_top8", 1.0), ("ar_all", 0.55), ("menu", 0.25))):
+                v = fens[f].get(key)
+                if v is not None:
+                    ax.bar(fi + (j - 1) * 0.27, v, 0.25, color=col, alpha=al, zorder=2)
+    ax.set_xticks(range(5))
+    ax.set_xticklabels(labels, fontsize=7.5)
+    ax.set_ylim(0.72, 0.82)
+    ax.set_ylabel("ensemble test r, genomic eval (30k)")
+    ax.set_title("Dark: top 8 of 3 runs. Mid: all models. Pale: retrained menu", fontsize=9.5)
     DATA["family"] = dict(progress=prog, top5=best)
+    DATA["family_ens"] = fens
     fig.tight_layout()
     save(fig, "families.png", out)
 
@@ -626,7 +663,7 @@ def fig_menu_fam(out):
     for i, (f, col) in enumerate(fams):
         ax.barh(i, prog[f], color=col, height=0.6, zorder=2); ax.text(prog[f] + 0.5, i, f"{prog[f]} / {len(gstat)}", va="center", fontsize=8.5)
     ax.set_yticks(range(4)); ax.set_yticklabels([f.replace("_", "\n") for f, _ in fams], fontsize=8); ax.invert_yaxis(); ax.set_xlim(0, len(gstat) * 1.3)
-    ax.set_xlabel("menu architectures retrained so far (30k)"); ax.set_title("Menu retrained on each reservoir: progress")
+    ax.set_xlabel("menu architectures retrained so far (30k)"); ax.set_title("Entries retrained (30k)")
     if res:
         ax = axes[1]
         sp = {}
@@ -639,7 +676,7 @@ def fig_menu_fam(out):
             ax.scatter(a, b, s=22, color=col, alpha=0.8, label=f"{f.replace('_', ' ')}  rho = {spearmanr(a, b)[0]:.2f}")
             sp[f] = float(spearmanr(a, b)[0])
         ax.set_xlabel("test r when trained on genomic 30k"); ax.set_ylabel("test r when trained on the other reservoir")
-        ax.legend(fontsize=7.5, loc="lower right"); ax.set_title("Do architecture rankings transfer between reservoirs?")
+        ax.legend(fontsize=7.5, loc="lower right"); ax.set_title("Rankings vs genomic")
         DATA["menu_fam"]["spearman_vs_genomic"] = sp
         ax = axes[2]
         rows = []
@@ -653,7 +690,7 @@ def fig_menu_fam(out):
             ax.bar(i - 0.2, best, 0.38, color=col, alpha=0.45, zorder=2); ax.bar(i + 0.2, en["genomic"], 0.38, color=col, zorder=2)
             rows.append(dict(res=f, best_single=float(best), ensemble=float(en["genomic"]), ood=float(en["ood"])))
         ax.set_xticks(range(len(rows))); ax.set_xticklabels([r["res"].replace("_", "\n") for r in rows], fontsize=7.5)
-        ax.set_ylabel("genomic-eval test r"); ax.set_title("Pale: best single model. Solid: ensemble of the menu")
+        ax.set_ylabel("genomic-eval test r"); ax.set_title("Pale: best single. Solid: menu ensemble", fontsize=9.5)
         lo = min(min(r["best_single"], r["ensemble"]) for r in rows); ax.set_ylim(max(0, lo - 0.05), max(r["ensemble"] for r in rows) + 0.02)
         DATA["menu_fam"]["rows"] = rows
     else:
@@ -670,11 +707,11 @@ def fig_menu_300k(out):
     _, _, e1 = load_menu([str(base / "g100k"), str(base / "g100k_seeds12")])
     _, _, e30 = load_menu([str(base / "g30k"), str(base / "g30k_seeds12")])
     n3 = len(e3)
-    DATA["menu300"] = dict(done=n3, n_menu=len(e1))
+    DATA["menu300"] = dict(done=n3, n_menu=len(e1), retest=retest(e3))
     fig, axes = plt.subplots(1, 3, figsize=(12.0, 4.0))
     ax = axes[0]
     ax.barh(0, n3, color=BLUE, height=0.5, zorder=2); ax.set_xlim(0, max(len(e1), 1) * 1.2); ax.set_yticks([])
-    ax.text(n3 + 0.4, 0, f"{n3} / {len(e1)}", va="center"); ax.set_xlabel("menu architectures retrained at 300k"); ax.set_title("300k retraining: progress")
+    ax.text(n3 + 0.4, 0, f"{n3} / {len(e1)}", va="center"); ax.set_xlabel("menu architectures retrained at 300k"); ax.set_ylim(-1.5, 1.5); ax.set_title("300k retraining: progress")
     both = sorted(set(e3) & set(e1))
     if len(both) >= 8:
         t3 = np.array([np.mean([r["test"] for r in e3[c]]) for c in both]); t1 = np.array([np.mean([r["test"] for r in e1[c]]) for c in both])
@@ -690,6 +727,11 @@ def fig_menu_300k(out):
         r100 = sorted(both, key=lambda c: -np.mean([r["test"] for r in e1[c]]))
         ax.scatter([r100.index(c) + 1 for c in order], [order.index(c) + 1 for c in order], s=22, color=TEAL)
         ax.plot([1, len(both)], [1, len(both)], color=GREY, lw=1); ax.set_xlabel("rank at 100k"); ax.set_ylabel("rank at 300k"); ax.set_title("Rank change")
+        yv3, yt3, _e = load_menu([str(base / "g300k")])
+        keys3 = sorted(e3)
+        V3 = np.column_stack([np.mean([r["vp"] for r in e3[c]], 0) for c in keys3])
+        T3 = {e: np.column_stack([np.mean([r["tp"][e] for r in e3[c]], 0) for c in keys3]) for e in EV}
+        DATA["menu300"]["ensemble"] = {k: float(v) for k, v in enet(V3, yv3, T3, yt3, range(V3.shape[1]))[0].items()}
         DATA["menu300"].update(spearman_test_100k_300k=float(spearmanr(t1, t3)[0]), spearman_val_100k_300k=float(spearmanr(v1, v3)[0]),
                                spearman_test_30k_300k=float(spearmanr(t30, t3b)[0]) if len(c30) >= 8 else None,
                                top5_overlap=len(set(sorted(both, key=lambda c: -np.mean([r["test"] for r in e3[c]]))[:5]) & set(sorted(both, key=lambda c: -np.mean([r["test"] for r in e1[c]]))[:5])))
@@ -698,6 +740,74 @@ def fig_menu_300k(out):
             ax.axis("off"); ax.text(0.5, 0.5, "running: scatter appears once 8 architectures\nhave finished at 300k", ha="center", va="center", transform=ax.transAxes, color=MUTED)
     fig.tight_layout()
     save(fig, "menu_300k.png", out)
+
+
+def fig_menu_scaling(out):
+    """Ensemble of the retrained menu vs dataset size, per reservoir, in the corrected loop."""
+    base = R / "outputs/menu_retrain_v0"
+    fams = [("genomic", BLUE), ("random", ORANGE), ("motif_ct_enriched", TEAL), ("evo2", PURPLE), ("evoaug_paper2023", GREY)]
+    spec = {"genomic": {10: ["g10k", "g10k_seeds12"], 30: ["g30k", "g30k_seeds12"], 100: ["g100k", "g100k_seeds12"], 300: ["g300k"]}}
+    for f, _ in fams[1:]:
+        spec[f] = {10: [f"f10k_{f}"], 30: [f"f30k_{f}", f"f30k_{f}_seeds12"], 100: [f"f100k_{f}"]}
+    res = {}
+    for f, _ in fams:
+        for D, dirs in spec[f].items():
+            yv, yt, ent = load_menu([str(base / d) for d in dirs])
+            if len(ent) < 25:
+                continue
+            keys = sorted(ent)
+            V = np.column_stack([np.mean([r["vp"] for r in ent[c]], 0) for c in keys])
+            T = {e: np.column_stack([np.mean([r["tp"][e] for r in ent[c]], 0) for c in keys]) for e in EV}
+            en = enet(V, yv, T, yt, range(V.shape[1]))[0]
+            res.setdefault(f, {})[D] = {e: float(v) for e, v in en.items()}
+            res[f][D]["n_entries"] = len(ent)
+            res[f][D]["seeds"] = int(round(np.mean([len(v) for v in ent.values()])))
+    DATA["menu_scaling"] = {f: {str(D): v for D, v in dd.items()} for f, dd in res.items()}
+    fig, axes = plt.subplots(1, 2, figsize=(10.4, 4.1))
+    for ax, ev, ttl in ((axes[0], "genomic", "Genomic held-out sequences"), (axes[1], "ood", "Out-of-distribution sequences")):
+        for f, col in fams:
+            if f in res:
+                xs = sorted(res[f])
+                ax.plot(xs, [res[f][x][ev] for x in xs], "-o", color=col, lw=1.8, ms=4, label=f.replace("_", " "))
+        ax.set_xscale("log")
+        ax.set_xticks([10, 30, 100, 300])
+        ax.set_xticklabels(["10k", "30k", "100k", "300k"])
+        ax.minorticks_off()
+        ax.set_xlabel("training sequences (D)")
+        ax.set_ylabel("ensemble test r of the retrained menu")
+        ax.set_title(ttl)
+    axes[0].legend(fontsize=7.5, loc="lower right")
+    fig.tight_layout()
+    save(fig, "menu_scaling.png", out)
+
+
+def fig_saturation100(out):
+    """Does one AutoResearch instance saturate as fast at 100k as at 30k? (rounds-per-D schedule)"""
+    ns = [6, 10, 14, 18, 22, 26, 30]
+    c100 = []
+    for a in ("none", "T", "J", "X"):
+        for r in (1, 2, 3, 4):
+            c = load_cell(R / f"outputs/ctx100_oct20/{a}/rep{r}")
+            if c is not None and c["V"].shape[1] >= 30:
+                c100.append(c)
+    c30 = [load_cell(R / f"outputs/archsearch_final_oct20/son55_wide/rep{r}") for r in (1, 2, 3)]
+    c30 = [c for c in c30 if c is not None and c["V"].shape[1] >= 30]
+    if not c100 or not c30:
+        return
+    cur = lambda cells: np.array([[enet(c["V"], c["yv"], c["T"], c["yt"], range(n))[0]["genomic"] for n in ns] for c in cells])  # noqa: E731
+    a100, a30 = cur(c100), cur(c30)
+    fig, ax = plt.subplots(figsize=(6.4, 4.0))
+    for arr, col, lab in ((a100, BLUE, f"100k ({len(c100)} instances, all context arms)"), (a30, ORANGE, f"30k ({len(c30)} instances)")):
+        gain = arr - arr[:, [0]]
+        ax.plot(ns, gain.mean(0), "-o", color=col, lw=2, label=lab)
+        ax.fill_between(ns, gain.min(0), gain.max(0), color=col, alpha=0.15)
+    ax.set_xlabel("models trained in one AutoResearch instance")
+    ax.set_ylabel(f"ensemble r minus its value at n = {ns[0]}")
+    ax.legend(fontsize=8)
+    ax.set_title("Saturation of one instance, 100k vs 30k")
+    DATA["saturation100"] = dict(n=ns, mean100=[float(x) for x in a100.mean(0)], mean30=[float(x) for x in a30.mean(0)], n100=len(c100), n30=len(c30))
+    fig.tight_layout()
+    save(fig, "saturation_100k.png", out)
 
 
 def fig_budget(out):
@@ -754,7 +864,7 @@ def main():
     steps = [("loop", fig_loop), ("menu", fig_menu), ("instances", fig_instances),
              ("prompt", lambda o: arm_figure(ARMS, "Prompt structure (Sonnet 5.5, genomic 30k, 30 rounds x 2)", "prompt_arms.png", "prompt_arms", o)),
              ("proposer", lambda o: arm_figure(PROP, "Proposer model (build-on-what-works prompt, genomic 30k)", "proposer_models.png", "proposer", o)),
-             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("family", fig_family), ("menufam", fig_menu_fam), ("menu300", fig_menu_300k), ("budget", fig_budget)]
+             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("menufam", fig_menu_fam), ("family", fig_family), ("menu300", fig_menu_300k), ("scaling", fig_menu_scaling), ("sat100", fig_saturation100), ("budget", fig_budget)]
     for name, fn in steps:
         if a.only and name not in a.only.split(","):
             continue
