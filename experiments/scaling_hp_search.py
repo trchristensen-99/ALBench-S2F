@@ -49,7 +49,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 def _atomic_savez(path: Path, **arrays) -> None:
     """np.savez to a tmp .npz then atomic-replace (see _atomic_write_text)."""
-    tmp = path.with_name(path.stem + ".tmp.npz")
+    tmp = path.with_name(f"{path.stem}.tmp{os.getpid()}.npz")  # per-process name: parallel shards writing identical labels no longer collide
     np.savez(tmp, **arrays)
     os.replace(tmp, path)
 

@@ -487,6 +487,10 @@ def main():
                 print("    train-fail: exploded predictions (|pred|>1e3)", flush=True); continue
             for k, Xk in Xsets.items():
                 res[f"test_pred_{k}"] = predict_rc(model, Xk)
+            _bad = [k for k, v in res.items() if (not np.isfinite(v).all()) or float(np.abs(v).max()) > 1e3]
+            if _bad:  # ~0.8% of models validate normally but explode on a shifted eval set; such a model poisons any ensemble that includes it
+                history.append({"idea": p["idea"], "ok": False, "reason": f"exploded predictions on {_bad[0]} (|pred|>1e3)"})
+                print(f"    train-fail: exploded predictions on {_bad[0]} (|pred|>1e3)", flush=True); continue
             r = pear(res["test_pred"], te_oracle); vr = pear(res["val_pred"], yva)
             mid = f"r{rd:02d}_arch_{midx:02d}"
             meta = {"model_id": mid, "strategy": "arch_search", "round": rd, "idea": p["idea"],

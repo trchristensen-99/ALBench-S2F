@@ -749,6 +749,7 @@ def fig_menu_scaling(out):
     spec = {"genomic": {10: ["g10k", "g10k_seeds12"], 30: ["g30k", "g30k_seeds12"], 100: ["g100k", "g100k_seeds12"], 300: ["g300k"]}}
     for f, _ in fams[1:]:
         spec[f] = {10: [f"f10k_{f}"], 30: [f"f30k_{f}", f"f30k_{f}_seeds12"], 100: [f"f100k_{f}"]}
+    spec["random"][300] = ["f300k_random"]
     res = {}
     for f, _ in fams:
         for D, dirs in spec[f].items():
@@ -779,6 +780,56 @@ def fig_menu_scaling(out):
     axes[0].legend(fontsize=7.5, loc="lower right")
     fig.tight_layout()
     save(fig, "menu_scaling.png", out)
+
+
+def fig_family100(out):
+    """Per-reservoir AutoResearch at 100k (20 models per run) against the retrained menu at 100k."""
+    fams = [("genomic", BLUE), ("random", ORANGE), ("motif_ct_enriched", TEAL), ("evo2", PURPLE), ("evoaug_paper2023", GREY)]
+    NM = 20
+
+    def trunc(c):
+        return dict(V=c["V"][:, :NM], T={e: c["T"][e][:, :NM] for e in c["T"]}, yv=c["yv"], yt=c["yt"], val=c["val"][:NM])
+    fens, prog = {}, {}
+    ms = DATA.get("menu_scaling", {})
+    for f, col in fams:
+        if f == "genomic":
+            dirs = [R / f"outputs/ctx100_oct20/none/rep{r}" for r in (1, 2, 3)]
+        else:
+            dirs = [R / f"outputs/archsearch_family100k_oct21/{f}/rep{r}" for r in (1, 2, 3)]
+        cells = []
+        for d in dirs:
+            prog[f"{f}|{d.name}"] = len(glob.glob(str(d / "r*_meta.json")))
+            c = load_cell(d)
+            if c is not None and c["V"].shape[1] >= NM:
+                cells.append(trunc(c))
+        if len(cells) >= 2:
+            Vs, Ts = [], {e: [] for e in EV}
+            for c in cells:
+                idx = np.argsort(-c["val"])[:8]
+                Vs.append(c["V"][:, idx])
+                for e in EV:
+                    Ts[e].append(c["T"][e][:, idx])
+            V, T = np.column_stack(Vs), {e: np.column_stack(Ts[e]) for e in EV}
+            en = enet(V, cells[0]["yv"], T, cells[0]["yt"], range(V.shape[1]))[0]
+            fens[f] = dict(ar_top8=float(en["genomic"]), ar_top8_ood=float(en["ood"]), n_instances=len(cells),
+                           menu=ms.get(f, {}).get("100", {}).get("genomic"), menu_ood=ms.get(f, {}).get("100", {}).get("ood"))
+    DATA["family100"] = dict(progress=prog, ens=fens)
+    fig, axes = plt.subplots(1, 2, figsize=(10.4, 3.9))
+    for ax, key, mkey, ttl in ((axes[0], "ar_top8", "menu", "Genomic held-out sequences"), (axes[1], "ar_top8_ood", "menu_ood", "Out-of-distribution sequences")):
+        for fi, (f, col) in enumerate(fams):
+            if f in fens:
+                ax.bar(fi - 0.2, fens[f][key], 0.38, color=col, zorder=2)
+                if fens[f].get(mkey) is not None:
+                    ax.bar(fi + 0.2, fens[f][mkey], 0.38, color=col, alpha=0.35, zorder=2)
+        ax.set_xticks(range(5))
+        ax.set_xticklabels([f.replace("_", "\n") for f, _ in fams], fontsize=7.5)
+        ax.set_title(ttl + "\nDark: top 8 of 3 runs. Pale: retrained menu", fontsize=9.5)
+        ax.set_ylabel("ensemble test r at 100k")
+    if fens:
+        lo = min(min(v["ar_top8"], v.get("menu") or 1) for v in fens.values())
+        axes[0].set_ylim(max(0, lo - 0.05), max(max(v["ar_top8"], v.get("menu") or 0) for v in fens.values()) + 0.02)
+    fig.tight_layout()
+    save(fig, "families_100k.png", out)
 
 
 def fig_saturation100(out):
@@ -864,7 +915,7 @@ def main():
     steps = [("loop", fig_loop), ("menu", fig_menu), ("instances", fig_instances),
              ("prompt", lambda o: arm_figure(ARMS, "Prompt structure (Sonnet 5.5, genomic 30k, 30 rounds x 2)", "prompt_arms.png", "prompt_arms", o)),
              ("proposer", lambda o: arm_figure(PROP, "Proposer model (build-on-what-works prompt, genomic 30k)", "proposer_models.png", "proposer", o)),
-             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("menufam", fig_menu_fam), ("family", fig_family), ("menu300", fig_menu_300k), ("scaling", fig_menu_scaling), ("sat100", fig_saturation100), ("budget", fig_budget)]
+             ("llm", fig_llm_vs_classical), ("kb", fig_kb_replicates), ("context", fig_context), ("menufam", fig_menu_fam), ("family", fig_family), ("menu300", fig_menu_300k), ("scaling", fig_menu_scaling), ("fam100", fig_family100), ("sat100", fig_saturation100), ("budget", fig_budget)]
     for name, fn in steps:
         if a.only and name not in a.only.split(","):
             continue
