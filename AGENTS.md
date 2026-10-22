@@ -78,6 +78,11 @@ value — that was the old design and it is what made the codebase hard to exten
   never read, a transition/transversion knob that produced half the ratio it was set
   to. All of them ran fine and produced plausible output. When you change a sampler,
   measure the property you changed.
+- **Pools are nested.** Use `outputs/grid_pools/k562_nested/{strategy}_d{D}.npz` (canonical, seed 42) or
+  `outputs/grid_pools/k562_reps/{strategy}_r{1,2,3}_d{D}.npz` (independent labelled draws, one per independent run; build with
+  `scripts/slice_replicate_pools.py`). Every size inside a pool is a prefix of the next, so a size comparison varies only the
+  amount of data. `k562_cumulative/` is legacy: its sizes are separate draws (and for genomic the sizes differ in label
+  distribution), so it only reproduces old results; set `HP_REQUIRE_NESTED=1` to make the loader refuse it.
 - **Chromosome holdouts are real.** chr7/chr13 are test, chr19/21/X are validation.
   Any strategy that touches genomic sequence must exclude them. Check this.
 - **Reservoirs are generated at 1M+ scale.** A per-sequence Python loop that is fine

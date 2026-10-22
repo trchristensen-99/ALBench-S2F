@@ -149,6 +149,12 @@ def load_chr_train_pool(
         cache_path = Path(reservoir_cache)
         z = np.load(cache_path, allow_pickle=True)
         fname = cache_path.name
+        if "k562_cumulative" in str(cache_path):
+            _why = ("legacy per-size pool: sizes are independent draws, NOT prefixes of one another (genomic sizes also differ in label "
+                    "distribution). Use outputs/grid_pools/k562_nested (canonical) or k562_reps (independent replicates).")
+            if os.environ.get("HP_REQUIRE_NESTED") == "1":
+                raise RuntimeError(f"{fname}: {_why}")
+            print(f"  WARNING {fname}: {_why}", flush=True)
         # Contamination guard: refuse any reservoir cache not stamped with the
         # canonical oracle. Re-score with scripts/rescore_reservoir_cache.py.
         # Override only for deliberate ad-hoc runs via HP_ALLOW_UNSTAMPED=1.
