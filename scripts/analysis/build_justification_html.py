@@ -173,6 +173,100 @@ def oct22_cards(d: dict) -> list[dict]:
     return out
 
 
+def oct23_cards(d: dict) -> list[dict]:
+    o = d.get("oct22", {})
+    out = []
+    G = "Results from the Oct 22 program"
+    # ------------------------------------------------------------ top-k per run and runs from several reservoirs
+    R2 = o.get("runs2")
+    if R2:
+        tk, mx, five = R2["topk"], R2["mixed"], R2.get("five", {})
+        pts = []
+        for src in ("genomic", "random", "motif"):
+            c = tk[src]
+            n = len(c["3"])
+            pts.append(f"{src} 30k, ensemble r on genomic test at 1 / 5 / {n} runs: top 1 per run " + " / ".join(f"{c['1'][i][0]:.3f}" for i in (0, 4, n - 1)) + "; top 3 " + " / ".join(f"{c['3'][i][0]:.3f}" for i in (0, 4, n - 1)) +
+                       "; all 20 " + " / ".join(f"{c['20'][i][0]:.3f}" for i in (0, 4, n - 1)) + ".")
+        n15 = {src: tk[src]["3"][14] for src in tk}
+        pts.append("Runs drawn evenly from genomic, random and motif reservoirs (top 3 each), at 3 / 9 / 15 / 45 total runs: genomic test " + " / ".join(f"{mx[t][0]:.3f}" for t in ("3", "9", "15", "45")) + "; designed set " + " / ".join(f"{mx[t][1]:.3f}" for t in ("3", "9", "15", "45")) +
+                   "; random sequences " + " / ".join(f"{mx[t][2]:.3f}" for t in ("3", "9", "15", "45")) + ".")
+        pts.append("The same 15 runs from a single reservoir (genomic test / designed / random): " + "; ".join(f"{s_} {n15[s_][0]:.3f} / {n15[s_][1]:.3f} / {n15[s_][2]:.3f}" for s_ in n15) + f". So the mixed ensemble at 15 runs is {mx['15'][0] - n15['genomic'][0]:+.3f} above genomic-only on genomic test and {mx['15'][1] - n15['genomic'][1]:+.3f} on the designed set, and {mx['15'][0] - n15['motif'][0]:+.3f} against motif-only (genomic test), {mx['15'][1] - n15['random'][1]:+.3f} against random-only (designed), {mx['15'][2] - n15['random'][2]:+.3f} against random-only (random sequences).")
+        if five:
+            pts.append("The planned structure, 1 / 2 / 3 runs from each of five reservoirs (genomic, random, motif, evo2, evoaug; 5 / 10 / 15 runs): genomic test " + " / ".join(f"{five[t][0]:.3f}" for t in ("5", "10", "15")) + "; designed " + " / ".join(f"{five[t][1]:.3f}" for t in ("5", "10", "15")) + "; random " + " / ".join(f"{five[t][2]:.3f}" for t in ("5", "10", "15")) + ".")
+        out.append(dict(id="runcount2", group=G, status="provisional", figs=["runcount_topk.png", "runcount_mixed_sources.png"],
+                        q="How many models should we keep from each run, and does it matter which reservoirs the runs come from?",
+                        choice="Keep the top 3 models of each run: 5, 8 or all 20 add nothing once a few runs are pooled, and keeping only the best costs about 0.015 to 0.019 with one run and 0.001 to 0.003 with five. Runs drawn from several reservoirs give a hedged ensemble: above genomic-only runs on the genomic and designed sets, below the best single reservoir on each set.",
+                        points=pts,
+                        caveat="Models from different reservoirs were trained on different pools, so mixing here is at the level of models, not of training corpora. Subsets of the 15 runs per reservoir overlap, so the curves are smooth but not independent; the 5-reservoir structure has only three runs per reservoir.",
+                        change="If the final ensemble is scored on one target (say genomic held-out sequences) the best single reservoir for that target still beats the mixture; the mixture is the choice when several targets matter."))
+    # ------------------------------------------------------------ why random wins the designed set
+    W = o.get("oodwhy")
+    U = o.get("unseen", {}).get("results", {})
+    if W:
+        dz, st = W["designed"], W.get("student", {})
+        pts = [f"Composition: the designed sequences have GC {dz['gc'][0]:.3f} and CpG {dz['cpg'][0]:.3f} per dinucleotide. Random pool: GC {W['random']['gc'][0]:.3f}, CpG {W['random']['cpg'][0]:.3f}; GC-matched random: {W['gc_matched']['gc'][0]:.3f}, {W['gc_matched']['cpg'][0]:.3f}; motif pool: {W['motif']['gc'][0]:.3f}, {W['motif']['cpg'][0]:.3f}; genomic: {W['genomic']['gc'][0]:.3f}, {W['genomic']['cpg'][0]:.3f} (genomic sequence is CpG-depleted).",
+               "Coverage: the fraction of designed sequences whose (GC, CpG) cell holds at least 10 pool sequences is " + ", ".join(f"{k} {W[k]['designed_gc_cpg_support']:.2f}" for k in ("random", "gc_matched", "motif", "genomic", "evoaug")) + ".",
+               f"Activity tails do not explain it: the fraction of pool labels above 3 is " + ", ".join(f"{k} {W[k]['frac_label_above']['3.0']:.3f}" for k in ("genomic", "random", "motif")) + f", against a designed-set mean of {dz['label_mean']:.1f} (5th to 95th percentile {dz['label_q'][0]:.1f} to {dz['label_q'][4]:.1f}). Random has no more high-activity sequences than genomic; the designed set is far beyond every pool.",
+               "Students (three independent pools pooled), r on all designed sequences / top quartile only: " + "; ".join(f"trained on {k} {v['r']:.3f} / {v['r_top_quartile']:.3f}" for k, v in st.items()) + ". Every student underpredicts the designed set (mean prediction " + ", ".join(f"{v['mean_pred']:.1f}" for v in st.values()) + f" against {dz['label_mean']:.1f}), so the difference is in ranking among designed sequences, not in reaching the right level."]
+        if U:
+            g = lambda k: U.get(f"{k}|30000", {}).get("menu", {}).get("ood")
+            if all(g(k) is not None for k in ("genomic", "gc_matched", "random", "dinuc_shuffle", "motif_shared_core")):
+                pts.append(f"Controls at 30k (designed-set r of the menu ensemble): genomic {g('genomic'):.3f}; GC-matched random, which carries the CpG-rich composition but no genomic structure, {g('gc_matched'):.3f}; dinucleotide shuffles of genomic sequence, which keep genomic CpG depletion, {g('dinuc_shuffle'):.3f}; uniform random {g('random'):.3f}; planted-motif pool (shared core) {g('motif_shared_core'):.3f}. "
+                           f"Matching composition alone recovers {g('gc_matched') - g('genomic'):+.3f} of random's {g('random') - g('genomic'):+.3f}; pools with planted transcription-factor motifs reach as high as random.")
+        out.append(dict(id="oodwhy", group=G, status="provisional", figs=["ood_why_random.png"],
+                        q="Why does a random-trained student do so well on the designed (high-activity) set?",
+                        choice="The designed sequences look compositionally like random DNA (GC about 0.5, CpG-rich), and pools with planted transcription-factor motifs do as well as random on them, so students trained on random or motif-planted data rank them better; it is not because random data reaches higher activities.",
+                        points=pts,
+                        caveat="Correlational: composition, motif content and coverage move together across pools, and only the GC-matched and dinucleotide-shuffle controls separate them partly. The designed set was itself optimised against a model, and the oracle's response to GC and CpG is stronger than the experimental response (Inoue and Sahu comparisons), so part of random's advantage may be distilling the oracle's own composition effects. Composition statistics use the 22,862-sequence version of the designed set.",
+                        change="A CpG-enriched, dinucleotide-preserving genomic control (mono-nucleotide shuffles) that reached random's designed-set r would put the whole effect on composition; measured designed sequences with real MPRA labels would separate oracle artefact from biology."))
+    # ------------------------------------------------------------ extrapolation
+    X = o.get("extrap")
+    if X:
+        pts = []
+        for res_, row in X.items():
+            e, od = row["genomic"], row["ood"]
+            p1, p4 = e["pred"]["1000000"], e["pred"]["4000000"]
+            q1, q4 = od["pred"]["1000000"], od["pred"]["4000000"]
+            pts.append(f"{res_.replace('_', ' ')} (fit to {e['sizes'][0] // 1000}k to {e['sizes'][-1] // 1000}k, exponent {e['exponent']:.2f}): genomic test {e['r'][-1]:.3f} at {e['sizes'][-1] // 1000}k, {p1[0]:.3f} [{p1[1]:.3f}, {p1[2]:.3f}] at 1M, {p4[0]:.3f} [{p4[1]:.3f}, {p4[2]:.3f}] at 4M; designed set {q1[0]:.3f} at 1M, {q4[0]:.3f} [{q4[1]:.3f}, {q4[2]:.3f}] at 4M.")
+        g = X["genomic"]["genomic"]
+        e3 = g["r"]
+        loc = np_ln = None
+        import math
+        b_loc = math.log((1 - e3[-2]) / (1 - e3[-1])) / math.log(g["sizes"][-1] / g["sizes"][-2])
+        pts.append(f"The exponent is not constant: for genomic, the local exponent between {g['sizes'][-2] // 1000}k and {g['sizes'][-1] // 1000}k is {b_loc:.2f} against {g['exponent']:.2f} for the fit to all sizes, so the straight-line extrapolation may be a little optimistic. Adding an error floor of 0.01 or 0.03 lowers the 4M prediction for genomic test by " + " and ".join(f"{g['pred']['4000000'][0] - v[1]:.3f}" for v in g["floor_sensitivity"].values()) + ".")
+        pts.append("Genomic sequence cannot reach 1M (about 315k exist), so its curve is a hypothetical for sequences like it; random and the motif reservoirs can be scaled.")
+        out.append(dict(id="extrap", group=G, status="open", figs=["extrapolation.png"],
+                        q="What do the scaling fits predict at 1M and 4M training sequences?",
+                        choice="Treat these as a range, not a forecast: on the genomic test set most reservoirs sit between 0.86 and 0.91 at 1M and between 0.89 and 0.94 at 4M; the designed set stays far lower (0.54 to 0.74 at 1M).",
+                        points=pts,
+                        caveat="Straight-line fits in log-log space to three or four sizes. The intervals only carry measurement noise of 0.004 per point, not uncertainty about the functional form, which is larger; fits to 10k to 100k only (motif, evo2, evoaug) extrapolate over a factor of 40 to 400.",
+                        change="One measured 1M point for the finalists would cut the extrapolation uncertainty more than any further point below 300k."))
+    # ------------------------------------------------------------ reference LegNet
+    L = o.get("legref_summary")
+    if L:
+        pts = []
+        for k, v in L.items():
+            pts.append(f"{k}k ({v['n_pools']} pools, {v['mean_n']:.0f} entries): the tuned LegNet's mean rank is {v['mean_rank']:.1f}; it is {v['ref_minus_median']:+.3f} against the median entry, the mean of the top 5 entries is {v['top5_minus_ref']:+.3f} above it and the best entry {v['best_minus_ref']:+.3f} above it; it lands in the top quarter on {v['frac_ref_top_quartile']:.0%} of pools.")
+        pts.append("For scale: the best of 32 equally good models, each with a retraining SD of about 0.009, is about +0.018 above the typical model, which is the size of the best-minus-reference gap at 30k, so the best entry's lead is what picking a maximum from noisy entries gives.")
+        out.append(dict(id="legref", group=G, status="supported", figs=["legnet_reference.png"],
+                        q="Is a free-form searched architecture better than a well-tuned LegNet?",
+                        choice="No, not on average: from 30k up the tuned LegNet sits at the median of the searched entries; at 10k it is above the median. The searched models matter as a diverse ensemble, not as better individual models.",
+                        points=pts,
+                        caveat="One retraining per entry on most pools, so single-model ranks are noisy (retest ceilings 0.5 to 0.7); the reference is one configuration of LegNet, tuned earlier on genomic data. Genomic test set; the same ranks on the designed and random sets are in data.json.",
+                        change="A tuned LegNet that was beaten by the median searched entry on pools from other reservoirs would change this."))
+    # ------------------------------------------------------------ new experiments
+    out.append(dict(id="program2", group="Experiments launched Oct 22", status="running", figs=[],
+                    q="What was launched on Oct 23 after the first review?",
+                    choice="Searches on mixed corpora, prompt styles, a precision check, and three workstreams that are still being built.",
+                    points=["Architecture and recipe search ON mixed pools: 15 runs on corpora of 10k genomic + 10k random + 10k motif sequences (independent pool per run), then the top 3 per run retrained on genomic, random, motif and mixed pools against the genomic-only, random-only, mixed-run and 5-reservoir sources.",
+                            "Prompt styles in the free-architecture loop, 9 runs each on genomic 30k pools r1 to r9, paired with the 9 default-prompt runs on the same pools: explore, reflect (the proposer writes a short reflection that is fed back) and explore+reflect.",
+                            "Precision check: the 33-architecture menu retrained on genomic r1 30k under bf16, fp16 and tf32 against the fp32 baseline. Precision is set by the harness for every model alike, so no proposal can choose its own speed-up.",
+                            "Being built by separate workstreams: a multi-agent search loop (proposer, coder, evaluator, reflector), validation-set variants (perturbed genomic, a diverse family mix, similarity-filtered) with a retraining test of their effect, and a HepG2 oracle with the same protocol as the K562 oracle for the differential objective."],
+                    caveat="Search runs share the account's 5-hour usage limit and pause and resume on their own after each reset.",
+                    change="A prompt style or a mixed-pool search that beats the default by more than the 0.005 noise margin on pooled runs would change the search recipe."))
+    return out
+
+
 def build(d: dict) -> list[dict]:
     L, M, I, T = d.get("loop", {}), d.get("menu", {}), d.get("instances", {}), d.get("topk", {})
     cad, kb, rep = d.get("cadence", {}), d.get("kb", {}), d.get("replicates", [])
@@ -378,7 +472,7 @@ def build(d: dict) -> list[dict]:
                      "The limit was hit at 20:10 on Oct 20 (HPC 3.0M plus laptop 1.7M raw tokens in the window). Remaining programme is roughly 2,100 calls."],
              caveat="Cap is weighted and unpublished; numbers are raw token counts and do not include cache reads."),
     ]
-    return oct22_cards(d) + cards
+    return oct22_cards(d) + oct23_cards(d) + cards
 
 
 CSS = """
@@ -500,10 +594,20 @@ def _o22_overrides(d: dict):
             test="Count-controlled model-level mixing (done); 21 mixed corpora at 30k with single-reservoir controls (done).", status="provisional",
             ev=f"Best mixture minus best single reservoir at 30k: {diffs[0]:+.3f} genomic test, {diffs[1]:+.3f} designed, {diffs[2]:+.3f} random (noise margin 0.005); an ensemble over several mixtures gains mainly from having more models.", card="mixsweep")
         oc["Reservoirs feeding the final ensemble"] = dict(ev=f"Genomic plus motif captured most of the model-level gain; the 21-corpus sweep found no mixture above the best single reservoir by more than {max(diffs):+.3f} on any set (best mixture minus best single: genomic {diffs[0]:+.3f}, designed {diffs[1]:+.3f}, random {diffs[2]:+.3f}).")
+    X = o.get("extrap")
+    if X and "genomic" in X:
+        g = X["genomic"]["genomic"]
+        ov.setdefault("Conclusions at 10k to 300k carry to the 3.2M library.", {}).update(a="Conclusions at 10k to 300k carry to the 4M-sequence libraries.",
+            ev=f"Power-law fits of the menu ensembles predict genomic-test r of {g['pred']['1000000'][0]:.3f} at 1M and {g['pred']['4000000'][0]:.3f} at 4M for the genomic reservoir (intervals carry only measurement noise); designed-set r stays far lower. The local exponent is falling, so the fits may be optimistic.", card="extrap")
+    L = o.get("legref_summary")
+    if L:
+        ov["A free-form architecture search adds diversity to the pool, not a better single architecture."] = dict(
+            test="Free-form vs tuned LegNet in the same loop (genomic 30k); the tuned LegNet as an entry of the retrained menu on every pool (done).", status="supported",
+            ev="Across " + str(sum(v["n_pools"] for v in L.values())) + " retrained pools the tuned LegNet is at the median of the searched entries from 30k up (mean rank " + ", ".join(f"{v['mean_rank']:.0f} of {v['mean_n']:.0f} at {k}k" for k, v in L.items()) + "); the best entry's lead is what the maximum of 32 noisy entries gives.", card="legref")
     ov["Oracle labels are a faithful stand-in for the experiment."] = dict(
         test="Earlier out-of-fold oracle-vs-experiment analysis; per-fold test Pearson of the current oracle (verified Oct 22).", status="carried",
         ev="Current oracle (oracle_v3, 10 chromosome-held-out folds): test Pearson 0.931 on average (SD 0.005). An earlier out-of-fold analysis of the previous oracle gave 0.95 on genomic sequences, 0.84 on the designed set and 0.39 on SNV effects; those three are not recomputed for the current oracle.")
-    ov["Conclusions at 10k to 300k carry to the 3.2M library."] = dict(a="Conclusions at 10k to 300k carry to the 4M-sequence libraries.")
+    ov.setdefault("Conclusions at 10k to 300k carry to the 3.2M library.", {})["a"] = "Conclusions at 10k to 300k carry to the 4M-sequence libraries."
     return ov, oc
 
 

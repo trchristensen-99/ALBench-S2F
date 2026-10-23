@@ -17,8 +17,9 @@ CONDS = {  # name -> run dirs
     "MG": [f"{O22}/genomic_30k/rep{r}" for r in range(1, 16)],                 # genomic only, 15 runs on 15 independent pools
     "MR": [f"{O22}/random_30k/rep{r}" for r in range(1, 16)],                  # random only, 15 runs
     "MGR": [f"{O22}/genomic_30k/rep{r}" for r in range(1, 9)] + [f"{O22}/random_30k/rep{r}" for r in range(1, 8)],   # mixed search: 8 genomic + 7 random
+    "MX": [f"{O22}/GRM_30k/rep{r}" for r in range(1, 16)],                     # searches run ON the mixed GRM corpus (10k genomic + 10k random + 10k motif), 15 runs on 15 independent pools
 }
-TARGETS = {"genomic": f"{REPS}/genomic_r1_d30000.npz", "random": f"{REPS}/random_r1_d30000.npz", "motif": f"{REPS}/motif_ct_enriched_r1_d30000.npz"}
+TARGETS = {"genomic": f"{REPS}/genomic_r1_d30000.npz", "random": f"{REPS}/random_r1_d30000.npz", "motif": f"{REPS}/motif_ct_enriched_r1_d30000.npz", "grm": f"{REPS}/GRM_r1_d30000.npz"}
 reg = json.load(open("scratchpad/dispatch_registry.json")); have = {c["name"] for c in reg}
 new = []
 os.makedirs("outputs/menus_oct22", exist_ok=True)
