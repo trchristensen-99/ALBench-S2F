@@ -3,7 +3,7 @@ import glob, json, os, re
 R = "/grid/wsbs/home_norepl/christen/ALBench-S2F"; os.chdir(R)
 rows = [l.split() for l in open("outputs/dispatch/status.txt") if l.startswith("  ") and len(l.split()) >= 3]
 groups = [("genomic 30k search runs", "g30_"), ("random 30k search runs", "rnd30_"), ("unseen-reservoir search runs", "u_"), ("motif 30k search runs", "mot30_"), ("genomic 10k search runs", "g10_"),
-          ("genomic 100k search runs", "g100x_"), ("mixture-corpus retrains", "mix_"), ("unseen-reservoir menu retrains", "un30_"), ("architecture-source retrains", "as_")]
+          ("genomic 100k search runs", "g100x_"), ("mixture-corpus retrains", "mix_"), ("unseen-reservoir menu retrains", "un30_"), ("architecture-source retrains", "as_"), ("unseen 10k search runs", "u10_"), ("unseen 100k search runs", "u100_"), ("unseen 10k menu retrains", "un10_"), ("unseen 100k menu retrains", "un100_")]
 out = {}
 for lab, pre in groups:
     r = [x for x in rows if x[0].startswith(pre)]
