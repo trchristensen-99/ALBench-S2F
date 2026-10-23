@@ -304,7 +304,7 @@ def an_unseen(out, n_boot=200, seed=2):
     DATA["unseen"] = dict(results={k: {a: b for a, b in v.items() if not a.startswith("_")} for k, v in res.items()}, dod=dod)
     # figure: for each size, own-search minus menu for each reservoir (genomic eval), with bootstrap bars
     sizes = [D for D in (10000, 30000, 100000) if any(k.endswith(f"|{D}") for k in res)]
-    fig, axs = plt.subplots(1, len(sizes), figsize=(4.4 * len(sizes), 3.8), sharey=False)
+    fig, axs = plt.subplots(1, len(sizes), figsize=(5.6 * len(sizes), 4.0), sharey=False, gridspec_kw=dict(wspace=0.75))
     axs = np.atleast_1d(axs)
     for ax, D in zip(axs, sizes):
         names = [k.split("|")[0] for k in res if k.endswith(f"|{D}")]

@@ -24,7 +24,7 @@ NARROW = {"arch_vs_legnet.png", "replicates.png", "kb_prompts.png"}
 OLD_ARTIFACT = "https://claude.ai/artifact/98NSVuNvp3F41LHBdGgvPp"
 
 CHANGELOG = [
-    ("2026-10-23 15:00", "Added the results of the Oct 22 program: run-count curves, architecture source, unseen reservoirs (search against menu, 10k and 30k, 100k partial) and the mixture sweep. Three runs per reservoir leave 0.005 to 0.012 of ensemble r on the table; the architecture source and corpus mixing change the genomic-test ensemble by less than the noise margin; a separate search on the strategy does not beat the retrained menu at equal model counts. Corrected the oracle accuracy line (0.931 for the current oracle) and the library size (4M sequences)."),
+    ("2026-10-23 15:00", "Added the results of the Oct 22 program: run-count curves, architecture source, unseen reservoirs (search against menu at 10k, 30k and, for three strategies, 100k) and the mixture sweep. Three runs per reservoir leave 0.005 to 0.012 of ensemble r on the table; the architecture source and corpus mixing change the genomic-test ensemble by less than the noise margin; a separate search on the strategy does not beat the retrained menu at equal model counts. Corrected the oracle accuracy line (0.931 for the current oracle) and the library size (4M sequences)."),
     ("2026-10-22 18:00", "Restructured: the page now opens with the assumptions to justify (with the goal and the simplest recipe so far), then results by experiment, with live progress for the running experiments."),
     ("2026-10-22 17:00", "Corrected the reservoir-mixing claim: the union used the genomic-derived architectures and was not count-controlled; with equal counts mixing gains +0.005 over genomic alone and motif alone does as well or better. Launched the architecture-source, run-count-curve, unseen-reservoir and mixture experiments."),
     ("2026-10-22 14:30", "Independent pools: three independent draws beat three seeds on one pool in all 12 comparisons (menu, 30k). Per-reservoir search again matches the retrained menu at 100k. Models trained on several reservoirs ensemble better than genomic-only. Nested genomic ladder lands within 0.01 of the old ladder. Opus +0.005 over Sonnet 5.5, not significant. Added a setup-choices table at the top."),
@@ -125,16 +125,19 @@ def oct22_cards(d: dict) -> list[dict]:
             if vs:
                 pts.append(f"Difference of differences at {D // 1000}k (gap genomic minus X with each searched separately, minus the same gap with the menu, equal model counts; genomic test, bootstrap interval in brackets): " +
                            ", ".join(f"{st.replace('_', ' ')} {v['point']['genomic']:+.3f} [{v['boot_genomic_eval'][1]:+.3f}, {v['boot_genomic_eval'][2]:+.3f}]" for st, v in vs) + ".")
-        wid = [(v["boot_genomic_eval"][2] - v["boot_genomic_eval"][1]) / 2 for v in DOD.values() if "boot_genomic_eval" in v]
+        wid = {D: [(v["boot_genomic_eval"][2] - v["boot_genomic_eval"][1]) / 2 for k, v in DOD.items() if k.endswith(f"|{D}|equal_count") and "boot_genomic_eval" in v] for D in (10000, 30000, 100000)}
+        wid = {D: w for D, w in wid.items() if w}
         if wid:
-            pts.append(f"With three runs and three pools per arm the bootstrap intervals on these differences are about plus or minus {sum(wid) / len(wid):.3f}, so a bias toward genomic of up to about that size cannot be excluded; the point estimates have no consistent sign.")
+            pts.append("With three runs and three pools per arm the bootstrap intervals on these differences are about plus or minus " + ", ".join(f"{sum(w) / len(w):.3f} at {D // 1000}k" for D, w in wid.items()) +
+                       "; a bias toward genomic of up to about that size cannot be excluded, and the point estimates have no consistent sign." +
+                       ((" At 100k all the intervals lie within +-" + f"{max(max(abs(v['boot_genomic_eval'][1]), abs(v['boot_genomic_eval'][2])) for k, v in DOD.items() if k.endswith('|100000|equal_count')):.3f}" + ".") if 100000 in wid else ""))
         pts.append("Reading: a negative difference of differences means the genomic-derived menu favours genomic more than separate searches do (the signature of a menu biased toward the strategy it was built from); a positive one means the opposite.")
         out.append(dict(id="unseen", group="Results from the Oct 22 program", status="provisional", figs=["unseen_search_vs_menu.png"],
                         q="Is a strategy the search was not run on handicapped when the menu is retrained on it?",
                         choice=("No evidence of a handicap: a separate three-run search on the strategy itself did not beat the genomic-derived menu on any strategy at any size tested; at equal model counts the menu is ahead by " + f"{min(x['menu_equal_count']['genomic'] - x['bespoke_all_nnls']['genomic'] for x in U.values()):+.3f} to {max(x['menu_equal_count']['genomic'] - x['bespoke_all_nnls']['genomic'] for x in U.values()):+.3f}." if not worse else
                                 "Mixed: own search beat the menu by more than the noise margin, at equal model counts, for " + ", ".join(worse) + "."),
                         points=pts,
-                        caveat="Three runs and three pools per strategy and size, one seed per menu model. Genomic test set shown; designed and random sets are in data.json. The 100k comparison covers three strategies, and its genomic reference menu is still running unless listed above.",
+                        caveat="Three runs and three pools per strategy and size, one seed per menu model. Genomic test set shown; designed and random sets are in data.json. The 100k comparison covers three strategies plus the genomic reference.",
                         change="A strategy where own search beat the menu by more than the 0.005 noise margin at equal model counts would show the menu is missing something for that strategy."))
     # ---------------------------------------------------------------- mixtures
     MX = o.get("mix", {})
@@ -273,9 +276,9 @@ def build(d: dict) -> list[dict]:
                      ("Out of distribution the mixed ensemble and the same-reservoir mean are equal (" + ", ".join(f"{r['mixed']['ood']:.3f} vs {r['same_mean']['ood']:.3f}" for k, r in mc.items() if k != "1") + "), and on random sequences mixing is below the same-reservoir mean, so mixing is not a free improvement." if mc else "")],
              caveat="Model-level mixing of genomic-derived architectures only. Whether architectures searched on several reservoirs, or a training corpus that mixes reservoirs, does better is what the running experiments test.",
              change="A mixed-corpus or mixed-search configuration that beats motif-only by more than the run-to-run noise (about 0.005) would settle it in favour of mixing."),
-        dict(id="program", group="Experiments in progress", status="running", figs=[],
-             q="What is running now, and which assumption does each experiment test?",
-             choice="Four experiments launched Oct 22 on independent nested pools. The 10k and 30k parts have finished and their results are in the Oct 22 results cards above; the 100k unseen-reservoir searches and genomic 100k reference menus are the last pieces.",
+        dict(id="program", group="Experiments launched Oct 22", status="supported", figs=[],
+             q="What did the Oct 22 program run, and which assumption does each experiment test?",
+             choice="Four experiments launched Oct 22 on independent nested pools. All of them have finished; their results are in the Oct 22 results cards above.",
              points=[("Progress (done of total cells, running now): " + "; ".join(f"{k} {v['done']} of {v['total']} ({v['running']} running)" for k, v in d.get("program_status", {}).get("groups", {}).items())) if d.get("program_status") else "Progress pending.",
                      "Architecture source (assumptions C2, A5): 15 independent search runs on genomic only, 15 on random only, a genomic+random mix (8 + 7) and the existing 5-reservoir mix; top 3 per run, equal candidate counts, each arm retrained on genomic, random and motif data.",
                      "Run-count curves (A5): ensemble accuracy against the number of independent runs, genomic at 10k, 30k and 100k, random and motif at 30k.",
@@ -647,7 +650,7 @@ def render(cards, d):
     for c in cards:
         if c["group"] not in seen:
             seen.append(c["group"])
-    ORDER = ["Experiments in progress", "Results from the Oct 22 program", "Training and evaluation", "Proposer and prompt", "Search and pooling", "Dataset-size ladder", "Compute and limits"]
+    ORDER = ["Experiments launched Oct 22", "Results from the Oct 22 program", "Training and evaluation", "Proposer and prompt", "Search and pooling", "Dataset-size ladder", "Compute and limits"]
     seen = [g_ for g_ in ORDER if g_ in seen] + [g_ for g_ in seen if g_ not in ORDER]
     for g in seen:
         out.append(f'<h2 class="grp" data-group="{esc(g)}">{esc(g)}</h2>')
