@@ -409,6 +409,9 @@ def main():
     ap.add_argument("--context_file", default="")  # text block with results from a smaller dataset size (cross-D context)
     ap.add_argument("--style", default="none", choices=["none", "explore", "reflect", "explore_reflect"])  # extra prompt persona; none = unchanged prompt
     ap.add_argument("--resume", action="store_true")  # rebuild history from out_dir and continue (safe under requeue)
+    ap.add_argument("--loop", default="single", choices=["single", "agent"])  # agent = multi-agent proposer/coder/reflector loop (albench/arch_search/agent_loop.py)
+    ap.add_argument("--agent_cfg", default="")  # agent loop only: JSON object or path (stages, repairs, ...)
+    ap.add_argument("--val_cache", default="", help="npz (sequences, oracle_labels, oracle_id) replacing the chr19/21/X validation set for early stopping, val_pred, val_labels and proposer feedback; default empty = unchanged behaviour")
     args = ap.parse_args()
 
     from scaling_hp_search import (
@@ -428,6 +431,14 @@ def main():
     print(f"  GPU={gpu} factor={gpu_factor} -> per-model cap={cap_min:.0f}min; full_control={args.full_control}", flush=True)
     tr_s, tr_y, va_s, va_y = load_chr_train_pool(
         args.D, ref_only=True, val_frac=0.1, seed=0, reservoir_cache=args.reservoir_cache, chr_val=True)
+    if args.val_cache:  # alternative validation set (albench/arch_search/val_cache.py); the default chr19/21/X path above is untouched
+        from albench.arch_search.val_cache import guard_out_dir, load_val_cache
+        va_s, va_y, _vc = load_val_cache(args.val_cache, train_seqs=tr_s)
+        guard_out_dir(args.out_dir, _vc)
+        print(f"  val_cache={_vc['path']} variant={_vc['variant']} n={_vc['n']:,} sha={_vc['sha1_16']} oracle={_vc['oracle_id']} "
+              f"test_overlap={_vc['n_test_overlap']} train_overlap={_vc['n_train_overlap']}", flush=True)
+    elif os.path.exists(os.path.join(args.out_dir, "val_cache.json")):
+        raise SystemExit(f"{args.out_dir} was started with --val_cache; pass the same --val_cache or use a fresh --out_dir")
     te_s, te_oracle, te_true = load_chr_test_genomic()
     tests = load_all_test_sets()
     Xtr, ytr = one_hot(tr_s, args.seq_len), np.asarray(tr_y, np.float32)
@@ -440,6 +451,18 @@ def main():
     _atomic_savez(Path(args.out_dir) / "labels.npz", **labels)
     print(f"  train={len(tr_s):,} val={len(va_s):,} test={len(te_s):,} evals={len(tests)}", flush=True)
 
+    if args.loop == "agent":  # opt-in; everything below this branch (the default loop) is untouched
+        from types import SimpleNamespace
+
+        from albench.arch_search.agent_loop import run_agent_loop
+
+        return run_agent_loop(args, SimpleNamespace(
+            Xtr=Xtr, ytr=ytr, Xva=Xva, yva=yva, Xte=Xte, Xsets=Xsets, te_oracle=te_oracle, gpu=gpu,
+            cap_min=cap_min, train_one=train_one, sample_train=sample_train, predict_rc=predict_rc,
+            pear=pear, atomic_savez=_atomic_savez, atomic_write_text=_atomic_write_text,
+            guidance_note=lambda rd: _round_note(args, rd, cap_min),
+            train_note=(FULL_NOTE if args.full_control else TRAIN_NOTE).format(
+                max_min=cap_min, max_params=args.max_params)))
     history, midx, t_start = [], 0, time.time()
     lessons = []
     if args.resume and (Path(args.out_dir) / "reflections.jsonl").exists():
@@ -548,6 +571,8 @@ def main():
                     "test_oracle_pearson": r, "val_mse": info.get("best_val_mse"),
                     "epochs_trained": info.get("epochs_trained"),
                     "train_time_sec": time.time() - t0, "gpu": gpu, "source": p["source"]}
+            if args.val_cache:
+                meta["val_cache"] = {"path": _vc["path"], "sha1_16": _vc["sha1_16"], "variant": _vc["variant"], "n": _vc["n"]}
             _atomic_savez(Path(args.out_dir) / f"{mid}.npz",
                           **{k: np.asarray(x, np.float32) for k, x in res.items()})
             _atomic_write_text(Path(args.out_dir) / f"{mid}_meta.json", json.dumps(meta, indent=2, default=str))
