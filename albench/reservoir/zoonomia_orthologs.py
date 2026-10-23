@@ -54,7 +54,7 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
         distance: str = "all",
         min_called_frac: float = 0.95,
         max_species_per_window: int | None = None,
-        exclude_chroms: tuple[str, ...] = ("chr7", "chr13"),
+        exclude_chroms: tuple[str, ...] = ("chr7", "chr13", "chr19", "chr21", "chrX"),
         n_rank_windows: int = 200,
     ) -> None:
         """Initialize sampler.
@@ -69,7 +69,8 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
                 ortholog, it is a gap.
             max_species_per_window: Cap species drawn per window, so the pool is not
                 dominated by a few deeply-sampled loci.
-            exclude_chroms: Held-out chromosomes, never drawn from.
+            exclude_chroms: Held-out chromosomes, never drawn from. Defaults to the test (chr7, chr13) AND validation (chr19, chr21, chrX)
+                chromosomes; until Oct 23 2026 only chr7/chr13 were excluded, so about 14% of windows came from the validation chromosomes.
             n_rank_windows: Windows sampled to rank species by identity to human.
         """
         self._rng = np.random.default_rng(seed)
