@@ -44,3 +44,34 @@ def slice30k():
             print("BAD raw pool", src); continue
         save_pool(dst, list(z["sequences"])[:30000], z["oracle_labels"][:30000], "oracle_v3", st, SEED(r)); n += 1
     return n
+
+
+def slice10k_from30k(strategies=UNSEEN, reps=(1, 2, 3)):
+    """10k replicate pools for the unseen reservoirs: the first 10k of each replicate's 30k pool (nested prefix, same independent draw)."""
+    n = 0
+    for st in strategies:
+        for r in reps:
+            dst, src = f"{REPS}/{st}_r{r}_d10000.npz", f"{REPS}/{st}_r{r}_d30000.npz"
+            if os.path.exists(dst) or not os.path.exists(src):
+                continue
+            z = np.load(src, allow_pickle=True)
+            save_pool(dst, list(z["sequences"])[:10000], z["oracle_labels"][:10000], str(z["oracle_id"]), st, SEED(r)); n += 1
+    return n
+
+
+def slice_unseen(D, strategies, reps=(1, 2, 3), raw=None):
+    """Standard replicate file names for raw pools of size D built by build_pool.py (same checks as slice30k)."""
+    from albench.pools import PoolSpec
+    raw = raw or f"{GP}/k562_reps_raw{D // 1000}k"
+    n = 0
+    for st in strategies:
+        for r in reps:
+            dst = f"{REPS}/{st}_r{r}_d{D}.npz"
+            src = str(PoolSpec(strategy=st, params={}, size=D, generation_seed=SEED(r), task="k562").path(raw))
+            if os.path.exists(dst) or not os.path.exists(src):
+                continue
+            z = np.load(src, allow_pickle=True)
+            if len(z["sequences"]) < D or str(z["oracle_id"]) != "oracle_v3" or not np.isfinite(z["oracle_labels"]).all():
+                print("BAD raw pool", src); continue
+            save_pool(dst, list(z["sequences"])[:D], z["oracle_labels"][:D], "oracle_v3", st, SEED(r)); n += 1
+    return n
