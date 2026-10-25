@@ -81,9 +81,9 @@ def oct22_cards(d: dict) -> list[dict]:
     AD = o.get("archsrc", {}).get("diffs", {})
     if A:
         pts, spreads = [], []
-        names = {"MG": "genomic only", "MR": "random only", "MGR": "genomic+random", "MF": "5 reservoirs"}
-        for t in ("genomic", "random", "motif"):
-            row = [(c, A[f"{c}|{t}"]["enet"]["genomic"]) for c in ("MG", "MR", "MGR", "MF") if f"{c}|{t}" in A]
+        names = {"MG": "genomic only", "MR": "random only", "MGR": "genomic+random", "MF": "5 reservoirs", "MX": "searched on mixed pools"}
+        for t in ("genomic", "random", "motif", "grm"):
+            row = [(c, A[f"{c}|{t}"]["enet"]["genomic"]) for c in ("MG", "MR", "MGR", "MF", "MX") if f"{c}|{t}" in A]
             if row:
                 spreads.append(max(v for _, v in row) - min(v for _, v in row))
                 pts.append(f"Retrained on the {t} pool, ensemble r on genomic test: " + ", ".join(f"{c} ({names[c]}) {v:.3f}" for c, v in row) + f". Spread {spreads[-1]:.3f}.")
@@ -98,7 +98,7 @@ def oct22_cards(d: dict) -> list[dict]:
         out.append(dict(id="archsource", group="Results from the Oct 22 program", status="supported" if ok else "provisional", figs=["arch_source.png"],
                         q="Are architectures searched on genomic data biased toward genomic data?",
                         choice=("Searching on genomic data alone is enough: the source of the architectures changes the ensemble by no more than the noise margin on the genomic test set." if ok else
-                                "Not settled: the source of the architectures changes the ensemble by more than the noise margin on at least one pool."),
+                                "Not settled, but small: searches on mixed corpora (MX) or on several reservoirs (MF) are nominally ahead of genomic-only by up to 0.005 on some pools, with bootstrap intervals that mostly include zero; random-only searches are never ahead."),
                         points=pts,
                         caveat="One pool and one seed per model for each target, so differences under about 0.005 are noise. The first genomic and random target pools are also the pools of run 1 of the genomic-only and random-only searches (3 of 45 candidates), a small in-sample advantage for those two sources.",
                         change="A random-only or mixed source that beat genomic-only by more than 0.005 on both the genomic and designed sets, with a bootstrap interval excluding zero, would argue for searching on more than genomic data."))
@@ -261,9 +261,127 @@ def oct23_cards(d: dict) -> list[dict]:
                     points=["Architecture and recipe search ON mixed pools: 15 runs on corpora of 10k genomic + 10k random + 10k motif sequences (independent pool per run), then the top 3 per run retrained on genomic, random, motif and mixed pools against the genomic-only, random-only, mixed-run and 5-reservoir sources.",
                             "Prompt styles in the free-architecture loop, 9 runs each on genomic 30k pools r1 to r9, paired with the 9 default-prompt runs on the same pools: explore, reflect (the proposer writes a short reflection that is fed back) and explore+reflect.",
                             "Precision check: the 33-architecture menu retrained on genomic r1 30k under bf16, fp16 and tf32 against the fp32 baseline. Precision is set by the harness for every model alike, so no proposal can choose its own speed-up.",
-                            "Being built by separate workstreams: a multi-agent search loop (proposer, coder, evaluator, reflector), validation-set variants (perturbed genomic, a diverse family mix, similarity-filtered) with a retraining test of their effect, and a HepG2 oracle with the same protocol as the K562 oracle for the differential objective."],
+                            "Multi-agent search loop (proposer, coder, evaluator, reflector): built and smoke-tested; a 5-run pilot on genomic 30k pools r1 to r5, paired with the default-loop runs on the same pools, is queued. It costs about four times the LLM tokens per run.",
+                            "Validation-set variants: four oracle-labelled validation sets are built (the current genomic set relabelled with the current oracle; perturbed genomic; a 14-family diverse set; a union), similarity-filtered against all evaluation sets and training pools. Phase 1 of the retraining test (the 33-architecture menu on genomic, random and motif 30k pools under each validation set, 45 jobs, about 36 H100-hours) is queued.",
+                            "HepG2 oracle for the differential objective: an earlier HepG2 oracle without the designed sequences exists (held-out Pearson 0.916); a full-pool oracle with the K562 protocol passed its dry run (stage 1 held-out Pearson 0.895 on fold 0) and is training; a labelling script for K562, HepG2 and the differential is ready."],
                     caveat="Search runs share the account's 5-hour usage limit and pause and resume on their own after each reset.",
                     change="A prompt style or a mixed-pool search that beats the default by more than the 0.005 noise margin on pooled runs would change the search recipe."))
+    out.append(dict(id="integrity", group=G, status="open", figs=[],
+                    q="What data-integrity problems did the validation-set workstream find?",
+                    choice="Two, both fixable: the stored validation labels are not from the current oracle, and the Zoonomia sampler let validation chromosomes into its training pools.",
+                    points=["Validation labels: the stored validation set (genomic chr19, chr21, chrX) has no oracle stamp, and against a fresh labelling with the current oracle its labels correlate at 0.983, with a mean offset of +0.07 that grows with GC (+0.055 to +0.112). Every experiment so far validated on slightly different labels from its training pools and evaluation sets. The effect on early stopping and ensemble weights is probably small and is measured by one arm of the validation-set experiment.",
+                            "Zoonomia: the sampler excluded only the test chromosomes (chr7, chr13), so about 14% of its windows (9.5% of base pairs) came from chr19, chr21 and chrX, the validation chromosomes. Test sets were never affected. Zoonomia pools used so far had validation sequences or their orthologs in training; their validation-based choices are slightly favourable, and the pools are rebuilt with the corrected default (a regression test now pins it).",
+                            "Smaller: two files in the newer evaluation-set folder share sequence with the validation chromosomes; they are not part of the benchmark and were excluded from the similarity index. Mutagenesis and EvoAug variants that take Zoonomia as a base use a rates file with the same narrow exclusion."],
+                    caveat="Both were found by the validation-set workstream while building similarity checks; neither changes the test-set numbers, and the unseen-reservoir comparison for Zoonomia (the weakest strategy) is the result most exposed.",
+                    change="If the relabelled-validation arm changes pool contrasts by more than the 0.005 noise margin, earlier comparisons need re-running on the corrected validation labels."))
+    return out
+
+
+def oct25_cards(d: dict) -> list[dict]:
+    o = d.get("oct22", {})
+    out = []
+    G = "Results from the Oct 22 program"
+    f = lambda x, n=3: f"{x:.{n}f}"  # noqa: E731
+    # ------------------------------------------------------------ prompt styles
+    P = o.get("prompts")
+    if P:
+        arms, df = P["arms"], P["diffs"]
+        pts = ["Mean single-run ensemble r on genomic test over nine paired pools (genomic / designed / random): " + "; ".join(f"{k} {f(v['mean'][0])} / {f(v['mean'][1])} / {f(v['mean'][2])}" for k, v in arms.items()) + ".",
+               "Paired difference from the default prompt, genomic test (mean, bootstrap interval, runs ahead of nine): " + "; ".join(f"{k} {df[k]['genomic']['mean']:+.4f} [{df[k]['genomic']['lo']:+.4f}, {df[k]['genomic']['hi']:+.4f}], {df[k]['genomic']['wins']} of {df[k]['genomic']['n']}" for k in df) + ". Uncorrected paired t-test p: " + ", ".join(f"{k} {df[k]['genomic']['p']:.3f}" for k in df) + ".",
+               "Designed set / random sequences, mean difference: " + "; ".join(f"{k} {df[k]['ood']['mean']:+.4f} / {df[k]['random_32k']['mean']:+.4f}" for k in df) + ". Pooled triples of runs (genomic test, three triples): " + "; ".join(f"{k} {df[k]['pooled3_genomic']['mean']:+.4f}" for k in df) + ".",
+               "Individual models are better with the new prompts: mean validation r of a run's 20 models is " + ", ".join(f"{k} {arms[k]['mean_val']:.4f}" for k in arms) + "; prediction diversity within a run (one minus mean pairwise correlation) " + ", ".join(f"{k} {arms[k]['diversity']:.3f}" for k in arms) + ".",
+               "Earlier two-run comparisons suggested explore +0.021 and reflect +0.017 over the default; with nine paired runs the effects are about a quarter of that."]
+        best = max(df, key=lambda k: df[k]["genomic"]["mean"])
+        out.append(dict(id="prompts", group=G, status="provisional", figs=["prompt_styles.png"],
+                        q="Do the explore and reflect prompt styles improve the search?",
+                        choice=f"A small improvement at best: {best} gains {df[best]['genomic']['mean']:+.3f} in single-run ensemble r on genomic 30k over the default, about half the 0.01 that would change the recipe; the effect is clearer in individual models than in the ensemble.",
+                        points=pts,
+                        caveat="Nine paired runs on genomic 30k pools, three comparisons with no multiplicity correction (with a Bonferroni correction none is below 0.05). The explore arm is the only one whose interval excludes zero. The generality of the effect across reservoirs and sizes is being tested (explore against default on five reservoirs at 10k and 30k).",
+                        change="Gains above 0.01 that repeat across reservoirs and sizes would justify changing the default prompt."))
+    # ------------------------------------------------------------ multi-agent pilot
+    A = o.get("agent")
+    if A:
+        dg, ood, rnd = A["diff"]["genomic"], A["diff"]["ood"], A["diff"]["random_32k"]
+        cs = A.get("cost_summaries") or []
+        cpm = sum(c.get("calls_per_model", 0) for c in cs) / len(cs) if cs else None
+        tpm = sum(c.get("tokens_incl_overhead_per_model", 0) for c in cs) / len(cs) if cs else None
+        pts = [f"{A['n_pairs']} paired runs on genomic 30k pools. Single-run ensemble r (genomic test): default {f(sum(x[0] for x in A['default']) / A['n_pairs'])}, multi-agent {f(sum(x[0] for x in A['agent']) / A['n_pairs'])}; difference {dg['mean']:+.4f} [{dg['lo']:+.4f}, {dg['hi']:+.4f}], ahead in {dg['wins']} of {dg['n']} pairs. Designed set {ood['mean']:+.4f}, random sequences {rnd['mean']:+.4f}.",
+               f"Pooled over the five runs: default {f(A['pooled5']['default'][0], 4)}, multi-agent {f(A['pooled5']['agent'][0], 4)} (genomic test).",
+               f"Individual models: mean validation r {A['mean_val']['default']:.4f} for default against {A['mean_val']['agent']:.4f} for multi-agent ({A['mean_val']['diff']['mean']:+.4f}); best model {A['max_val']['default']:.4f} against {A['max_val']['agent']:.4f}; prediction diversity {A['diversity']['default']:.3f} against {A['diversity']['agent']:.3f}."]
+        if cpm:
+            pts.append(f"Cost: about {cpm:.1f} LLM calls per trained model, about {tpm / 1000:.0f}k tokens per model including each call's fixed overhead, roughly four times the single-call loop.")
+        out.append(dict(id="agentpilot", group=G, status="provisional", figs=["agent_pilot.png"],
+                        q="Does the multi-agent loop (proposer, coder, evaluator, reflector) beat the single-call loop?",
+                        choice=f"Not in the pilot: the ensemble difference is {dg['mean']:+.4f} on {A['n_pairs']} paired pools at about four times the LLM cost; individual models are slightly better but the ensemble is not.",
+                        points=pts,
+                        caveat="Five pairs resolve a difference of about 0.01 and no less. The agent arm also differs from the default in more than roles (reworded setup note, diversity figures in the evaluator report, a noise note for the reflector). Variants with a coordinator role, without the reflector and with an explore proposer are running with six paired runs each.",
+                        change="A variant whose pooled-run ensemble beats the default by more than 0.005 across pools would justify its token cost."))
+    # ------------------------------------------------------------ precision
+    Q = o.get("precision")
+    if Q:
+        pts = [f"The 33-architecture menu on genomic r1 30k, paired by architecture against fp32 (ensemble {Q['fp32']['ensemble']['genomic']:.4f}): " + "; ".join(f"{m} {Q[m]['mean_dtest']:+.4f} per model (SE {Q[m]['se']:.4f}), ensemble {Q[m]['ensemble']['genomic']:.4f}" for m in ("tf32", "bf16", "fp16")) + ".",
+               "By optimizer, mean per-model test r change (muon, 31 of 33 architectures / adamw, 2): " + "; ".join(f"{m} {Q[m]['by_optimizer'].get('muon', {}).get('mean', float('nan')):+.4f} / {Q[m]['by_optimizer'].get('adamw', {}).get('mean', float('nan')):+.4f}" for m in ("tf32", "bf16", "fp16")) + ". fp16 diverged (non-finite loss at epoch 24) on one of 33 architectures, which no other mode did."]
+        if "speed" in Q:
+            pts.append("Controlled speed on one H100, nine architectures, same data and seed, four epochs (fp32 time divided by mode time; median, range): " + "; ".join(f"{m} {Q['speed'][m]['median']:.2f}x ({Q['speed'][m]['min']:.2f} to {Q['speed'][m]['max']:.2f})" for m in ("tf32", "bf16", "fp16")) + ".")
+        pts.append("The earlier loop-decomposition test found fp16 costing 0.006 and a July benchmark found it 2.3 times faster at batch 512 on a bigger model; neither pattern appears for these 30k models.")
+        speed_ok = "speed" in Q and max(v["median"] for v in Q["speed"].values()) >= 1.3
+        out.append(dict(id="precision", group="Compute and limits", status="supported", figs=["precision_ab.png"],
+                        q="Should the harness train in reduced precision to speed up the search?",
+                        choice=("Keep fp32 as the single harness-wide setting unless a larger benchmark shows a real speed gain: accuracy changes are within noise (about 0.004 per model) in every mode." if not speed_ok else
+                                "A reduced-precision mode is faster without a measurable accuracy cost; enforce it harness-wide so no proposal chooses its own."),
+                        points=pts,
+                        caveat="One pool, one seed per architecture, so single-mode accuracy changes under about 0.004 cannot be resolved. Models of 0.5M to 3M parameters at 30k sequences are launch- and data-bound; larger models or 300k pools may behave differently. Precision is set through AL_PRECISION in the harness for every model alike.",
+                        change="A mode that is 1.5 times faster or more on the 100k-300k stage with no change in ensemble r beyond 0.005 would be worth enforcing."))
+    # ------------------------------------------------------------ validation variants
+    V = o.get("valvar")
+    if V:
+        pools = V["pools"]
+        avg = lambda pool, arm: sum(pools[pool]["arms"][arm]) / len(pools[pool]["arms"][arm])  # noqa: E731
+        pts = ["Ensemble r averaged over the 18 evaluation sets, by validation set used for early stopping and ensemble weights (V0 stored labels, mean of three seeds; V0c the same sequences relabelled by the current oracle; V1 perturbed genomic; V2 diverse families; V3 union): " +
+               "; ".join(f"{pl}: " + ", ".join(f"{a_} {avg(pl, a_):.4f}" for a_ in ("V0", "V0c", "V1", "V2", "V3")) for pl in pools) + ".",
+               "Seed SD of that average: " + ", ".join(f"{pl} {pools[pl]['v0_seed_sd']}" for pl in pools) + "; rerunning the identical validation set (V0x) moved it by " + ", ".join(f"{avg(pl, 'V0x') - avg(pl, 'V0'):+.4f}" for pl in pools) + ", so differences under about 0.003 are not resolved.",
+               "Relabelling the stored validation set with the current oracle (V0 to V0c) changes the ensemble by " + ", ".join(f"{pl} {avg(pl, 'V0c') - avg(pl, 'V0'):+.4f}" for pl in pools) + ". Against that fair baseline the variants change it by (V1 / V2 / V3): " +
+               "; ".join(f"{pl} {avg(pl, 'V1') - avg(pl, 'V0c'):+.4f} / {avg(pl, 'V2') - avg(pl, 'V0c'):+.4f} / {avg(pl, 'V3') - avg(pl, 'V0c'):+.4f}" for pl in pools) + ".",
+               "Ranking architectures: Spearman correlation across the 33 models between validation score and test r, change when the same trained models are scored on a variant instead of the genomic set, against the corrected baseline V0c (V1 / V2 / V3): " +
+               "; ".join(f"{pl} {pools[pl]['rank_delta']['V0c']['V1'][0]:+.3f} / {pools[pl]['rank_delta']['V0c']['V2'][0]:+.3f} / {pools[pl]['rank_delta']['V0c']['V3'][0]:+.3f}" for pl in pools if "V0c" in pools[pl]["rank_delta"]) + "; seed-to-seed ceiling " + ", ".join(f"{pl} {pools[pl]['noise_ceiling']}" for pl in pools) + "."]
+        if V.get("contrasts"):
+            c = V["contrasts"]
+            pts.append("Pool contrasts (ensemble mean over 18 sets) under each validation set: " + "; ".join(f"{k}: " + ", ".join(f"{a_} {v:+.4f}" for a_, v in vals.items() if a_ in ("V0", "V0c", "V1", "V2", "V3")) for k, vals in c.items() if "minus" in k and "difference" not in k) + ". The ordering of reservoirs does not change under any validation set; the size of the gap moves by up to about 0.01.")
+        out.append(dict(id="valvar", group=G, status="provisional", figs=[],
+                        q="Does the choice of validation set change the results?",
+                        choice="Fixing the label mismatch matters most; replacing the genomic validation set by perturbed or diverse sets does not give a reliable gain, and no choice changes which reservoir wins.",
+                        points=pts,
+                        caveat="One pool each for genomic, random and motif at 30k, one seed per variant arm (three for V0), so differences under about 0.003 in the 18-set average are noise. The variants were similarity-filtered against all evaluation sets and training pools. Cross-scoring (the same trained models scored on each validation set) is the cleaner comparison for ranking; the second seed (phase 2) has not been run.",
+                        change="A validation variant that changed the pool contrasts by more than 0.01 on a second seed, or ranked architectures better than the relabelled genomic set with an interval excluding zero in all three pools, would change the recommendation."))
+    # ------------------------------------------------------------ oracle verification and HepG2
+    out.append(dict(id="oracle", group=G, status="supported", figs=[],
+                    q="Is the current oracle the proper ten-member chromosome-split ensemble?",
+                    choice="Yes: ten AlphaGenome-encoder models, each trained on eight chromosome groups, validated on one and tested on one.",
+                    points=["Members: 10 (outputs/oracle_v3/s2/fold_0 to fold_9), each a stage-1 head plus a stage-2 fully unfrozen encoder, trained on the same 856,252-sequence pool. Training sizes per member are about 678,000 train, 88,000 validation and 90,000 test sequences (79%, 10%, 10%).",
+                            "Folds: the 24 chromosomes are grouped into 10 folds of 2 to 3 chromosomes (for example chr7, chr13 and chr20 form fold 2; chr15, chr19 and chr21 fold 4; chr1 and chrX fold 0). Member k is tested on fold k, validated on fold k+1 and trained on the other eight; reference and alternate alleles of a variant always sit in the same fold.",
+                            "The 22,962 designed sequences have no chromosome and are assigned to folds at random, so for those sequences the held-out member is held out by sequence, not by chromosome.",
+                            "Held-out test Pearson against experiment per member 0.9227 to 0.9394, mean 0.9311 (SD 0.0051). Labels for synthetic pools and evaluation sets are the mean of the ten members; for real held-out sequences (chr7 and chr13 genomic, SNVs, designed) only the member that did not train on them is used."],
+                    caveat="Genomic-reservoir pools are drawn from sequences inside the oracle's training pool, so their labels are in-sample for eight of ten members. The stored student validation labels were not from this oracle until the validation-set work found it (see the integrity card).",
+                    change="A member trained with the wrong fold map, or labels for held-out sets that included members that had trained on them, would change this."))
+    out.append(dict(id="hepg2", group=G, status="provisional", figs=[],
+                    q="Is the HepG2 side of the differential objective ready?",
+                    choice="The HepG2 oracle is trained with the same protocol as K562; relabelling the pools and evaluation sets with HepG2 and differential labels is the next step.",
+                    points=["A full-pool HepG2 oracle (same fold map, same two-stage recipe, separate head per fold) has all ten folds: held-out Pearson 0.9130, 0.9138, 0.9118, 0.9094, 0.9315, 0.9176, 0.9198, 0.9214, 0.9033 and 0.9118, mean 0.9153 (K562: 0.9311). On identical held-out reference and alternate rows the two cell types score 0.917 (K562) and 0.916 (HepG2), so the gap is mostly the designed sequences.",
+                            "An earlier HepG2 oracle that never saw the designed sequences (mean 0.916) exists and was not used by any code.",
+                            "Labels: K562 and HepG2 true labels correlate at 0.80 on the measured library; the differential (K562 minus HepG2) has SD 0.73, an independent-noise ceiling of about 0.68, and the existing oracles reach 0.73 on held-out rows, with the sign right in 92% of rows where the true differential exceeds 1.",
+                            "Designed K562 sequences average 3.96 in K562 and -0.37 in HepG2 (K562-HepG2 correlation 0.10 on that set), so they are strongly K562-specific."],
+                    caveat="The labelling script (K562, HepG2 and differential, with provenance) reproduces the stored K562 labels at r = 0.999999 on CPU; its GPU run on the 18 evaluation sets and the 30k replicate pools is not yet done, so differential results for strategies are not available.",
+                    change="HepG2 held-out accuracy on synthetic pools far below 0.9, or a differential that the students cannot learn above the noise ceiling, would limit the differential comparisons."))
+    # ------------------------------------------------------------ what is running now
+    out.append(dict(id="program3", group="Experiments launched Oct 22", status="running", figs=[],
+                    q="What was launched on Oct 25?",
+                    choice="Search-loop variants with a coordinator role, an explore proposer and the explore prompt across the reservoir grid.",
+                    points=["Agent loop with a COORDINATOR: the proposer over-generates six ideas, a coordinator chooses the two most promising (high expected validation r, different from what is trained, unlikely to fail), then the coder, evaluator and reflector run as before. Six paired runs on genomic 30k pools r1 to r6; a variant without the reflector isolates the coordinator.",
+                            "Agent loop with an explore-style proposer (six runs).",
+                            "Explore prompt against the default prompt on five reservoirs (genomic, random, motif cell-type-enriched, evoaug, evo2) at 10k and 30k, three to six paired runs per cell (66 runs).",
+                            "A multi-agent loop run costs about four times the LLM tokens of a single-call run; the whole set is roughly 15 million tokens and is paced by the account's five-hour usage limit, so results arrive over a day or two."],
+                    caveat="100k is excluded for GPU cost. Evo2 has no nested or replicate pools, so both arms use one legacy pool; paired comparisons are still valid there, runs are not independent draws of the pool.",
+                    change="A variant that beats the default by more than 0.005 across reservoirs would change the search recipe."))
     return out
 
 
@@ -472,7 +590,7 @@ def build(d: dict) -> list[dict]:
                      "The limit was hit at 20:10 on Oct 20 (HPC 3.0M plus laptop 1.7M raw tokens in the window). Remaining programme is roughly 2,100 calls."],
              caveat="Cap is weighted and unpublished; numbers are raw token counts and do not include cache reads."),
     ]
-    return oct22_cards(d) + oct23_cards(d) + cards
+    return oct22_cards(d) + oct23_cards(d) + oct25_cards(d) + cards
 
 
 CSS = """
@@ -558,8 +676,8 @@ def _o22_overrides(d: dict):
     AD = o.get("archsrc", {}).get("diffs", {})
     if A:
         sp = []
-        for t in ("genomic", "random", "motif"):
-            v = [A[f"{c}|{t}"]["enet"]["genomic"] for c in ("MG", "MR", "MGR", "MF") if f"{c}|{t}" in A]
+        for t in ("genomic", "random", "motif", "grm"):
+            v = [A[f"{c}|{t}"]["enet"]["genomic"] for c in ("MG", "MR", "MGR", "MF", "MX") if f"{c}|{t}" in A]
             if v:
                 sp.append(max(v) - min(v))
         ok = max(sp) <= 0.006

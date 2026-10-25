@@ -184,8 +184,8 @@ def an_runs(out, n_sub=60, seed=0):
 # --------------------------------------------------------------------------------------------------- 2. architecture-source test
 def an_archsrc(out, n_boot=150, seed=1):
     rng = np.random.default_rng(seed)
-    conds = {"MG": "genomic only", "MR": "random only", "MGR": "genomic + random", "MF": "5 reservoirs"}
-    targets = {"genomic": "genomic pool", "random": "random pool", "motif": "motif pool"}
+    conds = {"MG": "genomic only", "MR": "random only", "MGR": "genomic + random", "MF": "5 reservoirs", "MX": "searched on mixed pools"}
+    targets = {"genomic": "genomic pool", "random": "random pool", "motif": "motif pool", "grm": "mixed pool (G+R+M)"}
     res = {}
     for t in targets:
         for c in conds:
@@ -201,15 +201,15 @@ def an_archsrc(out, n_boot=150, seed=1):
     for t in targets:
         if f"MG|{t}" not in res:
             continue
-        for c in ("MR", "MGR", "MF"):
+        for c in ("MR", "MGR", "MF", "MX"):
             if f"{c}|{t}" in res:
                 diffs[f"{c}-MG|{t}"] = {"genomic_eval_boot": ci(np.array(res[f"{c}|{t}"]["boot_raw"]) - np.array(res[f"MG|{t}"]["boot_raw"])),
                                          "genomic_eval_enet": res[f"{c}|{t}"]["enet"]["genomic"] - res[f"MG|{t}"]["enet"]["genomic"],
                                          "ood_enet": res[f"{c}|{t}"]["enet"]["ood"] - res[f"MG|{t}"]["enet"]["ood"],
                                          "random_enet": res[f"{c}|{t}"]["enet"]["random_32k"] - res[f"MG|{t}"]["enet"]["random_32k"]}
     DATA["archsrc"] = dict(results=res, diffs=diffs)
-    fig, axs = plt.subplots(1, 3, figsize=(10.5, 3.4), sharey=False)
-    cols = {"MG": BLUE, "MR": ORANGE, "MGR": TEAL, "MF": GREY}
+    fig, axs = plt.subplots(1, 4, figsize=(13.5, 3.4), sharey=False)
+    cols = {"MG": BLUE, "MR": ORANGE, "MGR": TEAL, "MF": GREY, "MX": PURPLE}
     for ax, (t, tl) in zip(axs, targets.items()):
         for i, c in enumerate(conds):
             r = res.get(f"{c}|{t}")
