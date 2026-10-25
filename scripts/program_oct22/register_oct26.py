@@ -177,6 +177,18 @@ if "acq" in ONLY:
 reg = json.load(open("scratchpad/dispatch_registry.json"))
 have = {c["name"] for c in reg}
 new = [c for c in new if c["name"] not in have]
+PRIO = (
+    "ind30a_",
+    "pool",
+    "a600_",
+    "a1m_",
+    "ind30n",
+    "un10_zoov2",
+    "un30_zoov2",
+    "ind30s",
+    "ind30l",
+)  # earlier = first in the registry = first to get a GPU slot
+new.sort(key=lambda c: next(i for i, pfx in enumerate(PRIO) if c["name"].startswith(pfx)))
 for c in new:
     for p in c.get("needs", []):
         if not os.path.exists(p) and not any(
