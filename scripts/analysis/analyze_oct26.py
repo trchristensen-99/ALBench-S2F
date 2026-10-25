@@ -340,6 +340,89 @@ def an_anchor():
     DATA["anchor"] = res
 
 
+# -------------------------------------------------------------------------------------------------------------------------- hg
+def ens_pred(c, cols):
+    """Test-set predictions of the NNLS ensemble (same weights recipe as a.nnls_ens) for every evaluation set."""
+    from scipy.optimize import nnls
+
+    cols = list(cols)
+    sub = a.mj.subidx(len(c["yv"]))
+    A = c["V"][sub][:, cols]
+    mu, sd = A.mean(0), A.std(0) + 1e-12
+    w, _ = nnls((A - mu) / sd, c["yv"][sub] - c["yv"][sub].mean())
+    return {e: ((c["T"][e][:, cols] - mu) / sd) @ w for e in EV}
+
+
+def an_hg():
+    """K562-optimised menu retrained on K562, HepG2 and differential (K562 - HepG2) labels: does the menu transfer, and is a difference of two students as good as a direct one?"""
+    side = {
+        e: np.load(
+            f"outputs/oracle_v3_hepg2/relabel/eval_sets/{e}_oracle.multicell.npz", allow_pickle=True
+        )
+        for e in EV
+    }
+    lab = {
+        e: {t: side[e][f"{t}_label"].astype(float) for t in ("k562", "hepg2", "diff")} for e in EV
+    }
+    res = {}
+    for st in RES:
+        arms = {
+            "k562": load([f"vv30k_V0c_{st}_r1"], rounds=[0]),
+            "hepg2": load([f"hg30k_hepg2_{st}_r1"], rounds=[0]),
+            "diff": load([f"hg30k_diff_{st}_r1"], rounds=[0]),
+        }
+        if any(v is None for v in arms.values()):
+            print(
+                f"[hg] {st}: missing arms {[k for k, v in arms.items() if v is None]}", flush=True
+            )
+            continue
+        idx = sorted(common(list(arms.values())))
+        P = {k: ens_pred(c, np.flatnonzero(np.isin(c["idx"], idx))) for k, c in arms.items()}
+        out = {
+            "n_arch": len(idx),
+            "direct": {},
+            "difference_of_students": {},
+            "k562_student_as": {},
+            "arch_rank_spearman": {},
+        }
+        for e in EV:
+            out["direct"][e] = {t: a.mj.pear(P[t][e], lab[e][t]) for t in ("k562", "hepg2", "diff")}
+            out["difference_of_students"][e] = a.mj.pear(
+                P["k562"][e] - P["hepg2"][e], lab[e]["diff"]
+            )
+            out["k562_student_as"][e] = {
+                t: a.mj.pear(P["k562"][e], lab[e][t]) for t in ("hepg2", "diff")
+            }
+        # single-architecture ranking agreement between targets (test r on each target's own labels), common architectures only
+        from scipy.stats import spearmanr
+
+        single = {}
+        for k, c in arms.items():
+            tgt = k
+            single[k] = {
+                e: np.array(
+                    [
+                        a.mj.pear(c["T"][e][:, int(np.flatnonzero(c["idx"] == i)[0])], lab[e][tgt])
+                        for i in idx
+                    ]
+                )
+                for e in EV
+            }
+        for e in EV:
+            out["arch_rank_spearman"][e] = {
+                "k562_vs_hepg2": float(spearmanr(single["k562"][e], single["hepg2"][e])[0]),
+                "k562_vs_diff": float(spearmanr(single["k562"][e], single["diff"][e])[0]),
+            }
+        res[st] = out
+        print(
+            f"[hg] {st} ({len(idx)} architectures), genomic eval: direct k562 {out['direct']['genomic']['k562']:.4f}, hepg2 {out['direct']['genomic']['hepg2']:.4f}, diff {out['direct']['genomic']['diff']:.4f}"
+            f" | diff from two students {out['difference_of_students']['genomic']:.4f} | k562 student on hepg2 labels {out['k562_student_as']['genomic']['hepg2']:.4f}"
+            f" | architecture rank Spearman k562 vs hepg2 {out['arch_rank_spearman']['genomic']['k562_vs_hepg2']:.2f}",
+            flush=True,
+        )
+    DATA["hg"] = res
+
+
 STEPS = {
     "noise": an_noise,
     "seeds": an_seeds,
