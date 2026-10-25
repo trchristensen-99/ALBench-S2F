@@ -219,10 +219,13 @@ have = {c["name"] for c in reg}
 new = [c for c in new if c["name"] not in have]
 PRIO = (
     "ind30a_",
+    "ind30q_",
     "pool",
     "a600_",
     "a1m_",
+    "ind30h_",
     "ind30n",
+    "mrr_nest",
     "un10_zoov2",
     "un30_zoov2",
     "ind30s",
