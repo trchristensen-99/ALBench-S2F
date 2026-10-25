@@ -327,7 +327,7 @@ def oct25_cards(d: dict) -> list[dict]:
         speed_ok = "speed" in Q and max(v["median"] for v in Q["speed"].values()) >= 1.3
         out.append(dict(id="precision", group="Compute and limits", status="supported", figs=["precision_ab.png"],
                         q="Should the harness train in reduced precision to speed up the search?",
-                        choice=("Keep fp32 as the single harness-wide setting unless a larger benchmark shows a real speed gain: accuracy changes are within noise (about 0.004 per model) in every mode." if not speed_ok else
+                        choice=(("Keep fp32 as the single harness-wide setting: reduced precision is not faster for these models (speed " + ", ".join(f"{m} {Q['speed'][m]['median']:.2f}x" for m in ("tf32", "bf16", "fp16")) + " of fp32) and accuracy changes are within noise (about 0.004 per model)." if "speed" in Q else "Keep fp32 as the single harness-wide setting unless a larger benchmark shows a real speed gain: accuracy changes are within noise (about 0.004 per model) in every mode.") if not speed_ok else
                                 "A reduced-precision mode is faster without a measurable accuracy cost; enforce it harness-wide so no proposal chooses its own."),
                         points=pts,
                         caveat="One pool, one seed per architecture, so single-mode accuracy changes under about 0.004 cannot be resolved. Models of 0.5M to 3M parameters at 30k sequences are launch- and data-bound; larger models or 300k pools may behave differently. Precision is set through AL_PRECISION in the harness for every model alike.",
@@ -382,6 +382,50 @@ def oct25_cards(d: dict) -> list[dict]:
                             "A multi-agent loop run costs about four times the LLM tokens of a single-call run; the whole set is roughly 15 million tokens and is paced by the account's five-hour usage limit, so results arrive over a day or two."],
                     caveat="100k is excluded for GPU cost. Evo2 has no nested or replicate pools, so both arms use one legacy pool; paired comparisons are still valid there, runs are not independent draws of the pool.",
                     change="A variant that beats the default by more than 0.005 across reservoirs would change the search recipe."))
+    return out
+
+
+def oct25b_cards(d: dict) -> list[dict]:
+    o = d.get("oct22", {})
+    out = []
+    G = "Results from the Oct 22 program"
+    C, Rd, Cv, Ax = o.get("cost"), o.get("reduced"), o.get("converge"), o.get("archexp")
+    if C and Rd:
+        pts = ["Cost of retraining the 33-architecture menu once (H100-equivalent GPU-hours, one seed): " + ", ".join(f"{k // 1000}k {C[str(k)]['menu_gpu_h_one_seed']:.1f}" for k in (10000, 30000, 100000, 300000) if str(k) in C) + f". Time grows as D^{C['fit_exponent']:.2f}; extrapolated: " +
+               ", ".join(f"{int(k) // 1000}k {v:.0f}" for k, v in C["pred_gpu_h_one_seed"].items()) + ". Three seeds or independent pools triple these.",
+               "If only K of the 33 architectures are retrained at the next size, chosen by their validation r at the previous size, the ensemble loses (K = 5 / 8 / 12, genomic test; full menu in brackets): " +
+               "; ".join(f"{int(D) // 1000}k {Rd[D]['K']['5']['prev_val'][0] - Rd[D]['full'][0]:+.4f} / {Rd[D]['K']['8']['prev_val'][0] - Rd[D]['full'][0]:+.4f} / {Rd[D]['K']['12']['prev_val'][0] - Rd[D]['full'][0]:+.4f} ({Rd[D]['full'][0]:.4f})" for D in Rd) + ".",
+               "Random choices of the same K lose more at K = 8 (" + ", ".join(f"{int(D) // 1000}k {Rd[D]['K']['8']['random'][0] - Rd[D]['full'][0]:+.4f}" for D in Rd) + "); picking by the same size's own validation r (which needs the full retrain) is no better than picking by the previous size's (K = 8: " +
+               ", ".join(f"{int(D) // 1000}k {Rd[D]['K']['8']['own_val'][0] - Rd[D]['K']['8']['prev_val'][0]:+.4f}" for D in Rd) + " difference).",
+               "So at the top of the ladder about eight architectures chosen on the previous size's validation r recover essentially the whole ensemble (0.0003 below at 300k), at about a quarter of the cost."]
+        if Cv:
+            pts.append("Training is not cut short at any size: " + "; ".join(f"{int(k) // 1000}k {v['stopped_by_patience']:.0%} of models stop by patience, {v['cap_hit']:.0%} hit the time cap (median {v['median_epochs']:.0f} of {v['median_planned']:.0f} planned epochs)" for k, v in Cv.items()) + ".")
+        out.append(dict(id="highd", group=G, status="provisional", figs=[],
+                        q="What does a run at a higher dataset size cost, and how small can the retrained menu be?",
+                        choice="Search once at a small size, carry the recipes (not text context), and at larger sizes retrain only about eight menu architectures chosen on the previous size's validation r; retrain the full menu only for the final ensembles.",
+                        points=pts,
+                        caveat="One retraining per architecture at each size for the genomic reservoir, so differences under about 0.003 are noise; whether a fresh search at 300k would beat the carried menu has not been tested (three runs at 300k are queued). Cost extrapolation assumes the measured scaling continues.",
+                        change="A fresh search at 300k that beat the carried menu by more than 0.005 at equal model counts would argue for searching again at the largest sizes."))
+    if Ax:
+        e = Ax["exponents"]
+        pts = [f"Scaling exponent of each of the {e['n']} architectures alone (genomic reservoir, 10k to 300k, 1 minus r against D on log axes): mean {e['mean']:.3f}, SD {e['sd']:.3f}, 5th to 95th percentile {e['lo']:.3f} to {e['hi']:.3f}; the ensemble's exponent is {e['ensemble']:.3f}. Across reservoirs and evaluation sets the ensemble exponents span 0.11 to 0.31, several times the spread between architectures."]
+        for es, lbl in (("genomic", "genomic test"), ("ood", "designed set"), ("random_32k", "random sequences")):
+            pr = Ax["reservoir_order"][es]
+            pts.append(f"Reservoir ordering architecture by architecture at 30k ({lbl}; share of the {pr['motif > genomic']['n']} architectures that agree): " + "; ".join(f"{k} {v['frac']:.0%}" for k, v in pr.items()) + ".")
+        out.append(dict(id="archexp", group=G, status="supported", figs=[],
+                        q="Do the scaling and reservoir conclusions hold architecture by architecture?",
+                        choice="Yes: individual architectures scale with nearly the same exponent as the ensemble, and the reservoir orderings that the ensembles show hold in nearly every individual architecture.",
+                        points=pts,
+                        caveat="Exponents from four sizes per architecture, one to three retrainings each; reservoir orderings from one pool per reservoir at 30k.",
+                        change="Architectures whose exponents or reservoir orderings disagree with the ensemble would show the ensemble hides an architecture-specific effect."))
+    out.append(dict(id="program4", group="Experiments launched Oct 22", status="running", figs=[],
+                    q="What else was launched on Oct 25?",
+                    choice="A 300k search check, HepG2 relabelling and H100-first routing.",
+                    points=["Three AutoResearch runs of 20 models on genomic 300k replicate pools (H100 only), to compare with the retrained menu at 300k at equal model counts, as at 10k, 30k and 100k. Each model takes about 35 minutes on an H100, so a run is about a day of training.",
+                            "HepG2 and differential relabelling of the 18 evaluation sets and the 30k replicate pools with the new HepG2 oracle (about 1.6 GPU-hours).",
+                            "Routing: every search run may use H100s first (V100 as overflow); the default queue is reserved for H100 starts so they are not blocked by V100 jobs; at most 40 search runs are active at once."],
+                    caveat="The 300k runs are the slowest item in the program; other users' jobs decide when H100s are free.",
+                    change="If the 300k search ties the carried menu, the per-size search can be dropped at every size above 30k."))
     return out
 
 
@@ -590,7 +634,7 @@ def build(d: dict) -> list[dict]:
                      "The limit was hit at 20:10 on Oct 20 (HPC 3.0M plus laptop 1.7M raw tokens in the window). Remaining programme is roughly 2,100 calls."],
              caveat="Cap is weighted and unpublished; numbers are raw token counts and do not include cache reads."),
     ]
-    return oct22_cards(d) + oct23_cards(d) + oct25_cards(d) + cards
+    return oct22_cards(d) + oct23_cards(d) + oct25_cards(d) + oct25b_cards(d) + cards
 
 
 CSS = """
