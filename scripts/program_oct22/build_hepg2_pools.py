@@ -22,7 +22,7 @@ RES = ["genomic", "random", "motif_ct_enriched"]
 MC = f"{R}/outputs/oracle_v3_hepg2/relabel"
 
 
-def check(z, m, what):
+def check(z, m, what, key="label"):
     n = len(z["sequences"])
     assert len(m["hepg2_label"]) == n, (what, n, len(m["hepg2_label"]))
     if "sequences" in m.files:
@@ -30,7 +30,7 @@ def check(z, m, what):
             f"{what}: sequence order differs"
         )
     stored = z["oracle_labels"].astype(np.float64)
-    r = np.corrcoef(stored, m["k562_label"])[0, 1]
+    r = np.corrcoef(stored, m[f"k562_{key}"])[0, 1]
     assert r > 0.999 and np.isfinite(m["hepg2_label"]).all(), (what, r)
     return r
 
@@ -61,12 +61,14 @@ def main():
             )
     z = np.load(f"{R}/outputs/val_variants/val_V0.npz", allow_pickle=True)
     m = np.load(f"{MC}/val/val_V0.multicell.npz", allow_pickle=True)
-    rr = check(z, m, "val_V0")
+    rr = check(
+        z, m, "val_V0", key="ens"
+    )  # val_V0 labels are the plain 10-fold ensemble mean (not out-of-fold), so the HepG2 / diff val labels must be too
     for tgt in ("hepg2", "diff"):
         np.savez(
             f"{R}/outputs/val_variants/val_V0_{tgt}.tmp.npz",
             sequences=z["sequences"],
-            oracle_labels=m[f"{tgt}_label"].astype(np.float32),
+            oracle_labels=m[f"{tgt}_ens"].astype(np.float32),
             oracle_id=f"oracle_v3_{tgt}",
         )
         os.replace(
