@@ -429,6 +429,7 @@ STEPS = {
     "ladder": an_ladder,
     "zoo": an_zoo,
     "anchor": an_anchor,
+    "hg": an_hg,
 }
 
 
