@@ -174,6 +174,35 @@ if "acq" in ONLY:
         needs=[rel(cand)],
     )
 
+if "acqdown" in ONLY:
+    # after scoring and `acq_dryrun.py menus` + `select`: train the 8-architecture menu (two seeds) at 100k on every selected set
+    for v in ("rand", "fullmean", "fullstd", "k8mean", "k8std", "k8rmean", "k8rstd"):
+        new += retrain(
+            f"ind30q_{v}",
+            f"{GP}/k562_acq/sel_{v}_d100000.npz",
+            100000,
+            f"outputs/menu_retrain_v0/acq100k_{v}",
+            4,
+            " --seeds 2",
+            menu=f"{R}/outputs/acq_oct26/menu_k8.json",
+        )
+if "hepg2" in ONLY:
+    # after relabelling + build_hepg2_pools.py: K562-optimised menu retrained on HepG2 and differential (K562 - HepG2) labels, 30k replicate r1
+    for tgt in ("hepg2", "diff"):
+        for st in RES:
+            new += retrain(
+                f"ind30h_{tgt}_{st}",
+                f"{GP}/k562_hepg2/{tgt}/{st}_r1_d30000.npz",
+                30000,
+                f"outputs/menu_retrain_v0/hg30k_{tgt}_{st}_r1",
+                3,
+                f" --val_cache {R}/outputs/val_variants/val_V0_{tgt}.npz",
+                needs=[f"outputs/val_variants/val_V0_{tgt}.npz"],
+            )
+    for c in new:
+        if c["name"].startswith("ind30h_"):
+            c["env"] = {"HP_ALLOW_UNSTAMPED": "1"}
+
 reg = json.load(open("scratchpad/dispatch_registry.json"))
 have = {c["name"] for c in reg}
 new = [c for c in new if c["name"] not in have]
@@ -192,7 +221,17 @@ new.sort(key=lambda c: next(i for i, pfx in enumerate(PRIO) if c["name"].startsw
 for c in new:
     for p in c.get("needs", []):
         if not os.path.exists(p) and not any(
-            x in p for x in ("_d600000", "_d1000000", "zoonomia_orthologs_v2", "candidates_r1")
+            x in p
+            for x in (
+                "_d600000",
+                "_d1000000",
+                "zoonomia_orthologs_v2",
+                "candidates_r1",
+                "k562_acq",
+                "k562_hepg2",
+                "acq_oct26",
+                "val_V0_",
+            )
         ):
             raise SystemExit(f"{c['name']}: missing input {p}")
 print(
