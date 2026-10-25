@@ -174,6 +174,17 @@ if "acq" in ONLY:
         needs=[rel(cand)],
     )
 
+if "a300" in ONLY:
+    # nested r1 baselines at 300k for the anchor ladder (genomic r1 300k exists as nest_genomic_r1_d300k); 12 shards like the other 300k menu retrains
+    for st in ("random", "motif_ct_enriched"):
+        new += retrain(
+            f"mrr_nest_{st}_300k",
+            P(st, 300000),
+            300000,
+            f"outputs/menu_retrain_v0/nest_{st}_r1_d300k",
+            12,
+            cap=120,
+        )
 if "acqdown" in ONLY:
     # after scoring and `acq_dryrun.py menus` + `select`: train the 8-architecture menu (two seeds) at 100k on every selected set
     for v in ("rand", "fullmean", "fullstd", "k8mean", "k8std", "k8rmean", "k8rstd"):
