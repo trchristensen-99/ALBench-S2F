@@ -197,6 +197,29 @@ if "acqdown" in ONLY:
             " --seeds 2",
             menu=f"{R}/outputs/acq_oct26/menu_k8.json",
         )
+if "hepg2rep" in ONLY:
+    # replicates r2 and r3 of the K562 / HepG2 / differential comparison (needs build_hepg2_pools.py --reps 2 3); the K562 arm is retrained too, on the same val_V0 cache
+    for r in (2, 3):
+        for tgt in ("k562", "hepg2", "diff"):
+            for st in RES:
+                pool = (
+                    P(st, 30000, r)
+                    if tgt == "k562"
+                    else f"{GP}/k562_hepg2/{tgt}/{st}_r{r}_d30000.npz"
+                )
+                vc = f"outputs/val_variants/val_V0{'' if tgt == 'k562' else '_' + tgt}.npz"
+                cs = retrain(
+                    f"ind30h_{tgt}_{st}_r{r}",
+                    pool,
+                    30000,
+                    f"outputs/menu_retrain_v0/hg30k_{tgt}_{st}_r{r}",
+                    3,
+                    f" --val_cache {R}/{vc}",
+                    needs=[vc],
+                )
+                for c in cs:
+                    c["env"] = {"HP_ALLOW_UNSTAMPED": "1"}
+                new += cs
 if "hepg2" in ONLY:
     # after relabelling + build_hepg2_pools.py: K562-optimised menu retrained on HepG2 and differential (K562 - HepG2) labels, 30k replicate r1
     for tgt in ("hepg2", "diff"):

@@ -365,15 +365,18 @@ def an_hg():
         e: {t: side[e][f"{t}_label"].astype(float) for t in ("k562", "hepg2", "diff")} for e in EV
     }
     res = {}
-    for st in RES:
+    for st, rep in [(st, rep) for rep in (1, 2, 3) for st in RES]:
         arms = {
-            "k562": load([f"vv30k_V0c_{st}_r1"], rounds=[0]),
-            "hepg2": load([f"hg30k_hepg2_{st}_r1"], rounds=[0]),
-            "diff": load([f"hg30k_diff_{st}_r1"], rounds=[0]),
+            "k562": load(
+                [f"vv30k_V0c_{st}_r1" if rep == 1 else f"hg30k_k562_{st}_r{rep}"], rounds=[0]
+            ),
+            "hepg2": load([f"hg30k_hepg2_{st}_r{rep}"], rounds=[0]),
+            "diff": load([f"hg30k_diff_{st}_r{rep}"], rounds=[0]),
         }
         if any(v is None for v in arms.values()):
             print(
-                f"[hg] {st}: missing arms {[k for k, v in arms.items() if v is None]}", flush=True
+                f"[hg] {st} r{rep}: missing arms {[k for k, v in arms.items() if v is None]}",
+                flush=True,
             )
             continue
         idx = sorted(common(list(arms.values())))
@@ -413,11 +416,44 @@ def an_hg():
                 "k562_vs_hepg2": float(spearmanr(single["k562"][e], single["hepg2"][e])[0]),
                 "k562_vs_diff": float(spearmanr(single["k562"][e], single["diff"][e])[0]),
             }
-        res[st] = out
+        res[st if rep == 1 else f"{st}_r{rep}"] = out
         print(
-            f"[hg] {st} ({len(idx)} architectures), genomic eval: direct k562 {out['direct']['genomic']['k562']:.4f}, hepg2 {out['direct']['genomic']['hepg2']:.4f}, diff {out['direct']['genomic']['diff']:.4f}"
+            f"[hg] {st} r{rep} ({len(idx)} architectures), genomic eval: direct k562 {out['direct']['genomic']['k562']:.4f}, hepg2 {out['direct']['genomic']['hepg2']:.4f}, diff {out['direct']['genomic']['diff']:.4f}"
             f" | diff from two students {out['difference_of_students']['genomic']:.4f} | k562 student on hepg2 labels {out['k562_student_as']['genomic']['hepg2']:.4f}"
             f" | architecture rank Spearman k562 vs hepg2 {out['arch_rank_spearman']['genomic']['k562_vs_hepg2']:.2f}",
+            flush=True,
+        )
+    runs = [v for v in res.values() if isinstance(v, dict) and "direct" in v]
+    if len(runs) >= 3:
+        import analyze_oct25 as b
+
+        res["summary"] = {
+            "n_runs": len(runs),
+            "direct_minus_two_students": {
+                e: b.paired(
+                    [v["difference_of_students"][e] for v in runs],
+                    [v["direct"][e]["diff"] for v in runs],
+                )
+                for e in EV
+            },
+            "hepg2_student_minus_k562_student": {
+                e: b.paired(
+                    [v["direct"][e]["k562"] for v in runs], [v["direct"][e]["hepg2"] for v in runs]
+                )
+                for e in EV
+            },
+            "arch_rank_spearman_mean": {
+                e: float(np.mean([v["arch_rank_spearman"][e]["k562_vs_hepg2"] for v in runs]))
+                for e in EV
+            },
+        }
+        d = res["summary"]["direct_minus_two_students"]
+        print(
+            f"[hg] over {len(runs)} runs: direct differential student minus difference of two students: "
+            + "; ".join(
+                f"{e} {d[e]['mean']:+.4f} [{d[e]['lo']:+.4f}, {d[e]['hi']:+.4f}] wins {d[e]['wins']}/{d[e]['n']}"
+                for e in EV
+            ),
             flush=True,
         )
     DATA["hg"] = res
