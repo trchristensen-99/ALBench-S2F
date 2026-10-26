@@ -423,6 +423,59 @@ def an_hg():
     DATA["hg"] = res
 
 
+# ------------------------------------------------------------------------------------------------------------------------- acq
+def an_acq():
+    """Acquisition dry run (30k genomic base + 70k selected from 300k candidates, 100k total, 8-architecture menu x 2 seeds):
+    does selecting with a reduced selection ensemble (8 best / 8 random architectures) train as good a model as selecting with the full menu?"""
+    info = json.load(open("outputs/grid_pools/k562_acq/selection_info.json"))
+    res = {"selection": info["variants"], "arms": {}}
+    for v in ("rand", "fullmean", "fullstd", "k8mean", "k8std", "k8rmean", "k8rstd"):
+        c = load([f"acq100k_{v}"])
+        if c is None or len(set(c["rnd"])) < 2 or c["V"].shape[1] < 14:
+            print(
+                f"[acq] {v}: incomplete ({0 if c is None else c['V'].shape[1]} models)", flush=True
+            )
+            continue
+        e16 = ens(c, np.ones(c["V"].shape[1], bool))
+        e8 = [ens(c, c["rnd"] == s) for s in sorted(set(c["rnd"]))]
+        single = {
+            e: float(
+                np.mean([a.mj.pear(c["T"][e][:, j], c["yt"][e]) for j in range(c["V"].shape[1])])
+            )
+            for e in EV
+        }
+        res["arms"][v] = dict(
+            n_models=int(c["V"].shape[1]), ens16=e16, ens8_by_seed=e8, mean_single=single
+        )
+        print(
+            f"[acq] {v:9s} n={c['V'].shape[1]:2d} ensemble r: {fmt(e16)} | two single-seed ensembles genomic {e8[0]['genomic']:.4f} {e8[1]['genomic']:.4f} | mean single genomic {single['genomic']:.4f}",
+            flush=True,
+        )
+    if "rand" in res["arms"]:
+        r0 = res["arms"]["rand"]
+        res["delta_vs_rand"] = {
+            v: {e: res["arms"][v]["ens16"][e] - r0["ens16"][e] for e in EV}
+            for v in res["arms"]
+            if v != "rand"
+        }
+        sds = [
+            abs(arm["ens8_by_seed"][0][e] - arm["ens8_by_seed"][1][e]) / np.sqrt(2)
+            for arm in res["arms"].values()
+            for e in EV
+        ]
+        res["seed_sd_estimate"] = float(np.sqrt(np.mean(np.square(sds))))
+        print(
+            "[acq] delta vs random selection (16-model ensemble):",
+            {
+                v: {e[:3]: round(x, 4) for e, x in d.items()}
+                for v, d in res["delta_vs_rand"].items()
+            },
+            f"| seed SD of an 8-model ensemble ~{res['seed_sd_estimate']:.4f}",
+            flush=True,
+        )
+    DATA["acq"] = res
+
+
 STEPS = {
     "noise": an_noise,
     "seeds": an_seeds,
@@ -430,6 +483,7 @@ STEPS = {
     "zoo": an_zoo,
     "anchor": an_anchor,
     "hg": an_hg,
+    "acq": an_acq,
 }
 
 
