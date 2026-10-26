@@ -568,6 +568,59 @@ def an_agent2():
     DATA["agent2"] = res
 
 
+def an_agent_grid():
+    """Coordinator (no reflector) against the default loop across reservoirs and sizes, paired by replicate pool; genomic 30k comes from the earlier six-pool test."""
+    import analyze_oct25 as b
+
+    cells = [
+        ("genomic", 30000, 6),
+        ("random", 30000, 6),
+        ("motif_ct_enriched", 30000, 6),
+        ("evoaug_paper2023", 30000, 3),
+        ("evo2", 30000, 3),
+        ("genomic", 10000, 6),
+        ("random", 10000, 6),
+        ("motif_ct_enriched", 10000, 6),
+    ]
+    res = {"cells": {}}
+    allx, ally = [], []
+    for st, D, n in cells:
+        k = D // 1000
+        xs, ys = [], []
+        for r in range(1, n + 1):
+            d0, d1 = (
+                b.run_stats(f"{O22}/{st}_{k}k/rep{r}"),
+                b.run_stats(f"{O22}/{st}_{k}k_agent_coord_noref/rep{r}"),
+            )
+            if d0 and d1:
+                xs.append(d0["ens"])
+                ys.append(d1["ens"])
+        if not xs:
+            print(f"[agent_grid] {st} {k}k: no complete pairs yet", flush=True)
+            continue
+        xs, ys = np.array(xs), np.array(ys)
+        res["cells"][f"{st}_{k}k"] = {e: b.paired(xs[:, i], ys[:, i]) for i, e in enumerate(EV)} | {
+            "default_mean": xs.mean(0).tolist(),
+            "coordinator_mean": ys.mean(0).tolist(),
+        }
+        allx.append(xs)
+        ally.append(ys)
+        g = res["cells"][f"{st}_{k}k"]["genomic"]
+        print(
+            f"[agent_grid] {st:17s} {k:2d}k: {g['n']} pairs, default {xs[:, 0].mean():.4f} coordinator {ys[:, 0].mean():.4f} diff {g['mean']:+.4f} [{g['lo']:+.4f}, {g['hi']:+.4f}] wins {g['wins']}/{g['n']}",
+            flush=True,
+        )
+    if allx:
+        X, Y = np.vstack(allx), np.vstack(ally)
+        res["pooled"] = {e: b.paired(X[:, i], Y[:, i]) for i, e in enumerate(EV)}
+        g = res["pooled"]["genomic"]
+        print(
+            f"[agent_grid] POOLED over {g['n']} paired runs: coordinator - default genomic {g['mean']:+.4f} [{g['lo']:+.4f}, {g['hi']:+.4f}] p={g['p']:.3f} wins {g['wins']}/{g['n']}",
+            flush=True,
+        )
+    DATA["agent_grid"] = res
+
+
 STEPS = {
     "noise": an_noise,
     "seeds": an_seeds,
@@ -578,6 +631,7 @@ STEPS = {
     "acq": an_acq,
     "grid": an_grid,
     "agent2": an_agent2,
+    "agent_grid": an_agent_grid,
 }
 
 
