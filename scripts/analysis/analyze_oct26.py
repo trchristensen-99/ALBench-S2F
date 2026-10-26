@@ -476,6 +476,98 @@ def an_acq():
     DATA["acq"] = res
 
 
+# ------------------------------------------------------------------------------------------------------------------------ grid
+O22 = "outputs/archsearch_reps_oct22"
+
+
+def an_grid():
+    """Explore-style prompt against the default prompt across reservoirs and sizes (paired by replicate pool; each run = 20 models, NNLS ensemble)."""
+    import analyze_oct25 as b
+
+    cells = {
+        ("genomic", 30000): ("genomic", 9),
+        ("random", 30000): ("random", 6),
+        ("motif_ct_enriched", 30000): ("motif_ct_enriched", 6),
+        ("evoaug_paper2023", 30000): ("evoaug_paper2023", 3),
+        ("evo2", 30000): ("evo2", 3),
+        ("genomic", 10000): ("genomic", 6),
+        ("random", 10000): ("random", 6),
+        ("motif_ct_enriched", 10000): ("motif_ct_enriched", 6),
+        ("evoaug_paper2023", 10000): ("evoaug_paper2023", 3),
+        ("evo2", 10000): ("evo2", 3),
+    }
+    res = {"cells": {}}
+    allx, ally = [], []
+    for (st, D), (_, n) in cells.items():
+        k = D // 1000
+        xs, ys = [], []
+        for r in range(1, n + 1):
+            d0, d1 = (
+                b.run_stats(f"{O22}/{st}_{k}k/rep{r}"),
+                b.run_stats(f"{O22}/{st}_{k}k_explore/rep{r}"),
+            )
+            if d0 and d1:
+                xs.append(d0["ens"])
+                ys.append(d1["ens"])
+        if not xs:
+            print(f"[grid] {st} {k}k: no complete pairs", flush=True)
+            continue
+        xs, ys = np.array(xs), np.array(ys)
+        res["cells"][f"{st}_{k}k"] = {e: b.paired(xs[:, i], ys[:, i]) for i, e in enumerate(EV)} | {
+            "default_mean": xs.mean(0).tolist(),
+            "explore_mean": ys.mean(0).tolist(),
+        }
+        allx.append(xs)
+        ally.append(ys)
+        g = res["cells"][f"{st}_{k}k"]["genomic"]
+        print(
+            f"[grid] {st:17s} {k:2d}k: {g['n']} pairs, default {xs[:, 0].mean():.4f} explore {ys[:, 0].mean():.4f} diff {g['mean']:+.4f} [{g['lo']:+.4f}, {g['hi']:+.4f}] wins {g['wins']}/{g['n']}",
+            flush=True,
+        )
+    if allx:
+        X, Y = np.vstack(allx), np.vstack(ally)
+        res["pooled"] = {e: b.paired(X[:, i], Y[:, i]) for i, e in enumerate(EV)}
+        g = res["pooled"]["genomic"]
+        print(
+            f"[grid] POOLED over {g['n']} paired runs: explore - default genomic {g['mean']:+.4f} [{g['lo']:+.4f}, {g['hi']:+.4f}] p={g['p']:.3f} wins {g['wins']}/{g['n']}; ood {res['pooled']['ood']['mean']:+.4f}; random {res['pooled']['random_32k']['mean']:+.4f}",
+            flush=True,
+        )
+    DATA["grid"] = res
+
+
+def an_agent2():
+    """Agent-loop variants (coordinator with/without reflector, explore proposer) against the default single-call loop on the same six genomic 30k pools."""
+    import analyze_oct25 as b
+
+    arms = {
+        "coordinator + reflector": "genomic_30k_agent_coord",
+        "coordinator, no reflector": "genomic_30k_agent_coord_noref",
+        "explore proposer": "genomic_30k_agent_explore",
+    }
+    base = [b.run_stats(f"{O22}/genomic_30k/rep{r}") for r in range(1, 7)]
+    res = {"arms": {}}
+    for arm, key in arms.items():
+        st = [b.run_stats(f"{O22}/{key}/rep{r}") for r in range(1, 7)]
+        ok = [i for i in range(6) if base[i] and st[i]]
+        if len(ok) < 2:
+            print(f"[agent2] {arm}: {len(ok)} complete pairs", flush=True)
+            continue
+        res["arms"][arm] = {
+            e: b.paired([base[i]["ens"][j] for i in ok], [st[i]["ens"][j] for i in ok])
+            for j, e in enumerate(EV)
+        }
+        res["arms"][arm]["mean_val"] = b.paired(
+            [base[i]["mean_val"] for i in ok], [st[i]["mean_val"] for i in ok]
+        )
+        res["arms"][arm]["default_mean"] = float(np.mean([base[i]["ens"][0] for i in ok]))
+        g = res["arms"][arm]["genomic"]
+        print(
+            f"[agent2] {arm}: {g['n']} pairs, ensemble genomic diff vs default {g['mean']:+.4f} [{g['lo']:+.4f}, {g['hi']:+.4f}] wins {g['wins']}/{g['n']}; mean single-model val {res['arms'][arm]['mean_val']['mean']:+.4f}",
+            flush=True,
+        )
+    DATA["agent2"] = res
+
+
 STEPS = {
     "noise": an_noise,
     "seeds": an_seeds,
@@ -484,6 +576,8 @@ STEPS = {
     "anchor": an_anchor,
     "hg": an_hg,
     "acq": an_acq,
+    "grid": an_grid,
+    "agent2": an_agent2,
 }
 
 
