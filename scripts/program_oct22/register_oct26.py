@@ -176,7 +176,7 @@ if "acq" in ONLY:
 
 if "a300" in ONLY:
     # nested r1 baselines at 300k for the anchor ladder (genomic r1 300k exists as nest_genomic_r1_d300k); 12 shards like the other 300k menu retrains
-    for st in ("random", "motif_ct_enriched"):
+    for st in ("random", "motif_ct_enriched", "evoaug_paper2023"):
         new += retrain(
             f"mrr_nest_{st}_300k",
             P(st, 300000),
