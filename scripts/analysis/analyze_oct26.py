@@ -657,6 +657,41 @@ def an_agent_grid():
     DATA["agent_grid"] = res
 
 
+def an_acq3():
+    """Three rounds of 23.3k against one round of 70k (same 30k genomic base, same 300k candidates, same 8-architecture final menu, 2 seeds)."""
+    res = {"arms": {}}
+    pairs = {"mean": ("r3mean", "k8mean"), "std": ("r3std", "k8std")}
+    z1 = np.load("outputs/grid_pools/k562_acq/selection_indices.npz")
+    for crit, (three, one) in pairs.items():
+        c3, c1 = load([f"acq3r_{three}_final"]), load([f"acq100k_{one}"])
+        if c3 is None or c1 is None or c3["V"].shape[1] < 14:
+            print(
+                f"[acq3] {crit}: three-round arm incomplete ({0 if c3 is None else c3['V'].shape[1]} models)",
+                flush=True,
+            )
+            continue
+        e3, e1 = ens(c3, np.ones(c3["V"].shape[1], bool)), ens(c1, np.ones(c1["V"].shape[1], bool))
+        sel3 = np.concatenate(
+            [np.load(f"outputs/grid_pools/k562_acq/rounds/{three}_S{i}.npy") for i in (1, 2, 3)]
+        )
+        lab = np.load("outputs/grid_pools/k562_acq/candidates_r1.npz", allow_pickle=True)[
+            "oracle_labels"
+        ]
+        jac = len(np.intersect1d(sel3, z1[one])) / len(np.union1d(sel3, z1[one]))
+        res["arms"][crit] = dict(
+            three_round=e3,
+            one_round=e1,
+            n_models=[int(c3["V"].shape[1]), int(c1["V"].shape[1])],
+            jaccard_selected=float(jac),
+            label_mean=[float(lab[sel3].mean()), float(lab[z1[one]].mean())],
+        )
+        print(
+            f"[acq3] {crit}: three rounds {fmt(e3)} | one round {fmt(e1)} | diff genomic {e3['genomic'] - e1['genomic']:+.4f} ood {e3['ood'] - e1['ood']:+.4f} random {e3['random_32k'] - e1['random_32k']:+.4f} | overlap of picks {jac:.2f}",
+            flush=True,
+        )
+    DATA["acq3"] = res
+
+
 STEPS = {
     "noise": an_noise,
     "seeds": an_seeds,
@@ -665,6 +700,7 @@ STEPS = {
     "anchor": an_anchor,
     "hg": an_hg,
     "acq": an_acq,
+    "acq3": an_acq3,
     "grid": an_grid,
     "agent2": an_agent2,
     "agent_grid": an_agent_grid,
