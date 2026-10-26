@@ -692,6 +692,30 @@ def an_acq3():
     DATA["acq3"] = res
 
 
+def an_live():
+    """Snapshot of the dispatcher program (GPUs in use, per-group progress) for the ledger's 'running now' card; needs the HPC dispatcher module."""
+    import re
+    import subprocess
+
+    txt = subprocess.run(
+        [sys.executable, "scripts/program_oct22/status_oct26.py"],
+        capture_output=True,
+        text=True,
+        timeout=170,
+    ).stdout
+    groups = {}
+    for m in re.finditer(r"^(\S.*?)\s{2,}(\d+)/(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$", txt, re.M):
+        groups[m.group(1).strip()] = [int(m.group(i)) for i in range(2, 7)]
+    first, second = (txt.splitlines() + ["", ""])[:2]
+    DATA["live"] = {
+        "stamp": first.split("|")[0].strip(),
+        "free": first.split("|")[-1].strip(),
+        "mine": second,
+        "groups": groups,
+    }
+    print(f"[live] {first}; {len(groups)} groups", flush=True)
+
+
 STEPS = {
     "noise": an_noise,
     "seeds": an_seeds,
@@ -704,6 +728,7 @@ STEPS = {
     "grid": an_grid,
     "agent2": an_agent2,
     "agent_grid": an_agent_grid,
+    "live": an_live,
 }
 
 
