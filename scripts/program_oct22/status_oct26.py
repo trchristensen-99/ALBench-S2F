@@ -20,6 +20,7 @@ GROUPS = [
     ("1M pool builds", ("pool1m_",)),
     ("anchor 600k", ("a600_",)),
     ("anchor 1M", ("a1m_",)),
+    ("300k nested baselines", ("mrr_nest_",)),
     ("noise x1 (10k/30k/100k)", ("ind30n1_",)),
     ("noise x2 (30k)", ("ind30n2_",)),
     ("validation phase 2", ("ind30v_",)),
