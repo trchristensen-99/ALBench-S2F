@@ -212,7 +212,7 @@ def fig_hg(d, out):
         )
         s = H["summary"]["direct_minus_two_students"][e]
         ax.set_title(
-            f"{EVN[e]}: {s['mean']:+.3f} [{s['lo']:+.3f}, {s['hi']:+.3f}], {s['wins']}/{s['n']} runs",
+            f"{EVN[e]}\n{s['mean']:+.3f} [{s['lo']:+.3f}, {s['hi']:+.3f}], {s['wins']}/{s['n']} runs",
             fontsize=9,
         )
     axs[0].set_ylabel("r against the differential label (K562 - HepG2)")
