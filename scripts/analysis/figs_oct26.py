@@ -132,7 +132,13 @@ def fig_noise(d, out):
         ax.set_title(EVN[e], fontsize=10)
         ax.set_xlabel("training sequences")
     axs[0].set_ylabel("ensemble r on clean oracle labels")
-    axs[0].legend(fontsize=7, loc="upper left")
+    fig.legend(
+        *axs[0].get_legend_handles_labels(),
+        fontsize=7.5,
+        loc="lower center",
+        ncol=3,
+        bbox_to_anchor=(0.5, -0.12),
+    )
     fig.suptitle(
         "Training and validation labels with Gosai-sized measurement error (crosses: twice that error, 30k)",
         fontsize=10.5,
