@@ -68,16 +68,22 @@ def fig_anchor(d, out):
                         f"{P[D] - pr[str(D)]:+.3f}",
                         (D, P[D]),
                         textcoords="offset points",
-                        xytext=(6, -12),
+                        xytext=(0, -17),
                         fontsize=8.5,
                         color=RED,
                     )
         ax.set_xscale("log")
         ax.set_xticks([10000, 30000, 100000, 300000, 1000000])
         ax.set_xticklabels(["10k", "30k", "100k", "300k", "1M"])
-        ax.set_title(
-            f"{RESN[st]} reservoir ({A[st]['n_arch_common']} architectures common to all sizes)",
-            fontsize=10,
+        ax.set_title(f"{RESN[st]} reservoir", fontsize=10)
+        ax.text(
+            0.02,
+            0.96,
+            f"{A[st]['n_arch_common']} architectures common to all sizes",
+            transform=ax.transAxes,
+            fontsize=8,
+            va="top",
+            color=GREY,
         )
         ax.set_xlabel("training sequences")
     axs[0].set_ylabel("ensemble r, genomic test")
@@ -162,7 +168,9 @@ def fig_acq(d, out):
         lo = min(vals) - 0.02 if e != "ood" else min(vals) - 0.05
         ax.set_ylim(lo, max(vals) + (0.006 if e != "ood" else 0.02))
         ax.set_xticks(range(len(vals)))
-        ax.set_xticklabels([n for _, n in order], fontsize=7.5)
+        ax.set_xticklabels(
+            [n.replace("\n", " ") for _, n in order], fontsize=7.5, rotation=40, ha="right"
+        )
         ax.set_title(EVN[e], fontsize=10)
     axs[0].set_ylabel("ensemble r (8 architectures x 2 seeds)")
     axs[1].legend(fontsize=7.5, loc="lower right")
