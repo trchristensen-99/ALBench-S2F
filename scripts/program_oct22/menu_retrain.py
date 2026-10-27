@@ -86,6 +86,29 @@ def main() -> None:
         "(scale 1 = the measured error of the real assay); test labels stay clean oracle values. 0 = off (unchanged behaviour)",
     )
     ap.add_argument(
+        "--epoch_scale",
+        type=float,
+        default=1.0,
+        help="multiply every entry's epoch budget (and so its LR schedule length); 1 = unchanged (training-recipe sensitivity study)",
+    )
+    ap.add_argument(
+        "--lr_scale",
+        type=float,
+        default=1.0,
+        help="multiply every entry's peak learning rate; 1 = unchanged",
+    )
+    ap.add_argument(
+        "--bs_scale",
+        type=float,
+        default=1.0,
+        help="multiply every entry's batch size; 1 = unchanged",
+    )
+    ap.add_argument(
+        "--save_models",
+        action="store_true",
+        help="also save each trained model's best-validation weights as {id}.pt (state_dict) so the ensemble can be reloaded for acquisition; default off",
+    )
+    ap.add_argument(
         "--score_pool",
         default="",
         help="npz with `sequences`: every trained model also saves its RC-averaged predictions on them as `poolpred` (acquisition dry runs); default off",
@@ -221,6 +244,25 @@ def main() -> None:
         f"  train={len(tr_s):,} val={len(va_s):,} test={len(te_s):,} evals={len(tests)}", flush=True
     )
 
+    _ov = {
+        "epoch_scale": args.epoch_scale,
+        "lr_scale": args.lr_scale,
+        "bs_scale": args.bs_scale,
+        "al_patience": os.environ.get("AL_PATIENCE", "8"),
+    }
+    _ovp = out / "train_override.json"
+    if _ovp.exists() and json.load(open(_ovp)) != _ov:
+        raise SystemExit(
+            f"{args.out_dir} was started with a different training override ({json.load(open(_ovp))}); use a fresh --out_dir"
+        )
+    if (args.epoch_scale, args.lr_scale, args.bs_scale) != (1.0, 1.0, 1.0) or _ov[
+        "al_patience"
+    ] != "8":
+        _ovp.write_text(json.dumps(_ov))
+    elif _ovp.exists():
+        raise SystemExit(
+            f"{args.out_dir} was started with a training override; pass the same flags or use a fresh --out_dir"
+        )
     Xpool = None
     if args.score_pool:
         _pz = np.load(args.score_pool, allow_pickle=True)
@@ -254,6 +296,12 @@ def main() -> None:
                     )
                 continue
             tc = dict(e["train_config"])
+            if args.epoch_scale != 1.0:
+                tc["epochs"] = max(10, int(round(tc["epochs"] * args.epoch_scale)))
+            if args.lr_scale != 1.0:
+                tc["lr"] = tc["lr"] * args.lr_scale
+            if args.bs_scale != 1.0:
+                tc["batch_size"] = max(16, int(round(tc["batch_size"] * args.bs_scale)))
             if args.smoke:
                 tc["epochs"] = 3
             t0 = time.time()
@@ -347,6 +395,11 @@ def main() -> None:
                     "variant": _vc["variant"],
                     "n": _vc["n"],
                 }
+            if args.save_models:
+                _tmp = out / f"{mid}.pt.tmp"
+                torch.save({k_: v_.detach().cpu() for k_, v_ in model.state_dict().items()}, _tmp)
+                os.replace(_tmp, out / f"{mid}.pt")
+                meta["weights"] = f"{mid}.pt"
             _atomic_savez(
                 out / f"{mid}.npz", **{kk: np.asarray(x, np.float32) for kk, x in res.items()}
             )

@@ -628,6 +628,199 @@ def an_unseen_menu():
     DATA["unseen_menu"] = res
 
 
+def kcurve_orders(menu, avail, seed=0, n_random=60):
+    """Orderings of the menu entries that were successfully retrained (`avail`: menu indices). Rules:
+    val      all entries by the validation r they had in their own search;
+    first1 / first2   the best 1 (2) entries of every search run first (by search validation r), the rest by search validation r;
+    random   n_random random permutations (reported as their mean)."""
+    avail = list(avail)
+
+    def v(i):
+        x = menu[i].get("orig_val")
+        return -1.0 if x is None else float(x)
+
+    by_val = sorted(avail, key=lambda i: -v(i))
+    out = {"val": by_val}
+    runs: dict = {}
+    for i in by_val:
+        runs.setdefault(menu[i]["cell"], []).append(i)
+    for nfirst in (1, 2):
+        head = []
+        for rank in range(nfirst):
+            head += sorted((r[rank] for r in runs.values() if len(r) > rank), key=lambda i: -v(i))
+        out[f"first{nfirst}"] = head + [i for i in by_val if i not in set(head)]
+    rg = np.random.default_rng(seed)
+    out["random"] = [list(rg.permutation(avail)) for _ in range(n_random)]
+    return out
+
+
+def kcurve_cell(menu, c, allowed=None):
+    """For one retrained pool: ensemble r against the number K of configurations trained, per ordering rule, for the final 8-member ensemble
+    (the 8 best of the K by retrained validation r, equal weights) and for non-negative weights over all K."""
+    if c is None or c["V"].shape[1] < 12:
+        return None
+    col = {int(i): j for j, i in enumerate(c["idx"]) if allowed is None or int(i) in allowed}
+    val = np.array([a.mj.pear(c["V"][:, j], c["yv"]) for j in range(c["V"].shape[1])])
+    orders = kcurve_orders(menu, list(col))
+    n = len(col)
+    every = sorted(col.values())
+
+    def top8(cols):
+        cols = list(cols)
+        sel = sorted(cols, key=lambda j: -val[j])[:8]
+        return {e: a.mj.pear(c["T"][e][:, sel].mean(1), c["yt"][e]) for e in EV}
+
+    res = {"n": n}
+    for rule, od in orders.items():
+        if rule == "random":
+            acc = {e: np.zeros(n) for e in EV}
+            for perm in od:
+                for k in range(1, n + 1):
+                    r = top8([col[i] for i in perm[:k]])
+                    for e in EV:
+                        acc[e][k - 1] += r[e] / len(od)
+            res[rule] = {"top8": {e: acc[e].tolist() for e in EV}}
+            continue
+        t8 = {e: [] for e in EV}
+        nn = {e: [] for e in EV}
+        for k in range(1, n + 1):
+            cols = [col[i] for i in od[:k]]
+            r = top8(cols)
+            for e in EV:
+                t8[e].append(r[e])
+            if k >= 2:
+                q = a.nnls_ens(c["V"], c["yv"], c["T"], c["yt"], cols)
+                for e in EV:
+                    nn[e].append(q[e])
+            else:
+                for e in EV:
+                    nn[e].append(r[e])
+        res[rule] = {"top8": t8, "nnls": nn, "order": [int(i) for i in od]}
+    res["full_nnls"] = a.nnls_ens(c["V"], c["yv"], c["T"], c["yt"], every)
+    return res
+
+
+def kcurve_seeds_cell(menu, c, seeds=(0, 1, 2)):
+    """K configurations x several seeds on one pool (best-2-of-every-run-first order): the 8 best of the K x S trained models by validation r,
+    against the 8 best of all configurations x S seeds."""
+    if c is None:
+        return None
+    keep = np.isin(c["rnd"], list(seeds))
+    cols_all = np.flatnonzero(keep)
+    idxs = sorted({int(i) for i in c["idx"][cols_all]})
+    if len(idxs) < 12:
+        return None
+    val = np.array([a.mj.pear(c["V"][:, j], c["yv"]) for j in range(c["V"].shape[1])])
+    order = kcurve_orders(menu, idxs)["first2"]
+
+    def top8(cols):
+        sel = sorted(cols, key=lambda j: -val[j])[:8]
+        return {e: a.mj.pear(c["T"][e][:, sel].mean(1), c["yt"][e]) for e in EV}
+
+    top = {e: [] for e in EV}
+    for k in range(1, len(order) + 1):
+        cs = [j for j in cols_all if int(c["idx"][j]) in set(order[:k])]
+        r = top8(cs)
+        for e in EV:
+            top[e].append(r[e])
+    return {
+        "n_models_full": int(len(cols_all)),
+        "seeds": list(seeds),
+        "top8": top,
+        "full_top8": top8(list(cols_all)),
+        "full_nnls": a.nnls_ens(c["V"], c["yv"], c["T"], c["yt"], list(cols_all)),
+    }
+
+
+def an_kcurve():
+    """How many configurations need to be trained on a dataset for an approximately optimal ensemble? Retrained menu_v0 (33 configurations from four search runs
+    and the reference) on every reservoir x size where three pools exist, plus the 45-candidate menus from 15 runs (MG, MF) at 30k."""
+    menu = json.load(open("outputs/menu_retrain_v0/menu_v0.json"))
+
+    def pools(st, D):
+        k = D // 1000
+        if D == 30000:
+            return [f"ind30k_{st}_r{r}" for r in (1, 2, 3)]
+        tag = f"un{k}k_{st}_r"
+        if all(os.path.exists(f"{MR_}/{tag}{r}/COMPLETE_2of3") for r in (1, 2, 3)):
+            return [f"{tag}{r}" for r in (1, 2, 3)]
+        return [f"lad_{st}_r1_d{k}k"] if st != "genomic" else [f"nest_genomic_r1_d{k}k"]
+
+    res = {}
+    for st in RES:
+        for D in (10000, 30000, 100000):
+            loaded = [
+                c
+                for c in (load([d], rounds=[0]) for d in pools(st, D))
+                if c is not None and c["V"].shape[1] >= 12
+            ]
+            if not loaded:
+                continue
+            common_idx = set.intersection(*[{int(i) for i in c["idx"]} for c in loaded])
+            cells = [kcurve_cell(menu, c, common_idx) for c in loaded]
+            res[f"menu33|{st}|{D}"] = {
+                "pools": cells,
+                "n_pools": len(cells),
+                "pool_dirs": pools(st, D),
+            }
+            f = np.mean([c["full_nnls"]["genomic"] for c in cells])
+            f8 = np.mean([c["val"]["top8"]["genomic"][-1] for c in cells])
+            k90 = {}
+            for rule in ("val", "first1", "first2", "random"):
+                m = np.mean([c[rule]["top8"]["genomic"] for c in cells], 0)
+                k90[rule] = {
+                    tol: int(next((k + 1 for k in range(len(m)) if m[k] >= f8 - tol), len(m)))
+                    for tol in (0.002, 0.003, 0.005)
+                }
+            res[f"menu33|{st}|{D}"]["k_needed_top8"] = {
+                r: {str(t): v for t, v in kk.items()} for r, kk in k90.items()
+            }
+            res[f"menu33|{st}|{D}"]["full_top8"], res[f"menu33|{st}|{D}"]["full_nnls"] = (
+                float(f8),
+                float(f),
+            )
+            print(
+                f"[kcurve] {st} {D // 1000}k ({len(cells)} pools, {len(common_idx)} configs): top-8 of all {f8:.4f}, non-negative weights on all {f:.4f}; K needed for the 8-member ensemble within 0.003 of the top-8 of all: "
+                + ", ".join(f"{r} {v[0.003]}" for r, v in k90.items()),
+                flush=True,
+            )
+    seedsrc = {
+        ("genomic", 10000): ["nest_genomic_r1_d10k", "lad_genomic_r1_d10k_seeds12"],
+        ("genomic", 30000): ["ind30k_genomic_r1", "ind30k_genomic_r1_seeds3to8"],
+        ("genomic", 100000): ["nest_genomic_r1_d100k", "lad_genomic_r1_d100k_seeds12"],
+        ("random", 30000): ["ind30k_random_r1", "ind30k_random_r1_seeds3to8"],
+        ("motif_ct_enriched", 30000): [
+            "ind30k_motif_ct_enriched_r1",
+            "ind30k_motif_ct_enriched_r1_seeds3to8",
+        ],
+    }
+    for (st, D), dirs in seedsrc.items():
+        r = kcurve_seeds_cell(menu, load(dirs))
+        if r:
+            res[f"seeds3|{st}|{D}"] = {"seeds": r}
+            m = r["top8"]["genomic"]
+            print(
+                f"[kcurve] {st} {D // 1000}k x 3 seeds: top-8 of all {r['full_top8']['genomic']:.4f}; K=4 {m[3]:.4f}, K=8 {m[7]:.4f}, K=12 {m[11]:.4f}, K=16 {m[15]:.4f}",
+                flush=True,
+            )
+    for src in ("MF", "MG"):
+        m45 = json.load(open(f"outputs/menus_oct22/{src}.json"))
+        for t in ("genomic", "random", "motif"):
+            r = kcurve_cell(m45, load([f"as30k_{src}_{t}"], rounds=[0]))
+            if r:
+                res[f"menu45_{src}|{t}|30000"] = {
+                    "pools": [r],
+                    "n_pools": 1,
+                    "pool_dirs": [f"as30k_{src}_{t}"],
+                }
+                m = r["first1"]["top8"]["genomic"]
+                print(
+                    f"[kcurve] {src} 45 candidates on {t} pool 30k: full {r['full_nnls']['genomic']:.4f}; top-8 first1 K=8 {m[7]:.4f}, K=16 {m[15]:.4f}, K=24 {m[23]:.4f}, K={len(m)} {m[-1]:.4f}",
+                    flush=True,
+                )
+    DATA["kcurve"] = res
+
+
 STEPS = {
     "coord": an_coord,
     "extrap": an_extrap,
@@ -639,6 +832,7 @@ STEPS = {
     "loopctl": an_loopctl,
     "hptune": an_hptune,
     "unseen_menu": an_unseen_menu,
+    "kcurve": an_kcurve,
 }
 
 

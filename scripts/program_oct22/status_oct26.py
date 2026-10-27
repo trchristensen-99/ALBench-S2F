@@ -38,6 +38,15 @@ GROUPS = [
     ("LLM: 300k searches", ("g300s_",)),
     ("LLM: agent variants", ("ac30_", "an30_", "ae30_")),
     ("LLM: explore grid", ("xe30_", "xd30_", "xe10_", "xd10_")),
+    ("Oct 28: genomic ensembles with weights", ("ind30z_",)),
+    ("Oct 28: patience 16 on pools r2/r3", ("ind30e_pat16_",)),
+    (
+        "Oct 28: random/motif 10k+100k r1-r3",
+        ("un10_random", "un10_motif", "un100_random", "un100_motif"),
+    ),
+    ("Oct 28: shared core 300k", ("pool100_sc300", "mrr_nest_motif_shared_core")),
+    ("Oct 28 LLM: separate coder, other reservoirs", ("ag30_p_rnd", "ag30_p_mot", "ag30_p_gen10")),
+    ("Oct 28 LLM: coordinator, evoaug/evo2 10k", ("an30_e10", "an30_v10")),
 ]
 reg = json.load(open(d.REG))
 state = json.load(open(d.STATE_F)) if d.STATE_F.exists() else {}

@@ -16,6 +16,8 @@ members gets the rest zeroed (positive=True kills collinear/duplicate members).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 from sklearn.linear_model import ElasticNetCV
 
@@ -67,3 +69,60 @@ def fit_elasticnet_stack(
     if return_estimator:
         return (*out, enet)
     return out
+
+
+@dataclass
+class ZStack:
+    """A stack fitted on z-scored member predictions: ``prediction = sum_m coef_m * z_m + intercept`` with ``coef >= 0``."""
+
+    mu: np.ndarray
+    sd: np.ndarray
+    coef: np.ndarray
+    intercept: float
+    alpha: float = 0.0
+    l1_ratio: float = 0.0
+
+    def predict(self, member_preds: np.ndarray) -> np.ndarray:
+        """``member_preds`` is (n_members, n_points)."""
+        z = (np.asarray(member_preds, float) - self.mu[:, None]) / self.sd[:, None]
+        return z.T @ self.coef + self.intercept
+
+    def to_json(self) -> dict:
+        return {
+            "mu": self.mu.tolist(),
+            "sd": self.sd.tolist(),
+            "coef": self.coef.tolist(),
+            "intercept": float(self.intercept),
+            "alpha": float(self.alpha),
+            "l1_ratio": float(self.l1_ratio),
+        }
+
+    @classmethod
+    def from_json(cls, d: dict) -> ZStack:
+        return cls(
+            np.array(d["mu"]),
+            np.array(d["sd"]),
+            np.array(d["coef"]),
+            float(d["intercept"]),
+            float(d.get("alpha", 0.0)),
+            float(d.get("l1_ratio", 0.0)),
+        )
+
+
+def fit_zscored_stack(val_X: np.ndarray, val_y: np.ndarray, *, max_points: int = 8000) -> ZStack:
+    """Positive ElasticNetCV on z-scored member predictions: the stack the study's numbers were produced with.
+
+    Differs from :func:`fit_elasticnet_stack` only in scaling the columns first (so one member with an odd output scale cannot
+    dominate or be zeroed) and in fitting on a fixed random subsample of at most ``max_points`` validation points, which keeps the fit
+    to seconds at 29k points with no measurable change in the ensemble. ``val_X`` is (n_models, n_points).
+    """
+    n = val_X.shape[1]
+    sub = np.random.default_rng(0).choice(n, min(n, max_points), replace=False)
+    a = np.asarray(val_X, float)[:, sub].T
+    mu, sd = a.mean(0), a.std(0) + 1e-12
+    en = ElasticNetCV(
+        cv=5, n_alphas=40, max_iter=5000, l1_ratio=[0.1, 0.5, 0.9], positive=True, n_jobs=1
+    ).fit((a - mu) / sd, np.asarray(val_y, float)[sub])
+    return ZStack(
+        mu, sd, en.coef_.copy(), float(en.intercept_), float(en.alpha_), float(en.l1_ratio_)
+    )

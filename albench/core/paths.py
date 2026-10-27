@@ -25,6 +25,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+
 def _find_repo_root() -> Path:
     """Walk up until the directory that owns pyproject.toml.
 
@@ -269,6 +270,44 @@ _add(
         ),
         required_by=("zoonomia_orthologs",),
         fallbacks=("/grid/koo/home/shared/d3/data/zoonomia/zoonomia_241.h5",),
+    )
+)
+
+_add(
+    Asset(
+        key="val_v0c",
+        env_var="ALBENCH_VAL_V0C",
+        default_relpath="val_variants/val_V0c.npz",
+        description=(
+            "Standard validation set ('V0c'): the 29,449 real chr19/21/X genomic sequences labelled by oracle_v3. It drives early "
+            "stopping and the ensemble weights of every model in the study. Never train on it."
+        ),
+        how_to_get=(
+            "On the CSHL cluster it is staged at /grid/koo/home/shared/albench/menu_oct28/val_V0c.npz.\n"
+            "        Elsewhere: copy that file, or rebuild it with scripts/program_oct22/register_val_variants.py."
+        ),
+        required_by=("albench menu", "MenuEnsemble"),
+        repo_relpaths=("outputs/val_variants/val_V0.npz",),
+        fallbacks=("/grid/koo/home/shared/albench/menu_oct28/val_V0c.npz",),
+    )
+)
+
+_add(
+    Asset(
+        key="menu_ensembles",
+        env_var="ALBENCH_MENU_ENSEMBLES",
+        default_relpath="menu_ensembles",
+        description=(
+            "Trained menu ensembles with weights: genomic 10k and 30k (the starting points of the acquisition experiments), one "
+            "directory per ensemble holding ensemble.json and members/*.pt. Load with MenuEnsemble.load."
+        ),
+        how_to_get=(
+            "On the CSHL cluster: /grid/koo/home/shared/albench/menu_oct28/ensembles (read-only for the lab).\n"
+            "        Elsewhere: copy that directory, or retrain with `albench menu train` + `albench menu stack`."
+        ),
+        required_by=("MenuEnsemble.load",),
+        fallbacks=("/grid/koo/home/shared/albench/menu_oct28/ensembles",),
+        is_dir=True,
     )
 )
 
