@@ -8,6 +8,7 @@ and the overnight experiments (training-recipe sensitivity, validation labels an
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import sys
@@ -291,7 +292,319 @@ def an_ensmethods():
     DATA["ensmethods"] = res
 
 
-STEPS = {"coord": an_coord, "extrap": an_extrap, "reduced": an_reduced, "ensmethods": an_ensmethods}
+# ---------------------------------------------------------------------------------------------------------------------- recipe
+def meta_stats(dirs, rounds=(0,)):
+    rows = []
+    for d in dirs:
+        d = d if d.startswith("outputs") else f"{MR_}/{d}"
+        for f in glob.glob(f"{d}/r*_menu_*_meta.json"):
+            m = json.load(open(f))
+            if int(m["round"]) in rounds:
+                rows.append(m)
+    if not rows:
+        return None
+    ep = [m.get("epochs_trained") or 0 for m in rows]
+    plan = [(m.get("train_config") or {}).get("epochs") or 0 for m in rows]
+    return dict(
+        n=len(rows),
+        epochs=float(np.mean(ep)),
+        planned=float(np.mean(plan)),
+        frac_epoch_limit=float(np.mean([e >= p_ for e, p_ in zip(ep, plan)])),
+        mean_val=float(np.mean([m["val_pearson"] for m in rows])),
+        mean_test=float(np.mean([m["test_oracle_pearson"] for m in rows])),
+        minutes=float(np.mean([m.get("train_time_sec", 0) for m in rows]) / 60),
+    )
+
+
+def an_recipe():
+    """Training-recipe sensitivity of the retrained menu: patience 4 / 16 (default 8) and epoch budget x0.5 / x2, per reservoir and size, against the default-recipe baseline of the same pool and seed."""
+    cells = [(st, 30000) for st in RES] + [("genomic", 10000), ("genomic", 100000)]
+    res = {}
+    for st, D in cells:
+        k = D // 1000
+        base = load(dirs_for(st, D), rounds=[0])
+        if base is None:
+            continue
+        arms = {
+            arm: load([f"tr{k}k_{arm}_{st}_r1"], rounds=[0])
+            for arm in ("pat4", "pat16", "ep05", "ep2")
+        }
+        arms = {m: c for m, c in arms.items() if c is not None and c["V"].shape[1] >= 20}
+        if not arms:
+            continue
+        idx = common([base, *arms.values()])
+        cell = {
+            "n_arch": len(idx),
+            "default": dict(
+                r=ens(base, np.isin(base["idx"], list(idx))), **(meta_stats(dirs_for(st, D)) or {})
+            ),
+        }
+        for m, c in arms.items():
+            cell[m] = dict(
+                r=ens(c, np.isin(c["idx"], list(idx))),
+                **(meta_stats([f"tr{k}k_{m}_{st}_r1"]) or {}),
+            )
+        res[f"{st}_{k}k"] = cell
+        print(
+            f"[recipe] {st} {k}k ({len(idx)} arch): default {cell['default']['r']['genomic']:.4f} ({cell['default'].get('epochs', 0):.0f} epochs)"
+            + "; ".join(
+                f" {m} {cell[m]['r']['genomic'] - cell['default']['r']['genomic']:+.4f} ({cell[m].get('epochs', 0):.0f} ep, {cell[m].get('minutes', 0):.0f} min)"
+                for m in arms
+            ),
+            flush=True,
+        )
+    for m in ("pat4", "pat16", "ep05", "ep2"):
+        d = [
+            (v[m]["r"][e] - v["default"]["r"][e])
+            for v in res.values()
+            if m in v
+            for e in ("genomic",)
+        ]
+        if d:
+            res.setdefault("summary", {})[m] = dict(
+                mean=float(np.mean(d)), min=float(np.min(d)), max=float(np.max(d)), n=len(d)
+            )
+    DATA["recipe"] = res
+
+
+# ---------------------------------------------------------------------------------------------------------------------- valdep
+def an_valdep():
+    """Oracle-relabelled validation set (V0c) against the default one across sizes and reservoirs (single seed, ensemble weights and early stopping both on that set)."""
+    res = {}
+    for st in RES:
+        for D in (10000, 30000, 100000):
+            k = D // 1000
+            base = load(dirs_for(st, D), rounds=[0])
+            v0c = load([f"vv{k}k_V0c_{st}_r1"], rounds=[0])
+            if base is None or v0c is None or v0c["V"].shape[1] < 20:
+                continue
+            idx = list(common([base, v0c]))
+            rb, rv = ens(base, np.isin(base["idx"], idx)), ens(v0c, np.isin(v0c["idx"], idx))
+            res[f"{st}_{k}k"] = dict(
+                n_arch=len(idx),
+                default=rb,
+                v0c=rv,
+                delta={e: rv[e] - rb[e] for e in EV},
+                base_stats=meta_stats(dirs_for(st, D)),
+                v0c_stats=meta_stats([f"vv{k}k_V0c_{st}_r1"]),
+            )
+            print(
+                f"[valdep] {st} {k}k ({len(idx)} arch): default {rb['genomic']:.4f}, V0c {rv['genomic']:.4f} (delta {rv['genomic'] - rb['genomic']:+.4f}; ood {rv['ood'] - rb['ood']:+.4f}; random {rv['random_32k'] - rb['random_32k']:+.4f})",
+                flush=True,
+            )
+    if res:
+        for e in EV:
+            d = [v["delta"][e] for v in res.values()]
+            res.setdefault("summary", {})[e] = dict(
+                mean=float(np.mean(d)),
+                se=float(np.std(d, ddof=1) / np.sqrt(len(d))) if len(d) > 1 else None,
+                n=len(d),
+                positive=int(sum(x > 0 for x in d)),
+            )
+        # reservoir ordering preserved?
+        order = {}
+        for k in ("10k", "30k", "100k"):
+            if all(f"{st}_{k}" in res for st in RES):
+                order[k] = {
+                    arm: sorted(RES, key=lambda s_: -res[f"{s_}_{k}"][arm]["genomic"])
+                    for arm in ("default", "v0c")
+                }
+        res["order"] = order
+    DATA["valdep"] = res
+
+
+# ---------------------------------------------------------------------------------------------------------------------- hgdep
+def an_hgdep():
+    """Direct differential student against the difference of two students at 10k and 100k (the 30k result has nine runs)."""
+    side = {
+        e: np.load(
+            f"outputs/oracle_v3_hepg2/relabel/eval_sets/{e}_oracle.multicell.npz", allow_pickle=True
+        )
+        for e in EV
+    }
+    lab = {
+        e: {t: side[e][f"{t}_label"].astype(float) for t in ("k562", "hepg2", "diff")} for e in EV
+    }
+    res = {}
+    for D in (10000, 100000):
+        k = D // 1000
+        for st in RES:
+            arms = {
+                "k562": load([f"vv{k}k_V0c_{st}_r1"], rounds=[0]),
+                "hepg2": load([f"hg{k}k_hepg2_{st}_r1"], rounds=[0]),
+                "diff": load([f"hg{k}k_diff_{st}_r1"], rounds=[0]),
+            }
+            if any(v is None or v["V"].shape[1] < 20 for v in arms.values()):
+                continue
+            idx = sorted(common(list(arms.values())))
+            P = {
+                t: b26.ens_pred(c, np.flatnonzero(np.isin(c["idx"], idx))) for t, c in arms.items()
+            }
+            out = {"n_arch": len(idx), "direct": {}, "two_students": {}}
+            for e in EV:
+                out["direct"][e] = {
+                    t: a.mj.pear(P[t][e], lab[e][t]) for t in ("k562", "hepg2", "diff")
+                }
+                out["two_students"][e] = a.mj.pear(P["k562"][e] - P["hepg2"][e], lab[e]["diff"])
+            res[f"{st}_{k}k"] = out
+            print(
+                f"[hgdep] {st} {k}k ({len(idx)} arch), genomic test: K562 {out['direct']['genomic']['k562']:.4f}, HepG2 {out['direct']['genomic']['hepg2']:.4f}, direct diff {out['direct']['genomic']['diff']:.4f} vs two students {out['two_students']['genomic']:.4f}",
+                flush=True,
+            )
+    runs = [v for v in res.values()]
+    if runs:
+        for e in EV:
+            d = [v["direct"][e]["diff"] - v["two_students"][e] for v in runs]
+            res.setdefault("summary", {})[e] = dict(
+                mean=float(np.mean(d)),
+                min=float(np.min(d)),
+                max=float(np.max(d)),
+                n=len(d),
+                positive=int(sum(x > 0 for x in d)),
+            )
+    DATA["hgdep"] = res
+
+
+# ---------------------------------------------------------------------------------------------------------------------- loopctl
+def an_loopctl():
+    """Loop-element controls on the six genomic 30k pools, and the prompt-content (guidance) arms, paired with the default single-call runs."""
+    import analyze_oct25 as b
+
+    def runs(key, n=6, d=None):
+        return [b.run_stats(f"{O22}/{key}/rep{r}") for r in range(1, n + 1)]
+
+    arms = {
+        "default single call": "genomic_30k",
+        "separate coder (no coordinator, no reflector)": "genomic_30k_agent_plain",
+        "6 ideas, 2 picked at random": "genomic_30k_agent_randpick",
+        "6 ideas, 2 picked by the coordinator": "genomic_30k_agent_coord_noref",
+        "coordinator + reflector": "genomic_30k_agent_coord",
+        "explore-style proposer in the agent loop": "genomic_30k_agent_explore",
+    }
+    st = {k: runs(v) for k, v in arms.items()}
+    res = {"arms": {}, "pairs": {}}
+    for k, v in st.items():
+        ok = [x for x in v if x]
+        res["arms"][k] = dict(
+            n=len(ok),
+            mean=[float(np.mean([x["ens"][i] for x in ok])) for i in range(3)] if ok else None,
+            mean_val=float(np.mean([x["mean_val"] for x in ok])) if ok else None,
+        )
+
+    def pair(x, y, label):
+        ok = [i for i in range(6) if st[x][i] and st[y][i]]
+        if len(ok) >= 3:
+            res["pairs"][label] = {
+                e: b.paired([st[x][i]["ens"][j] for i in ok], [st[y][i]["ens"][j] for i in ok])
+                for j, e in enumerate(EV)
+            }
+            g = res["pairs"][label]["genomic"]
+            print(
+                f"[loopctl] {label}: {g['n']} pairs, genomic {g['mean']:+.4f} [{g['lo']:+.4f}, {g['hi']:+.4f}], {g['wins']} ahead",
+                flush=True,
+            )
+
+    D0 = "default single call"
+    for k in list(arms)[1:]:
+        pair(D0, k, f"{k} minus default")
+    pair(
+        "6 ideas, 2 picked at random",
+        "6 ideas, 2 picked by the coordinator",
+        "coordinator minus random pick (same over-generation)",
+    )
+    pair(
+        "separate coder (no coordinator, no reflector)",
+        "6 ideas, 2 picked by the coordinator",
+        "coordinator minus separate coder alone",
+    )
+    pair(
+        "separate coder (no coordinator, no reflector)",
+        "6 ideas, 2 picked at random",
+        "random pick minus separate coder alone",
+    )
+    res["guidance"] = {}
+    for tag, key_g, key_d, n in (
+        ("random 30k", "random_30k_noguid", "random_30k", 6),
+        ("motif 30k", "motif_ct_enriched_30k_noguid", "motif_ct_enriched_30k", 6),
+        ("genomic 10k", "genomic_10k_noguid", "genomic_10k", 6),
+    ):
+        g_, d_ = runs(key_g, n), runs(key_d, n)
+        ok = [i for i in range(n) if g_[i] and d_[i]]
+        if len(ok) >= 3:
+            res["guidance"][tag] = {
+                e: b.paired([d_[i]["ens"][j] for i in ok], [g_[i]["ens"][j] for i in ok])
+                for j, e in enumerate(EV)
+            }
+            g = res["guidance"][tag]["genomic"]
+            print(
+                f"[loopctl] guidance none minus known_good, {tag}: {g['n']} pairs, genomic {g['mean']:+.4f} [{g['lo']:+.4f}, {g['hi']:+.4f}], {g['wins']} ahead",
+                flush=True,
+            )
+    DATA["loopctl"] = res
+
+
+# ---------------------------------------------------------------------------------------------------------------------- hptune
+def an_hptune():
+    """Does retuning the recipe at 600k close the gap to the 10k-300k extrapolation? Three architectures of the random pool, one recipe change at a time, against their default-recipe 600k run."""
+    base_dir = f"{MR_}/anchor_random_r1_d600k"
+    k3 = json.load(open("outputs/acq_oct26/menu_k3_random600k.json"))
+    ids = [e["id"] for e in k3]
+    bm = {}
+    for f in glob.glob(f"{base_dir}/r00_menu_*_meta.json"):
+        m = json.load(open(f))
+        if m["menu_entry"] in ids:
+            bm[m["menu_entry"]] = (m, np.load(f.replace("_meta.json", ".npz")))
+    lab = np.load(f"{base_dir}/labels.npz")
+    yt = lab["oracle_genomic"].astype(float)
+    res = {"arms": {}, "base": {}}
+    for i in ids:
+        if i in bm:
+            res["base"][i] = dict(
+                val=bm[i][0]["val_pearson"],
+                test=a.mj.pear(bm[i][1]["test_pred_genomic"], yt),
+                epochs=bm[i][0]["epochs_trained"],
+                minutes=bm[i][0]["train_time_sec"] / 60,
+            )
+    for arm in ("lr05", "lr2", "bs4", "bs4lr2"):
+        d = f"{MR_}/hptune600k_{arm}_random_r1"
+        out = {}
+        for f in glob.glob(f"{d}/r00_menu_*_meta.json"):
+            m = json.load(open(f))
+            if m["menu_entry"] in bm:
+                z = np.load(f.replace("_meta.json", ".npz"))
+                out[m["menu_entry"]] = dict(
+                    val=m["val_pearson"],
+                    test=a.mj.pear(z["test_pred_genomic"], yt),
+                    epochs=m["epochs_trained"],
+                    minutes=m["train_time_sec"] / 60,
+                    d_val=m["val_pearson"] - bm[m["menu_entry"]][0]["val_pearson"],
+                    d_test=a.mj.pear(z["test_pred_genomic"], yt)
+                    - res["base"][m["menu_entry"]]["test"],
+                )
+        if out:
+            res["arms"][arm] = out
+            print(
+                f"[hptune] {arm}: "
+                + ", ".join(
+                    f"{k[-14:]} dval {v['d_val']:+.4f} dtest {v['d_test']:+.4f} ({v['epochs']} ep, {v['minutes']:.0f} min)"
+                    for k, v in out.items()
+                ),
+                flush=True,
+            )
+    DATA["hptune"] = res
+
+
+STEPS = {
+    "coord": an_coord,
+    "extrap": an_extrap,
+    "reduced": an_reduced,
+    "ensmethods": an_ensmethods,
+    "recipe": an_recipe,
+    "valdep": an_valdep,
+    "hgdep": an_hgdep,
+    "loopctl": an_loopctl,
+    "hptune": an_hptune,
+}
 
 
 def main():
