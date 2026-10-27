@@ -27,6 +27,10 @@ OLD_ARTIFACT = "https://claude.ai/artifact/98NSVuNvp3F41LHBdGgvPp"
 
 CHANGELOG = [
     (
+        "2026-10-27 20:00",
+        "Added the Oct 27 results: the core reservoir set per dataset size, which loop elements earn their place (separate coder, coordinator against a random pick, reflector, guidance), consistency of the coordinator effect across sizes and reservoirs, the extrapolation under error-based metrics, training-recipe sensitivity (patience, epochs), the oracle-relabelled validation set adopted as standard and tested at 10k and 100k, HepG2 and the differential at 10k and 100k, reduced menus and ensemble methods across reservoirs, a 600k recipe retune, and a table of how far each assumption has been tested across sizes and reservoirs.",
+    ),
+    (
         "2026-10-26 20:00",
         "Added the Oct 25-26 results: assay noise, 600k and 1M anchors, acquisition (reduced selection ensemble, one round against three), HepG2 and differential students over nine pools, explore and coordinator prompt grids, nine seeds, the seed ladder and the Zoonomia rebuild. The page now opens with the procedure, parameter by parameter (prompt, rounds, runs, epochs, early stopping, top-k, reservoirs per D, seeds, ensembling and the rest) with a reservoir-by-D coverage matrix; the assumptions table gains a targets, acquisition and robustness group.",
     ),
@@ -1466,10 +1470,14 @@ def build(d: dict) -> list[dict]:
         ),
     ]
     from ledger_oct26 import oct26_cards
+    from ledger_oct27 import oct27_cards, patch_cards
 
-    return (
+    all_cards = (
         oct22_cards(d) + oct23_cards(d) + oct25_cards(d) + oct25b_cards(d) + oct26_cards(d) + cards
     )
+    all_cards += oct27_cards(d)
+    patch_cards(all_cards, d)
+    return all_cards
 
 
 CSS = """
@@ -2075,6 +2083,9 @@ def render(cards, d):
     from ledger_oct26 import coverage_html, spec_rows
 
     spec = spec_rows(d)
+    from ledger_oct27 import robustness_html, spec_patch
+
+    spec_patch(spec, d)
     sp = [
         '<section class="choices" id="spec"><h2 class="grp">The procedure, parameter by parameter</h2>'
         '<p class="goal">Every setting of the HP-optimisation and ensembling pipeline in the order it is applied, what the recipe currently uses, the experiment behind it, and what is still open. '
@@ -2094,6 +2105,7 @@ def render(cards, d):
     sp.append(
         '<h3 id="coverage" class="sub3">Which reservoirs at which D</h3>'
         + coverage_html(d)
+        + robustness_html(d)
         + "</section>"
     )
     out.append("".join(sp))
@@ -2102,8 +2114,8 @@ def render(cards, d):
         '<section class="choices" id="assumptions"><h2 class="grp">Assumptions to justify</h2>'
         '<p class="goal"><b>Goal.</b> Take the simplest approach that approximates ideal performance across reservoirs and dataset sizes, while marginalizing over factors such as architecture so the scaling results are general. '
         "A more complicated approach has to beat it by more than the noise (about 0.005 in ensemble r) to earn its cost.</p>"
-        '<p class="goal"><b>Simplest recipe so far.</b> One search at 30k on genomic data (several independent runs, each on its own pool: three runs fall 0.005 to 0.012 short of the ensemble of 10 to 15 runs, and 6 to 11 reach 90% of that gain; 20 models per run with the default prompt, the top 3 of each kept), the pooled 33-architecture menu retrained at every size and reservoir (about 8 architectures from 300k up, three seeds at 100k and below), combined by a non-negative ElasticNet ensemble fitted on validation predictions. '
-        "Nothing more elaborate has beaten it by more than noise: per-reservoir and mixed searches, context hand-off, explore and reflect prompts, adaptive acquisition rounds and a full selection ensemble all tie. The coordinator stage (+0.005 on genomic and random 30k) did not hold up across the grid (pooled difference about zero).</p>"
+        '<p class="goal"><b>Simplest recipe so far.</b> One search at 30k on genomic data (several independent runs, each on its own pool: three runs fall 0.005 to 0.012 short of the ensemble of 10 to 15 runs, and 6 to 11 reach 90% of that gain; 20 models per run with the default prompt, the top 3 of each kept), the pooled 33-architecture menu retrained at every size and reservoir (about 8 architectures from 300k up, three seeds at 100k and below), combined by a non-negative ElasticNet ensemble fitted on validation predictions (the oracle-relabelled validation set, V0c). '
+        "Nothing more elaborate has beaten it by more than noise: per-reservoir and mixed searches, context hand-off, explore and reflect prompts, adaptive acquisition rounds and a full selection ensemble all tie. The coordinator stage pools to about +0.003 across the grid with no detectable heterogeneity, still below the 0.005 a change must clear.</p>"
         '<div class="tblwrap"><table><thead><tr><th>Assumption</th><th>Why it matters</th><th>How it is tested</th><th>Status</th><th>Result so far</th></tr></thead><tbody>'
     ]
     last = None
@@ -2140,6 +2152,7 @@ def render(cards, d):
         "Experiments launched Oct 22",
         "Results from the Oct 22 program",
         "Results from the Oct 25-26 program",
+        "Results from the Oct 27 program",
         "Training and evaluation",
         "Proposer and prompt",
         "Search and pooling",
