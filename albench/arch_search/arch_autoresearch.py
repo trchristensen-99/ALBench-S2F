@@ -269,7 +269,7 @@ def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=pri
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         else:
             bad += 1
-            if bad >= 8:
+            if bad >= int(os.environ.get("AL_PATIENCE", "8")):  # override only for the patience study
                 break
         if time.time() - t0 > max_sec:
             log(f"    [time cap {max_sec}s hit at ep{ep}]"); break

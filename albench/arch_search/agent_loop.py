@@ -88,7 +88,10 @@ class AgentConfig:
     coder_workers: int = 1  # >1 codes ideas of a round in parallel (burstier on the usage limit)
     role_models: dict = field(default_factory=dict)  # {"proposer"|"coder"|"reflector": model id}
     reflector_noise_note: bool = True  # tell the reflector single-run val noise is ~0.008
-    select_per_round: int | None = None  # coordinator: how many ideas to keep per round; None -> --per_round
+    select_per_round: int | None = (
+        None  # coordinator: how many ideas to keep per round; None -> --per_round
+    )
+    coordinator_mode: str = "llm"  # "llm": an agent chooses; "random" / "first": the k ideas are picked without an LLM call (control for the coordinator's judgment)
     proposer_style: str = "none"  # "explore" adds the bold/diverse paragraph of the single loop's --style explore to the proposer
     cli_overhead_tokens: int = CLI_OVERHEAD_TOKENS
 
@@ -128,7 +131,13 @@ class AgentConfig:
         if "coordinate" in st and st.index("coordinate") > st.index("code"):
             raise AgentConfigError(f"stage 'coordinate' must come before 'code' in {st}")
         if self.proposer_style not in ("none", "explore"):
-            raise AgentConfigError(f"proposer_style must be 'none' or 'explore', got {self.proposer_style!r}")
+            raise AgentConfigError(
+                f"proposer_style must be 'none' or 'explore', got {self.proposer_style!r}"
+            )
+        if self.coordinator_mode not in ("llm", "random", "first"):
+            raise AgentConfigError(
+                f"coordinator_mode must be 'llm', 'random' or 'first', got {self.coordinator_mode!r}"
+            )
         if "evaluate" not in st:
             raise AgentConfigError(f"stages {st} never train a model; 'evaluate' is required")
         bad_roles = set(self.role_models) - {"proposer", "coder", "reflector", "coordinator"}
@@ -587,10 +596,14 @@ class AgentCtx:
 
     def n_select(self) -> int:
         """Models to train this round (what the coordinator keeps)."""
-        return max(1, min(self.cfg.select_per_round or self.args.per_round, self.target - self.midx))
+        return max(
+            1, min(self.cfg.select_per_round or self.args.per_round, self.target - self.midx)
+        )
 
     def n_ideas(self) -> int:
-        if "coordinate" in self.cfg.stages:  # over-generate; the coordinator cuts back to n_select()
+        if (
+            "coordinate" in self.cfg.stages
+        ):  # over-generate; the coordinator cuts back to n_select()
             return max(self.n_select() + 1, self.cfg.ideas_per_round or 3 * self.args.per_round)
         n = self.cfg.ideas_per_round or self.args.per_round
         return max(1, min(n, self.target - self.midx))
@@ -686,16 +699,24 @@ def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
     n, k = len(plan["items"]), ctx.n_select()
     done = sorted(ctx.records, key=lambda m: -m.val)[:15]
     parts = ["TRAINED SO FAR (validation r, train seconds; best first):"]
-    parts += [f" - val r {m.val:.4f}, {m.train_s:.0f}s, {m.n_params:,} params: {m.idea[:90]}" for m in done] or [" - nothing yet"]
+    parts += [
+        f" - val r {m.val:.4f}, {m.train_s:.0f}s, {m.n_params:,} params: {m.idea[:90]}"
+        for m in done
+    ] or [" - nothing yet"]
     failed = [h_ for h_ in ctx.history if not h_.get("ok")][-8:]
     if failed:
         parts.append("\nRECENT FAILURES:")
         parts += [f" - {h_['idea'][:80]}: {str(h_.get('reason', ''))[:100]}" for h_ in failed]
     if ctx.lessons:
-        parts.append("\nLESSONS (kept by a reflector from validation results; evidence, not rules):\n" + ctx.lessons)
+        parts.append(
+            "\nLESSONS (kept by a reflector from validation results; evidence, not rules):\n"
+            + ctx.lessons
+        )
     parts.append(f"\nCANDIDATES this round ({n}):")
     for i, it in enumerate(plan["items"], 1):
-        parts.append(f"[{i}] IDEA: {it['idea']}\n    WHY: {it['why']}\n    DESIGN: {it['design'][:900]}\n    TRAIN: {_fmt_recipe(it['train_spec'])}")
+        parts.append(
+            f"[{i}] IDEA: {it['idea']}\n    WHY: {it['why']}\n    DESIGN: {it['design'][:900]}\n    TRAIN: {_fmt_recipe(it['train_spec'])}"
+        )
     parts.append(f"\nChoose {k} of the {n} candidates now.")
     return COORDINATOR_SYSTEM.replace("{n}", str(n)).replace("{k}", str(k)), "\n".join(parts)
 
@@ -708,15 +729,31 @@ def stage_coordinate(ctx: AgentCtx, plan: dict) -> None:
     items = plan["items"]
     if len(items) <= k:
         plan["coordinated"] = True
-        plan["coordinator"] = {"selected": list(range(len(items))), "text": "", "note": "no more candidates than slots"}
+        plan["coordinator"] = {
+            "selected": list(range(len(items))),
+            "text": "",
+            "note": "no more candidates than slots",
+        }
         save_plan(ctx.out_p, plan)
         return
-    sys_p, user = coordinator_prompt(ctx, plan)
-    text = ctx.llm.call("coordinator", rd, sys_p, user, n_candidates=len(items), k=k)
-    chosen = parse_selection(text, len(items), k)
+    if ctx.cfg.coordinator_mode == "llm":
+        sys_p, user = coordinator_prompt(ctx, plan)
+        text = ctx.llm.call("coordinator", rd, sys_p, user, n_candidates=len(items), k=k)
+        chosen = parse_selection(text, len(items), k)
+    else:  # control arms: same over-generation, no judgment
+        import random
+
+        chosen = (
+            sorted(random.Random(f"{ctx.out_p}|{rd}").sample(range(len(items)), k))
+            if ctx.cfg.coordinator_mode == "random"
+            else list(range(k))
+        )
+        text = f"coordinator_mode={ctx.cfg.coordinator_mode}: picked without an LLM call"
     for i, it in enumerate(items):
         if i not in chosen:
-            it.update(status="skipped", reason="not selected by the coordinator", coordinator_skipped=True)
+            it.update(
+                status="skipped", reason="not selected by the coordinator", coordinator_skipped=True
+            )
     plan["coordinated"] = True
     plan["coordinator"] = {"selected": chosen, "text": text[:2000]}
     save_plan(ctx.out_p, plan)
