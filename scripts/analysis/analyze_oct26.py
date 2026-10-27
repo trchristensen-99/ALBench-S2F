@@ -716,6 +716,61 @@ def an_live():
     print(f"[live] {first}; {len(groups)} groups", flush=True)
 
 
+def an_g300():
+    """HP-transfer check at 300k: three independent searches on genomic 300k pools (20 models each) against the retrained 33-architecture menu on genomic 300k."""
+    import analyze_oct25 as b
+
+    rng = np.random.default_rng(0)
+    cells = [a.mj.load_cell(f"{O22}/genomic_300k/rep{r}") for r in (1, 2, 3)]
+    cells = [c for c in cells if c is not None]
+    if len(cells) < 3:
+        print(f"[g300] only {len(cells)} search runs readable", flush=True)
+        return
+    menu = load(["nest_genomic_r1_d300k"], rounds=[0])
+    res = {"n_runs": len(cells), "n_models_each": [int(c["V"].shape[1]) for c in cells]}
+    top3 = a.stack([(c, a.run_cands(c, k=3, first_n=20)) for c in cells])
+    allm = a.stack([(c, list(range(min(20, c["V"].shape[1])))) for c in cells])
+    nm = top3["V"].shape[1]
+    res["search_top3_per_run"] = dict(
+        n=nm, r=a.nnls_ens(top3["V"], top3["yv"], top3["T"], top3["yt"], range(nm))
+    )
+    res["search_all"] = dict(
+        n=allm["V"].shape[1],
+        r=a.nnls_ens(allm["V"], allm["yv"], allm["T"], allm["yt"], range(allm["V"].shape[1])),
+    )
+    n = menu["V"].shape[1]
+    res["menu_all"] = dict(n=n, r=ens(menu, np.ones(n, bool)))
+    draws = [ens(menu, np.isin(np.arange(n), rng.choice(n, nm, replace=False))) for _ in range(40)]
+    res["menu_random_same_count"] = dict(
+        n=nm,
+        r={e: float(np.mean([x[e] for x in draws])) for e in EV},
+        sd={e: float(np.std([x[e] for x in draws])) for e in EV},
+    )
+    res["single_run"] = [
+        dict(
+            zip(
+                EV,
+                [
+                    a.nnls_ens(c["V"], c["yv"], c["T"], c["yt"], range(min(20, c["V"].shape[1])))[e]
+                    for e in EV
+                ],
+            )
+        )
+        for c in cells
+    ]
+    DATA["g300"] = res
+    f = lambda r: " / ".join(f"{r[e]:.4f}" for e in EV)  # noqa: E731
+    print(
+        f"[g300] search top-3 per run ({nm} models) {f(res['search_top3_per_run']['r'])} | all {res['search_all']['n']} search models {f(res['search_all']['r'])} | menu ({n}) {f(res['menu_all']['r'])} | menu, {nm} random architectures {f(res['menu_random_same_count']['r'])}",
+        flush=True,
+    )
+    print(
+        "[g300] single search runs (20 models):",
+        [round(x["genomic"], 4) for x in res["single_run"]],
+        flush=True,
+    )
+
+
 STEPS = {
     "noise": an_noise,
     "seeds": an_seeds,
@@ -729,6 +784,7 @@ STEPS = {
     "agent2": an_agent2,
     "agent_grid": an_agent_grid,
     "live": an_live,
+    "g300": an_g300,
 }
 
 
