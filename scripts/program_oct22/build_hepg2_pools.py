@@ -38,27 +38,55 @@ def check(z, m, what, key="label"):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reps", type=int, nargs="+", default=[1])
+    ap.add_argument(
+        "--sizes",
+        type=int,
+        nargs="+",
+        default=[30000],
+        help="30000 uses the replicate sidecars; 10000 is the prefix of the 30k pool; 100000 needs reps_r{r}_d100000 sidecars",
+    )
+    ap.add_argument(
+        "--no_val", action="store_true", help="skip the validation caches (already built)"
+    )
     args = ap.parse_args()
     for r in args.reps:
-        for st in RES:
-            z = np.load(f"{REPS}/{st}_r{r}_d30000.npz", allow_pickle=True)
-            m = np.load(f"{MC}/reps_r{r}_d30000/{st}_r{r}_d30000.multicell.npz", allow_pickle=True)
-            rr = check(z, m, f"{st} r{r}")
-            for tgt in ("hepg2", "diff"):
-                out = f"{GP}/k562_hepg2/{tgt}"
-                os.makedirs(out, exist_ok=True)
-                save_pool(
-                    f"{out}/{st}_r{r}_d30000.npz",
-                    list(z["sequences"]),
-                    m[f"{tgt}_label"],
-                    f"oracle_v3_{tgt}",
-                    st,
-                    SEED(r),
+        for size in args.sizes:
+            for st in RES:
+                z = np.load(f"{REPS}/{st}_r{r}_d{size}.npz", allow_pickle=True)
+                src = 30000 if size == 10000 else size
+                m = np.load(
+                    f"{MC}/reps_r{r}_d{src}/{st}_r{r}_d{src}.multicell.npz", allow_pickle=True
                 )
-            print(
-                f"{st} r{r}: K562 fidelity r={rr:.5f}; hepg2 label mean {m['hepg2_label'].mean():.3f} sd {m['hepg2_label'].std():.3f}; K562-HepG2 corr {np.corrcoef(m['k562_label'], m['hepg2_label'])[0, 1]:.3f}",
-                flush=True,
-            )
+                n = len(z["sequences"])
+                lab = {k: np.asarray(m[f"{k}_label"])[:n] for k in ("k562", "hepg2", "diff")}
+                if (
+                    src != size
+                ):  # nested prefix: the sidecar rows are the same sequences in the same order
+                    assert all(
+                        str(a) == str(b)
+                        for a, b in zip(z["sequences"], m["sequences"][:n], strict=True)
+                    ), f"{st} r{r} d{size}: prefix mismatch"
+                    rr = np.corrcoef(z["oracle_labels"].astype(np.float64), lab["k562"])[0, 1]
+                    assert rr > 0.999, (st, r, rr)
+                else:
+                    rr = check(z, m, f"{st} r{r} d{size}")
+                for tgt in ("hepg2", "diff"):
+                    out = f"{GP}/k562_hepg2/{tgt}"
+                    os.makedirs(out, exist_ok=True)
+                    save_pool(
+                        f"{out}/{st}_r{r}_d{size}.npz",
+                        list(z["sequences"]),
+                        lab[tgt],
+                        f"oracle_v3_{tgt}",
+                        st,
+                        SEED(r),
+                    )
+                print(
+                    f"{st} r{r} d{size}: K562 fidelity r={rr:.5f}; hepg2 label mean {lab['hepg2'].mean():.3f} sd {lab['hepg2'].std():.3f}; K562-HepG2 corr {np.corrcoef(lab['k562'], lab['hepg2'])[0, 1]:.3f}",
+                    flush=True,
+                )
+    if args.no_val:
+        return
     z = np.load(f"{R}/outputs/val_variants/val_V0.npz", allow_pickle=True)
     m = np.load(f"{MC}/val/val_V0.multicell.npz", allow_pickle=True)
     rr = check(
