@@ -9,7 +9,10 @@ scale      do larger models help? width x2 and x3 copies (about 4x and 9x the pa
            random and motif at 100k, and the best 4 at x2 on random and motif at 300k, with a time cap that is not the binding constraint, paired with the unscaled
            retrains of the same configurations                                                                                  (scl30_)
 
-  python scripts/program_oct22/register_oct29.py [--only patience2,archsrc2,scale] [--dry]
+v1val      menu v1 (20 configurations from the five-family and mixed-corpus runs) retrained at 10k, 30k and 100k on genomic, random and motif pool r1 at patience 8, to compare
+           with the v0 retrains of the same pools                                                                                (ind30m_)
+
+  python scripts/program_oct22/register_oct29.py [--only patience2,archsrc2,scale,v1val] [--dry]
 """
 
 import collections
@@ -26,7 +29,7 @@ os.chdir(R)
 ONLY = (
     sys.argv[sys.argv.index("--only") + 1].split(",")
     if "--only" in sys.argv
-    else ["patience2", "archsrc2", "scale"]
+    else ["patience2", "archsrc2", "scale", "v1val"]
 )
 DRY = "--dry" in sys.argv
 MENU = f"{R}/outputs/menu_retrain_v0/menu_v0.json"
@@ -156,6 +159,19 @@ if "scale" in ONLY:
             cap=240,
             needs=["outputs/scaleup/menu_x2_top4.json"],
         )
+
+if "v1val" in ONLY:
+    v1 = f"{R}/outputs/menus_oct22/V1.json"
+    for D, sh in ((10000, 1), (30000, 2), (100000, 4)):
+        for st in ("genomic", "random", "motif_ct_enriched"):
+            new += retrain(
+                f"ind30m_v1_{st}_{D // 1000}k",
+                P(st, D),
+                D,
+                f"outputs/menu_retrain_v0/v1_{D // 1000}k_{st}_r1",
+                sh,
+                v1,
+            )
 
 reg = json.load(open("scratchpad/dispatch_registry.json"))
 have = {c["name"] for c in reg}
