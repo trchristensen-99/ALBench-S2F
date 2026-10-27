@@ -1,0 +1,15 @@
+# Additional packages for LABELLING new sequences with the oracle (oracle_v3 = fine-tuned AlphaGenome, JAX). Install after requirements/menu.txt.
+# alphagenome_ft (finetuning utilities, MIT) is installed from source: /grid/koo/home/shared/albench/vendor/alphagenome_ft (scripts/setup_env.sh --oracle does it).
+alphagenome==0.6.0
+alphagenome_research==0.1.0
+jax[cuda12]==0.9.0.1
+jaxlib==0.9.0.1
+flax==0.10.4
+optax==0.2.7
+orbax-checkpoint==0.11.33
+dm-haiku==0.0.16
+chex==0.1.91
+jaxtyping==0.3.9
+h5py==3.15.1
+pyfaidx==0.9.0.3
+tensorflow==2.20.0

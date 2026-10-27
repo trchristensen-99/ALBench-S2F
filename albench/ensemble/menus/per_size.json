@@ -1,7 +1,7 @@
 {
  "menu": "v0",
  "rule": "first2",
- "criterion": "smallest K whose 8-member ensemble (8 best of the K by validation r) is within 0.003 (genomic test) / 0.005 (designed set, random sequences) of the 8-member ensemble of all usable ones, mean over genomic, random and motif pools",
+ "criterion": "K per size: all usable configurations when they cost under 3 H100-hours (one seed); otherwise the smallest K whose 8 best by validation r are within 0.002 (genomic test) / 0.003 (designed set, random sequences) of the 8 best of all usable ones, mean over genomic, random and motif pools, plus a 25% margin. The study's standard ensemble is the non-negative stack over everything trained, which gains a further 0.001 to 0.003 over the 8-member mean.",
  "skip": {
   "son55_rep1_r00_arch_00": "exceeds the 8 s CPU forward-time check on about 10% of retrainings (node dependent)",
   "son45_rep1_r11_arch_15": "exceeds the 8 s CPU forward-time check on about 14% of retrainings (node dependent, up to 28 s)",
@@ -42,22 +42,51 @@
  "sizes": {
   "10000": {
    "k": 30,
+   "why": "the whole usable set costs about 2.2 H100-hours per seed, so it is all trained",
+   "k_within_tolerance": 30,
    "k_by_evaluation_set": {
     "genomic": {
      "k": 17,
-     "tolerance": 0.003
+     "tolerance": 0.002
     },
     "ood": {
-     "k": 17,
-     "tolerance": 0.005
+     "k": 28,
+     "tolerance": 0.003
     },
     "random_32k": {
      "k": 30,
-     "tolerance": 0.005
+     "tolerance": 0.003
     }
    },
+   "loss_vs_all_at_K_8_12_16_20_24_30": {
+    "genomic": [
+     -0.020815704823648362,
+     -0.005264948651834467,
+     -0.004070075393768764,
+     -0.0017235949958763392,
+     -0.0009755759396752698,
+     0.0
+    ],
+    "ood": [
+     -0.0412553087319146,
+     -0.0074979365812927095,
+     -0.008310136238789947,
+     -0.005001022434274693,
+     -0.006596348544359661,
+     0.0
+    ],
+    "random_32k": [
+     -0.03193882631496651,
+     -0.013156939017483086,
+     -0.011889427631176433,
+     -0.008258850492778413,
+     -0.008510547402418115,
+     0.0
+    ]
+   },
+   "h100_hours_one_seed": 2.2,
    "seeds": 1,
-   "patience": 8,
+   "patience": 16,
    "max_minutes_h100": 15.0,
    "cells": [
     "menu33|genomic|10000",
@@ -71,23 +100,52 @@
    }
   },
   "30000": {
-   "k": 11,
+   "k": 30,
+   "why": "the whole usable set costs about 2.8 H100-hours per seed, so it is all trained",
+   "k_within_tolerance": 15,
    "k_by_evaluation_set": {
     "genomic": {
      "k": 11,
-     "tolerance": 0.003
+     "tolerance": 0.002
     },
     "ood": {
-     "k": 11,
-     "tolerance": 0.005
+     "k": 15,
+     "tolerance": 0.003
     },
     "random_32k": {
-     "k": 9,
-     "tolerance": 0.005
+     "k": 11,
+     "tolerance": 0.003
     }
    },
+   "loss_vs_all_at_K_8_12_16_20_24_30": {
+    "genomic": [
+     -0.007093954985531743,
+     -0.0018756447624156773,
+     -0.0004933523593833034,
+     -0.00033101348907904615,
+     -0.0003562279162045619,
+     0.0
+    ],
+    "ood": [
+     -0.009584600604728008,
+     -0.003403432262823728,
+     -0.0009965518533709787,
+     -0.0009837313141170718,
+     -0.0012535056105147935,
+     0.0
+    ],
+    "random_32k": [
+     -0.007128011591350865,
+     -0.0016093483036199174,
+     -0.0008063955226887224,
+     -0.0004708041698874658,
+     -0.0013285293563882379,
+     0.0
+    ]
+   },
+   "h100_hours_one_seed": 2.8,
    "seeds": 1,
-   "patience": 8,
+   "patience": 16,
    "max_minutes_h100": 25.0,
    "cells": [
     "menu33|genomic|30000",
@@ -101,23 +159,52 @@
    }
   },
   "100000": {
-   "k": 13,
+   "k": 20,
+   "why": "smallest K within the tolerances is 16; with a 25% margin, rounded up to a multiple of 4",
+   "k_within_tolerance": 16,
    "k_by_evaluation_set": {
     "genomic": {
-     "k": 9,
-     "tolerance": 0.003
+     "k": 10,
+     "tolerance": 0.002
     },
     "ood": {
-     "k": 13,
-     "tolerance": 0.005
+     "k": 16,
+     "tolerance": 0.003
     },
     "random_32k": {
-     "k": 8,
-     "tolerance": 0.005
+     "k": 9,
+     "tolerance": 0.003
     }
    },
+   "loss_vs_all_at_K_8_12_16_20_24_30": {
+    "genomic": [
+     -0.0047626249903746825,
+     -0.0007109031436149197,
+     0.00010218075485013411,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "ood": [
+     -0.01889937875755417,
+     -0.005875720380333886,
+     -0.002948486925259286,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "random_32k": [
+     -0.003895070231878258,
+     0.00019449115797176564,
+     5.707409774746708e-05,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "h100_hours_one_seed": 5.0,
    "seeds": 1,
-   "patience": 8,
+   "patience": 16,
    "max_minutes_h100": 60.0,
    "cells": [
     "menu33|genomic|100000",
@@ -129,6 +216,13 @@
     "menu33|random|100000": 1,
     "menu33|motif_ct_enriched|100000": 1
    }
+  },
+  "300000": {
+   "k": 12,
+   "selection": "chosen by the previous size's validation r (reduced-menu analysis: loss <= 0.001 against the whole menu at 300k, K = 8 about 0.002)",
+   "seeds": 1,
+   "patience": 16,
+   "max_minutes_h100": 120.0
   }
  }
 }

@@ -37,6 +37,11 @@ KEEP_FILES = (
     ".pre-commit-config.yaml",
     "docs/MENU.md",
     "docs/STRUCTURE.md",
+    "docs/ENVIRONMENT.md",
+    "scripts/setup_env.sh",
+    "requirements/menu.txt",
+    "requirements/oracle.txt",
+    "requirements/lock_full.txt",
     "scripts/make_shared_release.py",
 )
 # tests of the live package; the AutoResearch loop tests, the legacy experiment-utility tests and tests that need absent data are left out

@@ -28,10 +28,69 @@ def _fmt_default(v):
     return "None" if v is None else repr(v) if isinstance(v, str) else str(v)
 
 
+def _env_status() -> list[tuple[str, bool, str]]:
+    """Python packages the shared workflow needs (see docs/ENVIRONMENT.md); the oracle ones only matter for labelling new sequences."""
+    import importlib
+    import importlib.metadata as md
+    import platform
+
+    out: list[tuple[str, bool, str]] = [
+        ("python >= 3.11", sys.version_info >= (3, 11), platform.python_version())
+    ]
+    for name, req in (
+        ("torch", True),
+        ("numpy", True),
+        ("scipy", True),
+        ("scikit-learn", True),
+        ("jax", False),
+        ("alphagenome", False),
+        ("alphagenome_ft", False),
+    ):
+        try:
+            out.append((name + ("" if req else " (oracle labelling only)"), True, md.version(name)))
+        except md.PackageNotFoundError:
+            out.append(
+                (
+                    name + ("" if req else " (oracle labelling only)"),
+                    req is False,
+                    "not installed" + ("" if req is False else "  -> scripts/setup_env.sh"),
+                )
+            )
+    try:
+        import torch
+
+        out.append(
+            (
+                "torch sees a GPU",
+                torch.cuda.is_available(),
+                torch.cuda.get_device_name(0)
+                if torch.cuda.is_available()
+                else "no CUDA device (fine for CPU work, training needs one)",
+            )
+        )
+    except ImportError:
+        pass
+    try:
+        importlib.import_module("muon")
+        out.append(("muon optimizer", True, "importable"))
+    except ImportError:
+        out.append(
+            (
+                "muon optimizer",
+                False,
+                "missing: most configurations need it; scripts/setup_env.sh installs it",
+            )
+        )
+    return out
+
+
 def cmd_doctor(args) -> int:
     from albench.paths import ASSETS, data_root, status
 
-    print(f"data root: {data_root()}   (override with ALBENCH_DATA)\n")
+    print("python environment:")
+    for name, ok, info in _env_status():
+        print(f"  [{'OK  ' if ok else 'MISS'}] {name:<34} {info}")
+    print(f"\ndata root: {data_root()}   (override with ALBENCH_DATA)\n")
     rows = status()
     width = max(len(k) for k, _, _ in rows)
     missing = []

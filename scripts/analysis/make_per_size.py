@@ -34,52 +34,94 @@ def k_needed(curve: np.ndarray, tol: float) -> int:
     return int(next((k + 1 for k in range(len(curve)) if curve[k] >= -tol), len(curve)))
 
 
+# Minutes per model on an H100 at each size (median of the retrained menu; the 100k figure is the mean of the 12 to 19 minute range).
+MINUTES = {10_000: 4.5, 30_000: 5.5, 100_000: 15.0}
+CHEAP_H100_HOURS = 3.0  # below this, the whole usable set (one seed) is trained: more candidates means a better 8 / a better stack, and the time is negligible
+TOL_POLICY = {"genomic": 0.002, "ood": 0.003, "random_32k": 0.003}
+MARGIN = (
+    1.25  # safety margin on the smallest K meeting the tolerances, rounded up to a multiple of 4
+)
+LARGE = {
+    "k": 12,
+    "selection": "chosen by the previous size's validation r (reduced-menu analysis: loss <= 0.001 against the whole menu at 300k, K = 8 about 0.002)",
+}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
     ap.add_argument("--out", default="albench/ensemble/menus/per_size.json")
     ap.add_argument(
-        "--patience-small",
+        "--patience",
         type=int,
-        default=8,
-        help="patience for 10k and 30k (16 if the replicate study confirms it)",
+        default=16,
+        help="early-stopping patience for every size (standard since Oct 28)",
     )
     args = ap.parse_args()
     K = json.load(open(args.data))["kcurve"]
     full = load_menu("v0")
     menu = Menu([e for e in full.entries if e.id not in SKIP])
+    n_usable = len(menu)
     sizes: dict[str, dict] = {}
     for D in SIZES:
         cells = {k: v for k, v in K.items() if k.startswith("menu33|") and k.endswith(f"|{D}")}
         ev: dict[str, dict] = {}
-        for e, tol in TOL.items():
+        loss: dict[str, list] = {}
+        for e, tol in TOL_POLICY.items():
             per = []
             for v in cells.values():
                 c = np.mean([p["first2"]["top8"][e] for p in v["pools"]], 0)
                 ref = np.mean([p["val"]["top8"][e][-1] for p in v["pools"]], 0)
                 per.append(c - ref)
             n = min(len(x) for x in per)
-            ev[e] = {"k": k_needed(np.mean([x[:n] for x in per], 0), tol), "tolerance": tol}
-        k = max(x["k"] for x in ev.values())
+            mean = np.mean([x[:n] for x in per], 0)
+            ev[e] = {"k": k_needed(mean, tol), "tolerance": tol}
+            loss[e] = [float(mean[k - 1]) for k in (8, 12, 16, 20, 24, 30) if k <= n]
+        k_tol = max(x["k"] for x in ev.values())
+        hours_all = n_usable * MINUTES[D] / 60.0
+        if hours_all <= CHEAP_H100_HOURS:
+            k, why = (
+                n_usable,
+                f"the whole usable set costs about {hours_all:.1f} H100-hours per seed, so it is all trained",
+            )
+        else:
+            k, why = (
+                min(n_usable, int(np.ceil(k_tol * MARGIN / 4) * 4)),
+                f"smallest K within the tolerances is {k_tol}; with a 25% margin, rounded up to a multiple of 4",
+            )
         sizes[str(D)] = {
             "k": k,
+            "why": why,
+            "k_within_tolerance": k_tol,
             "k_by_evaluation_set": ev,
+            "loss_vs_all_at_K_8_12_16_20_24_30": loss,
+            "h100_hours_one_seed": round(k * MINUTES[D] / 60.0, 1),
             "seeds": 1,
-            "patience": args.patience_small if D <= 30_000 else 8,
+            "patience": args.patience,
             "max_minutes_h100": MAX_MINUTES_H100[D],
             "cells": sorted(cells),
             "pools": {c: v["n_pools"] for c, v in cells.items()},
         }
+    sizes["300000"] = {
+        **LARGE,
+        "seeds": 1,
+        "patience": args.patience,
+        "max_minutes_h100": MAX_MINUTES_H100[300_000],
+    }
     out = {
         "menu": "v0",
         "rule": "first2",
-        "criterion": "smallest K whose 8-member ensemble (8 best of the K by validation r) is within 0.003 (genomic test) / 0.005 (designed set, random sequences) of the 8-member ensemble of all usable ones, mean over genomic, random and motif pools",
+        "criterion": "K per size: all usable configurations when they cost under 3 H100-hours (one seed); otherwise the smallest K whose 8 best by validation r are within 0.002 (genomic test) / 0.003 (designed set, random sequences) of the 8 best of all usable ones, mean over genomic, random and motif pools, plus a 25% margin. The study's standard ensemble is the non-negative stack over everything trained, which gains a further 0.001 to 0.003 over the 8-member mean.",
         "skip": SKIP,
         "order": [e.id for e in menu.ordered("first2")],
         "sizes": sizes,
     }
     Path(args.out).write_text(json.dumps(out, indent=1))
-    print(f"wrote {args.out}: " + ", ".join(f"{D // 1000}k K={sizes[str(D)]['k']}" for D in SIZES))
+    print(
+        f"wrote {args.out}: "
+        + ", ".join(f"{D // 1000}k K={sizes[str(D)]['k']}" for D in SIZES)
+        + ", 300k+ K=12"
+    )
 
 
 if __name__ == "__main__":

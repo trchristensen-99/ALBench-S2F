@@ -1,0 +1,10 @@
+# Environment for training, stacking, loading and evaluating menu ensembles (albench menu ...), the acquisition code and the tests.
+# Versions are the ones the study ran with (Python 3.11). The Muon optimizer is NOT on PyPI: scripts/setup_env.sh installs the single file muon.py (MIT licence).
+torch==2.10.0
+numpy==2.4.2
+scipy==1.17.1
+scikit-learn==1.8.0
+pandas==2.3.3
+pyyaml
+tqdm
+pytest

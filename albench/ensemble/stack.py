@@ -19,7 +19,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import sklearn
 from sklearn.linear_model import ElasticNetCV
+
+
+def _n_alphas_kw(n: int) -> dict:
+    """scikit-learn 1.7 deprecated ElasticNetCV(n_alphas=...) in favour of alphas=<int> and 1.9 removed it; older versions accept only n_alphas."""
+    major, minor = (int(x) for x in sklearn.__version__.split(".")[:2])
+    return {"alphas": n} if (major, minor) >= (1, 7) else {"n_alphas": n}
+
 
 # l1_ratio grid for the richer (info-returning) path; matches the value previously
 # hard-coded in strategy_combination_ablation.py.
@@ -49,7 +57,7 @@ def fit_elasticnet_stack(
     if l1_ratio is not None:
         kw["l1_ratio"] = l1_ratio
     else:
-        kw["n_alphas"] = n_alphas
+        kw.update(_n_alphas_kw(n_alphas))
     enet = ElasticNetCV(**kw)
     enet.fit(val_X.T, val_y)
     val_pred = enet.predict(val_X.T)
@@ -126,7 +134,7 @@ def fit_zscored_stack(val_X: np.ndarray, val_y: np.ndarray, *, max_points: int =
     a = np.asarray(val_X, float)[:, sub].T
     mu, sd = a.mean(0), a.std(0) + 1e-12
     en = ElasticNetCV(
-        cv=5, n_alphas=40, max_iter=5000, l1_ratio=[0.1, 0.5, 0.9], positive=True, n_jobs=1
+        cv=5, max_iter=5000, l1_ratio=[0.1, 0.5, 0.9], positive=True, n_jobs=1, **_n_alphas_kw(40)
     ).fit((a - mu) / sd, np.asarray(val_y, float)[sub])
     return ZStack(
         mu, sd, en.coef_.copy(), float(en.intercept_), float(en.alpha_), float(en.l1_ratio_)
