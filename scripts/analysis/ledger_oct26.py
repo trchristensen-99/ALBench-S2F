@@ -329,6 +329,36 @@ def oct26_cards(d: dict) -> list[dict]:
                 change="A reservoir where nine seeds beat three by more than 0.005 would argue for more seeds at that size.",
             )
         )
+    # ---------------------------------------------------------------- 300k search against the menu
+    G3 = o.get("g300")
+    if G3:
+        r = lambda x: " / ".join(f"{x[e]:.4f}" for e in EV3)  # noqa: E731
+        sa, st3, mn, mr = (
+            G3["search_all"],
+            G3["search_top3_per_run"],
+            G3["menu_all"],
+            G3["menu_random_same_count"],
+        )
+        out.append(
+            dict(
+                id="g300",
+                group=G26,
+                status="supported",
+                figs=[],
+                q="Does the menu carried from 30k still match a fresh search at 300k?",
+                choice="Yes. Three fresh genomic searches at 300k tie the retrained menu: carrying the architectures and recipes up the ladder costs nothing measurable at 300k, so the search need not be repeated per size.",
+                points=[
+                    f"Three independent AutoResearch runs of 20 models each on genomic 300k pools (default prompt, 120-minute per-model cap), against the 33-architecture menu retrained on genomic 300k. Single-run ensembles on the genomic test set: "
+                    + ", ".join(f"{x['genomic']:.4f}" for x in G3["single_run"])
+                    + ".",
+                    f"Ensemble r (genomic test / designed set / random sequences): the top 3 of each run pooled ({st3['n']} models) {r(st3['r'])}; all {sa['n']} search models {r(sa['r'])}; the full menu ({mn['n']} models) {r(mn['r'])}; {mr['n']} randomly chosen menu architectures {r(mr['r'])}.",
+                    f"All-model comparison: search minus menu {sa['r']['genomic'] - mn['r']['genomic']:+.4f} (genomic), {sa['r']['ood'] - mn['r']['ood']:+.4f} (designed set), {sa['r']['random_32k'] - mn['r']['random_32k']:+.4f} (random sequences), with 1.8 times as many search models. At equal count (9 models) search is {st3['r']['genomic'] - mr['r']['genomic']:+.4f} ahead of random menu architectures, about one noise unit; the menu's own choice of 8 by previous-size validation r closes that gap (see the high-D planning card).",
+                    "This repeats the 10k, 30k and 100k result at the largest tested size, one reservoir.",
+                ],
+                caveat="One reservoir (genomic, the one the menu was distilled from), three runs, one seed of the menu; the other reservoirs were not searched at 300k.",
+                change="A search at 300k on a synthetic reservoir that beat the retrained menu by more than 0.005 would argue for per-reservoir search at the high sizes.",
+            )
+        )
     # ---------------------------------------------------------------- Zoonomia rebuild
     Z = o.get("zoo")
     if Z:
@@ -519,7 +549,7 @@ def spec_rows(d: dict) -> list[dict]:
             ev=SATTXT,
             st="provisional",
             card="sched",
-            open="Not measured at 300k; the 300k searches (3 runs) are the check.",
+            open="Checked at 300k (three fresh searches tie the menu); the saturation curve itself was not remeasured there.",
         ),
         dict(
             stage="2. Architecture and hyperparameter search",
@@ -546,7 +576,7 @@ def spec_rows(d: dict) -> list[dict]:
             ev=f"Per-reservoir searches match the retrained menu within 0.006 (30k) and 0.004 (100k); architecture source (genomic / random / mixed / five-reservoir searches) changes the result by at most {ASRC:.3f}; handing lower-D context to a 100k search changes the ensemble by +0.002 to +0.0035 at most.",
             st="supported",
             card="fam",
-            open="300k check pending; one representative per family; six unseen families tested at menu level only.",
+            open="One representative per family; six unseen families tested at menu level only; the 300k check (genomic) ties.",
         ),
         dict(
             stage="2. Architecture and hyperparameter search",
@@ -615,7 +645,7 @@ def spec_rows(d: dict) -> list[dict]:
             ),
             st="supported",
             card="highd",
-            open="A fresh search against the carried menu at 300k (running).",
+            open="Fresh searches at 300k tie the carried menu (genomic only).",
         ),
         dict(
             stage="4. The menu and its retraining",
