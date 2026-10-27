@@ -139,7 +139,9 @@ def main() -> None:
     k, n = (int(x) for x in args.shard.split("/"))
     menu = json.load(open(args.menu))
     gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
-    cap_min = args.base_cap_min * (5.0 if "V100" in gpu else 1.0)
+    cap_min = args.base_cap_min * (
+        5.0 if "V100" in gpu else (8.0 if ("MIG" in gpu.upper() or "1g.12gb" in gpu) else 1.0)
+    )  # a MIG slice is about 1/7 of an H100
     print(
         f"  GPU={gpu} per-model cap={cap_min:.0f} min | menu={len(menu)} entries | shard {k}/{n} | D={args.D}",
         flush=True,
