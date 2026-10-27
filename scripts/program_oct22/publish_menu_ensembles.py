@@ -33,6 +33,11 @@ def main() -> None:
     ap.add_argument("--dest", required=True)
     ap.add_argument("--size", type=int, required=True)
     ap.add_argument(
+        "--keep-skipped",
+        action="store_true",
+        help="also publish the configurations listed in per_size.json under skip",
+    )
+    ap.add_argument(
         "--pool",
         default="",
         help="training pool the models were trained on (recorded in provenance.json)",
@@ -59,6 +64,10 @@ def main() -> None:
             continue
         z = np.load(npz)
         entry = menu[meta["menu_entry"]]
+        if (
+            entry.id in menu.skipped and not args.keep_skipped
+        ):  # the shipped recipe leaves these three configurations out
+            continue
         seed = int(meta["round"])
         mid = f"{entry.id}__s{seed}"
         np.save(dest / "members" / f"{mid}.val.npy", z["val_pred"].astype(np.float32))
