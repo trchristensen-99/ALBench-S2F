@@ -6,7 +6,7 @@ validation predictions, records the ensemble's test r on the three headline eval
 reloads a few members through `MenuEnsemble.load` to check that rebuilt networks reproduce the stored predictions.
 
     python scripts/program_oct22/publish_menu_ensembles.py --src outputs/menu_retrain_v0/ens10k_genomic_p8 \
-        --dest /grid/koo/home/shared/albench/menu_oct28/ensembles/genomic_10k_patience8 --size 10000 --pool outputs/grid_pools/k562_nested/genomic_d10000.npz --verify 3
+        --dest /grid/koo/home/shared/albench/ensembles/genomic_10k_patience8 --size 10000 --pool outputs/grid_pools/k562_nested/genomic_d10000.npz --verify 3
 """
 
 from __future__ import annotations
@@ -29,7 +29,12 @@ EV = ("genomic", "ood", "random_32k")
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", required=True)
+    ap.add_argument(
+        "--src",
+        required=True,
+        nargs="+",
+        help="one or more menu_retrain output directories (helper directories of the same ensemble are merged; first wins)",
+    )
     ap.add_argument("--dest", required=True)
     ap.add_argument("--size", type=int, required=True)
     ap.add_argument(
@@ -43,20 +48,28 @@ def main() -> None:
         help="training pool the models were trained on (recorded in provenance.json)",
     )
     ap.add_argument(
+        "--patience",
+        type=int,
+        default=8,
+        help="early-stopping patience the models were trained with (recorded; menu_retrain does not store it)",
+    )
+    ap.add_argument(
         "--verify",
         type=int,
         default=0,
         help="reload this many members through MenuEnsemble.load and compare with the stored predictions",
     )
     args = ap.parse_args()
-    src, dest = Path(args.src), Path(args.dest)
+    srcs, dest = [Path(x) for x in args.src], Path(args.dest)
+    src = srcs[0]
     menu = load_menu("v0")
     (dest / "members").mkdir(parents=True, exist_ok=True)
     lab = np.load(src / "labels.npz")
     val_y = lab["val_labels"].astype(np.float32)
     test = {e: [] for e in EV}
     ids = []
-    for mf in sorted(glob.glob(str(src / "r*_menu_*_meta.json"))):
+    all_meta = [mf for sd in srcs for mf in sorted(glob.glob(str(sd / "r*_menu_*_meta.json")))]
+    for mf in all_meta:
         meta = json.load(open(mf))
         npz = mf.replace("_meta.json", ".npz")
         pt = mf.replace("_meta.json", ".pt")
@@ -70,6 +83,8 @@ def main() -> None:
             continue
         seed = int(meta["round"])
         mid = f"{entry.id}__s{seed}"
+        if mid in ids:  # already taken from an earlier source directory
+            continue
         np.save(dest / "members" / f"{mid}.val.npy", z["val_pred"].astype(np.float32))
         shutil.copy2(pt, dest / "members" / f"{mid}.pt")
         (dest / "members" / f"{mid}.json").write_text(
@@ -84,7 +99,7 @@ def main() -> None:
                     "minutes": meta.get("train_time_sec", 0) / 60.0,
                     "n_params": meta.get("n_params"),
                     "size": args.size,
-                    "patience": meta.get("patience"),
+                    "patience": args.patience,
                     "test_r_genomic": meta.get("test_oracle_pearson"),
                 }
             )
@@ -103,17 +118,15 @@ def main() -> None:
     for e in EV:
         P = np.stack([test[e][ids.index(m)] for m in order])
         metrics[e] = pearson(st.predict(P), lab[f"oracle_{e}"])
-    tr = json.load(open(glob.glob(str(src / "r*_menu_*_meta.json"))[0]))
+    tr = json.load(open(all_meta[0]))
     prov = {
-        "source_dir": str(src),
+        "source_dir": [str(x) for x in srcs],
         "pool": args.pool,
         "size": args.size,
         "seeds": meta["seeds"],
         "n_members": len(order),
         "n_members_positive_weight": int(sum(r["weight"] > 0 for r in meta["members"])),
-        "train_config_recipe": "early stopping patience {} (AL_PATIENCE), best-weight restore".format(
-            os.environ.get("AL_PATIENCE", "see members/*.json")
-        ),
+        "train_config_recipe": f"early stopping patience {args.patience}, best-weight restore, reverse-complement averaged MSE, shift augmentation up to 10 bp",
         "val_cache": tr.get("val_cache"),
         "oracle_id": "oracle_v3",
         "test_r_ensemble": metrics,
