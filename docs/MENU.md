@@ -88,7 +88,7 @@ that starts from a saved ensemble does not retrain it.
 
 ### The saved genomic ensembles (10k and 30k starting points)
 
-`menu_ensembles` asset (CSHL: `/grid/koo/home/shared/albench/menu_oct28/ensembles`): for 10,000 and 30,000 genomic sequences (the first
+`menu_ensembles` asset (CSHL: `/grid/koo/home/shared/albench/ensembles`): for 10,000 and 30,000 genomic sequences (the first
 10k / 30k of `outputs/grid_pools/k562_nested/genomic_d{D}.npz`, seed 42, labelled by oracle_v3), all 33 configurations x 3 seeds trained
 with the recipe below, with weights, per-member validation predictions and the stack. Load one with
 `MenuEnsemble.load(dir, val_s, val_y)`; pick the K best of them with `ensemble.json` if you want the recommended subset (members are listed
@@ -122,5 +122,5 @@ with their weights and validation r). Before this, only predictions had been sto
 | configurations, priority order, K per size | `albench/ensemble/menus/menu_v0.json`, `per_size.json` (regenerate with `scripts/analysis/make_per_size.py`) |
 | K-curve analysis | `scripts/analysis/analyze_oct27.py --only kcurve`, `figs_oct28.py` |
 | library, command line | `albench/ensemble/menu.py`, `albench/ensemble/stack.py` (`fit_zscored_stack`), `albench menu` |
-| shared lab folder (CSHL) | `/grid/koo/home/shared/albench/menu_oct28/` (README, configurations, V0c, genomic ensembles, K-curve) |
+| shared lab folder (CSHL) | `/grid/koo/home/shared/albench/` (`README.md`, `menu/`, `ensembles/`, `data/` with V0c, test sets and the genomic start sets, `oracle_v3_s2/`, and a code snapshot `ALBench-S2F/`) |
 | the legacy experiment scripts | `scripts/program_oct22/menu_retrain.py` (+ `build_menu.py`): kept for reproducibility, not a style model |
