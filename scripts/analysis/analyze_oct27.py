@@ -595,6 +595,39 @@ def an_hptune():
     DATA["hptune"] = res
 
 
+def an_unseen_menu():
+    """Retrained-menu ensemble r for every reservoir family at 10k, 30k and 100k (mean of the three pools); the Oct-22 unseen analysis skips 100k because it also needs a family-specific search there."""
+    res = {}
+    for D in (10000, 30000, 100000):
+        for st in ["genomic", *a.UNSEEN, "random", "motif_ct_enriched"]:
+            m = a.menu_data(st, D)
+            if m is None:
+                continue
+            r, _ = a.full_enet(m)
+            res[f"{st}|{D}"] = dict(
+                menu={e: float(r[e]) for e in EV}, n_models=int(m["V"].shape[1])
+            )
+            print(
+                f"[unseen_menu] {D // 1000}k {st}: " + " / ".join(f"{r[e]:.4f}" for e in EV),
+                flush=True,
+            )
+    for st in ("genomic", "random", "motif_ct_enriched", "evoaug_paper2023"):
+        c = load(dirs_for(st, 300000), rounds=[0])
+        if c is None:
+            continue
+        n = c["V"].shape[1]
+        r = ens(c, np.ones(n, bool))
+        res[f"{st}|300000"] = dict(
+            menu={e: float(r[e]) for e in EV}, n_models=int(n), single_seed=True
+        )
+        print(
+            f"[unseen_menu] 300k {st} (nested pool 1, {n} models): "
+            + " / ".join(f"{r[e]:.4f}" for e in EV),
+            flush=True,
+        )
+    DATA["unseen_menu"] = res
+
+
 STEPS = {
     "coord": an_coord,
     "extrap": an_extrap,
@@ -605,6 +638,7 @@ STEPS = {
     "hgdep": an_hgdep,
     "loopctl": an_loopctl,
     "hptune": an_hptune,
+    "unseen_menu": an_unseen_menu,
 }
 
 

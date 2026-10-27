@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.." || exit 1
 rm -f outputs/justification_oct22/refresh.done
 PY=.venv/bin/python
 $PY scripts/analysis/analyze_oct26.py --only noise,acq,acq3,grid,agent2,agent_grid,zoo,hg,seeds,ladder,anchor,g300,live
-$PY scripts/analysis/analyze_oct27.py --only coord,extrap,reduced,ensmethods,recipe,valdep,hgdep,loopctl,hptune
+$PY scripts/analysis/analyze_oct27.py --only coord,extrap,reduced,ensmethods,recipe,valdep,hgdep,loopctl,hptune,unseen_menu
 $PY scripts/analysis/figs_oct26.py
 $PY scripts/analysis/figs_oct27.py
 date > outputs/justification_oct22/refresh.done

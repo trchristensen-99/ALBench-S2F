@@ -27,8 +27,8 @@ OLD_ARTIFACT = "https://claude.ai/artifact/98NSVuNvp3F41LHBdGgvPp"
 
 CHANGELOG = [
     (
-        "2026-10-27 20:00",
-        "Added the Oct 27 results: the core reservoir set per dataset size, which loop elements earn their place (separate coder, coordinator against a random pick, reflector, guidance), consistency of the coordinator effect across sizes and reservoirs, the extrapolation under error-based metrics, training-recipe sensitivity (patience, epochs), the oracle-relabelled validation set adopted as standard and tested at 10k and 100k, HepG2 and the differential at 10k and 100k, reduced menus and ensemble methods across reservoirs, a 600k recipe retune, and a table of how far each assumption has been tested across sizes and reservoirs.",
+        "2026-10-27 11:30",
+        "Overnight runs finished and the page was refreshed. Changes of reading: patience 16 beats patience 8 in all five cells (+0.001 to +0.011, most at 10k); the agent-loop gain at genomic 30k comes from the separate coder, with the coordinator and reflector adding nothing on top; removing the guidance block loses 0.016 to 0.020 on every cell tested; motif shared core is ahead of the other motif reservoir on the designed set at 10k to 100k; the direct differential student wins except for random at 10k on the genomic test; no one-change recipe retune helps at 600k. Earlier in the day: added the Oct 27 results: the core reservoir set per dataset size, which loop elements earn their place (separate coder, coordinator against a random pick, reflector, guidance), consistency of the coordinator effect across sizes and reservoirs, the extrapolation under error-based metrics, training-recipe sensitivity (patience, epochs), the oracle-relabelled validation set adopted as standard and tested at 10k and 100k, HepG2 and the differential at 10k and 100k, reduced menus and ensemble methods across reservoirs, a 600k recipe retune, and a table of how far each assumption has been tested across sizes and reservoirs.",
     ),
     (
         "2026-10-26 20:00",
@@ -1843,11 +1843,9 @@ def build_assumptions(d: dict) -> list[dict]:
     ev = lambda k: ch[k]["ev"]  # noqa: E731
     g = lambda grp, label: d.get("program_status", {}).get("groups", {}).get(label, {})  # noqa: E731
     prog = lambda label: (
-        lambda x: (
-            f"{x.get('done', 0)} of {x.get('total', 0)} done, {x.get('running', 0)} running"
-            if x
-            else "not started"
-        )
+        lambda x: f"{x.get('done', 0)} of {x.get('total', 0)} done, {x.get('running', 0)} running"
+        if x
+        else "not started"
     )(g(None, label))
     rows = [
         # --- model side

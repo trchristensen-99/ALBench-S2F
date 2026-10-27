@@ -45,7 +45,7 @@ NAME = {
 
 def fig_coreset(d, old, out):
     ms = old.get("menu_scaling", {})
-    U = d.get("unseen", {}).get("results", {})
+    U = {**d.get("unseen", {}).get("results", {}), **d.get("unseen_menu", {})}
     A = d.get("anchor", {})
     if not ms:
         return
@@ -76,8 +76,14 @@ def fig_coreset(d, old, out):
                 alpha=1 if thick else 0.75,
                 label=NAME[st],
             )
+        sc = [
+            (D, U[f"motif_shared_core|{D}"]["menu"][e])
+            for D in (10000, 30000, 100000)
+            if f"motif_shared_core|{D}" in U
+        ]
+        if sc:
+            ax.plot(*zip(*sc), "D-", color=RED, lw=1.6, ms=4.5, label="motif shared core")
         for fam in (
-            "motif_shared_core",
             "motif_syntax_core",
             "mutagenesis",
             "gc_matched",

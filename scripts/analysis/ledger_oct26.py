@@ -245,7 +245,7 @@ def oct26_cards(d: dict) -> list[dict]:
         if Ag and Ag.get("pooled"):
             pg = Ag["pooled"]["genomic"]
             pts.append(
-                f"Coordinator without reflector across reservoirs and sizes ({pg['n']} paired runs so far, more are running): pooled {pg['mean']:+.4f} [{pg['lo']:+.4f}, {pg['hi']:+.4f}], {pg['wins']} of {pg['n']} ahead. "
+                f"Coordinator without reflector across reservoirs and sizes ({pg['n']} paired runs): pooled {pg['mean']:+.4f} [{pg['lo']:+.4f}, {pg['hi']:+.4f}], {pg['wins']} of {pg['n']} ahead. "
                 + "; ".join(
                     f"{k.replace('_', ' ')} {v['genomic']['mean']:+.4f} (n={v['genomic']['n']})"
                     for k, v in Ag["cells"].items()
@@ -408,6 +408,23 @@ def live_card(d: dict) -> list[dict]:
             )
     fin = [k for k, v in g.items() if v[0] == v[1]]
     pts.append("Finished: " + "; ".join(fin) + ".")
+    if all(v[0] == v[1] for v in g.values()):
+        return [
+            dict(
+                id="program5",
+                group=G26,
+                status="supported",
+                figs=[],
+                q="Is anything from the Oct 25-27 program still running?",
+                choice=f"No. Every group finished by the snapshot of {L['stamp']}; the cards of this page contain all of its results.",
+                points=[
+                    f"Snapshot {L['stamp']}: {L['mine']}.",
+                    "Finished: " + "; ".join(fin) + ".",
+                ],
+                caveat="Replicates beyond those listed (a second seed for the recipe study, the separate-coder arm on other reservoirs, a shared-core pool above 100k) have not been started.",
+                change="",
+            )
+        ]
     pts.append(
         "Estimate from this snapshot: the non-LLM groups (nine seeds, seed ladder, replicate HepG2 students, the last 1M shard) are all submitted and should finish within about 2 to 4 hours, the 100k unseen-family and evoaug 300k retrains queued behind them add roughly 3 to 5 hours; the coordinator LLM grid depends on the usage-limit windows (about two hours of running per window) and should take 4 to 8 hours."
     )
@@ -749,10 +766,10 @@ def coverage_html(d: dict) -> str:
         ("genomic", ["x", "x", "x", "x", "cap", "cap"]),
         ("random", ["x", "x", "x", "x", "x", "x"]),
         ("motif CT-enriched", ["x", "x", "x", "x", "x", "x"]),
-        ("evoaug (paper 2023)", ["x", "x", "x", "q", "", ""]),
+        ("evoaug (paper 2023)", ["x", "x", "x", "x", "", ""]),
         ("evo2 (legacy per-size pools)", ["x", "x", "x", "", "", ""]),
         ("motif syntax core, mutagenesis, GC-matched", ["x", "x", "x", "", "", ""]),
-        ("motif shared core, dinucleotide shuffle", ["x", "x", "q", "", "", ""]),
+        ("motif shared core, dinucleotide shuffle", ["x", "x", "x", "", "", ""]),
         ("Zoonomia (rebuilt)", ["x", "x", "", "", "", ""]),
     ]
     sym = {
@@ -780,7 +797,7 @@ def coverage_html(d: dict) -> str:
         + "</thead><tbody>"
         + body
         + "</tbody></table></div>"
-        '<p class="note">&#10003; retrained with the full 33-architecture menu (genomic 300k, random 300k and motif 300k on the nested replicate pool 1; 600k and 1M with 17 shards each). "queued" = running or waiting on the cluster (evoaug 300k; motif shared core and dinucleotide shuffle at 100k); "cap" = impossible; the three-replicate unseen families use pools r1 to r3.</p>'
+        '<p class="note">&#10003; retrained with the full 33-architecture menu (genomic 300k, random 300k and motif 300k on the nested replicate pool 1; 600k and 1M with 17 shards each). evoaug 300k is one seed on the nested pool; "cap" = impossible; the three-replicate unseen families use pools r1 to r3.</p>'
     )
 
 
