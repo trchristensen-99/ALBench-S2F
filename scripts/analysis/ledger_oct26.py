@@ -126,7 +126,7 @@ def oct26_cards(d: dict) -> list[dict]:
                 q="Does the extrapolation from 10k-300k hold at 600k and 1M?",
                 choice="Not quite: accuracy keeps rising but about 0.01 below the power-law extrapolation, so read the 3.2M library as 'still improving, with returns diminishing faster than a power law'. Use the measured 600k and 1M points as anchors, not the fit.",
                 points=pts,
-                caveat="Common-architecture ensembles (a few architectures fail the build-time speed check at some sizes, so the common set is smaller than 33) and one seed per size on replicate pool 1; the final 1M shard and the 100k ladder cells were still finishing when this was written. Genomic is capped by the pool, so the anchors cover the two synthetic reservoirs only.",
+                caveat="Common-architecture ensembles (a few architectures fail the build-time speed check at some sizes, so the common set is 29 of 33) and one seed per size on replicate pool 1. Genomic is capped by the pool, so the anchors cover the two synthetic reservoirs only.",
                 change="If the final numbers close the gap (within 0.005), the extrapolation is fine; if it widens, plan the 3.2M library on measured points only.",
             )
         )
@@ -323,9 +323,9 @@ def oct26_cards(d: dict) -> list[dict]:
                 status="provisional",
                 figs=["seeds_nine.png"],
                 q="How many seeds per architecture, and are seeds a substitute for independent pools?",
-                choice=f"Three seeds capture about {FR3:.0%} of the nine-seed gain (+{G13[0]:.3f} to +{G13[1]:.3f} over one seed); six more add only +{G39[0]:.3f} to +{G39[1]:.3f}. Beyond three, spend the budget on independent pools or more architectures. Scaling exponents carry about +/-0.01 of seed noise.",
+                choice=f"Three seeds capture about {FR3:.0%} of the nine-seed gain (+{G13[0]:.4f} to +{G13[1]:.4f} over one seed); six more add only +{G39[0]:.4f} to +{G39[1]:.4f}. Beyond three, spend the budget on independent pools or more architectures. Scaling exponents carry about +/-0.01 of seed noise.",
                 points=pts,
-                caveat="30k, replicate pool 1, genomic eval; the 10k / 100k ladder cells (seeds 1-2 for genomic, three seeds for random and motif) were still finishing when this was written.",
+                caveat="30k, replicate pool 1, genomic eval; the exponent figures use three seeds at 10k, 30k and 100k (genomic seeds 0-2 from the nested ladder).",
                 change="A reservoir where nine seeds beat three by more than 0.005 would argue for more seeds at that size.",
             )
         )
@@ -654,7 +654,7 @@ def spec_rows(d: dict) -> list[dict]:
             ev="Ensemble r by seeds on one 30k pool: " + seedtxt + ".",
             st="provisional",
             card="seeds",
-            open="The 10k / 100k seed ladder was still finishing.",
+            open="Replicate pools 2 and 3 for the ladder were not run.",
         ),
         dict(
             stage="4. The menu and its retraining",
