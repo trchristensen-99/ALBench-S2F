@@ -42,7 +42,7 @@ GROUPS = [
     ("Oct 28: patience 16 on pools r2/r3", ("ind30e_pat16_",)),
     (
         "Oct 28: random/motif 10k+100k r1-r3",
-        ("un10_random", "un10_motif", "un100_random", "un100_motif"),
+        ("un10_random_", "un10_motif_ct_enriched_", "un100_random_", "un100_motif_ct_enriched_"),
     ),
     ("Oct 28: shared core 300k", ("pool100_sc300", "mrr_nest_motif_shared_core")),
     ("Oct 28 LLM: separate coder, other reservoirs", ("ag30_p_rnd", "ag30_p_mot", "ag30_p_gen10")),

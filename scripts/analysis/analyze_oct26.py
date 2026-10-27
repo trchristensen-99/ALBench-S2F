@@ -617,6 +617,8 @@ def an_agent_grid():
         ("genomic", 10000, 6),
         ("random", 10000, 6),
         ("motif_ct_enriched", 10000, 6),
+        ("evoaug_paper2023", 10000, 3),
+        ("evo2", 10000, 3),
     ]
     res = {"cells": {}}
     allx, ally = [], []

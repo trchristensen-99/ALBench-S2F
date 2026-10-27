@@ -19,10 +19,15 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from albench.ensemble.menu import MAX_MINUTES_H100, load_menu  # noqa: E402
+from albench.ensemble.menu import MAX_MINUTES_H100, Menu, load_menu  # noqa: E402
 
 SIZES = (10_000, 30_000, 100_000)
 TOL = {"genomic": 0.003, "ood": 0.005, "random_32k": 0.005}
+SKIP = {
+    "son55_rep1_r00_arch_00": "exceeds the 8 s CPU forward-time check on about 10% of retrainings (node dependent)",
+    "son45_rep1_r11_arch_15": "exceeds the 8 s CPU forward-time check on about 14% of retrainings (node dependent, up to 28 s)",
+    "son55_rep2_r15_arch_31": "predictions explode (|pred| > 1e3) on distribution-shifted sets in about 17% of retrainings",
+}
 
 
 def k_needed(curve: np.ndarray, tol: float) -> int:
@@ -41,7 +46,8 @@ def main() -> None:
     )
     args = ap.parse_args()
     K = json.load(open(args.data))["kcurve"]
-    menu = load_menu("v0")
+    full = load_menu("v0")
+    menu = Menu([e for e in full.entries if e.id not in SKIP])
     sizes: dict[str, dict] = {}
     for D in SIZES:
         cells = {k: v for k, v in K.items() if k.startswith("menu33|") and k.endswith(f"|{D}")}
@@ -55,24 +61,9 @@ def main() -> None:
             n = min(len(x) for x in per)
             ev[e] = {"k": k_needed(np.mean([x[:n] for x in per], 0), tol), "tolerance": tol}
         k = max(x["k"] for x in ev.values())
-        s3 = K.get(f"seeds3|genomic|{D}", {}).get("seeds")
-        k3 = None
-        if s3:
-            ref = s3["full_top8"]["genomic"]
-            k3 = int(
-                next(
-                    (
-                        i + 1
-                        for i, r in enumerate(s3["top8"]["genomic"])
-                        if r >= ref - TOL["genomic"]
-                    ),
-                    len(s3["top8"]["genomic"]),
-                )
-            )
         sizes[str(D)] = {
             "k": k,
             "k_by_evaluation_set": ev,
-            "k_with_3_seeds_genomic_test": k3,
             "seeds": 1,
             "patience": args.patience_small if D <= 30_000 else 8,
             "max_minutes_h100": MAX_MINUTES_H100[D],
@@ -82,7 +73,8 @@ def main() -> None:
     out = {
         "menu": "v0",
         "rule": "first2",
-        "criterion": "smallest K whose 8-member ensemble (8 best of the K by validation r) is within 0.003 (genomic test) / 0.005 (designed set, random sequences) of the 8-member ensemble of all 33, mean over genomic, random and motif pools",
+        "criterion": "smallest K whose 8-member ensemble (8 best of the K by validation r) is within 0.003 (genomic test) / 0.005 (designed set, random sequences) of the 8-member ensemble of all usable ones, mean over genomic, random and motif pools",
+        "skip": SKIP,
         "order": [e.id for e in menu.ordered("first2")],
         "sizes": sizes,
     }

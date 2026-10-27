@@ -611,7 +611,7 @@ def an_unseen_menu():
                 f"[unseen_menu] {D // 1000}k {st}: " + " / ".join(f"{r[e]:.4f}" for e in EV),
                 flush=True,
             )
-    for st in ("genomic", "random", "motif_ct_enriched", "evoaug_paper2023"):
+    for st in ("genomic", "random", "motif_ct_enriched", "evoaug_paper2023", "motif_shared_core"):
         c = load(dirs_for(st, 300000), rounds=[0])
         if c is None:
             continue
@@ -700,13 +700,162 @@ def kcurve_cell(menu, c, allowed=None):
     return res
 
 
-def kcurve_seeds_cell(menu, c, seeds=(0, 1, 2)):
+def an_recipe2():
+    """Patience 16 against the default (8) on replicate pools r1-r3, paired by pool: does the gain of the first seed hold on other pools, reservoirs and sizes?"""
+    cells = [(s_, 30000) for s_ in RES] + [
+        ("genomic", 10000),
+        ("random", 10000),
+        ("motif_ct_enriched", 10000),
+        ("genomic", 100000),
+    ]
+    res = {}
+    for st, D in cells:
+        k = D // 1000
+        rows = []
+        for r in (1, 2, 3):
+            base_dir = f"ind30k_{st}_r{r}" if D == 30000 else f"un{k}k_{st}_r{r}"
+            base, arm = load([base_dir], rounds=[0]), load([f"tr{k}k_pat16_{st}_r{r}"], rounds=[0])
+            if base is None or arm is None or arm["V"].shape[1] < 20 or base["V"].shape[1] < 20:
+                continue
+            idx = common([base, arm])
+            rb, ra = (
+                ens(base, np.isin(base["idx"], list(idx))),
+                ens(arm, np.isin(arm["idx"], list(idx))),
+            )
+            ms_b, ms_a = meta_stats([base_dir]), meta_stats([f"tr{k}k_pat16_{st}_r{r}"])
+            rows.append(
+                {
+                    "pool": r,
+                    "n_arch": len(idx),
+                    "default": rb,
+                    "pat16": ra,
+                    "delta": {e: ra[e] - rb[e] for e in EV},
+                    "minutes_ratio": (ms_a or {}).get("minutes", 0)
+                    / max((ms_b or {}).get("minutes", 1e-9), 1e-9),
+                }
+            )
+        if not rows:
+            continue
+        d = [x["delta"]["genomic"] for x in rows]
+        res[f"{st}_{k}k"] = {
+            "pools": rows,
+            "mean": float(np.mean(d)),
+            "n": len(d),
+            "positive": int(sum(x > 0 for x in d)),
+            "mean_ood": float(np.mean([x["delta"]["ood"] for x in rows])),
+            "mean_random": float(np.mean([x["delta"]["random_32k"] for x in rows])),
+        }
+        print(
+            f"[recipe2] {st} {k}k: pat16 minus default per pool "
+            + ", ".join(f"r{x['pool']} {x['delta']['genomic']:+.4f}" for x in rows)
+            + f"; mean {np.mean(d):+.4f}; designed set {res[f'{st}_{k}k']['mean_ood']:+.4f}; random sequences {res[f'{st}_{k}k']['mean_random']:+.4f}; time x{np.mean([x['minutes_ratio'] for x in rows]):.2f}",
+            flush=True,
+        )
+    allp = [x["delta"]["genomic"] for v in res.values() for x in v["pools"]]
+    if allp:
+        res["summary"] = {
+            "mean": float(np.mean(allp)),
+            "se": float(np.std(allp, ddof=1) / np.sqrt(len(allp))) if len(allp) > 1 else 0.0,
+            "n": len(allp),
+            "positive": int(sum(x > 0 for x in allp)),
+            "by_size": {},
+        }
+        for k in (10, 30, 100):
+            v = [
+                x["delta"]["genomic"]
+                for kk, c in res.items()
+                if kk.endswith(f"_{k}k")
+                for x in c["pools"]
+            ]
+            if v:
+                res["summary"]["by_size"][str(k)] = {
+                    "mean": float(np.mean(v)),
+                    "n": len(v),
+                    "positive": int(sum(x > 0 for x in v)),
+                }
+        print(
+            f"[recipe2] all cells and pools: pat16 minus default {res['summary']['mean']:+.4f} (SE {res['summary']['se']:.4f}), {res['summary']['positive']} of {res['summary']['n']} positive; "
+            + "; ".join(
+                f"{k}k {v['mean']:+.4f} ({v['positive']}/{v['n']})"
+                for k, v in res["summary"]["by_size"].items()
+            ),
+            flush=True,
+        )
+    DATA["recipe2"] = res
+
+
+def an_plain_grid():
+    """Separate-coder arm (agent loop without coordinator and reflector) against the default single-call loop, and the coordinator arm against it, paired by replicate pool, across reservoirs and sizes."""
+    import analyze_oct25 as b
+
+    cells = [
+        ("genomic", 30000, 6),
+        ("random", 30000, 6),
+        ("motif_ct_enriched", 30000, 6),
+        ("genomic", 10000, 6),
+    ]
+    res = {"cells": {}}
+    px, py = [], []
+    for st, D, n in cells:
+        k = D // 1000
+        xs, ys, zs = [], [], []
+        for r in range(1, n + 1):
+            d0, d1 = (
+                b.run_stats(f"{O22}/{st}_{k}k/rep{r}"),
+                b.run_stats(f"{O22}/{st}_{k}k_agent_plain/rep{r}"),
+            )
+            if not (d0 and d1):
+                continue
+            d2 = b.run_stats(f"{O22}/{st}_{k}k_agent_coord_noref/rep{r}")
+            xs.append(d0["ens"])
+            ys.append(d1["ens"])
+            zs.append(d2["ens"] if d2 else [np.nan] * len(EV))
+        if not xs:
+            print(f"[plain_grid] {st} {k}k: no complete pairs yet", flush=True)
+            continue
+        xs, ys, zs = np.array(xs), np.array(ys), np.array(zs)
+        cell = {e: b.paired(xs[:, i], ys[:, i]) for i, e in enumerate(EV)} | {
+            "default_mean": xs.mean(0).tolist(),
+            "plain_mean": ys.mean(0).tolist(),
+        }
+        ok = np.isfinite(zs[:, 0])
+        if ok.sum() >= 3:
+            cell["coordinator_minus_plain"] = {
+                e: b.paired(ys[ok, i], zs[ok, i]) for i, e in enumerate(EV)
+            }
+        res["cells"][f"{st}_{k}k"] = cell
+        px.append(xs)
+        py.append(ys)
+        g = cell["genomic"]
+        cm = cell.get("coordinator_minus_plain", {}).get("genomic")
+        print(
+            f"[plain_grid] {st:17s} {k:2d}k: {g['n']} pairs, default {xs[:, 0].mean():.4f} separate coder {ys[:, 0].mean():.4f} diff {g['mean']:+.4f} [{g['lo']:+.4f}, {g['hi']:+.4f}] wins {g['wins']}/{g['n']}"
+            + (
+                f"; coordinator minus separate coder {cm['mean']:+.4f} ({cm['n']} pairs)"
+                if cm
+                else ""
+            ),
+            flush=True,
+        )
+    if px:
+        X, Y = np.vstack(px), np.vstack(py)
+        res["pooled"] = {e: b.paired(X[:, i], Y[:, i]) for i, e in enumerate(EV)}
+        g = res["pooled"]["genomic"]
+        print(
+            f"[plain_grid] POOLED over {g['n']} paired runs: separate coder - default genomic {g['mean']:+.4f} [{g['lo']:+.4f}, {g['hi']:+.4f}] p={g['p']:.3f} wins {g['wins']}/{g['n']}",
+            flush=True,
+        )
+    DATA["plain_grid"] = res
+
+
+def kcurve_seeds_cell(menu, c, seeds=(0, 1, 2), allowed=None):
     """K configurations x several seeds on one pool (best-2-of-every-run-first order): the 8 best of the K x S trained models by validation r,
     against the 8 best of all configurations x S seeds."""
     if c is None:
         return None
     keep = np.isin(c["rnd"], list(seeds))
     cols_all = np.flatnonzero(keep)
+    cols_all = np.array([j for j in cols_all if allowed is None or int(c["idx"][j]) in allowed])
     idxs = sorted({int(i) for i in c["idx"][cols_all]})
     if len(idxs) < 12:
         return None
@@ -736,6 +885,10 @@ def an_kcurve():
     """How many configurations need to be trained on a dataset for an approximately optimal ensemble? Retrained menu_v0 (33 configurations from four search runs
     and the reference) on every reservoir x size where three pools exist, plus the 45-candidate menus from 15 runs (MG, MF) at 30k."""
     menu = json.load(open("outputs/menu_retrain_v0/menu_v0.json"))
+    # three configurations are left out of the shipped recipe: two exceed the CPU forward-time check on many nodes (so were retrained on only some pools)
+    # and one produces exploding predictions on distribution-shifted sets (see menus/per_size.json "skip")
+    skip_ids = {"son55_rep1_r00_arch_00", "son55_rep2_r15_arch_31", "son45_rep1_r11_arch_15"}
+    usable = {i for i, e in enumerate(menu) if e["id"] not in skip_ids}
 
     def pools(st, D):
         k = D // 1000
@@ -756,7 +909,7 @@ def an_kcurve():
             ]
             if not loaded:
                 continue
-            common_idx = set.intersection(*[{int(i) for i in c["idx"]} for c in loaded])
+            common_idx = set.intersection(*[{int(i) for i in c["idx"]} for c in loaded]) & usable
             cells = [kcurve_cell(menu, c, common_idx) for c in loaded]
             res[f"menu33|{st}|{D}"] = {
                 "pools": cells,
@@ -795,7 +948,7 @@ def an_kcurve():
         ],
     }
     for (st, D), dirs in seedsrc.items():
-        r = kcurve_seeds_cell(menu, load(dirs))
+        r = kcurve_seeds_cell(menu, load(dirs), allowed=usable)
         if r:
             res[f"seeds3|{st}|{D}"] = {"seeds": r}
             m = r["top8"]["genomic"]
@@ -833,6 +986,8 @@ STEPS = {
     "hptune": an_hptune,
     "unseen_menu": an_unseen_menu,
     "kcurve": an_kcurve,
+    "recipe2": an_recipe2,
+    "plain_grid": an_plain_grid,
 }
 
 

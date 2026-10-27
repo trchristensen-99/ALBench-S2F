@@ -1,7 +1,12 @@
 {
  "menu": "v0",
  "rule": "first2",
- "criterion": "smallest K whose 8-member ensemble (8 best of the K by validation r) is within 0.003 (genomic test) / 0.005 (designed set, random sequences) of the 8-member ensemble of all 33, mean over genomic, random and motif pools",
+ "criterion": "smallest K whose 8-member ensemble (8 best of the K by validation r) is within 0.003 (genomic test) / 0.005 (designed set, random sequences) of the 8-member ensemble of all usable ones, mean over genomic, random and motif pools",
+ "skip": {
+  "son55_rep1_r00_arch_00": "exceeds the 8 s CPU forward-time check on about 10% of retrainings (node dependent)",
+  "son45_rep1_r11_arch_15": "exceeds the 8 s CPU forward-time check on about 14% of retrainings (node dependent, up to 28 s)",
+  "son55_rep2_r15_arch_31": "predictions explode (|pred| > 1e3) on distribution-shifted sets in about 17% of retrainings"
+ },
  "order": [
   "son45_rep1_r02_arch_03",
   "son55_rep2_r17_arch_35",
@@ -19,9 +24,7 @@
   "son45_rep1_r03_arch_05",
   "son55_rep2_r11_arch_23",
   "son55_rep2_r13_arch_27",
-  "son45_rep1_r11_arch_15",
   "son45_rep1_r03_arch_06",
-  "son55_rep1_r00_arch_00",
   "son55_rep3_r10_arch_21",
   "son55_rep3_r01_arch_03",
   "son55_rep1_r06_arch_13",
@@ -34,27 +37,25 @@
   "son55_rep1_r02_arch_04",
   "son45_rep1_r10_arch_13",
   "son55_rep1_r05_arch_10",
-  "son55_rep2_r15_arch_31",
   "son45_rep1_r11_arch_14"
  ],
  "sizes": {
   "10000": {
-   "k": 21,
+   "k": 30,
    "k_by_evaluation_set": {
     "genomic": {
-     "k": 18,
+     "k": 17,
      "tolerance": 0.003
     },
     "ood": {
-     "k": 18,
+     "k": 17,
      "tolerance": 0.005
     },
     "random_32k": {
-     "k": 21,
+     "k": 30,
      "tolerance": 0.005
     }
    },
-   "k_with_3_seeds_genomic_test": null,
    "seeds": 1,
    "patience": 8,
    "max_minutes_h100": 15.0,
@@ -85,7 +86,6 @@
      "tolerance": 0.005
     }
    },
-   "k_with_3_seeds_genomic_test": null,
    "seeds": 1,
    "patience": 8,
    "max_minutes_h100": 25.0,
@@ -101,14 +101,14 @@
    }
   },
   "100000": {
-   "k": 12,
+   "k": 13,
    "k_by_evaluation_set": {
     "genomic": {
      "k": 9,
      "tolerance": 0.003
     },
     "ood": {
-     "k": 12,
+     "k": 13,
      "tolerance": 0.005
     },
     "random_32k": {
@@ -116,7 +116,6 @@
      "tolerance": 0.005
     }
    },
-   "k_with_3_seeds_genomic_test": null,
    "seeds": 1,
    "patience": 8,
    "max_minutes_h100": 60.0,

@@ -24,6 +24,7 @@ import hashlib
 import json
 import os
 import time
+import warnings
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -122,15 +123,24 @@ class Menu:
     def priority(self, rule: str | None = None) -> list[MenuEntry]:
         """The training priority order: the study's tabulated order (``per_size.json``) unless a ``rule`` is given."""
         stored = self.per_size.get("order")
+        skip = self.skipped
         if rule is None and stored:
             by_id = self._by_id
             listed = [by_id[i] for i in stored if i in by_id]
-            return listed + [
+            order = listed + [
                 e
                 for e in self.ordered(self.per_size.get("rule", "first2"))
                 if e.id not in set(stored)
             ]
-        return self.ordered(rule or self.per_size.get("rule", "first2"))
+        else:
+            order = self.ordered(rule or self.per_size.get("rule", "first2"))
+        return [e for e in order if e.id not in skip]
+
+    @property
+    def skipped(self) -> dict[str, str]:
+        """Entries left out of the recipe (id -> reason), see ``per_size.json``: two exceed the CPU forward-time check on many nodes and one
+        produces exploding predictions on distribution-shifted sequences, which is exactly what candidate scoring feeds it."""
+        return dict(self.per_size.get("skip", {}))
 
     def for_size(
         self, size: int, *, k: int | None = None, rule: str | None = None
@@ -370,7 +380,7 @@ def train_member(
     patience: int | None = None,
     max_minutes: float | None = None,
     device: str | None = None,
-    max_fwd_ms: float = 8000.0,
+    max_fwd_ms: float = 1e9,
     log: Callable[[str], None] = print,
 ) -> TrainedMember | None:
     """Train one configuration; returns ``None`` (with the reason logged) if it fails to build, trains to a non-finite loss or explodes.
@@ -442,6 +452,33 @@ def member_predict(
     return np.concatenate(out) if out else np.zeros(0, np.float32)
 
 
+def probe_sequences(seed: int = 0) -> list[str]:
+    """Sequences far from the training distribution (uniform random, GC-extreme, repeats) used to screen out members that explode on them.
+
+    One configuration of the menu produced predictions of order 1e5 on shifted evaluation sets in about half of its retrainings while
+    looking normal on genomic ones; acquisition scores exactly such sequences, so a member is checked here before it can enter an ensemble.
+    """
+    rng = np.random.default_rng(seed)
+    out: list[str] = []
+    for gc, n in ((0.5, 400), (0.8, 300), (0.2, 300)):
+        p = [(1 - gc) / 2, gc / 2, gc / 2, (1 - gc) / 2]  # A C G T
+        out += ["".join(rng.choice(list("ACGT"), SEQ_LEN, p=p)) for _ in range(n)]
+    for unit in ("A", "C", "G", "T", "AC", "GC", "CT", "AT"):
+        base = (unit * SEQ_LEN)[:SEQ_LEN]
+        out.append(base)
+        for _ in range(20):
+            s = list(base)
+            for j in rng.choice(SEQ_LEN, 10, replace=False):
+                s[j] = "ACGT"[rng.integers(4)]
+            out.append("".join(s))
+    return out
+
+
+def exploded(pred: np.ndarray) -> bool:
+    """The study's screen: non-finite predictions, or any magnitude above 1e3, on a set the model is asked to score."""
+    return (not bool(np.isfinite(pred).all())) or float(np.abs(pred).max()) > 1e3
+
+
 # ---------------------------------------------------------------------------------------------------------------------- ensemble
 class MenuEnsemble(SequenceModel):
     """The menu trained on one labelled set and stacked -- a student for :class:`albench.core.loop.ALLoop`.
@@ -483,6 +520,7 @@ class MenuEnsemble(SequenceModel):
         self.devices = list(devices) if devices else None
         self.log = log
         self.members: list[TrainedMember] = []
+        self.screened_out: list[str] = []
         self.stack: Any = None
         self.train_hash: str | None = None
         self._x_val = one_hot(self.val_sequences)
@@ -558,12 +596,24 @@ class MenuEnsemble(SequenceModel):
         else:
             results = [run(j, self.devices[0] if self.devices else None) for j in jobs]
         self.members = [r for r in results if r is not None]
+        self.screen()
         if len(self.members) < 2:
             raise RuntimeError(
                 f"only {len(self.members)} of {len(jobs)} members trained (size {size}); cannot stack"
             )
         self.train_hash = h
         self.fit_stack()
+
+    def screen(self) -> list[str]:
+        """Drop members that explode on the probe set (random, GC-extreme and repetitive sequences); returns their ids."""
+        x = one_hot(probe_sequences())
+        dev = self.devices[0] if self.devices else None
+        bad = [m for m in self.members if exploded(member_predict(m, x, device=dev))]
+        for m in bad:
+            self.log(f"    {m.member_id} explodes on the probe sequences; dropped")
+        self.screened_out = [m.member_id for m in bad]
+        self.members = [m for m in self.members if m not in bad]
+        return self.screened_out
 
     def fit_stack(self) -> None:
         """Non-negative ElasticNet on the z-scored validation predictions of every member (zero weight = member unused)."""
@@ -586,17 +636,28 @@ class MenuEnsemble(SequenceModel):
         x = one_hot(sequences)
         ms = self.kept if only_kept else self.members
         dev = self.devices[0] if self.devices else None
-        return np.stack([member_predict(m, x, device=dev) for m in ms])
+        preds = np.stack([member_predict(m, x, device=dev) for m in ms])
+        for j, m in enumerate(
+            ms
+        ):  # a member that explodes on this batch is masked (NaN) rather than allowed to dominate the ensemble
+            if exploded(preds[j]):
+                warnings.warn(
+                    f"{m.member_id} produced exploding predictions on this batch and is excluded from it",
+                    stacklevel=2,
+                )
+                preds[j] = np.nan
+        return preds
 
     def predict(self, sequences: list[str]) -> np.ndarray:
-        return self.stack.predict(self.member_predictions(sequences)).astype(np.float32)
+        p = self.member_predictions(sequences)
+        return self.stack.predict(p, active=~np.isnan(p).any(axis=1)).astype(np.float32)
 
     def uncertainty(self, sequences: list[str]) -> np.ndarray:
         return self.epistemic_uncertainty(sequences)
 
     def epistemic_uncertainty(self, sequences: list[str]) -> np.ndarray:
         """Standard deviation of the predictions of the members the stack uses (disagreement; shrinks as labels accumulate)."""
-        return self.member_predictions(sequences, only_kept=True).std(axis=0)
+        return np.nanstd(self.member_predictions(sequences, only_kept=True), axis=0)
 
     def embed(self, sequences: list[str]) -> np.ndarray:
         raise NotImplementedError(
@@ -611,8 +672,12 @@ class MenuEnsemble(SequenceModel):
     def _encode_sequences(self, sequences: Sequence[str]) -> np.ndarray:
         return one_hot(sequences)
 
-    def _predict_member(self, member: TrainedMember, x: np.ndarray) -> np.ndarray:
-        return member_predict(member, x, device=self.devices[0] if self.devices else None)
+    def _predict_member(self, member: TrainedMember, x: np.ndarray | Sequence[str]) -> np.ndarray:
+        """One member's predictions on one-hot input or on raw sequences (EnsembleAcquisition passes the former, BatchBALD the latter)."""
+        if not isinstance(x, np.ndarray):
+            x = one_hot(x)
+        p = member_predict(member, x, device=self.devices[0] if self.devices else None)
+        return np.full_like(p, np.nan) if exploded(p) else p
 
     # -- persistence ------------------------------------------------------------------------------------------------
     def save(self, path: str | Path) -> None:
@@ -654,6 +719,7 @@ class MenuEnsemble(SequenceModel):
             "val_r_ensemble": pearson(
                 self.stack.predict(np.stack([m.val_pred for m in self.members])), self.val_labels
             ),
+            "screened_out": self.screened_out,
             "members": rows,
         }
         (out / "ensemble.json").write_text(json.dumps(meta, indent=1))
@@ -710,6 +776,7 @@ class MenuEnsemble(SequenceModel):
         ens.members = members
         ens.stack = ZStack.from_json(meta["stack"])
         ens.train_hash = meta.get("train_hash")
+        ens.screened_out = list(meta.get("screened_out", []))
         return ens
 
 
@@ -731,8 +798,8 @@ def train_menu(
 ) -> list[str]:
     """Train the menu's configurations for a dataset of ``size`` sequences into ``out_dir/members`` (resumable, shardable across jobs).
 
-    Walks the priority order until K configurations have *built*: an entry that fails the build check is skipped and the next one
-    takes its place, so every shard agrees on the same K. Each trained member writes ``<id>__s<seed>.pt`` (weights), ``.val.npy``
+    Takes the first K configurations of the priority order (the entries in ``per_size.json["skip"]`` are not in it), so every shard agrees
+    on the same list; a member that fails to train is reported and left out. Each trained member writes ``<id>__s<seed>.pt`` (weights), ``.val.npy``
     (validation predictions) and ``.json`` (metrics). Shard ``(i, n)`` trains the jobs whose position is ``i`` mod ``n``; once all
     shards are done, :func:`stack_dir` fits the stack and writes ``ensemble.json``.
     """
@@ -744,13 +811,7 @@ def train_menu(
     seeds = seeds if seeds is not None else int(row.get("seeds", 1))
     patience = patience if patience is not None else row.get("patience")
     want = k if k is not None else int(row.get("k", len(menu)))
-    chosen = []
-    for e in menu.priority():
-        net, _ = build_net(e)
-        if net is not None:
-            chosen.append(e)
-        if len(chosen) == want:
-            break
+    chosen = menu.priority()[:want]
     jobs = [(e, s) for s in range(seeds) for e in chosen]
     done: list[str] = []
     for j, (e, s) in enumerate(jobs):
@@ -803,8 +864,16 @@ def stack_dir(
     *,
     size: int | None = None,
     train_hash: str | None = None,
+    screen: bool = True,
+    device: str | None = None,
 ) -> dict[str, Any]:
-    """Combine the members in ``out_dir/members`` (written by :func:`train_menu`, possibly by many shards) into ``ensemble.json``."""
+    """Combine the members in ``out_dir/members`` (written by :func:`train_menu`, possibly by many shards) into ``ensemble.json``.
+
+    With ``screen`` every member is run on :func:`probe_sequences` first and one that explodes is left out of the stack (listed under
+    ``screened_out``); this loads each member's network, so use a GPU node for hundreds of members.
+    """
+    import torch
+
     from albench.ensemble.stack import fit_zscored_stack
 
     d = Path(out_dir)
@@ -812,8 +881,28 @@ def stack_dir(
         (json.loads(p.read_text()) for p in (d / "members").glob("*.json")),
         key=lambda r: r["member"],
     )
+    screened: list[str] = []
+    if screen:
+        x = one_hot(probe_sequences())
+        kept = []
+        for r in metas:
+            m = TrainedMember(
+                menu[r["entry"]],
+                torch.load(d / "members" / f"{r['member']}.pt", map_location="cpu"),
+                int(r["seed"]),
+                np.zeros(0),
+                float(r["val_r"]),
+                0,
+                0.0,
+                0,
+            )
+            if exploded(member_predict(m, x, device=device)):
+                screened.append(r["member"])
+            else:
+                kept.append(r)
+        metas = kept
     if len(metas) < 2:
-        raise RuntimeError(f"{d}: {len(metas)} members; nothing to stack")
+        raise RuntimeError(f"{d}: {len(metas)} usable members; nothing to stack")
     v = np.stack([np.load(d / "members" / f"{r['member']}.val.npy") for r in metas])
     st = fit_zscored_stack(v, np.asarray(val_labels, np.float32))
     rows = [{**r, "weight": float(w)} for r, w in zip(metas, st.coef)]
@@ -827,6 +916,7 @@ def stack_dir(
         "seeds": 1 + max(r["seed"] for r in metas),
         "stack": st.to_json(),
         "val_r_ensemble": pearson(st.predict(v), val_labels),
+        "screened_out": screened,
         "members": rows,
     }
     (d / "ensemble.json").write_text(json.dumps(meta, indent=1))

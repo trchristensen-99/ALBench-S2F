@@ -306,7 +306,7 @@ def cmd_menu(args) -> int:
     if args.menu_cmd == "list":
         sizes = [args.size] if args.size else [10_000, 30_000, 100_000]
         print(
-            f"menu {menu.name}: {len(menu)} configurations from {len({e.run for e in menu.entries})} search runs; priority order rule: {menu.per_size.get('rule', 'first2')}\n"
+            f"menu {menu.name}: {len(menu)} configurations from {len({e.run for e in menu.entries if e.run != 'reference'})} search runs plus the reference LegNet; priority order rule: {menu.per_size.get('rule', 'first2')}\n"
         )
         for size in sizes:
             row = menu.recipe(size)

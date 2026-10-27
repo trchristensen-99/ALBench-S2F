@@ -68,6 +68,16 @@ If you add an acquisition method, add its controls at the same time.
 Nothing else needs to change. No if/elif to extend, no new YAML file per parameter
 value — that was the old design and it is what made the codebase hard to extend.
 
+## Training students: the menu of configurations
+
+The student is not one network but an ensemble of up to 33 model-written configurations (architecture source + training recipe), trained on
+whatever labelled set you have and stacked on the validation set. `albench.ensemble.menu` is the library for it (`Menu`, `train_member`,
+`MenuEnsemble`, a `SequenceModel` for the AL loop), `albench menu list|export|train|stack|predict` the command line, and
+[docs/MENU.md](docs/MENU.md) says how many configurations to train per dataset size (K = 21 / 11 / 12 at 10k / 30k / 100k) and why. Do not copy
+`scripts/program_oct22/menu_retrain.py`: it is the experiment script, kept so old runs can be reproduced. Two guards that are not obvious: the
+validation set is the oracle_v3-labelled `val_v0c` asset (never train on it), and the library refuses to train with AdamW when a configuration
+asks for Muon and the package is missing (the loop would otherwise fall back silently).
+
 ## House rules that are not obvious
 
 - **No absolute paths in `albench/`.** Everything resolves through

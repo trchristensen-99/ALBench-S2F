@@ -11,10 +11,12 @@ from albench.ensemble.menu import (
     Menu,
     MenuEnsemble,
     MenuEntry,
+    exploded,
     load_labelled,
     load_menu,
     one_hot,
     pearson,
+    probe_sequences,
     stack_dir,
     train_menu,
 )
@@ -56,14 +58,16 @@ def test_shipped_menu_loads_and_is_consistent():
     assert sum(e.search_val is None for e in m.entries) == 1  # the reference network
 
 
-def test_priority_order_covers_each_entry_once_and_per_size_table_is_valid():
+def test_priority_order_covers_each_usable_entry_once_and_per_size_table_is_valid():
     m = load_menu("v0")
     order = m.priority()
-    assert sorted(e.id for e in order) == sorted(e.id for e in m.entries)
+    usable = sorted(e.id for e in m.entries if e.id not in m.skipped)
+    assert sorted(e.id for e in order) == usable and len(m.skipped) == 3
     for size in (10_000, 30_000, 100_000):
         row = m.recipe(size)
-        assert 1 <= row["k"] <= len(m) and row["seeds"] >= 1
+        assert 1 <= row["k"] <= len(usable) and row["seeds"] >= 1
         assert len(m.for_size(size)) == row["k"]
+        assert not {e.id for e in m.for_size(size)} & set(m.skipped)
     assert m.recipe(5_000) == m.recipe(10_000)  # below the table: the smallest size's row
     assert m.recipe(60_000) == m.recipe(30_000)  # between: the nearest size below
 
@@ -120,6 +124,35 @@ def test_load_labelled_refuses_unstamped_sets(tmp_path):
 
 
 # ------------------------------------------------------------------------------------------------------------------- stack
+def test_stack_can_drop_an_exploded_member_without_changing_scale():
+    rng = np.random.default_rng(0)
+    y = rng.normal(size=300)
+    v = np.stack(
+        [
+            y + 0.3 * rng.normal(size=300),
+            y + 0.3 * rng.normal(size=300),
+            y + 0.3 * rng.normal(size=300),
+        ]
+    )
+    st = fit_zscored_stack(v, y)
+    broken = v.copy()
+    broken[1] = np.nan
+    p = st.predict(broken, active=np.array([True, False, True]))
+    assert np.isfinite(p).all() and abs(p.std() - st.predict(v).std()) < 0.2 * st.predict(v).std()
+
+
+def test_screen_detects_exploding_predictions():
+    assert (
+        exploded(np.array([1.0, np.nan]))
+        and exploded(np.array([1.0, 2e3]))
+        and not exploded(np.array([-5.0, 7.0]))
+    )
+    probe = probe_sequences()
+    assert len(probe) > 1000 and all(len(x) == 200 for x in probe)
+    gc = np.mean([sum(c in "GC" for c in x) / 200 for x in probe[400:700]])
+    assert gc > 0.7  # the second block is GC-rich
+
+
 def test_zscored_stack_is_non_negative_and_round_trips():
     rng = np.random.default_rng(0)
     y = rng.normal(size=400)
@@ -160,6 +193,12 @@ def test_train_stack_save_load_and_acquisition(tiny, tmp_path):
     with pytest.raises(NotImplementedError):
         ens.embed(va_s)
     ens.fit(tr_s, tr_y)  # same training set: must not retrain
+    first = ens.models[
+        0
+    ]  # BatchBALD passes raw sequences, EnsembleAcquisition one-hot arrays: both must work
+    assert np.allclose(
+        ens._predict_member(first, va_s[:4]), ens._predict_member(first, one_hot(va_s[:4]))
+    )
     picked = EnsembleAcquisition().select(
         ens, va_s, 5
     )  # the repo's ensemble-disagreement acquisition runs on it unchanged

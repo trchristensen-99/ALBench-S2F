@@ -82,10 +82,15 @@ class ZStack:
     alpha: float = 0.0
     l1_ratio: float = 0.0
 
-    def predict(self, member_preds: np.ndarray) -> np.ndarray:
-        """``member_preds`` is (n_members, n_points)."""
-        z = (np.asarray(member_preds, float) - self.mu[:, None]) / self.sd[:, None]
-        return z.T @ self.coef + self.intercept
+    def predict(self, member_preds: np.ndarray, active: np.ndarray | None = None) -> np.ndarray:
+        """``member_preds`` is (n_members, n_points). ``active`` (bool per member) drops members whose predictions cannot be used (for example
+        exploded on this batch); the remaining weights are rescaled to the full weight sum so the prediction keeps its scale."""
+        coef = self.coef
+        if active is not None and not np.all(active):
+            kept = np.where(active, self.coef, 0.0)
+            coef = kept * (self.coef.sum() / max(kept.sum(), 1e-12))
+        z = np.nan_to_num((np.asarray(member_preds, float) - self.mu[:, None]) / self.sd[:, None])
+        return z.T @ coef + self.intercept
 
     def to_json(self) -> dict:
         return {
