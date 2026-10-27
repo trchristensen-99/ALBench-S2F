@@ -8,7 +8,9 @@ sc300     motif_shared_core at 300k: pool build + menu retrain, to compare with 
 llm2      separate-coder arm (agent loop without coordinator and reflector) on random 30k, motif 30k, genomic 10k pools;
           coordinator arm on evoaug and evo2 10k pools                                                                         (ag30_p_, an30_)
 
-  python scripts/program_oct22/register_oct28.py [--only ensemble,recipe2,series,sc300,llm2] [--dry]
+libcheck  the library (albench menu train / stack) retrains 3 entries on the genomic 10k pool, to compare with the experiment script's members        (ind30z_)
+
+  python scripts/program_oct22/register_oct28.py [--only ensemble,recipe2,series,sc300,llm2,libcheck] [--dry]
 """
 
 import collections
@@ -24,7 +26,7 @@ os.chdir(R)
 ONLY = (
     sys.argv[sys.argv.index("--only") + 1].split(",")
     if "--only" in sys.argv
-    else ["ensemble", "recipe2", "series", "sc300", "llm2"]
+    else ["ensemble", "recipe2", "series", "sc300", "llm2", "libcheck"]
 )
 DRY = "--dry" in sys.argv
 S55 = "claude-sonnet-5-5"
@@ -183,6 +185,24 @@ if "llm2" in ONLY:
                     COORD,
                 )
             )
+
+if "libcheck" in ONLY:
+    # the library (albench menu train / stack) against the experiment script on the same nested genomic 10k pool: the first 3 entries of the priority order,
+    # seed 0 and the same entry indices, so each member should match its r00 counterpart in ens10k_genomic_p8 up to GPU non-determinism
+    out = "outputs/menu_retrain_v0/libcheck_10k"
+    new.append(
+        dict(
+            name="ind30z_libcheck_10k",
+            gpus=["h100", "v100"],
+            ext=[],
+            out_dir=out,
+            env={},
+            needs=[rel(VAL0C)],
+            cmd=f"uv run --no-sync python -m albench.cli menu train --size 10000 --pool {GP}/k562_nested/genomic_d10000.npz --val {VAL0C} --out {R}/{out} --k 3 --seeds 1 --patience 8 && "
+            f"uv run --no-sync python -m albench.cli menu stack --out {R}/{out} --val {VAL0C} --size 10000",
+            done=dict(type="file", path=f"{out}/ensemble.json"),
+        )
+    )
 
 reg = json.load(open("scratchpad/dispatch_registry.json"))
 have = {c["name"] for c in reg}

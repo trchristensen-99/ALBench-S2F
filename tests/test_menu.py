@@ -11,9 +11,11 @@ from albench.ensemble.menu import (
     Menu,
     MenuEnsemble,
     MenuEntry,
+    evaluate,
     exploded,
     load_labelled,
     load_menu,
+    load_test_sets,
     one_hot,
     pearson,
     probe_sequences,
@@ -234,3 +236,20 @@ def test_sharded_training_then_stack(tiny, tmp_path):
     assert len(meta["members"]) == 6 and meta["seeds"] == 2 and meta["val_r_ensemble"] > 0
     back = MenuEnsemble.load(tmp_path, va_s, va_y, menu=m, devices=["cpu"])
     assert np.isfinite(back.predict(va_s)).all()
+
+
+def test_test_sets_load_and_evaluate(tmp_path):
+    rng = np.random.default_rng(0)
+    seqs = ["".join(rng.choice(list("ACGT"), 200)) for _ in range(50)]
+    y = np.array([s.count("G") for s in seqs], np.float32)
+    for name in ("genomic", "ood", "random_32k"):
+        np.savez(tmp_path / f"{name}_oracle.npz", sequences=np.array(seqs), oracle_mean=y)
+    sets = load_test_sets(path=tmp_path)
+    assert list(sets) == ["genomic", "ood", "random_32k"] and len(sets["ood"][0]) == 50
+
+    class Perfect:
+        def predict(self, sequences):
+            return np.array([s.count("G") for s in sequences], np.float32)
+
+    res = evaluate(Perfect(), path=tmp_path)
+    assert all(abs(v - 1.0) < 1e-6 for v in res.values())

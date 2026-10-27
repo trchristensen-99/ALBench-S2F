@@ -207,27 +207,44 @@ _add(
     Asset(
         key="oracle",
         env_var="ALBENCH_ORACLE_DIR",
-        default_relpath="oracle/ag_mpra_v2",
+        default_relpath="oracle/oracle_v3_s2",
         description=(
-            "AlphaGenome-MPRA oracle ensemble (10 chromosome-fold models) used to "
-            "pseudo-label generated sequences"
+            "oracle_v3: the AlphaGenome-MPRA oracle ensemble (10 chromosome-fold models, held-out test Pearson 0.931) that labelled every "
+            "pool, validation set and test set in the study. fold_0 .. fold_9/best_model/checkpoint plus its README.md."
         ),
         how_to_get=(
-            "Two options:\n"
-            "        (a) OUR ENSEMBLE (recommended, matches published numbers): ask for\n"
-            "            the outputs/oracle_v2 bundle and point ALBENCH_ORACLE_DIR at it.\n"
-            "        (b) TRAIN YOUR OWN from public AlphaGenome weights:\n"
-            "            https://github.com/google-deepmind/alphagenome then\n"
-            "            experiments/train_oracle_s2_v2.py --fold_id 0..9\n"
-            "        A single fold is enough to develop against; the full 10 are only\n"
-            "        needed to reproduce the reported label quality."
+            "On the CSHL cluster: /grid/koo/home/shared/albench/oracle_v3_s2 (found automatically).\n"
+            "        Elsewhere: copy that directory, then point ALBENCH_ORACLE_DIR at it. The labelling scripts\n"
+            "        (scripts/label_pool.py, experiments/exp1_1_scaling.py) read the same directory from AG_S2_ORACLE_DIR,\n"
+            "        so set both. Needs the `ag_weights` asset and alphagenome_ft installed."
         ),
         required_by=("labelling",),
-        repo_relpaths=("outputs/oracle_v2",),
+        repo_relpaths=("outputs/oracle_v3/s2",),
+        fallbacks=("/grid/koo/home/shared/albench/oracle_v3_s2",),
         is_dir=True,
     )
 )
 
+_add(
+    Asset(
+        key="k562_test_sets",
+        env_var="ALBENCH_K562_TEST_SETS",
+        default_relpath="k562/test_sets",
+        description=(
+            "The three test sets every number in the study is reported on, labelled by oracle_v3: genomic (held-out chr7/chr13 sequences, "
+            "31,435), ood (designed out-of-distribution sequences) and random_32k (32,000 uniformly random sequences). One .npz per set "
+            "(sequences, oracle_mean)."
+        ),
+        how_to_get=(
+            "On the CSHL cluster: /grid/koo/home/shared/albench/data/test_sets (found automatically).\n"
+            "        Elsewhere: copy that directory (about 8 MB)."
+        ),
+        required_by=("MenuEnsemble evaluation", "albench menu evaluate"),
+        fallbacks=("/grid/koo/home/shared/albench/data/test_sets",),
+        repo_relpaths=("data/k562/test_sets_ag_s2_chrsplit",),
+        is_dir=True,
+    )
+)
 
 _add(
     Asset(
@@ -283,12 +300,12 @@ _add(
             "stopping and the ensemble weights of every model in the study. Never train on it."
         ),
         how_to_get=(
-            "On the CSHL cluster it is staged at /grid/koo/home/shared/albench/menu_oct28/val_V0c.npz.\n"
-            "        Elsewhere: copy that file, or rebuild it with scripts/program_oct22/register_val_variants.py."
+            "On the CSHL cluster it is staged at /grid/koo/home/shared/albench/data/val_V0c.npz.\n"
+            "        Elsewhere: copy that file (it is 1.7 MB)."
         ),
         required_by=("albench menu", "MenuEnsemble"),
         repo_relpaths=("outputs/val_variants/val_V0.npz",),
-        fallbacks=("/grid/koo/home/shared/albench/menu_oct28/val_V0c.npz",),
+        fallbacks=("/grid/koo/home/shared/albench/data/val_V0c.npz",),
     )
 )
 
@@ -302,11 +319,11 @@ _add(
             "directory per ensemble holding ensemble.json and members/*.pt. Load with MenuEnsemble.load."
         ),
         how_to_get=(
-            "On the CSHL cluster: /grid/koo/home/shared/albench/menu_oct28/ensembles (read-only for the lab).\n"
+            "On the CSHL cluster: /grid/koo/home/shared/albench/ensembles (read-only for the lab).\n"
             "        Elsewhere: copy that directory, or retrain with `albench menu train` + `albench menu stack`."
         ),
         required_by=("MenuEnsemble.load",),
-        fallbacks=("/grid/koo/home/shared/albench/menu_oct28/ensembles",),
+        fallbacks=("/grid/koo/home/shared/albench/ensembles",),
         is_dir=True,
     )
 )

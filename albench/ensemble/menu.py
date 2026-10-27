@@ -241,6 +241,38 @@ def load_labelled(
     return seqs, y
 
 
+TEST_SETS = ("genomic", "ood", "random_32k")
+
+
+def load_test_sets(
+    names: Sequence[str] = TEST_SETS, path: str | Path | None = None
+) -> dict[str, tuple[list[str], np.ndarray]]:
+    """The study's headline test sets as ``{name: (sequences, oracle_v3 labels)}`` from the ``k562_test_sets`` asset (or ``path``).
+
+    ``genomic`` = held-out chr7/chr13 sequences, ``ood`` = designed out-of-distribution sequences, ``random_32k`` = 32,000 uniformly random
+    sequences. These are the sets every number in the ledger is measured on, so a result computed here is comparable with ours.
+    """
+    from albench.core.paths import resolve
+
+    root = Path(resolve("k562_test_sets", path))
+    out = {}
+    for name in names:
+        z = np.load(root / f"{name}_oracle.npz", allow_pickle=True)
+        key = "oracle_mean" if "oracle_mean" in z.files else "oracle_labels"
+        out[name] = ([str(x) for x in z["sequences"]], np.asarray(z[key], np.float32).ravel())
+    return out
+
+
+def evaluate(
+    model: SequenceModel, names: Sequence[str] = TEST_SETS, path: str | Path | None = None
+) -> dict[str, float]:
+    """Pearson r of ``model.predict`` on each headline test set."""
+    return {
+        name: pearson(model.predict(seqs), y)
+        for name, (seqs, y) in load_test_sets(names, path).items()
+    }
+
+
 def one_hot(seqs: Sequence[str], length: int = SEQ_LEN) -> np.ndarray:
     """(N, 4, L) float32; characters outside ACGT (and positions past the end) stay zero."""
     idx = {"A": 0, "C": 1, "G": 2, "T": 3}

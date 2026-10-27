@@ -361,6 +361,13 @@ def cmd_menu(args) -> int:
             f"stacked {len(meta['members'])} members ({kept} with positive weight); validation r of the ensemble {meta['val_r_ensemble']:.4f}"
         )
         return 0
+    if args.menu_cmd == "evaluate":
+        ens = M.MenuEnsemble.load(
+            args.ensemble, val_s, val_y, menu=menu, devices=[args.device] if args.device else None
+        )
+        res = M.evaluate(ens, tuple(args.sets.split(",")), args.test_sets)
+        print("Pearson r on the test sets: " + ", ".join(f"{k} {v:.4f}" for k, v in res.items()))
+        return 0
     if args.menu_cmd == "predict":
         ens = M.MenuEnsemble.load(
             args.ensemble, val_s, val_y, menu=menu, devices=[args.device] if args.device else None
@@ -447,6 +454,7 @@ def main(argv=None) -> int:
         ),
         ("stack", "fit the stack over the members trained in --out"),
         ("predict", "ensemble and per-member predictions of a saved ensemble"),
+        ("evaluate", "Pearson r of a saved ensemble on the headline test sets"),
     ):
         m_p = msub.add_parser(name, help=hp)
         m_p.add_argument(
@@ -476,6 +484,14 @@ def main(argv=None) -> int:
         if name == "stack":
             m_p.add_argument("--out", required=True, help="directory written by `menu train`")
             m_p.add_argument("--size", type=int, default=None)
+        if name == "evaluate":
+            m_p.add_argument("--ensemble", required=True, help="directory with ensemble.json")
+            m_p.add_argument("--sets", default="genomic,ood,random_32k")
+            m_p.add_argument(
+                "--test-sets",
+                default=None,
+                help="directory of <set>_oracle.npz (default: the k562_test_sets asset)",
+            )
         if name == "predict":
             m_p.add_argument("--ensemble", required=True, help="directory with ensemble.json")
             m_p.add_argument("--sequences", required=True, help=".npz with `sequences`")
