@@ -253,3 +253,19 @@ def test_test_sets_load_and_evaluate(tmp_path):
 
     res = evaluate(Perfect(), path=tmp_path)
     assert all(abs(v - 1.0) < 1e-6 for v in res.values())
+
+
+def test_menu_v1_is_the_default_and_every_configuration_is_used():
+    from albench.ensemble.menu import DEFAULT_MENU
+
+    m = load_menu()
+    assert DEFAULT_MENU == "v1" and m.name == "menu_v1" and len(m) == 20 and not m.skipped
+    assert [e.id for e in m.priority()] == m.per_size["order"] and len(
+        {e.id for e in m.entries}
+    ) == 20
+    for size in (10_000, 30_000, 100_000):
+        assert len(m.for_size(size)) == 20 and m.recipe(size)["patience"] == 16
+    assert len(m.for_size(300_000)) == 12
+    assert (
+        len(load_menu("v0")) == 33 and len(load_menu("menu_v0").priority()) == 30
+    )  # older name forms still resolve

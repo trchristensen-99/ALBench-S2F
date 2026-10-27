@@ -361,7 +361,7 @@ def cmd_screen(args) -> int:
 def cmd_menu(args) -> int:
     from albench.ensemble import menu as M
 
-    menu = M.load_menu(args.menu)
+    menu = M.load_menu(args.menu or M.DEFAULT_MENU)
     if args.menu_cmd == "list":
         sizes = [args.size] if args.size else [10_000, 30_000, 100_000]
         print(
@@ -422,14 +422,22 @@ def cmd_menu(args) -> int:
         return 0
     if args.menu_cmd == "evaluate":
         ens = M.MenuEnsemble.load(
-            args.ensemble, val_s, val_y, menu=menu, devices=[args.device] if args.device else None
+            args.ensemble,
+            val_s,
+            val_y,
+            menu=args.menu,
+            devices=[args.device] if args.device else None,
         )
         res = M.evaluate(ens, tuple(args.sets.split(",")), args.test_sets)
         print("Pearson r on the test sets: " + ", ".join(f"{k} {v:.4f}" for k, v in res.items()))
         return 0
     if args.menu_cmd == "predict":
         ens = M.MenuEnsemble.load(
-            args.ensemble, val_s, val_y, menu=menu, devices=[args.device] if args.device else None
+            args.ensemble,
+            val_s,
+            val_y,
+            menu=args.menu,
+            devices=[args.device] if args.device else None,
         )
         z = np.load(args.sequences, allow_pickle=True)
         seqs = [str(x) for x in z["sequences"]]
@@ -491,7 +499,11 @@ def main(argv=None) -> int:
         "menu",
         help="model configurations to train per dataset size; train, stack and use the ensemble",
     )
-    mn.add_argument("--menu", default="v0", help="shipped menu name or a menu.json path")
+    mn.add_argument(
+        "--menu",
+        default=None,
+        help="shipped menu name (v1 = current recipe, v0 = the older 30-configuration menu) or a menu.json path; default v1, or the ensemble's own menu for predict / evaluate",
+    )
     msub = mn.add_subparsers(dest="menu_cmd", required=True)
     m_ls = msub.add_parser(
         "list",

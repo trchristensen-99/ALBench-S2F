@@ -202,17 +202,35 @@ class Menu:
         return cls(entries, per_size, name)
 
 
-def load_menu(name_or_path: str | Path = "v0") -> Menu:
-    """Load a menu by name (``v0`` ships with the repo) or from a menu.json produced by ``scripts/program_oct22/build_menu.py``."""
+DEFAULT_MENU = "v1"
+
+
+def load_menu(name_or_path: str | Path = DEFAULT_MENU) -> Menu:
+    """Load a menu by name or from a menu.json produced by ``scripts/program_oct22/build_menu.py``.
+
+    Shipped menus (``menu_<name>.json`` next to this module): ``v1`` (the current recipe: 20 configurations built from runs on five reservoir families and a mixed corpus,
+    all trained and weighted) and ``v0`` (30 usable configurations from genomic-only runs; the starting ensembles in the shared folder were trained with it). Each has its own
+    ``per_size_<name>.json`` (``per_size.json`` for ``v0``) with the priority order, how many to train at each size, patience and seeds.
+    """
     p = Path(str(name_or_path))
     if not p.exists():
-        p = MENU_DIR / f"menu_{name_or_path}.json"
+        name = str(name_or_path)
+        name = name[5:] if name.startswith("menu_") else name
+        p = MENU_DIR / f"menu_{name}.json"
         if not p.exists():
             raise FileNotFoundError(
                 f"no menu {name_or_path!r}; shipped menus: {sorted(x.stem[5:] for x in MENU_DIR.glob('menu_*.json'))}"
             )
-    per = MENU_DIR / "per_size.json"
-    per_size = json.loads(per.read_text()) if per.exists() and p.parent == MENU_DIR else {}
+    version = p.stem[5:] if p.stem.startswith("menu_") else p.stem
+    per_size: dict = {}
+    if p.parent == MENU_DIR:
+        for cand in (
+            MENU_DIR / f"per_size_{version}.json",
+            MENU_DIR / "per_size.json" if version == "v0" else None,
+        ):
+            if cand is not None and cand.exists():
+                per_size = json.loads(cand.read_text())
+                break
     return Menu.from_json(json.loads(p.read_text()), per_size, p.stem)
 
 
@@ -564,7 +582,7 @@ class MenuEnsemble(SequenceModel):
         val_sequences: Sequence[str],
         val_labels: np.ndarray,
         *,
-        menu: Menu | str = "v0",
+        menu: Menu | str = DEFAULT_MENU,
         **kw: Any,
     ) -> MenuEnsemble:
         """The ensemble recommended for training sets of about ``size`` sequences: the per-size K, seeds and patience of the menu table."""
@@ -763,7 +781,7 @@ class MenuEnsemble(SequenceModel):
         val_sequences: Sequence[str],
         val_labels: np.ndarray,
         *,
-        menu: Menu | str = "v0",
+        menu: Menu | str | None = None,
         devices: Sequence[str] | None = None,
     ) -> MenuEnsemble:
         """Reload a saved ensemble. The networks are rebuilt from the menu's source (checked against the stored sha1) and the weights loaded."""
@@ -773,7 +791,9 @@ class MenuEnsemble(SequenceModel):
 
         d = Path(path)
         meta = json.loads((d / "ensemble.json").read_text())
-        m = load_menu(menu) if isinstance(menu, str) else menu
+        m = (
+            menu if isinstance(menu, Menu) else load_menu(menu or meta.get("menu", DEFAULT_MENU))
+        )  # default: the menu the ensemble was trained with
         members = []
         for r in meta["members"]:
             e = m[r["entry"]]

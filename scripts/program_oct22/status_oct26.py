@@ -47,6 +47,9 @@ GROUPS = [
     ("Oct 28: shared core 300k", ("pool100_sc300", "mrr_nest_motif_shared_core")),
     ("Oct 28 LLM: separate coder, other reservoirs", ("ag30_p_rnd", "ag30_p_mot", "ag30_p_gen10")),
     ("Oct 28 LLM: coordinator, evoaug/evo2 10k", ("an30_e10", "an30_v10")),
+    ("Oct 29: patience 24 and 32", ("ind30e_pat24_", "ind30e_pat32_")),
+    ("Oct 29: motif-run menu MM + held-out reservoirs", ("as_MM_", "as_MG_evo", "as_MR_evo")),
+    ("Oct 29: width-scaled configs (generator + retrains)", ("scl30_",)),
 ]
 reg = json.load(open(d.REG))
 state = json.load(open(d.STATE_F)) if d.STATE_F.exists() else {}

@@ -1,16 +1,46 @@
 # The menu: which model configurations to train on a dataset, and the ensemble they form
 
 This is the part of the study that turns "an AutoResearch search found good architectures" into something you can run on any
-labelled set: a fixed list of **33 configurations** (a model-written PyTorch network plus the training recipe it was found with), the
+labelled set: a fixed list of **model configurations** (a model-written PyTorch network plus the training recipe it was found with), the
 order in which to train them, how many to train at 10k / 30k / 100k sequences, and the ensemble that combines them.
 
 Code: `albench/ensemble/menu.py` (library), `albench/ensemble/menus/` (the data), `albench menu ...` (command line),
 `tests/test_menu.py`. Evidence for every choice below is in the evidence ledger (the artifact the study is argued from); the numbers
 quoted here are from its K-curve card.
 
+## The current recipe (menu v1, from Oct 28)
+
+* **20 configurations** (`menus/menu_v1.json`), built from existing AutoResearch runs: 3 runs on each of five reservoir families (genomic, random, motif CT-enriched, evoaug, evo2)
+  and 3 on the mixed corpus (genomic + random + motif) = 18 runs; the top configuration by search validation r of every run, plus the best 2 of the remaining candidates
+  (`scripts/analysis/build_menu_v1.py`).
+* **Train all 20 at every size** (10k, 30k, 100k; 12 from 300k, tentative), one seed each, early-stopping patience 16, and fit **one weighted ensemble over everything trained**: positive
+  ElasticNetCV on the z-scored validation predictions (a member with weight zero is simply unused). There is no 8-member subset and no selection step. `albench menu train` / `stack` do exactly this.
+* The same 20 configurations are used for every reservoir and every acquisition strategy; only the weights differ, because they are refitted on the validation set of each trained set.
+
+Evidence so far, all from models that already existed (30k, one pool, so differences under about 0.003 are noise; the same questions are being repeated across sizes, reservoirs and pools):
+
+| ensemble (weighted over all of it), genomic test r / designed set r | genomic target | random target |
+|---|---|---|
+| v1: 20 configurations from the 18 runs | 0.780 / 0.279 | 0.759 / 0.358 |
+| the best 20 of the genomic-only 15-run menu | 0.780 / 0.283 | 0.758 / 0.332 |
+| all 45 candidates of the five-family runs | 0.780 / 0.282 | 0.763 / 0.357 |
+| a random 20 of the same pool | 0.776 / 0.278 | 0.760 / 0.346 |
+
+So 20 configurations from runs spread over reservoirs match the best genomic-only menus on the genomic test and are about 0.025 higher on the designed set when the training data are random sequences.
+With a weighted ensemble, 20 distinct configurations equal 24 and 30 (genomic 0.7776 / 0.7778 / 0.7778, random 0.7578 / 0.7578 / 0.7577, motif 0.7917 for all three); the earlier K curve below
+asked a different question (how many are needed for an equal-weight mean of the 8 best), which is not what is deployed. Extra seeds of the best configurations may be worth more than extra distinct ones: 20 plus
+2 / 1 / 1 more seeds of the best three (24 models) gain +0.001 on genomic, +0.0002 on random and +0.001 on motif; 3 more seeds of each of the best three (29 models) +0.002 / +0.0003 / +0.002. One pool,
+so this is a hypothesis to test, not a recipe change.
+
+Being tested (results will be added here): v1 retrained at 10k, 30k and 100k on genomic, random and motif against v0 at the same patience; duplicate seeds across sizes and pools; whether searches repeated
+at each size beat the carried menu; patience 24 and 32; whether larger models (width x2 and x3 of the best configurations) help at 100k and 300k. Caveats: the "mixed corpus" is genomic + random + motif (a
+five-family mixture has not been built); "top by validation" uses a genomic validation set, which favours runs on genomic-like data.
+
+## The v0 menu and its K curve (background; the starting ensembles were trained with it)
+
 ## What a configuration is
 
-`menu_v0.json` holds 33 entries. Each has `source` (a `class Net(nn.Module)` that is executed in a restricted namespace by
+A menu file holds the entries (`menu_v0.json` has 33). Each has `source` (a `class Net(nn.Module)` that is executed in a restricted namespace by
 `albench.arch_search.validate.build_and_check`: no imports beyond torch/math, at most 40M parameters, CPU forward check) and
 `train_config` (optimizer, learning rate, weight decay, batch size, epochs, schedule; 60 to 100 epochs, almost all Muon + OneCycle).
 They are the 8 best-by-validation models of each of four AutoResearch runs (Claude Sonnet 5.5 x3, Sonnet 4.5 x1; 30k genomic pools; 10 rounds
@@ -18,7 +48,7 @@ x 2 proposals) plus the reference LegNet. The menu is **not specific to a reserv
 That was tested, not assumed: fresh searches on other reservoirs and at 100k / 300k tie the carried menu within about 0.005 ensemble r, and
 the architecture source (genomic, random, mixed, five-reservoir searches) changes the result by at most 0.007.
 
-## How many to train (the K curve)
+### How many of v0 to train (the K curve)
 
 `albench/ensemble/menus/per_size.json` holds the training-priority order and K for each size.
 
@@ -52,7 +82,7 @@ the best retrained validation r are averaged, and the test r is compared with th
   8-member mean at every K; if you ensemble by weights rather than a fixed 8-member mean, one or two fewer configurations are enough.
 * The designed set (out-of-distribution) needs a few more configurations than the genomic test set at 100k (12 vs 9).
 
-`MenuEnsemble.for_size(size, ...)` and `albench menu list --size N` use this table; `Menu.for_size(size, k=..., rule=...)` overrides it.
+`MenuEnsemble.for_size(size, ...)` and `albench menu list --size N` use the per-size table of the menu in use (v1 by default, `--menu v0` for the older one); `Menu.for_size(size, k=..., rule=...)` overrides it.
 
 ## Using it
 
@@ -91,11 +121,11 @@ that starts from a saved ensemble does not retrain it.
 
 ### The saved genomic ensembles (10k and 30k starting points)
 
-`menu_ensembles` asset (CSHL: `/grid/koo/home/shared/albench/ensembles`): for 10,000 and 30,000 genomic sequences (the first
-10k / 30k of `outputs/grid_pools/k562_nested/genomic_d{D}.npz`, seed 42, labelled by oracle_v3), all 33 configurations x 3 seeds trained
-with the recipe below, with weights, per-member validation predictions and the stack. Load one with
-`MenuEnsemble.load(dir, val_s, val_y)`; pick the K best of them with `ensemble.json` if you want the recommended subset (members are listed
-with their weights and validation r). Before this, only predictions had been stored, never weights.
+`menu_ensembles` asset (CSHL: `/grid/koo/home/shared/albench/ensembles`): for 10,000 and 30,000 genomic sequences (the first 10k / 30k of `outputs/grid_pools/k562_nested/genomic_d{D}.npz`,
+seed 42, labelled by oracle_v3), the 30 usable configurations of the **v0** menu x 3 seeds = 90 members each, with weights, per-member validation predictions and the stack. Variants:
+`genomic_{10k,30k}_patience8` and `genomic_{10k,30k}_patience16` (patience 16 is the standard from Oct 28). Load one with `MenuEnsemble.load(dir, val_s, val_y)` (it finds the v0 menu from its own metadata);
+`ensemble.json` lists every member with its weight and validation r. They are the starting points for scoring candidates; the ensembles you train afterwards at each size use the v1 recipe above.
+Before this, only predictions had been stored, never weights.
 
 ## Things that will bite
 
