@@ -392,9 +392,10 @@ def an_valdep():
                 f"[valdep] {st} {k}k ({len(idx)} arch): default {rb['genomic']:.4f}, V0c {rv['genomic']:.4f} (delta {rv['genomic'] - rb['genomic']:+.4f}; ood {rv['ood'] - rb['ood']:+.4f}; random {rv['random_32k'] - rb['random_32k']:+.4f})",
                 flush=True,
             )
-    if res:
+    cells_ = {k: v for k, v in res.items()}
+    if cells_:
         for e in EV:
-            d = [v["delta"][e] for v in res.values()]
+            d = [v["delta"][e] for v in cells_.values()]
             res.setdefault("summary", {})[e] = dict(
                 mean=float(np.mean(d)),
                 se=float(np.std(d, ddof=1) / np.sqrt(len(d))) if len(d) > 1 else None,
