@@ -252,10 +252,10 @@ def oct26_cards(d: dict) -> list[dict]:
                 )
                 + "."
             )
-            status = "supported" if pg["n"] >= 42 else "provisional"
+            status = "provisional"
             choice = (
-                f"Keep the default prompt and single-call loop. Neither the explore-style prompt nor the coordinator generalises: the coordinator's +0.005 on genomic 30k reproduces on random 30k but not on motif, evoaug, evo2 or at 10k, and pooled over {pg['n']} paired runs it is {pg['mean']:+.4f} "
-                f"(explore {p['mean']:+.4f} over {p['n']})."
+                f"Keep the default prompt and single-call loop for now. The explore-style prompt does nothing across the grid ({p['mean']:+.4f} over {p['n']} paired runs). The coordinator helps a little: +0.005 on genomic and random 30k, smaller on evoaug and evo2 30k, nothing on motif or at 10k, "
+                f"pooled {pg['mean']:+.4f} [{pg['lo']:+.4f}, {pg['hi']:+.4f}] over {pg['n']} paired runs ({pg['wins']} ahead, p {pg['p']:.2f}). That is below the 0.005 a change must clear, at about three times the proposer tokens, so it stays optional."
             )
         elif Ag2:
             status = "provisional"
@@ -269,7 +269,7 @@ def oct26_cards(d: dict) -> list[dict]:
                 q="Do the prompt and agent variants hold up across reservoirs and sizes?",
                 choice=choice,
                 points=pts,
-                caveat="Paired by replicate pool but each cell has 3 to 9 pairs; single-run ensembles have a standard deviation of about 0.009, so only pooled results are interpretable. The coordinator spends about three times the proposer tokens per round.",
+                caveat="All 54 runs of the coordinator grid are in. Paired by replicate pool but each cell has 3 to 9 pairs; single-run ensembles have a standard deviation of about 0.009, so only pooled results are interpretable. The coordinator spends about three times the proposer tokens per round.",
                 change="A coordinator gain that holds across the grid (pooled interval above zero, above about 0.003) would justify adopting it; otherwise the single-call default stays.",
             )
         )
@@ -470,7 +470,7 @@ def spec_rows(d: dict) -> list[dict]:
     )
     ag = (o.get("agent_grid") or {}).get("pooled", {}).get("genomic")
     COORD = (
-        f"The coordinator (+0.005 on genomic and random 30k) does not generalise: pooled {ag['mean']:+.4f} [{ag['lo']:+.4f}, {ag['hi']:+.4f}] over {ag['n']} paired runs so far."
+        f"Coordinator stage (+0.005 on genomic and random 30k, none on motif or at 10k): pooled {ag['mean']:+.4f} [{ag['lo']:+.4f}, {ag['hi']:+.4f}] over {ag['n']} paired runs; below the 0.005 bar, optional."
         if ag
         else "Coordinator variant is being tested on the same grid."
     )

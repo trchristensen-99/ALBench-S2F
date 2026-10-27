@@ -56,7 +56,7 @@ rep(
     """One search on genomic data (three independent runs, each on its own pool, about 20 to 30 models per run, top 3 to 5 kept), retrained at every dataset size and reservoir with three seeds, combined by a non-negative ElasticNet ensemble. '
              'Nothing more elaborate has helped beyond noise yet; the running experiments try to overturn it with per-reservoir searches, mixed searches and mixed corpora.""",
     """One search at 30k on genomic data (several independent runs, each on its own pool: three runs fall 0.005 to 0.012 short of the ensemble of 10 to 15 runs, and 6 to 11 reach 90% of that gain; 20 models per run with the default prompt, the top 3 of each kept), the pooled 33-architecture menu retrained at every size and reservoir (about 8 architectures from 300k up, three seeds at 100k and below), combined by a non-negative ElasticNet ensemble fitted on validation predictions. '
-             'Nothing more elaborate has beaten it by more than noise: per-reservoir and mixed searches, context hand-off, explore and reflect prompts, adaptive acquisition rounds and a full selection ensemble all tie. The coordinator stage (+0.005 on genomic and random 30k) did not hold up across the grid (pooled difference about zero).""",
+             'Nothing more elaborate has beaten it by more than noise: per-reservoir and mixed searches, context hand-off, explore and reflect prompts, adaptive acquisition rounds and a full selection ensemble all tie. The coordinator stage (+0.005 on genomic and random 30k) pools to about +0.002 across the grid, below the 0.005 a change must clear.""",
 )
 # 5) css
 rep(
