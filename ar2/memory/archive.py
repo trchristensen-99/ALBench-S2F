@@ -134,6 +134,18 @@ def decisions_notes(db: DB, kind: str) -> list[dict]:
         p = d.get("payload")
         if isinstance(p, dict) and p.get("kind") == kind:
             out.append(p)
+    if kind == "screen_adoption":
+        # the controller emits the adoption as a SCREEN action whose target has kind "adopt"; without this the decision was never seen again and the screen repeated forever
+        for d in db.decisions("SCREEN"):
+            p = d.get("payload")
+            t = p.get("target") if isinstance(p, dict) else None
+            if isinstance(t, dict) and t.get("kind") == "adopt":
+                eff = {
+                    o: (e.get("mean") if isinstance(e, dict) else e)
+                    for o, e in (t.get("effects") or {}).items()
+                }
+                out.append({**t, "kind": "screen_adoption", "effects": eff})
+                break  # one adoption per search (the repeated decisions made before this fix are the same record)
     return out
 
 

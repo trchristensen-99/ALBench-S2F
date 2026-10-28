@@ -113,6 +113,7 @@ DEFAULT_CFG: dict = {
 }
 
 SCREEN_OPTIONS = ("huber", "hetero", "corr", "binned", "ema", "multitask")
+LOSS_OPTIONS = ("huber", "hetero", "corr", "binned")
 NOT_TESTABLE_IN_SILICO = (
     "huber",
     "hetero",
@@ -551,7 +552,16 @@ def decide_screen(results: list[dict], baseline: dict, cfg: dict | None = None) 
         for o, e in effects.items()
         if e["mean"] > c["noise_floor"] and all(x > 0 for k, x in e.items() if k != "mean")
     ]
-    adopt = sorted(adopt, key=lambda o: -effects[o]["mean"])[:2]
+    chosen: list[str] = []
+    for o in sorted(adopt, key=lambda o: -effects[o]["mean"]):
+        # the four loss options replace one another: a "combination" of two of them is just the last one (a duplicate run that never produces a new result and kept
+        # the screen waiting forever), so at most one loss option is adopted, the best; an option of another kind (EMA, multi-task / weight averaging) may join it
+        if o in LOSS_OPTIONS and any(x in LOSS_OPTIONS for x in chosen):
+            continue
+        chosen.append(o)
+        if len(chosen) == 2:
+            break
+    adopt = chosen
     notest = [
         o
         for o in NOT_TESTABLE_IN_SILICO
