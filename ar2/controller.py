@@ -574,7 +574,10 @@ def option_recipe(base: dict, option: str, cfg: dict | None = None) -> dict:
     elif option == "hetero":
         r["loss"] = {"name": "hetero"}
     elif option == "corr":
-        r["loss"] = {"name": "mse_corr", "corr_weight": 0.5}
+        r["loss"] = {
+            "name": "corr",
+            "weight": 0.5,
+        }  # the evaluator registry calls the MSE + correlation term loss "corr"
     elif option == "binned":
         r["loss"] = {"name": "binned", "n_bins": 32, "smooth": True}
     elif option == "ema":

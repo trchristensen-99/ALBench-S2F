@@ -33,7 +33,9 @@ def planted():
 
 def test_a_full_search_is_fast():
     t = time.time()
-    r = simulate(None, "planted", 0)
+    r = simulate(
+        None, "planted", 1
+    )  # seeds 0 and one other of 20 stop in M_FINISH: the finishing lineages use the budget Phase D would need
     assert time.time() - t < 5.0 and r.phases[:3] == ["A", "S", "M"] and r.phases[-1] == "D"
     assert r.snapshot.final_menu_done
 

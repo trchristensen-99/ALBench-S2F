@@ -1526,7 +1526,8 @@ class Orchestrator:
                 if log:
                     log(f"{time.strftime('%F %T')} {last.note}")
                 break
-            if not busy:
+            if not (last.ingested or last.started_calls or last.finished_calls):
+                # submitting runs is not progress: a step that only re-issues the same submissions must not spin (it did, at one step per second, when a recipe could not run)
                 sleep(float(self.cfg["controller"]["step_sleep_s"]))
         return last  # type: ignore[return-value]
 
