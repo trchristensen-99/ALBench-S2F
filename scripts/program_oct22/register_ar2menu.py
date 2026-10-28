@@ -13,18 +13,22 @@ import sys
 R = "/grid/wsbs/home_norepl/christen/ALBench-S2F"
 os.chdir(R)
 REPS = f"{R}/outputs/grid_pools/k562_reps"
-CELLS = {  # cell -> (pool, D, shards)
-    "genomic_10k": (f"{REPS}/genomic_r1_d10000.npz", 10000, 3),
-    "genomic_30k": (f"{REPS}/genomic_r1_d30000.npz", 30000, 3),
-    "random_30k": (f"{REPS}/random_r1_d30000.npz", 30000, 3),
-    "motif_30k": (f"{REPS}/motif_ct_enriched_r1_d30000.npz", 30000, 3),
+CELLS = {  # cell -> (pool, D, shards, search workspace whose menu is used, seeds per configuration)
+    "genomic_10k": (f"{REPS}/genomic_r1_d10000.npz", 10000, 3, "genomic_10k", 3),
+    "genomic_30k": (f"{REPS}/genomic_r1_d30000.npz", 30000, 3, "genomic_30k", 3),
+    "random_30k": (f"{REPS}/random_r1_d30000.npz", 30000, 3, "random_30k", 3),
+    "motif_30k": (f"{REPS}/motif_ct_enriched_r1_d30000.npz", 30000, 3, "motif_30k", 3),
+    # 100k: the menu of the 30k search of the same reservoir, 2 seeds (3 H100-hours or less per cell)
+    "genomic_100k": (f"{REPS}/genomic_r1_d100000.npz", 100000, 4, "genomic_30k", 2),
+    "random_100k": (f"{REPS}/random_r1_d100000.npz", 100000, 4, "random_30k", 2),
+    "motif_100k": (f"{REPS}/motif_ct_enriched_r1_d100000.npz", 100000, 4, "motif_30k", 2),
 }
 CAP = {10000: 15, 30000: 25, 100000: 60}
 reg = json.load(open("scratchpad/dispatch_registry.json"))
 have = {c["name"] for c in reg}
 new = []
-for cell, (pool, D, sh) in CELLS.items():
-    menu = f"outputs/ar2/ws_{cell}/menu/menu_ar2.json"
+for cell, (pool, D, sh, srch, nseeds) in CELLS.items():
+    menu = f"outputs/ar2/ws_{srch}/menu/menu_ar2.json"
     out = f"outputs/menu_retrain_v0/ar2m_{cell}"
     for k in range(sh):
         name = f"ar2m_{cell}_s{k}"
@@ -38,7 +42,7 @@ for cell, (pool, D, sh) in CELLS.items():
                 out_dir=out,
                 env={"AL_PATIENCE": "8", "MENU_MAX_FWD_MS": "1000000000"},
                 needs=[menu, os.path.relpath(pool, R)],
-                cmd=f"uv run --no-sync python scratchpad/menu_retrain.py --menu {R}/{menu} --reservoir_cache {pool} --D {D} --out_dir {R}/{out} --shard {k}/{sh} --seeds 3 --base_cap_min {CAP[D]}",
+                cmd=f"uv run --no-sync python scratchpad/menu_retrain.py --menu {R}/{menu} --reservoir_cache {pool} --D {D} --out_dir {R}/{out} --shard {k}/{sh} --seeds {nseeds} --base_cap_min {CAP[D]}",
                 done=dict(type="file", path=f"{out}/COMPLETE_{k}of{sh}"),
             )
         )

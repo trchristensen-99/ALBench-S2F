@@ -5,7 +5,7 @@
 Every cell is one directory of menu_retrain.py output (r00_menu_<position>.npz = validation and test predictions of one trained configuration). The
 ensemble of a cell is the positive ElasticNetCV stack of z-scored validation predictions (V0c) over every configuration trained in it, the study's standard;
 to compare cells that trained different numbers of configurations (20 at 10k/30k, the 12 of highest priority at 100k) the table also gives the stack of the
-first 12 menu positions, which every cell has.
+first 6 menu positions, which every cell has.
 
     python scripts/analysis/analyze_oct30.py [--only scale,al] [--out outputs/justification_oct22]
 
@@ -39,7 +39,7 @@ STRATS = [
     ("random_gc_sweep", "random, GC 25-75% batches", "random"),
 ]
 SIZES = (10_000, 30_000, 100_000)
-FIRST = 12  # menu positions every cell has trained
+FIRST = 6  # menu positions every cell has trained (the unstarted top-up and 100k cells were cut to the first 6 at 06:55 to fit the time)
 DATA: dict = {}
 
 
@@ -109,7 +109,7 @@ def an_scale():
                 continue
             res[st]["sizes"][D] = {"all": evaluate(cell), f"first{FIRST}": evaluate(cell, FIRST)}
     DATA["scale31"] = res
-    print("\nSCALING (ensemble r of the first 12 menu positions; n models trained in brackets)")
+    print("\nSCALING (ensemble r of the first 6 menu positions; n models trained in brackets)")
     print(
         f"{'strategy':28s} "
         + "  ".join(f"{D // 1000:>3d}k {e:>10s}" for D in SIZES for e in ("genomic",))
@@ -157,15 +157,15 @@ def an_al():
         res[a] = {
             "kind": kind,
             "label": label,
-            "first12": evaluate(cell, FIRST),
+            f"first{FIRST}": evaluate(cell, FIRST),
             "all": evaluate(cell),
             "selection": s,
         }
     DATA["al31"] = res
-    print("\n30k genomic + 70k (ensemble r of the first 12 menu positions)")
-    ctl = res.get("genomic", {}).get("first12")
+    print("\n30k genomic + 70k (ensemble r of the first 6 menu positions)")
+    ctl = res.get("genomic", {}).get(f"first{FIRST}")
     for a, v in res.items():
-        x = v["first12"]
+        x = v[f"first{FIRST}"]
         if not x:
             continue
         d = (
@@ -220,14 +220,14 @@ def figures(out):
             ax.set_xticks(SIZES, ["10k", "30k", "100k"])
             ax.set_title(names[e], fontsize=10)
             ax.grid(alpha=0.25)
-        axs[0].set_ylabel("ensemble Pearson r (first 12 configurations)")
+        axs[0].set_ylabel("ensemble Pearson r (first 6 configurations)")
         axs[-1].legend(fontsize=7, loc="lower right")
         fig.tight_layout()
         fig.savefig(f"{out}/scale31.png", dpi=150)
         plt.close(fig)
     al = DATA.get("al31")
     if al:
-        keys = [k for k, v in al.items() if v["first12"]]
+        keys = [k for k, v in al.items() if v[f"first{FIRST}"]]
         kc = {
             "genomic": "#1b6ca8",
             "reservoir": "#c4571a",
@@ -236,13 +236,13 @@ def figures(out):
         }
         fig, axs = plt.subplots(1, 3, figsize=(14, 5), sharey=True)
         for ax, e in zip(axs, SETS):
-            order = sorted(keys, key=lambda k: al[k]["first12"]["ensemble"][e])
+            order = sorted(keys, key=lambda k: al[k][f"first{FIRST}"]["ensemble"][e])
             ax.barh(
                 [al[k]["label"][:44] for k in order],
-                [al[k]["first12"]["ensemble"][e] for k in order],
+                [al[k][f"first{FIRST}"]["ensemble"][e] for k in order],
                 color=[kc[al[k]["kind"]] for k in order],
             )
-            lo = min(al[k]["first12"]["ensemble"][e] for k in keys)
+            lo = min(al[k][f"first{FIRST}"]["ensemble"][e] for k in keys)
             ax.set_xlim(lo - 0.02, None)
             ax.set_title(names[e], fontsize=10)
             ax.grid(axis="x", alpha=0.25)
