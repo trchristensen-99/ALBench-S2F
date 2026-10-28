@@ -105,9 +105,24 @@ def an_scale():
         res[st] = {"label": label, "family": fam, "sizes": {}}
         for D in SIZES:
             cell = load_cell(f"{MR}/sc31_{D // 1000}k_{st}")
+            src = "sc31"
+            V1VAL = {
+                "genomic": "v1_100k_genomic_r1",
+                "random": "v1_100k_random_r1",
+                "motif_ct_enriched": "v1_100k_motif_ct_enriched_r1",
+            }
+            if (cell is None or len(cell["rows"]) < 4) and D == 100_000 and st in V1VAL:
+                cell, src = (
+                    load_cell(f"{MR}/{V1VAL[st]}"),
+                    "v1val",
+                )  # the 100k cells of these three were deferred: use the menu-v1 retrain on the replicate-1 pool (patience 8, 20 configurations)
             if cell is None:
                 continue
-            res[st]["sizes"][D] = {"all": evaluate(cell), f"first{FIRST}": evaluate(cell, FIRST)}
+            res[st]["sizes"][D] = {
+                "all": evaluate(cell),
+                f"first{FIRST}": evaluate(cell, FIRST),
+                "source": src,
+            }
     DATA["scale31"] = res
     print("\nSCALING (ensemble r of the first 6 menu positions; n models trained in brackets)")
     print(

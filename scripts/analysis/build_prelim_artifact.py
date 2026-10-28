@@ -189,6 +189,13 @@ def scaling_section(d):
                 for D in sizes
             )
         )
+    fromv1 = [
+        label
+        for st, label, _ in STRATS
+        if ((sc.get(st) or {}).get("sizes", {}).get("100000") or {}).get("source") == "v1val"
+    ]
+    if fromv1:
+        t += f"<p class='lead'>100k column for {', '.join(fromv1)}: the menu-v1 retrain on the replicate-1 pool (patience 8, 20 configurations), because those three 100k cells were deferred to save time; the other rows are patience 16 on the nested pools.</p>"
     return t, n_cells, ns
 
 
