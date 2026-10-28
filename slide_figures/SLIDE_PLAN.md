@@ -29,7 +29,7 @@ The procedure, evaluation-set and sample-run material is on the walkthrough page
 | 16 | Reservoir comparison at 30k and 100k | walkthrough page (scaling table), `scaling/` | see caveats: five 30k cells were incomplete when read |
 | 17 | Acquisition from 30k genomic, 70k more | walkthrough page (AL section), numbers below | uncertainty-ranked and mean-ranked selection beat the genomic control; SD normalised for activity does not |
 | 18 | One big round or three smaller rounds | walkthrough page, after the al3r cells finish | pending |
-| 19 | Reservoir activity, GC and k-mer distributions, Zoonomia N counts | `reservoirs/` (in progress) | pending |
+| 19 | Reservoir activity, GC and k-mer distributions, Zoonomia N counts | `reservoirs/activity_distributions.png`, `gc_distributions.png`, `kmer_divergence.png`, `zoonomia_n_thresholds.png` | motif shared core puts 28% of sequences above the genomic 90th percentile and Zoonomia 6% (mean activity 0.29 against 0.47); uniform random and the GC sweep are 8 to 9 times further from genomic in 4-mer composition than any genomic-derived pool; only 5.8% of Zoonomia (window, species) pairs are fully called |
 | 20 | What we have not measured, and what we ask of you | section below | honest list |
 
 ## Acquisition numbers for slide 17 (30k genomic + 70k selected, first six menu positions, ensemble r on genomic / designed OOD / random)
@@ -61,7 +61,7 @@ advantage largely goes. Say this as a hypothesis supported by the resid and binn
 | How prompts are updated and stored | 7 | done | rebuilt from stored history each round; per-model metadata stored; only two prompts saved per run |
 | Distil HP-optimisation learnings and update priors per scale | 5, 10, 13 | partial | per-scale measurements exist (patience, K by dataset size); there is no automated prior update, and the menu is not re-searched at each D. Ar2's finding that recipe spread within a family is as large as the spread between families (genomic 10k and motif 30k) argues for testing recipes per D |
 | 1 − Pearson and MSE for linearity | 15 | done | 17 of 18 core 1 − r fits have R² ≥ 0.98; the random-OOD series is not straight (elbow between 10k and 30k) |
-| Varied-GC random reservoir; cost linear in GC configurations | 16, 19 | partial | `random_gc_sweep` (25 to 75% GC) is in the 10k and 30k scaling set but its 30k cell had only 7 models when read; the cost statement is arithmetic (labelling cost is proportional to the number of sequences, so each GC configuration adds its share), not a measurement |
+| Varied-GC random reservoir; cost linear in GC configurations | 16, 19 | partial; the distribution is done | `random_gc_sweep` (25 to 75% GC) is in the 10k and 30k scaling set but its 30k cell had only 7 models when read; the cost statement is arithmetic (labelling cost is proportional to the number of sequences, so each GC configuration adds its share), not a measurement |
 | Normalise uncertainty for activity | 17 | done | `resid` and `binned` rows; see the hypothesis wording above |
 | The loop process is unknown, start in parallel | 11, 14 | partial | parallel proposing (2 or 6 per round) is not worse than serial; the multi-agent v2 loop was built and run on four cells, and it did not beat our loop |
 | Realistic 30k to 100k regimes | 15 | done | 10k, 30k, 100k for the three core reservoirs; 300k to 1M from the older menu for shape only |
@@ -79,8 +79,8 @@ advantage largely goes. Say this as a hypothesis supported by the resid and binn
 | Same strategy across reservoirs | 13 | done | searching on the target's own reservoir is not better than searching elsewhere; a balanced mix is never the worst |
 | Validation variation, later | 20 | gap | V0c is one fixed set; no resampling of the validation set |
 | A good ensemble quickly per data point | 8, 13, 14 | done | K = 20 up to 100k, 12 from 300k; training cost per model is in `scaling/` and the walkthrough page; the v2 loop's cost per model was not compared |
-| Zoonomia: remove Ns, add flanks, plot sequence counts at N thresholds | 19 | pending | being computed from the sampler's source asset; if the asset is unreachable the slide says so |
-| Activity and k-mer distributions per strategy | 19 | pending | being computed on the nested 30k pools |
+| Zoonomia: remove Ns, add flanks, plot sequence counts at N thresholds | 19 | partial | counts are measured: allowing up to 0, 1, 2, 5, 10, 20 N keeps 5.8, 7.8, 9.3, 12.9, 17.9, 25.9% of (window, species) pairs, and 40% of pairs are entirely uncalled; the sampler keeps only fully called ones. Removing Ns and adding flanks is not implemented in the sampler, so there are no results with it. In the alignment, code 0 is N or gap, so insertions relative to human count as uncalled |
+| Activity and k-mer distributions per strategy | 19 | done | nested 30k pools, oracle_v3 labels. The k-mer scatter shows genome-likeness against high-activity yield, not model performance |
 
 ## What to say about caveats, in order of importance
 
@@ -93,4 +93,6 @@ advantage largely goes. Say this as a hypothesis supported by the resid and binn
 5. The evaluator-agent comparison has six runs per arm and no multiple-comparison correction.
 6. AutoResearch v2 menus contain 4 to 5 configurations trained over seeds, so the comparison to v1 uses a same-size prefix of v1 as the control.
    The 100k v2 cells use the menu from the 30k search.
-7. Yash's two model-guided strategies were never identified and are not in any figure.
+7. The validation set V0c and the genomic test set contain about 2.4% sequences with non-ACGT bases; the training pools contain none. Worth a sentence
+   if anyone asks about Zoonomia and Ns, and worth checking before the final numbers.
+8. Yash's two model-guided strategies were never identified and are not in any figure.
