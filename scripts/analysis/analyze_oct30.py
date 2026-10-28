@@ -193,6 +193,59 @@ def an_al():
         )
 
 
+def an_rounds3():
+    """One round of 70k against three rounds of 23,333 (30k genomic base), same round-0 student, same final training (menu v1 first 6 configurations, patience 16)."""
+    import numpy as np
+
+    cand = np.load("outputs/grid_pools/k562_acq/candidates_r1.npz", allow_pickle=True)
+    lab, src = cand["oracle_labels"], cand["source"]
+    pairs = {
+        "mean": ("al3r_k8mean", "al3r_r3mean", "k8mean", "r3mean"),
+        "std": ("al3r_k8std", "al3r_r3std", "k8std", "r3std"),
+    }
+    res = {}
+    for crit, (one_dir, three_dir, one_sel, three_pref) in pairs.items():
+        row = {}
+        for tag, d in (("one_round", one_dir), ("three_round", three_dir)):
+            c = load_cell(f"{MR}/{d}")
+            row[tag] = evaluate(c, FIRST) if c else None
+        z = np.load("outputs/grid_pools/k562_acq/selection_indices.npz")
+        one = np.asarray(z[one_sel])
+        rounds = [
+            np.load(f"outputs/grid_pools/k562_acq/rounds/{three_pref}_S{i}.npy") for i in (1, 2, 3)
+        ]
+        three = np.concatenate(rounds)
+        row["selection"] = {
+            "one_round": {
+                "label_mean": float(lab[one].mean()),
+                "source_frac": (np.bincount(src[one], minlength=3) / len(one)).tolist(),
+            },
+            "three_round": {
+                "label_mean": float(lab[three].mean()),
+                "source_frac": (np.bincount(src[three], minlength=3) / len(three)).tolist(),
+                "per_round_label_mean": [float(lab[r].mean()) for r in rounds],
+                "per_round_n": [int(len(r)) for r in rounds],
+            },
+            "jaccard": float(len(np.intersect1d(one, three)) / len(np.union1d(one, three))),
+        }
+        res[crit] = row
+    ctl = DATA.get("al31", {}).get("genomic", {}).get(f"first{FIRST}") if DATA.get("al31") else None
+    DATA["rounds3"] = res
+    print("\nONE round of 70k vs THREE rounds of 23,333 (first 6 menu configurations)")
+    for crit, row in res.items():
+        for tag in ("one_round", "three_round"):
+            x = row[tag]
+            print(
+                f"{crit:5s} {tag:12s} "
+                + (
+                    f"n={x['n_models']} " + " ".join(f"{x['ensemble'][s]:.4f}" for s in SETS)
+                    if x
+                    else "not finished"
+                )
+            )
+        print("   selection:", json.dumps(row["selection"])[:300])
+
+
 def figures(out):
     import matplotlib
 
@@ -276,6 +329,8 @@ def main():
         an_scale()
     if "al" in only:
         an_al()
+    if "rounds3" in only:
+        an_rounds3()
     json.dump(DATA, open(f"{a.out}/data_oct30.json", "w"), indent=1, default=float)
     figures(f"{a.out}/figs_oct30")
     print("wrote", f"{a.out}/data_oct30.json")

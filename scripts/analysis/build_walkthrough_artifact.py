@@ -491,11 +491,80 @@ def ar2_example_section(d32, inp):
         + "</tbody></table></div>"
     )
     p = a["purposes"]
-    return f"""<div class="step"><div class="n">c</div><div class="b"><h3>The same cell under AutoResearch v2 (the controller-driven design)</h3>
+    return f"""<div class="step"><div class="n">d</div><div class="b"><h3>The same cell under AutoResearch v2 (the controller-driven design)</h3>
 <p>The newer design replaces the open-ended loop with a controller: three hand-written anchor architectures are tuned and confirmed first; the LLM then writes one model at a time to fill empty architecture families; every family gets a fixed recipe-tuning budget before it is judged; results enter the record only after three confirmation seeds. At genomic 30k this ran <b>{a["n_runs"]} training runs</b> ({p.get("first_look", 0)} first looks, {p.get("tune", 0) + p.get("second_chance", 0) + p.get("deep_tune", 0)} recipe-tuning runs, {p.get("screen", 0)} procedure-screen runs, {p.get("confirm", 0)} confirmation runs, {p.get("refine", 0)} for refinements, {p.get("final", 0)} final) and <b>{sum(sum(v.values()) for v in calls.values())} LLM calls</b>: {calls.get("SKETCH", {}).get("ok", 0) + calls.get("SKETCH", {}).get("failed", 0)} sketch calls (ten ideas each), {calls.get("EXPLORE", {}).get("ok", 0)} implementations of a new family and {calls.get("REFINE", {}).get("ok", 0)} single-change refinements. Training used the specification's loop: AdamW, no shift augmentation, up to 40 epochs.</p>
 {t}
 {ct}
 <p>Confirmed and menu-eligible: <b>cnn_residual 0.814, rnn_hybrid 0.806, cnn_dilated 0.799</b> (validation r, mean of three seeds), with the transformer anchor retired at 0.710. No new family beat the best anchor beyond the noise threshold, so the report states that the space is flat at this data size. The four families' best configurations (with their tuned recipes) were then exported as a menu and retrained with the same per-D procedure as menu v1; the ensemble is compared with menu v1 in the appendix.</p></div></div>"""
+
+
+def rounds_section(inp):
+    p = os.path.join(inp, "data_rounds.json")
+    if not os.path.exists(p):
+        return ""
+    d = json.load(open(p))
+    per = d["per_run"]
+    NS = ("10", "20", "30", "40", "60")
+    rows = []
+    for n in NS:
+        v = [r[n] for r in per.values() if n in r]
+        if not v:
+            continue
+        m = lambda f: float(np.mean([f(x) for x in v]))
+        pooled = [f[n]["stack_all"]["genomic"] for f in d["pooled"].values() if n in f]
+        rows.append(
+            (
+                f"first {n} candidates ({int(n) // 2} rounds)",
+                [
+                    m(lambda x: x["best_val"]),
+                    m(lambda x: x["best_test"]),
+                    m(lambda x: x["stack_all"]["genomic"]),
+                    m(lambda x: x["stack_all"]["ood"]),
+                    m(lambda x: x["stack_all"]["random_32k"]),
+                    float(np.mean(pooled)) if pooled else None,
+                ],
+                "",
+            )
+        )
+    t = table(
+        [
+            "Search length",
+            "Best single: val r",
+            "Best single: test r",
+            "Run ensemble: genomic",
+            "Run ensemble: designed",
+            "Run ensemble: random",
+            "Three runs pooled: genomic",
+        ],
+        rows,
+        best=[0, 1, 2, 3, 4, 5],
+    )
+    gains = [
+        (r["30"]["stack_all"]["genomic"] - r["20"]["stack_all"]["genomic"])
+        for r in per.values()
+        if "20" in r and "30" in r
+    ]
+    pooled_gain = [
+        f["30"]["stack_all"]["genomic"] - f["20"]["stack_all"]["genomic"]
+        for f in d["pooled"].values()
+        if "30" in f and "20" in f
+    ]
+    guided_gain = [
+        f["30"]["stack_all"]["genomic"] - f["20"]["stack_all"]["genomic"]
+        for k, f in d["pooled"].items()
+        if k != "son55_none" and "30" in f and "20" in f
+    ]
+    _u = d["pooled"].get("son55_none", {})
+    unguided_gain = (
+        (_u["30"]["stack_all"]["genomic"] - _u["20"]["stack_all"]["genomic"])
+        if "30" in _u
+        else float("nan")
+    )
+    return f"""<div class="step"><div class="n">c</div><div class="b"><h3>Why 10 rounds? What more rounds buy</h3>
+<p>Fifteen existing runs on the 30k genomic pool were run for 30 rounds (about 60 proposals). Taking the first 10, 20, 30, 40 or 60 proposals of each shows what a longer search adds. Test r is on the genomic test set unless the column says otherwise; the ensemble is the same non-negative stack, built from the search-time models.</p>
+{t}
+<p>Going from 10 to 15 rounds (20 to 30 proposals) raises the best single model's validation r by about {np.mean([per[k]["30"]["best_val"] - per[k]["20"]["best_val"] for k in per if "30" in per[k]]):+.4f} and the ensemble of that one run by <b>{np.mean(gains):+.4f}</b> ({sum(g > 0 for g in gains)} of {len(gains)} runs improve, none by more than {max(gains):.4f}). When the candidates of the three runs of one family are pooled, the way the menu pools runs, the same step adds <b>{np.mean(pooled_gain):+.4f}</b> on average across the five run families, but only <b>{np.mean(guided_gain):+.4f}</b> across the four searched with the standard guidance ({", ".join(f"{g:+.4f}" for g in guided_gain)}); the family searched without guidance gains {unguided_gain:+.4f}. So there is a real but small boost for a single run's ensemble, and a smaller one once runs are pooled, because other runs already supply much of the diversity that extra rounds would. At the level of the final ensemble it is about the size of one-seed noise (0.002 to 0.003) and costs half again as many trainings per run, so we keep 10 rounds as the default and put extra budget into more runs over different reservoirs; a cell that can afford 15 rounds should expect roughly +0.001 to +0.002.</p>
+<p class="small">Limits: search-time models on one reservoir and size (30k genomic), not a retrained menu; the final menu takes only the best model of each run (plus two), where the gain from more rounds is the {np.mean([per[k]["30"]["best_val"] - per[k]["20"]["best_val"] for k in per if "30" in per[k]]):+.4f} in the best single model's validation r.</p></div></div>"""
 
 
 def alln_fmt(x):
@@ -653,7 +722,70 @@ def topup_section(d30):
 <p class="lead">The registered-report regime: start from a base set, add a batch in one round. Base = 30k genomic (replicate 1). The control adds 70k more genomic. Non-active arms add 70k from one reservoir. Active arms score a 300k candidate pool (100k each of random, motif CT-enriched and EvoAug) with the ensemble trained on the 30k base and keep 70k. Final models are trained on 100k with the first 6 menu configurations; differences under about 0.005 are within one-seed noise.</p>
 {t}
 <figure><img alt="top-up arms" src="{img}"><figcaption>Change in ensemble r against the +70k-genomic control, per evaluation set. Colour: orange = single reservoir, grey = random draw from the mix, green = selected by the ensemble.</figcaption></figure>
-<p class="small">{n_done} of 20 arms had results at build time; arms without enough trained models are omitted rather than estimated.</p></section>"""
+<p class="small">{n_done} of 20 arms had results at build time; arms without enough trained models are omitted rather than estimated.</p>
+{rounds3_section(d30)}</section>"""
+
+
+def rounds3_section(d30):
+    r3 = d30.get("rounds3") or {}
+    names = {"mean": "highest ensemble mean", "std": "highest ensemble SD"}
+    rows = []
+    for crit in ("mean", "std"):
+        row = r3.get(crit)
+        if not row:
+            continue
+        one, three = row.get("one_round"), row.get("three_round")
+        for tag, x, lab in (("one", one, "1 round of 70k"), ("three", three, "3 rounds of 23,333")):
+            sel = row["selection"]["one_round" if tag == "one" else "three_round"]
+            if x:
+                vals = [x["ensemble"][s] for s in SETS3] + [
+                    sel["label_mean"],
+                    "/".join(f"{100 * v:.0f}" for v in sel["source_frac"]) + " %",
+                ]
+            else:
+                vals = [
+                    None,
+                    None,
+                    None,
+                    sel["label_mean"],
+                    "/".join(f"{100 * v:.0f}" for v in sel["source_frac"]) + " %",
+                ]
+            rows.append(
+                (
+                    f"{names[crit]}: {lab}"
+                    + ("" if x else " <span class='small'>(still training)</span>"),
+                    vals,
+                    crit,
+                )
+            )
+    if rows:
+        t = table(
+            [
+                "Selection",
+                "Genomic",
+                "Designed OOD",
+                "Random seqs",
+                "Added seqs: mean label",
+                "from random / motif / EvoAug",
+            ],
+            rows,
+            best=[0, 1, 2],
+            groups={
+                "mean": "Score the 300k candidates by ensemble mean",
+                "std": "Score the 300k candidates by ensemble SD",
+            },
+        )
+        jac = ", ".join(f"{names[c]} {r3[c]['selection']['jaccard']:.2f}" for c in r3)
+    else:
+        t, jac = (
+            "<p class='lead'>These cells are still training; the table fills in when they finish.</p>",
+            "",
+        )
+    return f"""<h3>One round of 70k against three rounds of 23,333</h3>
+<p class="lead">Same 30k genomic base, same 300k candidate pool, same round-0 student (the 8 best architectures trained on the base), same final training (menu v1 first 6 configurations, patience 16, 100k sequences). In the three-round version the student is retrained on the base plus everything chosen so far (53,333 and 76,666 sequences) before each of rounds 2 and 3, and the already-chosen sequences are removed from the pool.</p>
+{t}
+{'<p class="small">Overlap (Jaccard) between the sequences chosen in one round and in three: ' + jac + ".</p>" if jac else ""}
+<p>An earlier run of the same comparison with the older 8-architecture menu and two seeds per architecture (16 models) gave, on the genomic / designed / random sets: highest mean 0.8431 / 0.5978 / 0.8624 in one round against 0.8420 / 0.5926 / 0.8466 in three; highest SD 0.8466 / 0.5985 / 0.8643 in one round against 0.8451 / 0.5867 / 0.8618 in three. Three rounds were not better than one.</p>"""
 
 
 def appendix(d31, inp):
@@ -688,7 +820,7 @@ def main():
 {evalsets_section(d32)}
 <section id="example"><h2>3 · A worked AutoResearch example at D = 30k</h2>
 <p class="lead">What was actually done for one cell, the genomic reservoir at 30k sequences: one search run, how runs become a menu, how the menu becomes a weighted ensemble, and what the newer controller-driven search did on the same cell.</p>
-{run_section(d32)}{menu_section(d32)}{ar2_example_section(d32, a.inp)}</section>
+{run_section(d32)}{menu_section(d32)}{rounds_section(a.inp)}{ar2_example_section(d32, a.inp)}</section>
 {scaling_section(d30, d32)}
 {topup_section(d30)}
 {appendix(d31, a.inp)}
