@@ -247,7 +247,7 @@ def intro_section():
 <p>Without acquisition, a set is simply taken from the reservoir (the non-active arms). With acquisition, a model trained on existing data scores a large candidate pool and a batch is chosen in one round: ensemble mean or SD, uncertainty in excess of the activity trend, diversity (k-means on sequence composition), uncertainty plus diversity (a BADGE-like k-means++ on member disagreement), stratified and composition-based designs, and the oracle's own error as an unattainable ceiling. Plain SD is largely a function of activity, so the excess-over-trend version is run alongside it.</p></div></div>
 
 <div class="step"><div class="n">3</div><div class="b"><h3>Oracle labelling</h3>
-<p>Synthetic sequences have no measurements, so every sequence is labelled by <code>oracle_v3</code>: an AlphaGenome-encoder model with a regression head, fine-tuned on the Gosai K562 data as a 10-fold, chromosome-split ensemble. On chromosomes it never saw, its Pearson r with the experiment is <b>0.931</b> on average (range 0.923 to 0.939). Labelling runs at about 300 sequences per second, and every pool is stamped with the oracle that labelled it. Test chromosomes (chr7, chr13) and validation chromosomes (chr19, chr21, chrX) are excluded from every reservoir (audited: zero overlap).</p></div></div>
+<p>Synthetic sequences have no measurements, so every sequence is labelled by <code>oracle_v3</code>: an AlphaGenome-encoder model with a regression head, fine-tuned on the Gosai K562 data as a 10-fold, chromosome-split ensemble. On chromosomes it never saw, its Pearson r with the experiment is <b>0.931</b> on average (range 0.923 to 0.939). Labelling runs at several hundred sequences per second per GPU (300 to 900 measured), and every pool is stamped with the oracle that labelled it. Test chromosomes (chr7, chr13) and validation chromosomes (chr19, chr21, chrX) are excluded from every reservoir (audited: zero overlap).</p></div></div>
 
 <div class="step"><div class="n">4</div><div class="b"><h3>Datasets of increasing size are nested</h3>
 <p>A dataset of size D is the first D sequences of a labelled pool, so 10k lies inside 30k inside 100k and a size comparison changes only the amount of data. The pools used here are the canonical seed-42 nested pools; the top-up experiment uses the replicate-1 pools.</p></div></div>
@@ -256,7 +256,7 @@ def intro_section():
 <p>The student is not one architecture. An LLM (Claude Sonnet 5.5) proposes two complete PyTorch models per round, each with its training recipe; every one is trained and scored on <b>validation only</b>; the history is fed back; ten rounds make one <b>run</b> of 20 models. We ran 18 runs (three on each of five reservoir families and three on a mixed corpus) and took the best model of every run plus the two best of the rest: <b>menu v1, 20 configurations</b>. The same menu is trained on every pool up to 100k (12 configurations from 300k), with early-stopping patience 16. The per-size rule and the evidence for it are in the appendix.</p></div></div>
 
 <div class="step"><div class="n">6</div><div class="b"><h3>Ensembling</h3>
-<p>All configurations are trained on the pool. Their predictions on a shared validation set (29,449 real chr19, chr21 and chrX sequences relabelled by the oracle) are z-scored and combined by a <b>non-negative ElasticNetCV</b>; the weights are fitted once and applied to the test predictions. Zero-weight configurations simply drop out. This beat picking the best 8 by about 0.01 and is the study's standard; every number below is such an ensemble unless it says single model.</p></div></div>
+<p>All configurations are trained on the pool. Their predictions on a shared validation set (29,449 real chr19, chr21 and chrX sequences relabelled by the oracle) are z-scored and combined by a <b>non-negative ElasticNetCV</b>; the weights are fitted once and applied to the test predictions. Zero-weight configurations simply drop out. In earlier tests this beat greedy top-K selection by about 0.01 and uncertainty or diversity weighting added nothing; it is the study's standard, and every number below is such an ensemble unless it says single model.</p></div></div>
 </section>"""
 
 
@@ -273,7 +273,7 @@ EVAL_ROWS = [
         "ood",
         "The high-activity <b>designed</b> Gosai sequences (mean oracle activity about 4, against 0.2 to 1.2 for everything we generate)",
         "Extrapolation to the activity range people design for",
-        "none reaches it cheaply; motif comes closest",
+        "no reservoir reaches this activity range; motif comes closest",
     ),
     (
         "Headline",
@@ -407,7 +407,7 @@ def run_section(d32):
     return f"""<div class="step"><div class="n">a</div><div class="b"><h3>A single search run</h3>
 <div class="kv"><span>reservoir: genomic, replicate-1 pool</span><span>D = 30,000</span><span>{ar.get("rounds", 10)} rounds × {ar.get("per_round", 2)} proposals = 20 models</span><span>proposer: {esc(run.get("model"))}</span><span>feedback: validation only</span><span>guidance: known-good blocks + 'these will be ensembled'</span></div>
 <p>Each round the proposer sees the history of what it has tried and the validation scores, then writes two new networks with their own optimizer, learning rate, width and depth. They are trained (early stopping, time cap) and scored; nothing from a test set is ever shown. The best candidate of this run reached validation r {best:.3f}; the top three are marked.</p>
-<figure><img alt="val r by proposal" src="{img}"><figcaption>Search progress: 20 proposals, best so far in orange. Most proposals are competitive (0.78 to 0.83); the best comes late, so extra rounds still pay, but with diminishing returns.</figcaption></figure>
+<figure><img alt="val r by proposal" src="{img}"><figcaption>Search progress: 20 proposals, best so far in orange. Most proposals land between 0.78 and 0.83 and the best came in the last round, so this run had not yet plateaued.</figcaption></figure>
 {tbl}</div></div>"""
 
 
