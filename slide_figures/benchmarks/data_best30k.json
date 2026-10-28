@@ -1,0 +1,825 @@
+{
+ "n_models": 4022,
+ "n_dirs": 148,
+ "n_search": 2589,
+ "n_retrain": 1433,
+ "skipped": [],
+ "single": {
+  "best_by_val": {
+   "id": "r09_arch_18",
+   "dir": "outputs/archsearch_reps_oct22/genomic_30k/rep11",
+   "kind": "search",
+   "idea": "A spatially resolved readout. Conv features are downsampled to a coarse 25-slot ",
+   "n_params": 1571313,
+   "val_r": 0.839883631434916,
+   "genomic": 0.7538567741302484,
+   "ood": 0.27745429441191216,
+   "random_32k": 0.6687008285125546,
+   "genomic_measured": 0.7162268018687121
+  },
+  "best_test_any": {
+   "genomic": 0.7737971813939716,
+   "ood": 0.3242467081269983,
+   "random_32k": 0.7015041046950494
+  },
+  "distribution": {
+   "genomic": {
+    "mean": 0.7124163880701205,
+    "sd": 0.03925754900329613,
+    "p90": 0.7462840505307125,
+    "max": 0.7737971813939716
+   },
+   "ood": {
+    "mean": 0.2080724968150412,
+    "sd": 0.058466384385168435,
+    "p90": 0.26218633415790615,
+    "max": 0.3242467081269983
+   },
+   "random_32k": {
+    "mean": 0.5986950687756629,
+    "sd": 0.06298904453730349,
+    "p90": 0.6526809281477111,
+    "max": 0.7015041046950494
+   }
+  },
+  "top5_by_val": [
+   {
+    "id": "r09_arch_18",
+    "dir": "archsearch_reps_oct22/genomic_30k/rep11",
+    "val_r": 0.839883631434916,
+    "genomic": 0.7538567741302484,
+    "ood": 0.27745429441191216,
+    "random_32k": 0.6687008285125546
+   },
+   {
+    "id": "r09_arch_19",
+    "dir": "archsearch_final_oct20/son55_wide/rep1",
+    "val_r": 0.8383648764981914,
+    "genomic": 0.7604128337778606,
+    "ood": 0.27509861828058424,
+    "random_32k": 0.6771329550043248
+   },
+   {
+    "id": "r00_menu_002",
+    "dir": "menu_retrain_v0/fl34_flank_30k",
+    "val_r": 0.837613480860043,
+    "genomic": 0.7727522813393027,
+    "ood": 0.26990207485487694,
+    "random_32k": 0.6845185422753368
+   },
+   {
+    "id": "r00_arch_00",
+    "dir": "archsearch_reps_oct22/genomic_30k_agent_randpick/rep5",
+    "val_r": 0.8365844641723246,
+    "genomic": 0.7601856556893891,
+    "ood": 0.24495230682301838,
+    "random_32k": 0.6610483621189288
+   },
+   {
+    "id": "r00_menu_018",
+    "dir": "menu_retrain_v0/as30k_MX_genomic",
+    "val_r": 0.8355306217009186,
+    "genomic": 0.7701581676498295,
+    "ood": 0.26396407681368617,
+    "random_32k": 0.6852202948974107
+   }
+  ]
+ },
+ "ensembles": [
+  {
+   "K": 20,
+   "n_used": 17,
+   "val_fit_r": 0.8684160519910246,
+   "genomic": 0.8048842417740891,
+   "ood": 0.30671624817476406,
+   "random_32k": 0.7593226449672617,
+   "genomic_measured": 0.7649244405629605,
+   "val_cv_r": 0.8682957877217372
+  },
+  {
+   "K": 50,
+   "n_used": 23,
+   "val_fit_r": 0.8687404444293796,
+   "genomic": 0.8052127446640287,
+   "ood": 0.309350880362837,
+   "random_32k": 0.7596113470968444,
+   "genomic_measured": 0.7652279349744741,
+   "val_cv_r": 0.8681225138255322
+  },
+  {
+   "K": 100,
+   "n_used": 31,
+   "val_fit_r": 0.8687419570771563,
+   "genomic": 0.8053205552510528,
+   "ood": 0.31128377718140327,
+   "random_32k": 0.7602059574571186,
+   "genomic_measured": 0.7654194666726907,
+   "val_cv_r": 0.8681348714099979
+  },
+  {
+   "K": 200,
+   "n_used": 40,
+   "val_fit_r": 0.868717885504621,
+   "genomic": 0.8049454486169133,
+   "ood": 0.31056525935167906,
+   "random_32k": 0.7606445326796509,
+   "genomic_measured": 0.7650555473633536,
+   "val_cv_r": 0.8681460349062264
+  },
+  {
+   "K": 400,
+   "n_used": 43,
+   "val_fit_r": 0.8687022051975158,
+   "genomic": 0.8046057796594045,
+   "ood": 0.30974992286534364,
+   "random_32k": 0.7599254444745066,
+   "genomic_measured": 0.7647288658806646,
+   "val_cv_r": 0.8681025315349703
+  },
+  {
+   "K": 800,
+   "n_used": 35,
+   "val_fit_r": 0.8688086788376075,
+   "genomic": 0.8045283244902764,
+   "ood": 0.30942797651625853,
+   "random_32k": 0.7595548224976196,
+   "genomic_measured": 0.7646217376489631,
+   "val_cv_r": 0.8677444810504134
+  },
+  {
+   "K": 4022,
+   "n_used": 41,
+   "val_fit_r": 0.8687595985512654,
+   "genomic": 0.8045003490716003,
+   "ood": 0.308893653166083,
+   "random_32k": 0.7593482394993203,
+   "genomic_measured": 0.7646340766154358
+  }
+ ],
+ "per_run": [
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep1",
+   "n": 20,
+   "genomic": 0.7661698359133061,
+   "ood": 0.2554906299729054,
+   "random_32k": 0.695964737314432
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep10",
+   "n": 20,
+   "genomic": 0.7643444708352986,
+   "ood": 0.23814512678026728,
+   "random_32k": 0.6946496789655028
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep11",
+   "n": 20,
+   "genomic": 0.7694282288937814,
+   "ood": 0.2827369659573625,
+   "random_32k": 0.6992569450543225
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep12",
+   "n": 20,
+   "genomic": 0.7595007616803041,
+   "ood": 0.23551082808015397,
+   "random_32k": 0.6945575673568496
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep13",
+   "n": 21,
+   "genomic": 0.770687233539001,
+   "ood": 0.2378666045826646,
+   "random_32k": 0.6976729779973475
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep14",
+   "n": 21,
+   "genomic": 0.766169309243458,
+   "ood": 0.22653766464064473,
+   "random_32k": 0.7000962065607513
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep15",
+   "n": 20,
+   "genomic": 0.7623412643524107,
+   "ood": 0.2686583436397642,
+   "random_32k": 0.6932594467393838
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep2",
+   "n": 20,
+   "genomic": 0.7682737424999703,
+   "ood": 0.2734751226419007,
+   "random_32k": 0.6790465527365005
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep3",
+   "n": 20,
+   "genomic": 0.7687288169681671,
+   "ood": 0.260504534876391,
+   "random_32k": 0.6910165818583932
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep4",
+   "n": 21,
+   "genomic": 0.7640594206040143,
+   "ood": 0.25543981165166146,
+   "random_32k": 0.6786911132349019
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep5",
+   "n": 21,
+   "genomic": 0.7701886725063242,
+   "ood": 0.27923370413946885,
+   "random_32k": 0.6949628311576307
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep6",
+   "n": 20,
+   "genomic": 0.7641644138899136,
+   "ood": 0.23606415501195074,
+   "random_32k": 0.6771429566502739
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep7",
+   "n": 20,
+   "genomic": 0.7668088682185136,
+   "ood": 0.2861688184889331,
+   "random_32k": 0.6846504339005909
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep8",
+   "n": 20,
+   "genomic": 0.767257899831097,
+   "ood": 0.2531244471684108,
+   "random_32k": 0.6892853997416336
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k/rep9",
+   "n": 20,
+   "genomic": 0.7505735624669534,
+   "ood": 0.2558406798309691,
+   "random_32k": 0.6673024497147122
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent/rep1",
+   "n": 20,
+   "genomic": 0.7736419612610099,
+   "ood": 0.2770686765352583,
+   "random_32k": 0.7064783422149464
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent/rep2",
+   "n": 20,
+   "genomic": 0.7682604055630095,
+   "ood": 0.2592692584300117,
+   "random_32k": 0.6919747565848617
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent/rep3",
+   "n": 20,
+   "genomic": 0.7577484080533315,
+   "ood": 0.2586897411035888,
+   "random_32k": 0.6890014458187869
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent/rep4",
+   "n": 20,
+   "genomic": 0.7662724632603333,
+   "ood": 0.2703985946242946,
+   "random_32k": 0.6915431068443264
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent/rep5",
+   "n": 20,
+   "genomic": 0.767779481102051,
+   "ood": 0.27385197634483044,
+   "random_32k": 0.6941955965306571
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord/rep1",
+   "n": 20,
+   "genomic": 0.7750193376957012,
+   "ood": 0.2775560366078509,
+   "random_32k": 0.7083326303099319
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord/rep2",
+   "n": 20,
+   "genomic": 0.7785749198836122,
+   "ood": 0.28206619307622677,
+   "random_32k": 0.7072185933227321
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord/rep3",
+   "n": 20,
+   "genomic": 0.7754524511786729,
+   "ood": 0.2898999273149574,
+   "random_32k": 0.7059513831419629
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord/rep4",
+   "n": 20,
+   "genomic": 0.767660668956322,
+   "ood": 0.27304542995590875,
+   "random_32k": 0.6943131644883064
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord/rep5",
+   "n": 20,
+   "genomic": 0.7718905842600311,
+   "ood": 0.28090666905735906,
+   "random_32k": 0.7047585016792317
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord/rep6",
+   "n": 20,
+   "genomic": 0.7643933578539771,
+   "ood": 0.25140613465748374,
+   "random_32k": 0.6935651155359125
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord_noref/rep1",
+   "n": 20,
+   "genomic": 0.7669097895133663,
+   "ood": 0.2705712037661173,
+   "random_32k": 0.6982310541382102
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord_noref/rep2",
+   "n": 20,
+   "genomic": 0.7745235994134523,
+   "ood": 0.27606820200031185,
+   "random_32k": 0.6989524119449281
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord_noref/rep3",
+   "n": 20,
+   "genomic": 0.7693735384857039,
+   "ood": 0.28432296702991344,
+   "random_32k": 0.6956597607927811
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord_noref/rep4",
+   "n": 20,
+   "genomic": 0.7679062826779661,
+   "ood": 0.2780618296291101,
+   "random_32k": 0.6954677124711687
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord_noref/rep5",
+   "n": 20,
+   "genomic": 0.7764600438647816,
+   "ood": 0.28786941625281953,
+   "random_32k": 0.7075686806535856
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_coord_noref/rep6",
+   "n": 20,
+   "genomic": 0.7766422985489343,
+   "ood": 0.27548462900904586,
+   "random_32k": 0.7070853239474169
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_explore/rep1",
+   "n": 20,
+   "genomic": 0.767132803509481,
+   "ood": 0.2546365767975391,
+   "random_32k": 0.7005405457742103
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_explore/rep2",
+   "n": 20,
+   "genomic": 0.7782654696050008,
+   "ood": 0.26910578490646336,
+   "random_32k": 0.6950961026148615
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_explore/rep3",
+   "n": 20,
+   "genomic": 0.7602408828427326,
+   "ood": 0.27432940827864466,
+   "random_32k": 0.6793552045366597
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_explore/rep4",
+   "n": 20,
+   "genomic": 0.7576528249509177,
+   "ood": 0.26470160936153375,
+   "random_32k": 0.6838670807123175
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_explore/rep5",
+   "n": 20,
+   "genomic": 0.7671878076170545,
+   "ood": 0.24194667726977373,
+   "random_32k": 0.6937294503965711
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_explore/rep6",
+   "n": 20,
+   "genomic": 0.7645680122285123,
+   "ood": 0.23342304278531212,
+   "random_32k": 0.6861086616412624
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_plain/rep1",
+   "n": 20,
+   "genomic": 0.7696340607349386,
+   "ood": 0.27716442106726386,
+   "random_32k": 0.698416038687006
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_plain/rep2",
+   "n": 20,
+   "genomic": 0.7771451081044961,
+   "ood": 0.27915146574509897,
+   "random_32k": 0.6987884759308332
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_plain/rep3",
+   "n": 20,
+   "genomic": 0.7712293203821776,
+   "ood": 0.25597559299037786,
+   "random_32k": 0.6913239139656403
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_plain/rep4",
+   "n": 20,
+   "genomic": 0.7706453128647733,
+   "ood": 0.29108708454246796,
+   "random_32k": 0.6966095883564327
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_plain/rep5",
+   "n": 20,
+   "genomic": 0.7723781430272677,
+   "ood": 0.26713028142779927,
+   "random_32k": 0.6980346434294683
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_plain/rep6",
+   "n": 20,
+   "genomic": 0.7681946443817486,
+   "ood": 0.2680465184520408,
+   "random_32k": 0.6929596502782359
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_randpick/rep1",
+   "n": 20,
+   "genomic": 0.7620787680888438,
+   "ood": 0.27749725496966,
+   "random_32k": 0.6886947312828149
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_randpick/rep2",
+   "n": 20,
+   "genomic": 0.7665510801909129,
+   "ood": 0.25937965041510835,
+   "random_32k": 0.6887011125791929
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_randpick/rep3",
+   "n": 20,
+   "genomic": 0.7645721839166276,
+   "ood": 0.26691179509954766,
+   "random_32k": 0.682124700995809
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_randpick/rep4",
+   "n": 20,
+   "genomic": 0.7681518997947852,
+   "ood": 0.2792175272729631,
+   "random_32k": 0.6967958696702037
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_randpick/rep5",
+   "n": 20,
+   "genomic": 0.7759770610350787,
+   "ood": 0.2558262799787465,
+   "random_32k": 0.7006649321339407
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_agent_randpick/rep6",
+   "n": 20,
+   "genomic": 0.7708821519015951,
+   "ood": 0.2839200006353451,
+   "random_32k": 0.7015158205559497
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore/rep1",
+   "n": 20,
+   "genomic": 0.7726755086433894,
+   "ood": 0.27250359054628376,
+   "random_32k": 0.699445816664762
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore/rep2",
+   "n": 20,
+   "genomic": 0.7702193181366567,
+   "ood": 0.26982460880012177,
+   "random_32k": 0.6936614322640948
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore/rep3",
+   "n": 20,
+   "genomic": 0.7657735612180075,
+   "ood": 0.26219920127073343,
+   "random_32k": 0.6894038754085805
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore/rep4",
+   "n": 20,
+   "genomic": 0.7728721883816583,
+   "ood": 0.2843286283501983,
+   "random_32k": 0.7013905449658674
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore/rep5",
+   "n": 20,
+   "genomic": 0.7752435483767072,
+   "ood": 0.2718068658263915,
+   "random_32k": 0.7024399284127922
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore/rep6",
+   "n": 20,
+   "genomic": 0.7630052286984245,
+   "ood": 0.269821582881434,
+   "random_32k": 0.692643065621771
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore/rep7",
+   "n": 20,
+   "genomic": 0.7730166475298152,
+   "ood": 0.281766086963303,
+   "random_32k": 0.6999984523552455
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore/rep8",
+   "n": 20,
+   "genomic": 0.7698974612945994,
+   "ood": 0.2542118005266469,
+   "random_32k": 0.692043854774469
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore/rep9",
+   "n": 21,
+   "genomic": 0.7677847628589382,
+   "ood": 0.2784460736859893,
+   "random_32k": 0.6860218716689418
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore_reflect/rep1",
+   "n": 20,
+   "genomic": 0.766847811672264,
+   "ood": 0.26700138624852054,
+   "random_32k": 0.6938186750158063
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore_reflect/rep2",
+   "n": 21,
+   "genomic": 0.7785445791960497,
+   "ood": 0.2710235055632026,
+   "random_32k": 0.6993376789508512
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore_reflect/rep3",
+   "n": 20,
+   "genomic": 0.7690946829398315,
+   "ood": 0.26823312544362216,
+   "random_32k": 0.696803585564939
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore_reflect/rep4",
+   "n": 20,
+   "genomic": 0.7748042993081514,
+   "ood": 0.28902218178944666,
+   "random_32k": 0.6995077773511722
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore_reflect/rep5",
+   "n": 20,
+   "genomic": 0.7703020744181721,
+   "ood": 0.26898282315279787,
+   "random_32k": 0.6973354464993426
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore_reflect/rep6",
+   "n": 20,
+   "genomic": 0.765219865403099,
+   "ood": 0.260095973680404,
+   "random_32k": 0.6892396771039859
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore_reflect/rep7",
+   "n": 20,
+   "genomic": 0.7629335428423311,
+   "ood": 0.2767845689057557,
+   "random_32k": 0.6871674786777336
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore_reflect/rep8",
+   "n": 20,
+   "genomic": 0.7684820153093891,
+   "ood": 0.24458787699878867,
+   "random_32k": 0.6954462448871755
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_explore_reflect/rep9",
+   "n": 20,
+   "genomic": 0.7589498900747382,
+   "ood": 0.25978749677486085,
+   "random_32k": 0.67335591961984
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_reflect/rep1",
+   "n": 20,
+   "genomic": 0.7697052579841998,
+   "ood": 0.2752309486675646,
+   "random_32k": 0.6994763015046767
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_reflect/rep2",
+   "n": 20,
+   "genomic": 0.7729712432747251,
+   "ood": 0.28076473327689666,
+   "random_32k": 0.696357510709674
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_reflect/rep3",
+   "n": 20,
+   "genomic": 0.7612621679322163,
+   "ood": 0.2518204463353947,
+   "random_32k": 0.6817812582698589
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_reflect/rep4",
+   "n": 21,
+   "genomic": 0.7639667358358868,
+   "ood": 0.258655017094696,
+   "random_32k": 0.6840269763934562
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_reflect/rep5",
+   "n": 20,
+   "genomic": 0.7762056705772339,
+   "ood": 0.262567824667695,
+   "random_32k": 0.7070909598700148
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_reflect/rep6",
+   "n": 20,
+   "genomic": 0.7720911832599784,
+   "ood": 0.2563879258596401,
+   "random_32k": 0.7084089443025421
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_reflect/rep7",
+   "n": 21,
+   "genomic": 0.7682079027327696,
+   "ood": 0.2835413035449362,
+   "random_32k": 0.6937827336546811
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_reflect/rep8",
+   "n": 21,
+   "genomic": 0.7716455789473825,
+   "ood": 0.26760694889725456,
+   "random_32k": 0.6938632142288783
+  },
+  {
+   "dir": "archsearch_reps_oct22/genomic_30k_reflect/rep9",
+   "n": 20,
+   "genomic": 0.7617150179579698,
+   "ood": 0.2796168397682295,
+   "random_32k": 0.6849993354298216
+  },
+  {
+   "dir": "archsearch_final_oct20/opus55/rep1",
+   "n": 59,
+   "genomic": 0.7792099811477655,
+   "ood": 0.2830068839333465,
+   "random_32k": 0.7203639087743052
+  },
+  {
+   "dir": "archsearch_final_oct20/opus55/rep2",
+   "n": 61,
+   "genomic": 0.7802917201062,
+   "ood": 0.2880911389448654,
+   "random_32k": 0.717918107134069
+  },
+  {
+   "dir": "archsearch_final_oct20/opus55/rep3",
+   "n": 59,
+   "genomic": 0.7776340910075673,
+   "ood": 0.28048063941147877,
+   "random_32k": 0.713713986530503
+  },
+  {
+   "dir": "archsearch_final_oct20/son45/rep1",
+   "n": 61,
+   "genomic": 0.7714249332648205,
+   "ood": 0.28379110790478546,
+   "random_32k": 0.7123105499218787
+  },
+  {
+   "dir": "archsearch_final_oct20/son45/rep2",
+   "n": 61,
+   "genomic": 0.7764020793822853,
+   "ood": 0.2927864682438843,
+   "random_32k": 0.7154911803976897
+  },
+  {
+   "dir": "archsearch_final_oct20/son45/rep3",
+   "n": 61,
+   "genomic": 0.7646713111481362,
+   "ood": 0.27812404658267204,
+   "random_32k": 0.7113627289987559
+  },
+  {
+   "dir": "archsearch_final_oct20/son55/rep1",
+   "n": 55,
+   "genomic": 0.7700470777207002,
+   "ood": 0.2751635828463266,
+   "random_32k": 0.7064078531103423
+  },
+  {
+   "dir": "archsearch_final_oct20/son55/rep2",
+   "n": 56,
+   "genomic": 0.779026527160769,
+   "ood": 0.28192295790743305,
+   "random_32k": 0.7143089294976566
+  },
+  {
+   "dir": "archsearch_final_oct20/son55/rep3",
+   "n": 57,
+   "genomic": 0.7714940793846197,
+   "ood": 0.2725647328992873,
+   "random_32k": 0.7012979042068296
+  },
+  {
+   "dir": "archsearch_final_oct20/son55_none/rep1",
+   "n": 60,
+   "genomic": 0.7461606494546803,
+   "ood": 0.22397634673737096,
+   "random_32k": 0.6768462206192126
+  },
+  {
+   "dir": "archsearch_final_oct20/son55_none/rep2",
+   "n": 60,
+   "genomic": 0.7669802456215354,
+   "ood": 0.2567224883200259,
+   "random_32k": 0.6997044398422609
+  },
+  {
+   "dir": "archsearch_final_oct20/son55_none/rep3",
+   "n": 60,
+   "genomic": 0.754049983807879,
+   "ood": 0.22704515752008522,
+   "random_32k": 0.6757235235991665
+  },
+  {
+   "dir": "archsearch_final_oct20/son55_wide/rep1",
+   "n": 59,
+   "genomic": 0.7756267288532053,
+   "ood": 0.2845939858524657,
+   "random_32k": 0.7081552670594858
+  },
+  {
+   "dir": "archsearch_final_oct20/son55_wide/rep2",
+   "n": 61,
+   "genomic": 0.768593858840995,
+   "ood": 0.25263005016532153,
+   "random_32k": 0.710524947876313
+  },
+  {
+   "dir": "archsearch_final_oct20/son55_wide/rep3",
+   "n": 61,
+   "genomic": 0.7736897173323511,
+   "ood": 0.2664693078396136,
+   "random_32k": 0.7123124730747327
+  }
+ ],
+ "per_run_summary": {
+  "genomic": {
+   "mean": 0.7687873299698892,
+   "sd": 0.006218410387855907,
+   "max": 0.7802917201062,
+   "n_runs": 92
+  },
+  "ood": {
+   "mean": 0.267660582124826,
+   "sd": 0.015652701304989292,
+   "max": 0.2927864682438843,
+   "n_runs": 92
+  },
+  "random_32k": {
+   "mean": 0.6960485930843323,
+   "sd": 0.010296163531105315,
+   "max": 0.7203639087743052,
+   "n_runs": 92
+  }
+ }
+}
