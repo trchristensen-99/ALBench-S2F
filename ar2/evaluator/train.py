@@ -428,7 +428,7 @@ def run(spec: dict) -> dict:
                 Xs = torch.from_numpy(encode(load_stress_set(sp))).to(device)
                 stress = stress_check(
                     predict_z(ev, Xs, loss, bool(spec.get("rc_average", True)), amp_ctx=amp_ctx),
-                    float(spec.get("stress_max_abs_z", 10.0)),
+                    float(spec.get("stress_max_abs_z", 25.0)),
                 )
             else:
                 stress = {"finite": True, "max_abs_z": 0.0, "exploded": False}

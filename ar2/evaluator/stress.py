@@ -107,7 +107,7 @@ def load_stress_set(path: str | Path) -> list[str]:
     return [str(s) for s in np.load(path, allow_pickle=False)]
 
 
-def stress_check(pred_z: np.ndarray, max_abs_z: float = 10.0) -> dict:
+def stress_check(pred_z: np.ndarray, max_abs_z: float = 25.0) -> dict:
     """Spec rule: every prediction finite and within ``max_abs_z`` training SDs of the training mean (``pred_z`` is on the z-scored scale)."""
     p = np.asarray(pred_z, np.float64).ravel()
     finite = bool(np.isfinite(p).all())

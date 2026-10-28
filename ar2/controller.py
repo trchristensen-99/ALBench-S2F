@@ -206,7 +206,9 @@ def build_family_state(
     )
 
     def done(rs: list[RunInfo]) -> list[RunInfo]:
-        return [r for r in rs if r.finished and r.status not in ("oom", "error")]
+        # an 'error' run reaches here only after the infrastructure retries are used up, so it is a deterministic failure of that recipe (for example sampled
+        # hyperparameters the model cannot be built with): it counts toward the recipes of the family, like a diverged run, or the family would wait for it forever
+        return [r for r in rs if r.finished and r.status != "oom"]
 
     def open_(rs: list[RunInfo]) -> list[RunInfo]:
         return [r for r in rs if not r.finished]
