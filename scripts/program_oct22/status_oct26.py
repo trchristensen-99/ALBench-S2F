@@ -50,6 +50,54 @@ GROUPS = [
     ("Oct 29: patience 24 and 32", ("ind30e_pat24_", "ind30e_pat32_")),
     ("Oct 29: motif-run menu MM + held-out reservoirs", ("as_MM_", "as_MG_evo", "as_MR_evo")),
     ("Oct 29: width-scaled configs (generator + retrains)", ("scl30_",)),
+    ("Oct 29: menu v1 validation retrains", ("ind30m_v1_",)),
+    ("Oct 28 night: new pools (GC sweep, 10% mutagenesis)", ("pool31_",)),
+    (
+        "Oct 28 night: scaling 10k (menu v1, 8 strategies)",
+        (
+            "sc31_random_10k",
+            "sc31_genomic_10k",
+            "sc31_motif_ct_enriched_10k",
+            "sc31_evoaug_paper2023_10k",
+            "sc31_zoonomia_orthologs_10k",
+            "sc31_motif_shared_core_10k",
+            "sc31_random_gc_sweep_10k",
+            "sc31_mutagenesis_mr10_10k",
+        ),
+    ),
+    (
+        "Oct 28 night: scaling 30k",
+        tuple(
+            f"sc31_{s}_30k"
+            for s in (
+                "genomic",
+                "random",
+                "motif_ct_enriched",
+                "evoaug_paper2023",
+                "zoonomia_orthologs",
+                "motif_shared_core",
+                "random_gc_sweep",
+                "mutagenesis_mr10",
+            )
+        ),
+    ),
+    (
+        "Oct 28 night: scaling 100k (12 configs)",
+        tuple(
+            f"sc31_{s}_100k"
+            for s in (
+                "genomic",
+                "random",
+                "motif_ct_enriched",
+                "evoaug_paper2023",
+                "zoonomia_orthologs",
+                "motif_shared_core",
+                "random_gc_sweep",
+                "mutagenesis_mr10",
+            )
+        ),
+    ),
+    ("Oct 28 night: 30k genomic + 70k arms (reservoir, mix, acquisition)", ("al31_",)),
 ]
 reg = json.load(open(d.REG))
 state = json.load(open(d.STATE_F)) if d.STATE_F.exists() else {}
