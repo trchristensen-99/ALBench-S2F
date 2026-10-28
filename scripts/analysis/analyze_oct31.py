@@ -45,7 +45,14 @@ CELLS = {  # cell: (reservoir, D, v1 dir, v0 dir, ar2 menu dir, ar2 workspace)
         "ar2m_genomic_30k",
         "ws_genomic_30k",
     ),
-    "genomic_100k": ("genomic", 100_000, "v1_100k_genomic_r1", "vv100k_V0c_genomic_r1", None, None),
+    "genomic_100k": (
+        "genomic",
+        100_000,
+        "v1_100k_genomic_r1",
+        "vv100k_V0c_genomic_r1",
+        "ar2m_genomic_100k",
+        "ws_genomic_30k",
+    ),
     "random_10k": ("random", 10_000, "v1_10k_random_r1", "lad_random_r1_d10k", None, None),
     "random_30k": (
         "random",
@@ -55,7 +62,14 @@ CELLS = {  # cell: (reservoir, D, v1 dir, v0 dir, ar2 menu dir, ar2 workspace)
         "ar2m_random_30k",
         "ws_random_30k",
     ),
-    "random_100k": ("random", 100_000, "v1_100k_random_r1", "lad_random_r1_d100k", None, None),
+    "random_100k": (
+        "random",
+        100_000,
+        "v1_100k_random_r1",
+        "lad_random_r1_d100k",
+        "ar2m_random_100k",
+        "ws_random_30k",
+    ),
     "motif_10k": (
         "motif_ct_enriched",
         10_000,

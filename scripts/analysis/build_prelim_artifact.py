@@ -339,6 +339,14 @@ def v1v0(d31):
     return table(head, rows)
 
 
+def ar2_build_notes():
+    return """<h3>How it was built and what was tested</h3>
+<p>The system was implemented from the specification in about a night by four parallel builders (compute side; orchestration; controller and simulator; proposer and prompts) against a fixed interface contract, then integrated and run. CPU tests: <b>242 pass, 1 skipped</b> (the real-CLI isolation test T7, which needs the cluster CLI; its adapter was exercised with a fake CLI and with real sketch, implementation and tagging calls). Passing: loader checks (T1), label scaling (T2), strand averaging (T3), the nine broken-model fixtures (T4), crash and resume at 20 random kill points (T5), exact rebuild (T6), the held-back set unreachable from prompts (T8, T9), winner's curse (T10), lesson numbers (T11), template freeze (T12), early termination (T13), stress screen (T14), capability check (T15), live balance changes (T16).</p>
+<p><b>Not met as specified (simulator, 20 seeds):</b> the two planted better families were confirmed and menu-eligible in 16 of 20 runs (the specification asks 18); the flat stop fired in 16 of 20; the budget forecast differed from simulated counts by 46% on average (asks 25%). Not built: the LLM-written procedure phase (P) and the legacy-model import. Deviations: stress threshold 25 SD instead of 10 (the 10 SD rule flagged normal models at 10.5 to 11 SD); the flat-stop progress rule; unspent budget rolls forward; most real runs ended without the final reconfirmation phase because families still being finished used its budget, so the held-back chrX comparison is mostly missing.</p>
+<details><summary>Six bugs found only by real runs (all fixed; the mock-based tests did not cover them)</summary><p>1) A recipe whose run errored after retries was never counted as finished, so a family waited forever (the transformer anchor stuck in two searches). 2) The screen's correlation option used a loss name the evaluator did not know (18 failed runs). 3) The run loop spun at about one step per second when a step only resubmitted runs. 4) The screen's combination step crashed the orchestrator because its runs belong to different models. 5) The screen combined two loss options, which duplicates a single option's runs, so it never finished. 6) The screen's adoption decision was never read back, so it repeated.</p></details>
+<p class="lead">Run settings: budgets about half the specification's (anchors 30, main 50, final 18; main 100 at genomic 10k; the genomic 30k search also ran the 36-run loss and training screen), the three anchor families written by hand (a LegNet-like residual CNN, a CNN-GRU, a CNN-attention hybrid) and new families written by <code>claude-sonnet-5-5</code> through the Claude Code CLI, one search per cell, 2 to 3 GPU workers each.</p>"""
+
+
 def decisions_section(inp):
     p = os.path.join(inp, "decisions.json")
     if not os.path.exists(p):
@@ -396,6 +404,7 @@ def main():
 <p class="lead">Implemented from the design specification and run as four searches (genomic 10k and 30k, random 30k, motif 30k; the 100k search was left out). Each search found its best configuration per architecture family; those configurations were then retrained with our per-D procedure and stacked.</p>
 {ar2_search_section(a.inp)}
 <h3>Ensembles from the ar2 menus against menu v1 and v0 (our per-D procedure)</h3>{ar2_compare(d31)}
+{ar2_build_notes()}
 <figure>{fig("figs_oct31/ar2_vs_v1.png", "ar2 against v1 and v0")}<figcaption>Ensemble r by method for each cell with a trained ar2 menu.</figcaption></figure></section>
 <section id="menu"><h2>Menu evidence</h2><p class="lead">Menu v1 (20 configurations from runs on five reservoir families and a mixed corpus) against the v0 menu (30 usable configurations from genomic runs), retrained on the same pools.</p>{v1v0(d31)}</section>
 <section id="caveats"><h2>Caveats</h2><div class="note">Preliminary: one seed per configuration, one pool replicate, partial cells shown as dashes. The top-up and 100k scaling cells use the first 6 menu configurations to fit the time; 10k and 30k scaling cells use 20.</div></section>
