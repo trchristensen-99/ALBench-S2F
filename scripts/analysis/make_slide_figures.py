@@ -113,7 +113,7 @@ def fig_rounds(inp, out):
                 alpha=0.35,
                 lw=0,
             )
-    ax.set_xlabel("proposals per run (line: 3 runs pooled; dots: each run alone)")
+    ax.set_xlabel("proposals per run (dots: single runs)")
     ax.set_title("Three runs pooled, as the menu does", fontsize=11)
     ax.axvline(20, color=ORANGE, ls="--", lw=1.4)
     ax.legend(frameon=False, fontsize=8, loc="lower right")
@@ -344,7 +344,7 @@ def fig_evaluator(inp, out):
         "coder only",
         "random 2 of 6",
         "evaluator 2 of 6",
-        "evaluator +\nreflector",
+        "eval. + reflector",
         "explore-style",
     ]
     col = [GREY, BLUE, "#9fb3bc", ORANGE, "#e08a5c", PURPLE]
@@ -377,7 +377,7 @@ def fig_evaluator(inp, out):
         if not os.path.exists(os.path.join(inp, "data_loopctl.json")):
             ax.set_ylim(min(ys) - 0.01, max(ys) + 0.006)
         ax.set_xticks(
-            range(len(arms)), lab, rotation=40, ha="right", fontsize=9, rotation_mode="anchor"
+            range(len(arms)), lab, rotation=50, ha="right", fontsize=8.5, rotation_mode="anchor"
         )
         ax.set_title(SETN[s], fontsize=11)
         ax.set_ylabel(
@@ -776,7 +776,7 @@ def fig_prompt_loop(inp, out):
     from matplotlib.patches import FancyBboxPatch
 
     fig, ax = plt.subplots(figsize=(16, 8.2))
-    ax.set_xlim(0, 16), ax.set_ylim(0, 8.8), ax.axis("off")
+    ax.set_xlim(0, 16), ax.set_ylim(0, 9.3), ax.axis("off")
 
     def box(x, y, w, h, title, items, fc, ec, wrap):
         ax.add_patch(
@@ -905,7 +905,7 @@ def fig_prompt_loop(inp, out):
     )
     ax.text(
         8.0,
-        7.72,
+        8.12,
         "validation r and discards update the history, which becomes the next round's prompt",
         fontsize=10,
         color=BLUE,
@@ -913,7 +913,7 @@ def fig_prompt_loop(inp, out):
     )
     ax.text(
         0.2,
-        8.35,
+        8.85,
         "Our AutoResearch loop (albench/arch_search, the one that produced menu v1), not the AutoResearch v2 loop",
         fontsize=11.5,
         weight="bold",
