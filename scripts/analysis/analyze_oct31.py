@@ -175,6 +175,43 @@ def an_v1val():
     DATA["v1val"] = res
 
 
+def an_recipe3():
+    """Patience 8 / 16 / 24 / 32 on the same pool and menu (v0, seed 0 of each directory), ensemble r of the stack of all usable configurations."""
+    cells = {
+        "genomic_10k": ("nest_genomic_r1_d10k", "tr10k_pat{p}_genomic_r1"),
+        "genomic_30k": ("ind30k_genomic_r1", "tr30k_pat{p}_genomic_r1"),
+        "genomic_100k": ("nest_genomic_r1_d100k", "tr100k_pat{p}_genomic_r1"),
+        "random_30k": ("ind30k_random_r1", "tr30k_pat{p}_random_r1"),
+        "motif_30k": ("ind30k_motif_ct_enriched_r1", "tr30k_pat{p}_motif_ct_enriched_r1"),
+    }
+    res = {}
+    print(
+        "\npatience 8 / 16 / 24 / 32, same pool and menu (seed 0), stack r on genomic / designed / random"
+    )
+    for cell, (d8, tpl) in cells.items():
+        row = {}
+        for p in (8, 16, 24, 32):
+            d = d8 if p == 8 else tpl.format(p=p)
+            c = load_dir(d)
+            if not c or not c["rows"]:
+                continue
+            s0 = min(r["seed"] for r in c["rows"])
+            e = ens(c, lambda r, s0=s0: r["seed"] == s0)
+            if e:
+                row[p] = e
+        if row:
+            res[cell] = row
+            print(
+                f"{cell:13s} "
+                + " | ".join(
+                    f"p{p} n={e['n_models']:2d} "
+                    + " ".join(f"{e['ensemble'][s]:.4f}" for s in SETS)
+                    for p, e in row.items()
+                )
+            )
+    DATA["recipe3"] = res
+
+
 def search_table(ws: str) -> dict:
     """What the ar2 search found, straight from its database."""
     p = f"outputs/ar2/{ws}/ar2.db"
@@ -333,12 +370,14 @@ def figures(out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", default="v1val,ar2")
+    ap.add_argument("--only", default="v1val,recipe3,ar2")
     ap.add_argument("--out", default="outputs/justification_oct22")
     a = ap.parse_args()
     only = a.only.split(",")
     if "v1val" in only:
         an_v1val()
+    if "recipe3" in only:
+        an_recipe3()
     if "ar2" in only:
         an_ar2()
     json.dump(DATA, open(f"{a.out}/data_oct31.json", "w"), indent=1, default=float)

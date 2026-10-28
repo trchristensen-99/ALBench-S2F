@@ -93,6 +93,12 @@ figcaption{color:var(--muted);font-size:14px;margin-top:4px;max-width:74ch}
 .note{border-left:3px solid var(--warn);padding:2px 12px;margin:12px 0;color:var(--muted);max-width:74ch}
 code{font:13px ui-monospace,Menlo,monospace;background:var(--accent-soft);padding:1px 5px;border-radius:4px}
 details{margin:10px 0}summary{cursor:pointer;color:var(--accent)}
+.dec{display:grid;gap:10px;margin:12px 0}
+.dec>div{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:12px 14px}
+.dec h4{margin:0 0 4px;font-size:15px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.tag{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;padding:1px 8px;border-radius:999px;border:1px solid var(--rule);color:var(--muted)}
+.tag.ok{color:var(--good);border-color:var(--good)}.tag.prov{color:var(--warn);border-color:var(--warn)}
+.dec p{margin:4px 0;color:var(--ink)}.dec .why{color:var(--muted);font-size:14px}
 @media (max-width:560px){h1{font-size:27px}}
 """
 
@@ -333,6 +339,23 @@ def v1v0(d31):
     return table(head, rows)
 
 
+def decisions_section(inp):
+    p = os.path.join(inp, "decisions.json")
+    if not os.path.exists(p):
+        return ""
+    items = json.load(open(p))
+    out = [
+        "<section id='decisions'><h2>Decisions and the evidence behind them</h2><div class='dec'>"
+    ]
+    for it in items:
+        cls = "ok" if it.get("status") == "supported" else "prov"
+        out.append(
+            f"<div><h4>{esc(it['decision'])}<span class='tag {cls}'>{esc(it.get('status', ''))}</span></h4><p>{md_inline(it['evidence'])}</p><p class='why'>{md_inline(it.get('limits', ''))}</p></div>"
+        )
+    out.append("</div></section>")
+    return "".join(out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="inp", required=True)
@@ -357,8 +380,9 @@ def main():
 <header><h1>ALBench Preliminary Results</h1>
 <p class="sub">Reservoir scaling, a 30k-genomic top-up experiment with non-active and active selection, and the AutoResearch v2 search system run on the standard cells. All models are trained with menu v1 (patience 16 unless noted) and scored by the ensemble of the models trained in each cell on three held-out evaluation sets.</p>
 <div class="chips"><span class="chip">snapshot <b>{esc(snap)}</b></span><span class="chip">scaling cells with results <b>{n_scale}/24</b></span><span class="chip">top-up arms with results <b>{n_arms}/{len(ARMS)}</b></span><span class="chip">one seed per configuration unless noted</span></div></header>
-<nav><a href="#glance">At a glance</a><a href="#scaling">Scaling</a><a href="#topup">Top-up</a><a href="#ar2">AutoResearch v2</a><a href="#menu">Menu evidence</a><a href="#caveats">Caveats</a></nav>
+<nav><a href="#glance">At a glance</a><a href="#decisions">Decisions</a><a href="#scaling">Scaling</a><a href="#topup">Top-up</a><a href="#ar2">AutoResearch v2</a><a href="#menu">Menu evidence</a><a href="#caveats">Caveats</a></nav>
 <section id="glance"><h2>At a glance</h2><div class="find">{find_html or "<div><b>Interim snapshot</b>Cells still training fill in below; empty cells show a dash.</div>"}</div></section>
+{decisions_section(a.inp)}
 <section id="scaling"><h2>Scaling by strategy</h2>
 <p class="lead">Each strategy trained on its own nested pool at 10k, 30k and 100k. Values are ensemble Pearson r over the first 6 menu configurations (the comparison every cell shares). Best per column is shaded.</p>
 {scale_t}
