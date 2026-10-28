@@ -93,6 +93,9 @@ class AgentConfig:
     )
     coordinator_mode: str = "llm"  # "llm": an agent chooses; "random" / "first": the k ideas are picked without an LLM call (control for the coordinator's judgment)
     proposer_style: str = "none"  # "explore" adds the bold/diverse paragraph of the single loop's --style explore to the proposer
+    manager: str = "none"  # "schedule": the coordinator and proposer get an explore (early rounds) then exploit (later rounds) directive and a coverage table of architecture classes and recipes already trained;
+    # "schedule_ens": additionally the coordinator sees the validation stack of everything trained so far (weight and correlation per model). Needs the coordinate stage.
+    explore_frac: float = 0.4  # manager: the first round(explore_frac * rounds) rounds are explore rounds, the rest exploit
     cli_overhead_tokens: int = CLI_OVERHEAD_TOKENS
 
     @classmethod
@@ -134,6 +137,16 @@ class AgentConfig:
             raise AgentConfigError(
                 f"proposer_style must be 'none' or 'explore', got {self.proposer_style!r}"
             )
+        if self.manager not in ("none", "schedule", "schedule_ens"):
+            raise AgentConfigError(
+                f"manager must be 'none', 'schedule' or 'schedule_ens', got {self.manager!r}"
+            )
+        if self.manager != "none" and "coordinate" not in st:
+            raise AgentConfigError(
+                "the manager directs the coordinator: add the 'coordinate' stage"
+            )
+        if not 0.0 <= self.explore_frac <= 1.0:
+            raise AgentConfigError("explore_frac must be between 0 and 1")
         if self.coordinator_mode not in ("llm", "random", "first"):
             raise AgentConfigError(
                 f"coordinator_mode must be 'llm', 'random' or 'first', got {self.coordinator_mode!r}"
@@ -653,6 +666,11 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
     system = PROPOSER_SYSTEM.replace("{n}", str(n))
     if ctx.cfg.proposer_style == "explore":
         system += "\n\n" + PROPOSER_EXPLORE
+    mode = manager_mode(ctx, rd)
+    if mode == "explore":
+        system += "\n\n" + PROPOSER_EXPLORE + "\n\n" + PROPOSER_MANAGER_EXPLORE
+    elif mode == "exploit":
+        system += "\n\n" + PROPOSER_MANAGER_EXPLOIT
     if "coordinate" in ctx.cfg.stages:
         k = ctx.n_select()
         system += (
@@ -695,6 +713,110 @@ def stage_propose(ctx: AgentCtx, plan: dict) -> None:
     ctx.say(f"  [round {rd}] proposer: {len(ideas)}/{n} ideas")
 
 
+# --------------------------------------------------------------------------- manager (explore early, exploit late)
+MANAGER_EXPLORE = (
+    "MANAGER MODE: EXPLORE (round {rd1} of {total}; the first {n_explore} rounds are exploration). Pick the {k} candidates that most widen what "
+    "the final ensemble covers: an architecture class that is under-represented in the coverage table below beats a better-looking duplicate of "
+    "a class already well covered, and a training recipe (optimizer, learning rate, weight decay, batch size, schedule) that has not been tried "
+    "yet is worth a bet. Accept a lower expected validation r for a new mechanism or recipe. Do not pick width or depth tweaks of models "
+    "already trained."
+)
+MANAGER_EXPLOIT = (
+    "MANAGER MODE: EXPLOIT (round {rd1} of {total}; exploration ended after round {n_explore}). Pick the {k} candidates most likely to raise the "
+    "ensemble: refinements (depth, width, kernels, pooling, head, recipe) of the models that carry the most weight, or designs that fill a gap the "
+    "stack shows. Avoid mechanisms that failed or scored clearly below the rest."
+)
+PROPOSER_MANAGER_EXPLORE = (
+    "EXPLORATION ROUND: the search is early and the final product is an ensemble that should span many architectures and training recipes. "
+    "Vary the TRAIN line as well as the network: at least half of your ideas should use a recipe that the tried list does not show yet "
+    "(for example AdamW against Muon, a learning rate between 3e-4 and 4e-3, weight decay between 1e-5 and 5e-2, batch size 64 to 512, cosine "
+    "or plateau schedule), and several should use a different architecture class from the best models so far."
+)
+PROPOSER_MANAGER_EXPLOIT = (
+    "REFINEMENT ROUND: the exploration phase is over. Build on what the tried list shows works: improve the best architectures and their "
+    "recipes (depth, width, kernel sizes, pooling, head, regularisation, learning rate), and keep one bet that tests something different."
+)
+_ARCH_CLASSES = {
+    "self-attention": r"MultiheadAttention|TransformerEncoder|nn\.Transformer|scaled_dot_product_attention",
+    "recurrent": r"nn\.(LSTM|GRU|RNN)\b",
+    "state-space": r"[Mm]amba|[Ss]tate.?[Ss]pace|selective.?scan",
+    "U-Net-like (up/down path)": r"ConvTranspose|F\.interpolate|nn\.Upsample",
+    "dilated": r"dilation\s*=\s*(?!1\b)\d+",
+    "attention pooling": r"AttnPool|AttentionPool|[Aa]ttn[_A-Za-z]*\s*=",
+}
+
+
+def manager_mode(ctx: AgentCtx, rd: int) -> str | None:
+    """'explore' for the first round(explore_frac * rounds) rounds, then 'exploit'; None when the manager is off."""
+    if ctx.cfg.manager == "none":
+        return None
+    return "explore" if rd < round(ctx.args.rounds * ctx.cfg.explore_frac) else "exploit"
+
+
+def coverage_text(ctx: AgentCtx) -> str:
+    """Architecture classes (from the trained models' source) and training recipes of everything trained so far, validation-side facts only."""
+    classes: dict[str, int] = {k: 0 for k in _ARCH_CLASSES}
+    n = 0
+    for m in ctx.records:
+        try:
+            src = (
+                json.loads((ctx.out_p / f"{m.model_id}_meta.json").read_text()).get("source") or ""
+            )
+        except Exception:  # noqa: BLE001 - coverage is advice, never a reason to stop
+            continue
+        n += 1
+        for k, pat in _ARCH_CLASSES.items():
+            if re.search(pat, src):
+                classes[k] += 1
+    recipes: dict[str, int] = {}
+    for m in ctx.records:
+        recipes[m.recipe] = recipes.get(m.recipe, 0) + 1
+    lines = [
+        f"COVERAGE of the {len(ctx.records)} trained models (all are convolutional; counts below are models that also contain the feature):"
+    ]
+    lines.append(
+        " - " + ", ".join(f"{k}: {v}" for k, v in classes.items())
+        if n
+        else " - (no source available yet)"
+    )
+    top = sorted(recipes.items(), key=lambda kv: -kv[1])[:8]
+    lines.append(
+        " - training recipes used (count): " + "; ".join(f"{r[:70]} ({c})" for r, c in top)
+        if top
+        else " - no recipes yet"
+    )
+    return "\n".join(lines)
+
+
+def ensemble_status_text(ctx: AgentCtx) -> str:
+    """The validation stack of all trained models (positive ElasticNetCV on z-scored predictions): which models carry weight."""
+    if len(ctx.records) < 4:
+        return ""
+    try:
+        from albench.ensemble.stack import fit_zscored_stack
+
+        V = np.stack([ctx.val_pred(m.model_id) for m in ctx.records]).astype(np.float32)
+        st = fit_zscored_stack(V, np.asarray(ctx.h.yva, float))
+        coef = np.asarray(st.coef, float)
+        pred = np.asarray(st.predict(V), float)
+        r_ens = ctx.h.pear(pred, ctx.h.yva)
+    except Exception as ex:  # noqa: BLE001
+        return f"ENSEMBLE STATUS unavailable ({type(ex).__name__})"
+    order = np.argsort(-coef)
+    lines = [
+        f"ENSEMBLE STATUS: stack of all {len(ctx.records)} trained models, fitted on validation (optimistic): val r {r_ens:.4f}; {int((coef > 1e-9).sum())} models carry weight, "
+        "the rest add nothing beyond them."
+    ]
+    for i in order[:8]:
+        if coef[i] <= 1e-9:
+            break
+        m = ctx.records[i]
+        lines.append(
+            f" - weight {coef[i] / max(coef.sum(), 1e-12):.2f}, own val r {m.val:.4f}, corr with stack {_corr(ctx.val_pred(m.model_id), pred):.2f}: {m.idea[:80]}"
+        )
+    return "\n".join(lines)
+
+
 def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
     n, k = len(plan["items"]), ctx.n_select()
     done = sorted(ctx.records, key=lambda m: -m.val)[:15]
@@ -711,6 +833,19 @@ def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
         parts.append(
             "\nLESSONS (kept by a reflector from validation results; evidence, not rules):\n"
             + ctx.lessons
+        )
+    mode = manager_mode(ctx, plan["round"])
+    if mode:
+        total = ctx.args.rounds
+        n_explore = round(total * ctx.cfg.explore_frac)
+        parts.append("\n" + coverage_text(ctx))
+        if ctx.cfg.manager == "schedule_ens":
+            es = ensemble_status_text(ctx)
+            if es:
+                parts.append("\n" + es)
+        directive = MANAGER_EXPLORE if mode == "explore" else MANAGER_EXPLOIT
+        parts.append(
+            "\n" + directive.format(rd1=plan["round"] + 1, total=total, n_explore=n_explore, k=k)
         )
     parts.append(f"\nCANDIDATES this round ({n}):")
     for i, it in enumerate(plan["items"], 1):
@@ -755,7 +890,11 @@ def stage_coordinate(ctx: AgentCtx, plan: dict) -> None:
                 status="skipped", reason="not selected by the coordinator", coordinator_skipped=True
             )
     plan["coordinated"] = True
-    plan["coordinator"] = {"selected": chosen, "text": text[:2000]}
+    plan["coordinator"] = {
+        "selected": chosen,
+        "text": text[:2000],
+        "manager_mode": manager_mode(ctx, rd),
+    }
     save_plan(ctx.out_p, plan)
     ctx.say(f"  [round {rd}] coordinator: kept {[i + 1 for i in chosen]} of {len(items)}")
 
