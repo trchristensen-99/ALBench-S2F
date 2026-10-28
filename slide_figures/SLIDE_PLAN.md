@@ -30,7 +30,7 @@ The procedure, evaluation-set and sample-run material is on the walkthrough page
 | 15 | Scaling laws in log space | `scaling/scaling_core_three.png`, `scaling_core_three_mse.png`, `scaling_1mr_loglog.png`, `scaling_mse_loglog.png`, `scaling_exponents.png` | 1 − r and MSE are straight in log-log; exponents 0.18 to 0.24 on the genomic test (10k to 100k) |
 | 16 | Reservoir comparison at 30k and 100k | walkthrough page (scaling table), `scaling/` | see caveats: five 30k cells were incomplete when read |
 | 17 | Acquisition from 30k genomic, 70k more | walkthrough page (AL section), numbers below | uncertainty-ranked and mean-ranked selection beat the genomic control; SD normalised for activity does not |
-| 18 | One big round or three smaller rounds | walkthrough page, after the al3r cells finish | pending |
+| 18 | One big round or three smaller rounds | walkthrough page, section "One round of 70k against three rounds of 23,333" | no consistent difference: scoring by ensemble mean, one round is ahead by 0.003 / 0.012 / 0.018 (genomic / designed / random); scoring by ensemble SD, three rounds are ahead by 0.003 / 0.016 / 0.004; genomic differences are inside the 0.004 to 0.008 noise (one pool, one seed, six models per arm); an earlier run (8 architectures, 16 models) had one round ahead on every set. One round is simpler |
 | 19 | Reservoir activity, GC and k-mer distributions, Zoonomia N counts | `reservoirs/activity_distributions.png`, `gc_distributions.png`, `kmer_divergence.png`, `zoonomia_n_thresholds.png` | motif shared core puts 28% of sequences above the genomic 90th percentile and Zoonomia 6% (mean activity 0.29 against 0.47); uniform random and the GC sweep are 8 to 9 times further from genomic in 4-mer composition than any genomic-derived pool; only 5.8% of Zoonomia (window, species) pairs are fully called |
 | 20 | What we have not measured, and what we ask of you | section below | honest list |
 
@@ -67,7 +67,7 @@ advantage largely goes. Say this as a hypothesis supported by the resid and binn
 | Normalise uncertainty for activity | 17 | done | `resid` and `binned` rows; see the hypothesis wording above |
 | The loop process is unknown, start in parallel | 11, 14 | partial | parallel proposing (2 or 6 per round) is not worse than serial; the multi-agent v2 loop was built and run on four cells, and it did not beat our loop |
 | Realistic 30k to 100k regimes | 15 | done | 10k, 30k, 100k for the three core reservoirs; 300k to 1M from the older menu for shape only |
-| Carl: a few big rounds | 18 | pending | al3r cells (three rounds of 23.3k against one round of 70k); state the result only when the matched model sets finish |
+| Carl: a few big rounds | 18 | done | one round of 70k is as good as three of 23.3k within noise (criterion-dependent sign); no benefit shown from re-selecting after each round |
 | AlphaGenome's landscape may be simpler | none | gap | not tested; the oracle is AlphaGenome-based, so a simpler landscape would show up as the student reaching the oracle faster than it reaches experiment. Offer as a follow-up |
 
 ## Coverage of the Meeting 9.30.26 notes
