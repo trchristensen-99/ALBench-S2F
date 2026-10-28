@@ -13,6 +13,11 @@ Criteria (P = models x candidates, mu / sd = mean / SD over models; n = 70,000):
   stdiv    the 140k highest-sd candidates, then the cluster-balanced 70k of those: uncertainty first, then diversity
   badge    k-means++ in the space of centred member predictions (x_i = P[:, i] - mu_i, so |x_i|^2 = M sd_i^2): picks points that are far from
            everything chosen so far AND have large disagreement, the structure of BADGE's gradient embedding without needing gradients
+  oracle   the 70k with the largest |label - ensemble mean| on the candidates (uses the labels: an unrealisable CEILING for error-driven selection)
+  strat2d  baseline: 15 strata (5 equal-count bins of predicted activity x 3 GC terciles), equal numbers at random from each
+  neyman   composition design: 45 strata (source reservoir x 5 activity bins x 3 GC terciles), allocation proportional to stratum size x mean member SD,
+           random inside each stratum (Neyman allocation)
+  powersd  stochastic uncertainty sampling: 70k drawn without replacement with probability proportional to SD squared (PowerBALD-like, not top-k)
 Reservoir arms: res_<name>_d100000.npz for the registry pools that already exist (the others are written by slice_nested_new.py).
 
     python scripts/program_oct22/acq_arms2.py            # idempotent
@@ -137,6 +142,32 @@ def badge_like(X, n, rng, batch=500, chunk=50_000):
     return np.array(out)
 
 
+def gc_frac(seqs):
+    return np.array([(q.count("G") + q.count("C")) / max(len(q), 1) for q in seqs])
+
+
+def stratified_pick(strata, n, weights, rng):
+    """n draws spread over strata proportionally to weights (water-filling when a stratum is too small), random within each stratum."""
+    ids = np.unique(strata)
+    size = np.array([(strata == i).sum() for i in ids])
+    w = np.asarray(weights, float)
+    quota = np.floor(n * w / w.sum()).astype(int)
+    quota = np.minimum(quota, size)
+    while quota.sum() < n:
+        room = size - quota
+        if room.sum() == 0:
+            break
+        j = int(np.argmax(np.where(room > 0, w / (quota + 1), -1)))
+        quota[j] += 1
+    return np.concatenate(
+        [
+            rng.choice(np.where(strata == i)[0], q, replace=False)
+            for i, q in zip(ids, quota)
+            if q > 0
+        ]
+    )
+
+
 def criteria_arms(c, P):
     rng = np.random.default_rng(0)
     mu, sd = P.mean(0), P.std(0)
@@ -170,6 +201,20 @@ def criteria_arms(c, P):
     sets["stdiv"] = balanced_pick(top2, lab, N_ADD, rng)
     log("badge-like k-means++ ...")
     sets["badge"] = badge_like((P - mu).T.astype(np.float32), N_ADD, rng)
+    y = np.asarray(c["oracle_labels"], float)
+    sets["oracle"] = np.argsort(-np.abs(y - mu))[:N_ADD]
+    gcv = gc_frac([str(q) for q in c["sequences"]])
+    gb = np.digitize(gcv, np.quantile(gcv, [1 / 3, 2 / 3]))
+    ab = np.clip(np.searchsorted(edges[1:-1], mu, side="right"), 0, 4)
+    s2 = ab * 3 + gb
+    sets["strat2d"] = stratified_pick(s2, N_ADD, np.ones(15), rng)
+    s3 = np.asarray(c["source"], int) * 15 + s2
+    ids3 = np.unique(s3)
+    sets["neyman"] = stratified_pick(
+        s3, N_ADD, [(s3 == i).sum() * sd[s3 == i].mean() for i in ids3], rng
+    )
+    p = sd**2 / (sd**2).sum()
+    sets["powersd"] = rng.choice(len(sd), N_ADD, replace=False, p=p)
     return sets
 
 
@@ -190,7 +235,17 @@ def main() -> None:
             f"res_{name}",
         )
         log("wrote", dst.name)
-    wanted = ["resid", "binned", "diverse", "stdiv", "badge"]
+    wanted = [
+        "resid",
+        "binned",
+        "diverse",
+        "stdiv",
+        "badge",
+        "oracle",
+        "strat2d",
+        "neyman",
+        "powersd",
+    ]
     todo = [a for a in wanted if not (ACQ / f"sel_{a}_d100000.npz").exists()]
     if not todo:
         log("criteria arms already built")

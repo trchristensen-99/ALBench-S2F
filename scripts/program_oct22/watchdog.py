@@ -17,6 +17,7 @@ Automatic actions (each at most twice per marker, so a model that fails for a re
 
 from __future__ import annotations
 
+import collections
 import glob
 import json
 import os
@@ -54,6 +55,57 @@ def mail(subject: str, body: str) -> None:
             subprocess.run(["mail", "-s", subject, user], input=body, text=True, timeout=60)
         except Exception as ex:  # noqa: BLE001
             log("events.log", f"mail failed: {ex}")
+
+
+EXPECTED = {
+    "10k": 20,
+    "30k": 20,
+    "100k": 12,
+}  # configurations trained per cell of the Oct-28 night program
+
+
+def health() -> tuple[list[str], list[str]]:
+    """One line per scaling / top-up cell: models trained against expected, cap hits, failure reasons, mean validation r; plus flags."""
+    lines, flags = [], []
+    for d in sorted(MR.glob("sc31_*")) + sorted(MR.glob("al31_*")):
+        m = re.match(r"sc31_(\d+k)_", d.name)
+        exp = EXPECTED[m.group(1)] if m else 12
+        metas = []
+        for f in d.glob("r00_menu_*_meta.json"):
+            try:
+                metas.append(json.load(open(f)))
+            except Exception:  # noqa: BLE001 - file still being written
+                pass
+        fails = collections.Counter()
+        if (d / "failed.jsonl").exists():
+            for ln in open(d / "failed.jsonl"):
+                try:
+                    fails[json.loads(ln)["why"][:28]] += 1
+                except Exception:  # noqa: BLE001
+                    pass
+        caps = sum(1 for x in metas if x.get("cap_hit"))
+        val = sum(x["val_pearson"] for x in metas) / max(len(metas), 1)
+        ep = min((x.get("epochs_trained") or 0 for x in metas), default=0)
+        markers = len(list(d.glob("COMPLETE_*")))
+        lines.append(
+            f"{d.name:44s} models {len(metas):2d}/{exp} markers {markers} cap_hit {caps} mean_val {val:.3f} min_epochs {ep} failed {dict(fails) or '-'}"
+        )
+        n_shards = (
+            int(
+                re.search(r"of(\d+)", next(iter(d.glob("COMPLETE_*")), Path("x_of0")).name).group(1)
+            )
+            if markers
+            else 0
+        )
+        if markers and markers == n_shards and len(metas) < exp:
+            flags.append(
+                f"{d.name}: all shards complete but {len(metas)}/{exp} models ({dict(fails)})"
+            )
+        if metas and len(metas) >= 3 and val < 0.55:
+            flags.append(f"{d.name}: mean validation r {val:.3f} is low")
+        if caps > 0.25 * max(len(metas), 1) and len(metas) >= 4:
+            flags.append(f"{d.name}: {caps}/{len(metas)} models hit the time cap")
+    return lines, flags
 
 
 def main() -> None:
@@ -116,6 +168,14 @@ def main() -> None:
                     "events.log",
                     f"deleted {rel} ({why}; done={done} failed={failed}) -> cell reruns the missing models",
                 )
+    hl, hf = health()
+    (W / "health_oct30.txt").write_text(
+        f"{now}\n" + "\n".join(hl + [""] + (["FLAGS"] + hf if hf else ["no flags"])) + "\n"
+    )
+    new = [x for x in hf if x not in state.get("flags", [])]
+    if new:
+        alerts += new
+    state["flags"] = hf
     json.dump(state, open(sf, "w"))
     if alerts:
         log("events.log", "ALERT " + "; ".join(alerts))

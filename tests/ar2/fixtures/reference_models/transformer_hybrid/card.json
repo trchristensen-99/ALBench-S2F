@@ -1,0 +1,1 @@
+{"family_claimed": "transformer_hybrid", "summary": "fixture", "hypothesis": "none", "what_changed": "none", "parent_code_hash": null, "suggested_recipe": {"lr": 0.002}, "recipe_rationale": "none", "expected_failure": "none", "amp_safe": true, "length_agnostic": true}

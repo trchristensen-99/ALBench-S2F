@@ -1,0 +1,163 @@
+# ar2 default configuration (spec section 15). Every threshold in the spec is a setting here. The hash of the resolved config is stored in
+# the workspace meta table at `ar2 init`; a run refuses to resume under a different hash unless told to (`ar2 run --allow-config-change`).
+# Only keys under `balance:` may change during a run (`ar2 set balance.<key> <value>`); those changes live in ws/meta/balance_overrides.json
+# and are logged to the decisions table, so config.yaml (and its hash) stays frozen.
+
+data:
+  train_manifest: null            # required
+  val_loop_manifest: null         # required, chr19 + chr21
+  val_select_manifest: null       # required, chrX; read only in Phase D
+  pool_id: null                   # identifies the training pool in the ledger (defaults to the train manifest's pool_id)
+  D: 100000                       # training set size; limits and caps are expressed at 100k and scaled by (D/1e5)**0.72
+  primary_task: K562
+  extra_tasks: []                 # e.g. [HepG2, SK-N-SH]
+  seq_len: 200
+  n_encoding: 0.25
+  flank_context: false
+  label_noise_sd: 0.0
+
+evaluator:
+  rc_average: true
+  max_epochs: 40
+  patience: 8
+  base_cap_s: 1800                # at D = 100k; scaled by (D / 1e5) ** 0.72
+  time_cap_exponent: 0.72
+  cap_extension: 1.5
+  train_fit_subsample: 10000
+  stress_n: 4000
+  stress_max_abs_z: 10
+  save_preds: true
+
+gate:
+  max_params: 40000000
+  min_params: 10000
+  coverage_min: 0.90
+  batch_leak_tol: 1.0e-5
+  learn_steps: 50
+  learn_min_drop: 0.2
+  max_repairs: 2
+
+tuner:
+  recipes_per_family: 8
+  first_look: 3
+  early_term_margin: 0.03
+  early_term_checkpoints: [0.5, 0.75]
+  screen_seed: 0
+  confirm_seeds: [1, 2, 3]
+  final_seeds: [4, 5, 6]
+
+controller:
+  seed: 20261023
+  budget: {anchors: 30, screen: 36, procedures: 12, main: 102, final: 20}
+  confirm_margin: 0.02            # tuning -> confirming, else tuned_only
+  menu_min_families: 5
+  keep_margin: 0.03               # first look -> tuning
+  menu_margin: 0.01               # menu eligibility
+  refine_margin: 0.02             # refinement eligibility
+  noise_floor: 0.005
+  sigma_seed_prior: 0.005
+  refine_temperature: 0.01
+  plateau_after: 3
+  sketches_per_call: 10
+  sketches_kept: 2
+  resketch_every: 20
+  flat_stop: {min_families_tuned: 8, window: 50}
+  max_parallel_jobs: 4
+  max_parallel_calls: 2
+  # settings the controller adds beyond the spec's list (see ar2/controller.py DEFAULT_CFG; they are part of the frozen hash like everything else)
+  queue_depth: 2                  # new LLM work starts only while open runs < queue_depth * max_parallel_jobs
+  anchor_source: reference        # reference: anchors are registered from the reference models, no LLM call; llm: EXPLORE with a forced family
+  anchor_borrow: 6                # run-equivalents phase A may borrow from the main budget to finish confirming the anchors
+  screen_borrow: 6                # the same for the combination runs of the procedure screen
+  refine_screen_margin: 0.005     # a refinement child is confirmed if its best screening score is at most this far below its parent's
+  min_start: {explore: 6.0, refine: 4.0, deep_tune: 4.0}   # run-equivalents that must remain before new work of a category starts
+  expected_cost: {explore: 8.0, refine: 4.5, deep_tune: 4.0}
+  deep_batch: 4
+  final_uses_leftover: true
+  step_sleep_s: 20                # `ar2 run`: seconds between steps when nothing finished
+  stall_steps: 60                 # `ar2 run` stops (writes ws/STALLED) after this many steps with nothing running, no calls and no new work
+
+proposer:
+  backend: claude_code_cli        # claude_code_cli | mock
+  model: null                     # required: a full model id, not an alias
+  tagger_model: null              # optional cheaper model
+  timeout_s: 900
+  max_turns: 12                   # kept for the adapter's capability check; the installed CLI has no --max-turns, so each call is bounded by max_budget_usd instead
+  max_budget_usd: 4.0             # per EXPLORE / REFINE / REPAIR / SKETCH call (--max-budget-usd)
+  tagger_max_budget_usd: 1.0      # per tagger / lesson-wording call
+  retries: 2
+  backoff_s: [60, 300]
+  halt_after_failures: 5
+  allow_selfcheck: true
+  scratch_root: /tmp/ar2_scratch  # must be outside the repository tree
+  prompt_version: v1
+  prompt_dir: null                # null: the package's ar2/prompts/<prompt_version>; the frozen hash covers every file in it
+  max_prompt_tokens: 12000
+
+balance:                          # Section 5.7; the only keys `ar2 set` may change mid-run
+  mode: scheduled                 # fixed | scheduled
+  explore_fraction: 0.6           # used in fixed mode
+  explore_start: 0.75             # used in scheduled mode
+  explore_end: 0.40
+  deep_tune_share: 0.3
+  breadth_floor: 8
+  guards: true
+  guard_window: 4
+  guard_step: 0.2
+  explore_min: 0.2
+  explore_max: 0.8
+
+adaptation:                       # Section 12.1
+  window: 10
+  collapse_family_size: 5
+  novelty_min: 0.5
+  gate_fail_on: 0.4
+  gate_fail_off: 0.2
+
+procedure_mode:
+  enabled: true
+  max_plugins: 2
+
+jobs:
+  backend: local                  # local | queue
+  gpus: [0]
+  stale_claim_s: 600              # queue backend: a claimed job whose heartbeat is older than this is requeued
+  infra_retries: 2                # resubmissions of a run that failed for an infrastructure reason (do not count toward the 8 recipes)
+
+phases:                           # switches for the optional phases (screen = procedure screen S, procedures = LLM-written plug-ins P)
+  screen: true
+  procedures: true
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# deployment: the choices for our cluster (CSHL, Slurm, GPU workers pulling from a file queue). NOT applied by default. Apply with
+#   ar2 init --profile deployment ...     (merges this section over the defaults above, then drops it from the resolved config)
+# and override per search with --set key=value. Reasoning: the full spec budget (200 run-equivalents) is about 60 H100-hours at D = 100k and
+# the cluster is shared, so the main search is halved and the procedure screen (S) and LLM-written procedures (P) are off except in the one
+# search that is designed to run the screen (genomic 30k); the screen's winners would otherwise apply only to that search.
+# ---------------------------------------------------------------------------------------------------------------------------------
+deployment:
+  data:
+    D: 30000                      # set per search: 10000 | 30000 | 100000
+    train_manifest: null          # per search
+    val_loop_manifest: null
+    val_select_manifest: null
+  controller:
+    budget: {anchors: 30, screen: 0, procedures: 0, main: 50, final: 18}
+    max_parallel_jobs: 4
+    max_parallel_calls: 1
+    step_sleep_s: 30
+  proposer:
+    backend: claude_code_cli
+    model: claude-sonnet-5-5
+    scratch_root: /tmp/ar2_scratch
+    max_budget_usd: 4.0
+    tagger_max_budget_usd: 1.0
+  balance:
+    mode: scheduled
+  phases:
+    screen: false
+    procedures: false
+  procedure_mode:
+    enabled: false
+  jobs:
+    backend: queue
