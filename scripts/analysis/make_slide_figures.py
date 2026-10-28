@@ -66,14 +66,25 @@ def fig_rounds(inp, out):
         np.mean([v[str(n)]["stack_all"]["genomic"] for v in per.values() if str(n) in v])
         for n in NS
     ]
+    sd = [
+        np.std([v[str(n)]["stack_all"]["genomic"] for v in per.values() if str(n) in v], ddof=1)
+        for n in NS
+    ]
+    ax.fill_between(
+        NS,
+        np.array(mean) - sd,
+        np.array(mean) + sd,
+        color=BLUE,
+        alpha=0.18,
+        lw=0,
+        label="±1 SD across the 15 runs",
+    )
     ax.plot(NS, mean, "o-", color=BLUE, lw=2.6, label="mean of 15 runs")
     ax.set_xlabel("proposals in the run (rounds × 2)")
     ax.set_ylabel("ensemble r, genomic test")
     ax.set_title("One run: ensemble of its own models", fontsize=11)
     ax.axvline(20, color=ORANGE, ls="--", lw=1.4)
-    ax.text(
-        20.6, ax.get_ylim()[0] + 0.001, "10 rounds\n(used)", color=ORANGE, fontsize=9, va="bottom"
-    )
+    ax.text(20.6, ax.get_ylim()[1] - 0.001, "10 rounds\n(used)", color=ORANGE, fontsize=9, va="top")
     ax.legend(frameon=False, loc="lower right", fontsize=9)
     ax = axs[1]
     cols = [BLUE, GREEN, PURPLE, GREY, ORANGE]
@@ -87,15 +98,35 @@ def fig_rounds(inp, out):
             lw=1.8,
             label=fam.replace("son55_none", "no guidance").replace("son55_wide", "son55 wide"),
         )
-    ax.set_xlabel("proposals per run (3 runs pooled)")
+    runs_by_fam = {}
+    for name, v in per.items():
+        runs_by_fam.setdefault(name.rsplit("/rep", 1)[0].rsplit("/", 1)[-1], []).append(v)
+    for (fam, v), c in zip(pooled.items(), cols):
+        fk = fam.rsplit("/", 1)[-1]
+        for rv in runs_by_fam.get(fk, []):
+            xs = [n for n in (10, 20, 30, 60) if str(n) in rv]
+            ax.scatter(
+                xs,
+                [rv[str(n)]["stack_all"]["genomic"] for n in xs],
+                color=c,
+                s=14,
+                alpha=0.35,
+                lw=0,
+            )
+    ax.set_xlabel("proposals per run (line: 3 runs pooled; dots: each run alone)")
     ax.set_title("Three runs pooled, as the menu does", fontsize=11)
     ax.axvline(20, color=ORANGE, ls="--", lw=1.4)
     ax.legend(frameon=False, fontsize=8, loc="lower right")
     ax = axs[2]
     bv = [np.mean([v[str(n)]["best_val"] for v in per.values() if str(n) in v]) for n in NS]
     bt = [np.mean([v[str(n)]["best_test"] for v in per.values() if str(n) in v]) for n in NS]
-    ax.plot(NS, bv, "o-", color=PURPLE, label="best single, validation r")
-    ax.plot(NS, bt, "s-", color=GREEN, label="best single, test r (genomic)")
+    for key, mu, col in (("best_val", bv, PURPLE), ("best_test", bt, GREEN)):
+        sd_ = np.array(
+            [np.std([v[str(n)][key] for v in per.values() if str(n) in v], ddof=1) for n in NS]
+        )
+        ax.fill_between(NS, np.array(mu) - sd_, np.array(mu) + sd_, color=col, alpha=0.15, lw=0)
+    ax.plot(NS, bv, "o-", color=PURPLE, label="best single, validation r (±1 SD)")
+    ax.plot(NS, bt, "s-", color=GREEN, label="best single, test r (genomic; ±1 SD)")
     ax.set_xlabel("proposals in the run")
     ax.set_title("Best single model", fontsize=11)
     ax.axvline(20, color=ORANGE, ls="--", lw=1.4)
@@ -110,8 +141,13 @@ def fig_rounds(inp, out):
     gp = np.mean(
         [v["30"]["stack_all"]["genomic"] - v["20"]["stack_all"]["genomic"] for v in pooled.values()]
     )
+    nup = sum(
+        v["30"]["stack_all"]["genomic"] > v["20"]["stack_all"]["genomic"]
+        for v in per.values()
+        if "30" in v
+    )
     fig.suptitle(
-        f"More rounds help one run slightly (+{g20:.4f} ensemble r from 10 to 15 rounds) and the pooled menu even less (+{gp:.4f}); 30k genomic pool, 15 runs of 30 rounds",
+        f"More rounds help one run slightly (+{g20:.4f} ensemble r from 10 to 15 rounds, {nup} of 15 runs up; run-to-run SD about 0.01) and the pooled menu even less (+{gp:.4f}); 30k genomic pool, 15 runs of 30 rounds",
         fontsize=12,
         y=1.04,
     )
@@ -304,36 +340,62 @@ def fig_evaluator(inp, out):
         "explore-style proposer in the agent loop",
     ]
     lab = [
-        "default\n(2 ideas, one call)",
-        "separate coder\n(2 ideas)",
-        "6 ideas,\n2 at random",
-        "6 ideas,\n2 by evaluator agent",
-        "evaluator agent\n+ reflector",
-        "explore-style\nproposer",
+        "default",
+        "coder only",
+        "random 2 of 6",
+        "evaluator 2 of 6",
+        "evaluator +\nreflector",
+        "explore-style",
     ]
     col = [GREY, BLUE, "#9fb3bc", ORANGE, "#e08a5c", PURPLE]
     fig, axs = plt.subplots(1, 4, figsize=(18, 5.2), gridspec_kw={"width_ratios": [1, 1, 1, 1.5]})
     nruns = min(L["arms"][a]["n"] for a in arms)
     for k, (ax, s) in enumerate(zip(axs[:3], SETS)):
         ys = [L["arms"][a]["mean"][k] for a in arms]
-        ax.bar(range(len(arms)), ys, color=col)
-        ax.set_ylim(min(ys) - 0.01, max(ys) + 0.006)
-        ax.set_xticks(range(len(arms)), lab, rotation=40, ha="right", fontsize=8)
+        ax.bar(range(len(arms)), ys, color=col, alpha=0.85)
+        runs_path = os.path.join(inp, "data_loopctl.json")
+        if os.path.exists(runs_path):
+            LR = json.load(open(runs_path))["loopctl"]["arms"]
+            for ai, aname in enumerate(arms):
+                rv = np.array([r[k] for r in LR[aname]["runs"]])
+                ax.scatter(
+                    ai + np.linspace(-0.22, 0.22, len(rv)),
+                    rv,
+                    s=12,
+                    color="black",
+                    alpha=0.55,
+                    zorder=3,
+                    lw=0,
+                )
+                ax.errorbar(
+                    ai, rv.mean(), yerr=rv.std(ddof=1), color="black", lw=1.4, capsize=3, zorder=4
+                )
+            ys = [np.mean([r[k] for r in LR[a_]["runs"]]) for a_ in arms]
+            lo = min(min(r[k] for r in LR[a_]["runs"]) for a_ in arms)
+            hi = max(max(r[k] for r in LR[a_]["runs"]) for a_ in arms)
+            ax.set_ylim(lo - 0.006, hi + 0.004)
+        if not os.path.exists(os.path.join(inp, "data_loopctl.json")):
+            ax.set_ylim(min(ys) - 0.01, max(ys) + 0.006)
+        ax.set_xticks(
+            range(len(arms)), lab, rotation=40, ha="right", fontsize=9, rotation_mode="anchor"
+        )
         ax.set_title(SETN[s], fontsize=11)
-        ax.set_ylabel(f"ensemble r (mean of {nruns} runs)" if k == 0 else "")
+        ax.set_ylabel(
+            f"ensemble r (bar: mean of {nruns} runs; dots: runs; ±1 SD)" if k == 0 else ""
+        )
     ax = axs[3]
     keys = list(L["pairs"])
     want = [
-        ("6 ideas, 2 picked by the coordinator minus default", "evaluator agent vs default"),
+        ("6 ideas, 2 picked by the coordinator minus default", "evaluator + coder vs default"),
         (
             "coordinator minus random pick (same over-generation)",
-            "evaluator agent vs random pick\nof the same 6 ideas",
+            "evaluator + coder vs random pick\n+ coder (same 6 ideas)",
         ),
         (
             "coordinator minus separate coder alone",
-            "evaluator agent vs separate coder\nproposing 2",
+            "evaluator + coder vs coder only\n(is the evaluator worth it?)",
         ),
-        ("random pick minus separate coder alone", "random pick vs separate coder"),
+        ("random pick minus separate coder alone", "random pick + coder vs coder only"),
     ]
     cols = [BLUE, ORANGE, GREEN]
     for ni, (key, nm) in enumerate(want):
@@ -364,12 +426,12 @@ def fig_evaluator(inp, out):
     ax.set_xlim(-0.036, 0.034)
     ax.set_ylim(-2.6, 18.2)
     ax.set_xlabel("paired difference in ensemble r (95% interval)")
-    ax.set_title("What does the evaluator agent add?", fontsize=11)
+    ax.set_title("What does the evaluator add?", fontsize=11)
     ax.legend(frameon=False, fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=3)
     fig.suptitle(
-        f"Propose 6 and filter with an evaluator agent ({nruns} runs per arm, 30k genomic): it beats the default call and a random pick of the same 6 ideas,\nbut not a separate coder that simply proposes 2 (intervals include zero); small samples, no multiple-comparison correction",
-        fontsize=11.5,
-        y=1.07,
+        f"Evaluator agent (picks 2 of 6 proposed ideas); every arm except the default also uses a separate coder; {nruns} runs per arm at 30k genomic: the combination beats the default one-call loop and a random pick,\nbut adds little over the coder alone (intervals include zero); the reflector adds nothing more; small samples, no multiple-comparison correction",
+        fontsize=11,
+        y=1.08,
     )
     fig.subplots_adjust(wspace=0.28)
     save(fig, out, "justify_evaluator_agent.png")
@@ -509,25 +571,40 @@ def kcurves(K, D, rule="first2", method="top8"):
 
 def fig_plateau(inp, out):
     K = J(inp, "data_main.json")["kcurve"]
-    fig, axs = plt.subplots(1, 3, figsize=(16, 4.8))
+    path = os.path.join(inp, "data_kspread.json")
+    KS = json.load(open(path)) if os.path.exists(path) else {}
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4.9))
     cols = {10000: "#6aa6d1", 30000: BLUE, 100000: "#0d3f66"}
-    need, at20 = {}, {}
+    k12, k20 = {}, {}
+    xs = np.arange(1, 31)
     for ax, e in zip(axs, SETS):
         for D, c in cols.items():
+            cells = [v for k, v in KS.items() if k.endswith(f"|{D}")]
+            if cells:
+
+                def avg(key):
+                    return np.mean([np.asarray(v[e][key]) for v in cells], 0)
+
+                n = min(len(v[e]["mean"]) for v in cells)
+                ax.fill_between(xs[:n], avg("p05")[:n], avg("p95")[:n], color=c, alpha=0.13, lw=0)
+                ax.fill_between(xs[:n], avg("p25")[:n], avg("p75")[:n], color=c, alpha=0.22, lw=0)
+                ax.plot(xs[:n], avg("mean")[:n], "-", color=c, lw=1.9, label=f"{D // 1000}k")
+                if e == "genomic":
+                    k12[D] = (float(avg("mean")[11]), float(avg("sd")[11]))
+                    k20[D] = (float(avg("mean")[19]), float(avg("sd")[19]))
             cur = kcurves(K, D)
             if e in cur:
                 ax.plot(
                     np.arange(1, len(cur[e]) + 1),
                     cur[e],
-                    "o-",
-                    ms=3,
+                    "--",
                     color=c,
-                    lw=1.8,
-                    label=f"{D // 1000}k",
+                    lw=1.1,
+                    alpha=0.9,
+                    label="our ordering (best two of each search run first)"
+                    if D == 30000 and e == "genomic"
+                    else None,
                 )
-                if e == "genomic":
-                    need[D] = int(next(k + 1 for k in range(len(cur[e])) if cur[e][k] >= -0.002))
-                    at20[D] = float(cur[e][19])
         ax.axhline(0, color=GREY, lw=1)
         ax.axvline(12, color=GREY, ls=":", lw=1.4)
         ax.axvline(20, color=ORANGE, ls="--", lw=1.4)
@@ -535,14 +612,29 @@ def fig_plateau(inp, out):
         ax.set_title(SETN[e], fontsize=11)
         ax.set_ylabel("ensemble r (best 8 of K) minus (best 8 of all 30)" if e == "genomic" else "")
         ax.set_ylim(-0.06, 0.012)
-    axs[0].legend(frameon=False, title="dataset size", loc="lower right")
+    from matplotlib.lines import Line2D
+
+    handles = [
+        Line2D([0], [0], color=c, lw=2, label=f"{D // 1000}k, random draws of K")
+        for D, c in cols.items()
+    ]
+    handles.append(
+        Line2D(
+            [0], [0], color=DARK, lw=1.2, ls="--", label="our ordering (best two of each run first)"
+        )
+    )
+    axs[2].legend(handles=handles, frameon=False, loc="lower right", fontsize=8.5)
     axs[1].text(11.7, -0.057, "12: from 300k", color=GREY, fontsize=9, ha="right")
     axs[1].text(20.3, -0.057, "20: up to 100k", color=ORANGE, fontsize=9)
-    fig.suptitle(
-        f"How many configurations to train: within 0.002 of the full menu from K = {need.get(30000)} at 30k and K = {need.get(100000)} at 100k on the genomic test, but at 10k it is still {-at20[10000]:.3f} short at K = 20;\nwe train all 20 up to 100k (cheap) and 12 from 300k (mean over genomic, random and motif pools; first two configurations of each search run enter first)",
-        fontsize=11.5,
-        y=1.08,
-    )
+    if k12:
+        fig.suptitle(
+            "Number of configurations trained, K, drawn at random from the 30 retrained ones (300 draws x 3 pools per reservoir)\n"
+            f"Genomic test, gap to using all 30 at K = 12 / K = 20: 10k {-k12[10000][0]:.4f} / {-k20[10000][0]:.4f}, 30k {-k12[30000][0]:.4f} / {-k20[30000][0]:.4f}, 100k {-k12[100000][0]:.4f} / {-k20[100000][0]:.4f}; "
+            f"SD between draws at 30k {k12[30000][1]:.4f} / {k20[30000][1]:.4f}\n"
+            "Bands: 25-75% and 5-95% over draws, pools and the three reservoirs; our ordering is ahead of random draws at small K",
+            fontsize=10.5,
+            y=1.13,
+        )
     save(fig, out, "justify_models_plateau.png")
     R = J(inp, "data_main.json")["runsrc"]
     fig, axs = plt.subplots(1, 3, figsize=(16, 4.6))
@@ -560,22 +652,44 @@ def fig_plateau(inp, out):
             )
             if pts:
                 ax.plot(*zip(*pts), "o-", color=c, lw=1.8, label=f"runs searched on {src}")
+                sds = sorted(
+                    (int(k.split("|")[1]), v["sd"][0])
+                    for k, v in R[tgt]["single"].items()
+                    if k.startswith(src + "|")
+                )
+                ax.fill_between(
+                    [x for x, _ in pts],
+                    [y - d for (_, y), (_, d) in zip(pts, sds)],
+                    [y + d for (_, y), (_, d) in zip(pts, sds)],
+                    color=c,
+                    alpha=0.12,
+                    lw=0,
+                )
                 at15 += [y for x, y in pts if x == 15]
         bal = sorted((int(k), v["mean"][0]) for k, v in R[tgt].get("balanced", {}).items())
         if bal:
+            bsd = sorted((int(k), v["sd"][0]) for k, v in R[tgt].get("balanced", {}).items())
+            ax.fill_between(
+                [x for x, _ in bal],
+                [y - d for (_, y), (_, d) in zip(bal, bsd)],
+                [y + d for (_, y), (_, d) in zip(bal, bsd)],
+                color=ORANGE,
+                alpha=0.15,
+                lw=0,
+            )
             ax.plot(*zip(*bal), "s--", color=ORANGE, lw=1.8, label="balanced across reservoirs")
             d = dict(bal)
             if 15 in d and 45 in d:
                 gains.append(d[45] - d[15])
         if at15:
             spread.append(max(at15) - min(at15))
-        ax.set_xlabel("search runs pooled into the menu")
+        ax.set_xlabel("search runs pooled")
         ax.set_title(f"target: {tgt} pool", fontsize=11)
         ax.set_ylabel("ensemble r, genomic test" if tgt == "genomic" else "")
     axs[0].legend(frameon=False, fontsize=8, loc="lower right")
     fig.suptitle(
-        f"Number of search runs: returns are concave (15 to 45 balanced runs adds only {min(gains):+.3f} to {max(gains):+.3f}); at 15 runs the reservoir the runs searched on moves the result by up to {max(spread):.3f}.\nSearching on the target's own reservoir does not win, and a balanced mix is never the worst source; menu v1 pools 18 runs balanced across six sources",
-        fontsize=11.5,
+        f"Number of search runs pooled (each keeps its 3 best models, so 15 runs = 45 retrained configurations): no elbow, returns diminish slowly; tripling from 15 to 45 balanced runs adds {min(gains):+.3f} to {max(gains):+.3f}.\nAt 15 runs the reservoir the runs searched on moves the result by up to {max(spread):.3f}; searching on the target's own reservoir does not win. Bands: ±1 SD over 40 random draws of runs",
+        fontsize=11,
         y=1.08,
     )
     save(fig, out, "justify_runs_plateau.png")
@@ -662,7 +776,7 @@ def fig_prompt_loop(inp, out):
     from matplotlib.patches import FancyBboxPatch
 
     fig, ax = plt.subplots(figsize=(16, 8.2))
-    ax.set_xlim(0, 16), ax.set_ylim(0, 8.2), ax.axis("off")
+    ax.set_xlim(0, 16), ax.set_ylim(0, 8.8), ax.axis("off")
 
     def box(x, y, w, h, title, items, fc, ec, wrap):
         ax.add_patch(
@@ -791,13 +905,224 @@ def fig_prompt_loop(inp, out):
     )
     ax.text(
         8.0,
-        8.0,
+        7.72,
         "validation r and discards update the history, which becomes the next round's prompt",
         fontsize=10,
         color=BLUE,
         ha="center",
     )
+    ax.text(
+        0.2,
+        8.35,
+        "Our AutoResearch loop (albench/arch_search, the one that produced menu v1), not the AutoResearch v2 loop",
+        fontsize=11.5,
+        weight="bold",
+        color=DARK,
+        ha="left",
+        va="bottom",
+    )
     save(fig, out, "prompt_loop.png")
+
+
+def fig_recipes(inp, out):
+    """Why the 20 menu configurations share one training recipe (data from analyze_recipe_choices.py)."""
+    R = J(inp, "data_recipes.json")
+    fig, axs = plt.subplots(1, 3, figsize=(17, 4.9), gridspec_kw={"width_ratios": [1.5, 1, 1]})
+    ax = axs[0]
+    settings = [
+        ("optimizer", "muon", "Muon"),
+        ("lr", "0.002", "lr 2e-3"),
+        ("weight_decay", "0.0001", "wd 1e-4"),
+        ("batch_size", "256", "batch 256"),
+        ("lr_schedule", "onecycle", "one-cycle"),
+    ]
+    y = np.arange(len(settings))
+    allv = [R["share_all"][k].get(v, 0) for k, v, _ in settings]
+    topv = [R["share_top3"][k].get(v, 0) for k, v, _ in settings]
+    ax.barh(y - 0.2, allv, 0.38, color=GREY, label=f"all {R['n_candidates']:,} proposed candidates")
+    ax.barh(
+        y + 0.2,
+        topv,
+        0.38,
+        color=ORANGE,
+        label=f"the 3 best candidates of each of {R['n_runs']} runs",
+    )
+    for yy, a_, t_ in zip(y, allv, topv):
+        ax.text(a_ + 0.01, yy - 0.2, f"{a_:.0%}", va="center", fontsize=9)
+        ax.text(t_ + 0.01, yy + 0.2, f"{t_:.0%}", va="center", fontsize=9)
+    ax.set_yticks(y, [x[2] for x in settings])
+    ax.invert_yaxis()
+    ax.set_xlim(0, 1.12)
+    ax.set_xlabel("share of candidates using the menu's setting")
+    ax.set_title("The proposer varies the recipe; selection keeps one", fontsize=11)
+    ax.legend(frameon=False, fontsize=8.5, loc="upper center", bbox_to_anchor=(0.45, -0.14))
+    ax = axs[1]
+    d = np.array(sorted(x["diff"] for x in R["muon_minus_adamw_by_run"]))
+    ax.scatter(np.arange(len(d)), d, s=16, color=PURPLE)
+    ax.axhline(0, color=GREY, lw=1)
+    ax.axhline(d.mean(), color=ORANGE, ls="--", lw=1.4)
+    ax.text(
+        0.03,
+        0.95,
+        f"mean {d.mean():+.3f}; Muon ahead in {int((d > 0).sum())} of {len(d)} runs",
+        transform=ax.transAxes,
+        fontsize=9.5,
+        va="top",
+    )
+    ax.set_xlabel("search runs, sorted")
+    ax.set_ylabel("Muon minus AdamW, mean validation r within a run")
+    ax.set_title("Within every run, the same comparison", fontsize=11)
+    ax = axs[2]
+    names = ["0-2", "3-6", "7-11"]
+    for key, col, lab in (
+        ("muon", PURPLE, "Muon"),
+        ("lr0.002", BLUE, "lr 2e-3"),
+        ("wd1e-4", GREEN, "wd 1e-4"),
+        ("onecycle", ORANGE, "one-cycle"),
+    ):
+        ax.plot(names, [R["share_by_round"][n][key] for n in names], "o-", color=col, label=lab)
+    ax.set_xlabel("round of the search")
+    ax.set_ylabel("share of that round's candidates")
+    ax.set_title("The proposer drifts toward it as it sees results", fontsize=11)
+    ax.legend(frameon=False, fontsize=8.5)
+    fig.suptitle(
+        "Why the menu shares one recipe: it is the empirical winner among 1,712 proposed recipes, but the settings come as a package and are not separated\n"
+        f"Muon candidates use weight decay 1e-4 in {R['wd_by_optimizer']['muon'].get('0.0001', 0) / sum(R['wd_by_optimizer']['muon'].values()):.0%} of cases and AdamW candidates use 0.01 or more in {sum(v for k, v in R['wd_by_optimizer']['adamw'].items() if float(k) >= 0.01) / sum(R['wd_by_optimizer']['adamw'].values()):.0%}, so optimizer and weight decay are confounded;\nthe prompt names Muon and lr 2e-3; the recipe was not re-tuned per dataset size except patience and epochs",
+        fontsize=11,
+        y=1.06,
+    )
+    save(fig, out, "justify_recipes.png")
+
+
+def fig_cadence_budget(inp, out):
+    """Proposals per round at an equal number of trained models (analyze_cadence_budget.py); the three reservoirs are the replicates."""
+    D = J(inp, "data_cadence_budget.json")
+    arms = [
+        ("llm1x60", "1 per round (serial)", GREY),
+        ("llm2x30", "2 per round (used)", ORANGE),
+        ("llm6x10", "6 per round", BLUE),
+        ("multi6", "6 classical samplers (no LLM)", PURPLE),
+    ]
+    res = ["genomic", "motif_ct_enriched", "random"]
+    rcol = {"genomic": "#1b6ca8", "motif_ct_enriched": "#2a8f5b", "random": "#7a5195"}
+
+    def curve(arm, r):
+        c = D.get(f"{r}_{arm}")
+        return {k: v for k, v in c["curve"]} if c else {}
+
+    fig, axs = plt.subplots(1, 2, figsize=(15, 5.2), gridspec_kw={"width_ratios": [1.15, 1]})
+    ax = axs[0]
+    for arm, lab, col in arms:
+        per = {r: curve(arm, r) for r in res}
+        ks = sorted({k for c in per.values() for k in c})
+        m, lo, hi, kk = [], [], [], []
+        for k in ks:
+            v = [c[k] for c in per.values() if k in c]
+            if len(v) == len(res):
+                kk.append(k)
+                m.append(np.mean(v))
+                se = np.std(v, ddof=1) / np.sqrt(len(v)) if len(v) > 1 else 0
+                lo.append(np.mean(v) - se)
+                hi.append(np.mean(v) + se)
+        if kk:
+            ax.fill_between(kk, lo, hi, color=col, alpha=0.18, lw=0)
+            ax.plot(kk, m, "o-", color=col, lw=2, ms=4, label=lab)
+    ax.set_xlabel("models trained")
+    ax.set_ylabel("deploy ensemble r, genomic test\n(mean over the 3 reservoirs; band ±1 SE)")
+    ax.set_title(
+        "Same number of models; points only where all three reservoirs have that many", fontsize=11
+    )
+    ax.legend(frameon=False, fontsize=9, loc="lower right")
+    ax = axs[1]
+    base = {r: curve("llm2x30", r) for r in res}
+    stats = {}
+    for arm, lab, col in arms:
+        if arm == "llm2x30":
+            continue
+        ks, m, se_, nn = [], [], [], []
+        for k in range(6, 61, 6):
+            d = [curve(arm, r)[k] - base[r][k] for r in res if k in curve(arm, r) and k in base[r]]
+            if len(d) >= 2 or (k <= 12 and len(d) >= 1):
+                ks.append(k)
+                m.append(np.mean(d))
+                se_.append(np.std(d, ddof=1) / np.sqrt(len(d)) if len(d) > 1 else 0)
+                nn.append(len(d))
+        if ks:
+            m, se_ = np.array(m), np.array(se_)
+            ax.fill_between(ks, m - se_, m + se_, color=col, alpha=0.18, lw=0)
+            ax.plot(
+                ks,
+                m,
+                "o-",
+                color=col,
+                lw=2,
+                ms=4,
+                label=f"{lab} (n = {min(nn)} to {max(nn)} reservoirs)",
+            )
+            for r in res:
+                kk = [k for k in ks if k in curve(arm, r) and k in base[r]]
+                ax.plot(
+                    kk,
+                    [curve(arm, r)[k] - base[r][k] for k in kk],
+                    "-",
+                    color=col,
+                    lw=0.7,
+                    alpha=0.4,
+                )
+    ax.axhline(0, color=DARK, lw=1.2)
+    ax.set_xlabel("models trained")
+    ax.set_ylabel(
+        "difference from 2 per round, same reservoir\n(thick: mean ±1 SE; thin: each reservoir)"
+    )
+    ax.set_title("Paired by reservoir", fontsize=11)
+    ax.legend(frameon=False, fontsize=8.5, loc="lower right")
+    fig.suptitle(
+        "Proposals per round at an equal number of trained models (Oct 13 cadence study, one run per arm and reservoir; harness older than the final pipeline)\n"
+        "Reservoirs are the only replicates here; the serial arm finished only 9 to 17 models, so it appears at small budgets only",
+        fontsize=11,
+        y=1.04,
+    )
+    save(fig, out, "justify_proposals_per_round.png")
+
+
+def fig_runsbudget(inp, out):
+    """One long run or several shorter ones at the same total number of models (analyze_runs_budget.py)."""
+    D = J(inp, "data_runs_budget.json")
+    rs = sorted({v["r"] for v in D.values()})
+    cm = plt.get_cmap("viridis")
+    col = {r: cm(i / max(len(rs) - 1, 1) * 0.9) for i, r in enumerate(rs)}
+    fig, axs = plt.subplots(2, 3, figsize=(16, 8), sharex=True)
+    for j, e in enumerate(SETS):
+        for r in rs:
+            cells = sorted((v for v in D.values() if v["r"] == r), key=lambda v: v["M"])
+            xs = [v["M"] for v in cells]
+            m = np.array([v[e]["mean"] for v in cells])
+            sd = np.array([v[e]["sd"] for v in cells])
+            lab = f"{r} run{'s' if r > 1 else ''}"
+            axs[0, j].fill_between(xs, m - sd, m + sd, color=col[r], alpha=0.14, lw=0)
+            axs[0, j].plot(xs, m, "o-", color=col[r], lw=1.8, ms=4, label=lab)
+            axs[1, j].plot(xs, sd, "o-", color=col[r], lw=1.8, ms=4, label=lab)
+        axs[0, j].set_title(SETN[e], fontsize=11)
+        axs[0, j].set_ylabel("ensemble r\n(mean; band ±1 SD)" if j == 0 else "")
+        axs[1, j].set_ylabel("SD of ensemble r\nover draws of runs" if j == 0 else "")
+        axs[1, j].set_xlabel("total models in the ensemble")
+        axs[1, j].set_xticks(sorted({v["M"] for v in D.values()}))
+    axs[0, 0].legend(frameon=False, fontsize=9, title="split over", loc="lower right")
+    g = {r: [v for v in D.values() if v["r"] == r and v["M"] == 60] for r in rs}
+    fig.suptitle(
+        "One long run or several shorter ones, at the same total number of models (the 8 guided 30-round runs on 30k genomic with at least 60 usable candidates; each run contributes its first M/r candidates; stacked like the menu)\n"
+        "Draws are random subsets of the same 8 runs, so the SD understates run-to-run variability when many runs are used; bands show spread, not significance\n"
+        + "At 60 models, genomic test (mean ± SD over draws): "
+        + ", ".join(
+            f"{r} run{'s' if r > 1 else ''} {D[f'60|{r}']['genomic']['mean']:.4f} ± {D[f'60|{r}']['genomic']['sd']:.4f}"
+            for r in (1, 3, 5)
+            if f"60|{r}" in D
+        ),
+        fontsize=11,
+        y=0.995,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    save(fig, out, "justify_runs_vs_models.png")
 
 
 def main():
@@ -805,7 +1130,10 @@ def main():
     ap.add_argument("--in", dest="inp", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--menu", default="albench/ensemble/menus/menu_v1.json")
-    ap.add_argument("--only", default="rounds,patience,cadence,evaluator,ar2,plateau,priors,loop")
+    ap.add_argument(
+        "--only",
+        default="rounds,patience,cadence,evaluator,ar2,plateau,priors,loop,recipes,runsbudget",
+    )
     a = ap.parse_args()
     only = a.only.split(",")
     if "rounds" in only:
@@ -813,7 +1141,12 @@ def main():
     if "patience" in only:
         fig_patience(a.inp, a.out)
     if "cadence" in only:
-        fig_cadence(a.inp, a.out)
+        if os.path.exists(os.path.join(a.inp, "data_cadence_budget.json")):
+            fig_cadence_budget(a.inp, a.out)
+        else:
+            fig_cadence(a.inp, a.out)
+    if "runsbudget" in only and os.path.exists(os.path.join(a.inp, "data_runs_budget.json")):
+        fig_runsbudget(a.inp, a.out)
     if "evaluator" in only:
         fig_evaluator(a.inp, a.out)
     if "ar2" in only:
@@ -824,6 +1157,8 @@ def main():
         fig_priors(a.inp, a.out, a.menu)
     if "loop" in only:
         fig_prompt_loop(a.inp, a.out)
+    if "recipes" in only:
+        fig_recipes(a.inp, a.out)
 
 
 if __name__ == "__main__":

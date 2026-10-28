@@ -490,6 +490,7 @@ def an_loopctl():
             n=len(ok),
             mean=[float(np.mean([x["ens"][i] for x in ok])) for i in range(3)] if ok else None,
             mean_val=float(np.mean([x["mean_val"] for x in ok])) if ok else None,
+            runs=[[float(v) for v in x["ens"]] for x in ok],
         )
 
     def pair(x, y, label):

@@ -1,15 +1,15 @@
-"""Oct-28 afternoon: the collaborator's three model-based reservoirs through the same scaling design as the other strategies (menu v1, patience 16).
+"""Oct-28 afternoon: the collaborator's model-based reservoirs through the same scaling design as the other strategies (menu v1, patience 16).
 
-  evo2                         Evo2-1B conditional regeneration of the K562 genomic pool (999,999 sequences); labels reused from the earlier labelling of
-                               the same seed-0 subsets (the pool in k562_cumulative/evo2_d*.npz is identical to nested_subsets seed 0)
-  gpa_d3_student_mean          D3 diffusion guided by the 10-member student's mean activity (1,000,016 sequences)
-  gpa_d3_student_uncertainty   D3 diffusion guided by student-ensemble variance (1,000,000 sequences)
+  d3_steps64    D3 (discrete diffusion for DNA), 64 sampling steps; his note: "use D3 uniform steps64 and steps256, try 64 first if compute is a bottleneck"
+  d3_steps256   D3, 256 sampling steps
+  evo2          Evo2-1B conditional regeneration of the K562 genomic pool (999,999 sequences)
 
-Each: labelling cell (the two diffusion pools; oracle_v3), then retrain cells at 10k (2 shards), 30k (4 shards) and 100k (6 shards, one model each, the
-first six menu positions like the other 100k scale cells). Registry order: labelling and 10k/30k directly after the last sc31 30k cell, 100k after the last
-sc31 100k cell. Registry writes are under flock so that two registrations cannot clobber each other.
+For all three the oracle_v3 labels already existed: the earlier labelling of the same pools is exactly his seed-0 `nested_subsets` (checked set by set), so the nested pools
+in k562_nested/ are written with `label_nested_pool.py --reuse` (no oracle call). Each: retrain cells at 10k (2 shards), 30k (4 shards) and 100k (6 shards, one model each, the first
+six menu positions like the other 100k scale cells). Order: steps64 before steps256 before evo2's remaining cells. Registry order: 10k/30k directly after the last sc31 30k cell,
+100k after the last sc31 100k cell. `--replace-gpa` removes the cells registered on a wrong guess (gpa_d3_student_*, guided diffusion arms) first. Registry writes are under flock.
 
-  python scripts/program_oct22/register_yash.py [--dry]
+  python scripts/program_oct22/register_yash.py [--dry] [--replace-gpa]
 """
 
 import fcntl
@@ -27,27 +27,11 @@ R, NEST, rel = r30.R, r30.NEST, r30.rel
 DRY = "--dry" in sys.argv
 KOO = "/grid/koo/home/mundewadi"
 ARMS = {
+    "d3_steps64": f"{KOO}/ALBench-S2F/outputs/reservoir_cache/d3_uncond_steps64/pool_1M.npz",
+    "d3_steps256": f"{KOO}/ALBench-S2F/outputs/reservoir_cache/d3_uncond_steps256/pool_1M.npz",
     "evo2": f"{KOO}/evo2_k562_uncond/samples/evo2_cond_regen_pool_1M.npz",
-    "gpa_d3_student_mean": f"{KOO}/ALBench-S2F/outputs/reservoir_cache/gpa_d3_student_mean/pool.npz",
-    "gpa_d3_student_uncertainty": f"{KOO}/ALBench-S2F/outputs/reservoir_cache/gpa_d3_student_uncertainty/pool.npz",
 }
-
-
-def label_cells():
-    out = []
-    for arm in ("gpa_d3_student_mean", "gpa_d3_student_uncertainty"):
-        out.append(
-            dict(
-                name=f"pool32_{arm}",
-                gpus=["h100"],
-                ext=[],
-                out_dir=rel(NEST),
-                env={"AG_S2_ORACLE_DIR": f"{R}/outputs/oracle_v3/s2"},
-                cmd=f"uv run --no-sync python scripts/program_oct22/label_nested_pool.py --src {ARMS[arm]} --arm {arm} --seed 0",
-                done=dict(type="file", path=rel(f"{NEST}/{arm}_d100000.npz")),
-            )
-        )
-    return out
+WRONG = ("pool32_gpa_", "sc32_gpa_")
 
 
 def scale_cells(D):
@@ -72,12 +56,12 @@ def main():
     with open("scratchpad/.registry.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         reg = json.load(open(path))
+        if "--replace-gpa" in sys.argv:
+            drop = [c["name"] for c in reg if c["name"].startswith(WRONG)]
+            reg = [c for c in reg if not c["name"].startswith(WRONG)]
+            print("removed", len(drop), "cells registered on the gpa guess")
         have = {c["name"] for c in reg}
-        g_head = [
-            c
-            for c in label_cells() + scale_cells(10000) + scale_cells(30000)
-            if c["name"] not in have
-        ]
+        g_head = [c for c in scale_cells(10000) + scale_cells(30000) if c["name"] not in have]
         g_100 = [c for c in scale_cells(100000) if c["name"] not in have]
         last = lambda pat: max(i for i, c in enumerate(reg) if pat(c["name"]))  # noqa: E731
         i30 = last(
