@@ -1317,9 +1317,16 @@ class Orchestrator:
                     and i < len(t["options"])
                 ):
                     meta_i["option"] = t["options"][i]
+                ch = t.get("code_hash")
+                apr = t.get("anchors_per_recipe")
+                if (
+                    apr and i < len(apr)
+                ):  # the screen's combination runs: one recipe per anchor, each on that anchor's best model
+                    meta_i["anchor"] = apr[i]
+                    ch = snap.families[apr[i]].best_code_hash
                 rows.append(
                     self.run_row(
-                        code_hash=t["code_hash"],
+                        code_hash=ch,
                         recipe=recipe,
                         seed=int(action.seeds[i]) if i < len(action.seeds) else 0,
                         purpose=action.purpose
