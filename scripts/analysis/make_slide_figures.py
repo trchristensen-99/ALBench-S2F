@@ -655,12 +655,157 @@ def fig_priors(inp, out, menu_path):
     save(fig, out, "menu_composition.png")
 
 
+def fig_prompt_loop(inp, out):
+    """How the proposer prompt is built, updated and stored (read from albench/arch_search/propose.py and arch_autoresearch.py)."""
+    import textwrap
+
+    from matplotlib.patches import FancyBboxPatch
+
+    fig, ax = plt.subplots(figsize=(16, 8.2))
+    ax.set_xlim(0, 16), ax.set_ylim(0, 8.2), ax.axis("off")
+
+    def box(x, y, w, h, title, items, fc, ec, wrap):
+        ax.add_patch(
+            FancyBboxPatch(
+                (x, y), w, h, boxstyle="round,pad=0.02,rounding_size=0.12", fc=fc, ec=ec, lw=1.6
+            )
+        )
+        ax.text(x + 0.15, y + h - 0.15, title, fontsize=11.5, weight="bold", va="top", color=DARK)
+        body = "\n".join(
+            textwrap.fill(i, wrap, initial_indent="• ", subsequent_indent="   ") for i in items
+        )
+        ax.text(x + 0.15, y + h - 0.65, body, fontsize=9.2, va="top", color=DARK, linespacing=1.4)
+
+    def arrow(x0, y0, x1, y1, txt="", dx=0.0, dy=0.1):
+        ax.annotate(
+            "", xy=(x1, y1), xytext=(x0, y0), arrowprops=dict(arrowstyle="-|>", lw=1.8, color=GREY)
+        )
+        if txt:
+            ax.text(
+                (x0 + x1) / 2 + dx, (y0 + y1) / 2 + dy, txt, fontsize=9, ha="center", color=GREY
+            )
+
+    W, Y1, H1 = 3.8, 3.1, 4.25
+    X = [0.2, 4.2, 8.2, 12.2]
+    box(
+        X[0],
+        Y1,
+        W,
+        H1,
+        "1  Prompt, rebuilt each round",
+        [
+            "system: design any architecture you can write in torch; return exactly N proposals as IDEA, WHY, code",
+            "task: K562 MPRA regression, D training sequences",
+            "contract: Net() with no arguments, one-hot in, one scalar out, parameter and CPU-time caps, import whitelist",
+            "history: best 18 architectures so far (validation r, parameters, time) and up to 8 discarded proposals with the reason",
+            "optional guidance, reference code, round note",
+        ],
+        "#e8f0f7",
+        BLUE,
+        40,
+    )
+    box(
+        X[1],
+        Y1,
+        W,
+        H1,
+        "2  Proposer model",
+        [
+            "claude-sonnet-5-5 for the menu runs",
+            "N = 2 proposals per round, 10 rounds",
+            "returns the idea, why it might work, and the full Net source",
+            "no temperature control through the CLI",
+        ],
+        "#f6ece4",
+        ORANGE,
+        40,
+    )
+    box(
+        X[2],
+        Y1,
+        W,
+        H1,
+        "3  Gate and parse",
+        [
+            "every code block is kept, even without an idea line",
+            "discarded on a contract violation: too many parameters, forward too slow, wrong shape, output ignores input, forbidden import",
+            "the discard and its reason go into the next prompt",
+        ],
+        "#f3eef7",
+        PURPLE,
+        40,
+    )
+    box(
+        X[3],
+        Y1,
+        3.6,
+        H1,
+        "4  Train and score",
+        [
+            "each accepted proposal is trained on the D sequences",
+            "scored on the validation set only: no test feedback",
+            "validation r, parameters and time are added to the history",
+        ],
+        "#eaf5ef",
+        GREEN,
+        37,
+    )
+    box(
+        8.2,
+        0.3,
+        7.6,
+        2.45,
+        "5  What is stored",
+        [
+            "per model, rNN_meta.json: idea, why, source code, validation r, parameters, epochs, time",
+            "per run, prompts/prompt_rNN.txt for the first round and the explore-phase round only; the other prompts are rebuilt from the stored models, which is also how a crashed run resumes",
+            "nothing is edited by hand between rounds",
+        ],
+        "#f1f3f4",
+        GREY,
+        84,
+    )
+    box(
+        0.2,
+        0.3,
+        7.8,
+        2.45,
+        "6  Between runs",
+        [
+            "each run starts from the same prompt with an empty history",
+            "runs are independent; the menu pools the best architectures of 18 runs",
+            "a cross-D hand-off (results from a smaller D pasted into the prompt) exists as an option and is not used for the menu",
+        ],
+        "#fbf4e0",
+        "#b08a2e",
+        88,
+    )
+    for i in range(3):
+        arrow(X[i] + W, Y1 + H1 / 2, X[i + 1], Y1 + H1 / 2)
+    arrow(X[3] + 1.8, Y1, X[3] + 1.8, 2.75, "write", dx=0.4, dy=0.0)
+    ax.annotate(
+        "",
+        xy=(2.1, Y1 + H1),
+        xytext=(14.0, Y1 + H1),
+        arrowprops=dict(arrowstyle="-|>", lw=1.9, color=BLUE, connectionstyle="arc3,rad=0.07"),
+    )
+    ax.text(
+        8.0,
+        8.0,
+        "validation r and discards update the history, which becomes the next round's prompt",
+        fontsize=10,
+        color=BLUE,
+        ha="center",
+    )
+    save(fig, out, "prompt_loop.png")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="inp", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--menu", default="albench/ensemble/menus/menu_v1.json")
-    ap.add_argument("--only", default="rounds,patience,cadence,evaluator,ar2,plateau,priors")
+    ap.add_argument("--only", default="rounds,patience,cadence,evaluator,ar2,plateau,priors,loop")
     a = ap.parse_args()
     only = a.only.split(",")
     if "rounds" in only:
@@ -677,6 +822,8 @@ def main():
         fig_plateau(a.inp, a.out)
     if "priors" in only:
         fig_priors(a.inp, a.out, a.menu)
+    if "loop" in only:
+        fig_prompt_loop(a.inp, a.out)
 
 
 if __name__ == "__main__":
