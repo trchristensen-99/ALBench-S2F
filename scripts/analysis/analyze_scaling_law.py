@@ -530,6 +530,85 @@ def write_tables(data, out):
     json.dump(data, open(os.path.join(out, "scaling_law_data.json"), "w"), indent=1)
 
 
+def plot_old_menu(data, out, key, ylabel, fname):
+    """Uniform random, motif CT-enriched and genomic only, the older 33-configuration menu out to 1M (300k for genomic); the menu is named in the title, not in the legend."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    recs, fts = data["records"], data["fits"]
+    order = ("genomic", "random", "motif_ct_enriched")
+    fig, axs = plt.subplots(1, 3, figsize=(15, 5.4), sharex=True)
+    local = {}
+    for ax, s in zip(axs, SETS[:3]):
+        for st in order:
+            c = COL[FAMILY[st]]
+            pts = _series(recs, "v0", st, s, key)
+            if len(pts) < 2:
+                continue
+            xs, ys = np.array([p[0] for p in pts], float), np.array([p[1] for p in pts], float)
+            f = next(
+                (f for f in fts if (f["series"], f["strategy"], f["set"]) == ("v0", st, s)), None
+            )
+            fk = f[key if key == "mse" else "one_minus_r"] if f else None
+            lab = LABEL[st] + (
+                f"   b = {fk['b']:.2f}, R² = {fk['r2']:.3f}" if fk and fk["r2"] is not None else ""
+            )
+            if fk:
+                xx = np.array([xs.min(), xs.max()])
+                ax.plot(
+                    xx, fk["a"] * xx ** (-fk["b"]), ls=":", color=c, lw=1.3, alpha=0.8, zorder=1
+                )
+            ax.plot(
+                xs,
+                ys,
+                marker="o",
+                ms=7.5,
+                ls="-",
+                lw=1.4,
+                color=c,
+                mfc=c,
+                mec="white",
+                mew=0.8,
+                label=lab,
+                zorder=3,
+            )
+            local[(st, s)] = [
+                -(np.log(ys[i + 1]) - np.log(ys[i])) / (np.log(xs[i + 1]) - np.log(xs[i]))
+                for i in range(len(xs) - 1)
+            ]
+        _axes_style(ax, key)
+        ax.set_title(SETN[s], fontsize=11, color=INK, loc="left")
+        ax.set_xlabel("training sequences D", color=MUTED, fontsize=10)
+        ax.legend(frameon=False, fontsize=8.5, loc="lower left", labelcolor=INK)
+    axs[0].set_ylabel(ylabel, color=MUTED, fontsize=10)
+    fig.suptitle(
+        f"{ylabel} against dataset size, log-log, with the older 33-configuration menu (first seed, one pool per size)\n"
+        "Genomic to 300k, uniform random and motif CT-enriched to 1M; dotted line: power-law fit through each series",
+        fontsize=11,
+        color=INK,
+        x=0.01,
+        ha="left",
+    )
+    lines = []
+    for st in order:
+        v = local.get((st, "genomic"))
+        if v:
+            lines.append(f"{LABEL[st]}: " + " → ".join(f"{b:.2f}" for b in v))
+    import textwrap
+
+    cap = (
+        "Local exponent b between neighbouring sizes (10k to 30k to 100k to 300k to 600k to 1M), genomic test: "
+        + "; ".join(lines)
+        + ". A straight line would keep b constant."
+    )
+    fig.text(0.01, 0.01, textwrap.fill(cap, 185), fontsize=8.5, color=MUTED, va="bottom")
+    fig.tight_layout(rect=(0, 0.07, 1, 0.93))
+    fig.savefig(os.path.join(out, fname), dpi=200)
+    plt.close(fig)
+
+
 def plot(data_path, out):
     os.makedirs(out, exist_ok=True)
     data = json.load(open(data_path))
@@ -537,6 +616,8 @@ def plot(data_path, out):
     plot_all(data, out, "mse", "MSE", "scaling_mse_loglog.png")
     plot_core(data, out, "one_minus_r", "1 − Pearson r", "scaling_core_three.png")
     plot_core(data, out, "mse", "MSE", "scaling_core_three_mse.png")
+    plot_old_menu(data, out, "one_minus_r", "1 − Pearson r", "scaling_oldmenu_three.png")
+    plot_old_menu(data, out, "mse", "MSE", "scaling_oldmenu_three_mse.png")
     plot_exponents(data, out)
     write_tables(data, out)
     print("wrote figures to", out)
