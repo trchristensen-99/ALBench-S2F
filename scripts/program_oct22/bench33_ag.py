@@ -55,7 +55,7 @@ def main() -> None:
     ap.add_argument("--s1-epochs", type=int, default=60)
     ap.add_argument("--s1-patience", type=int, default=6)
     ap.add_argument("--s1-head-lr", type=float, default=1e-3)
-    ap.add_argument("--s2-epochs", type=int, default=20)
+    ap.add_argument("--s2-epochs", type=int, default=60)
     ap.add_argument("--wd", type=float, default=1e-6)
     ap.add_argument("--batch-size", type=int, default=128)
     ap.add_argument("--max-shift", type=int, default=15)

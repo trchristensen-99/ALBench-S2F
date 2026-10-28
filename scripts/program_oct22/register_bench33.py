@@ -2,7 +2,8 @@
 
   --phase probe              12 LegNet cells (3 configurations x {10k, 30k} x 2 cells of 10 seeds) and the first AlphaGenome seed (index 0) of both Stage 2
                              recipes at 30k and 10k, so that the recipe can be chosen on V0c validation before the remaining seeds are trained
-  --phase rest --recipe R    AlphaGenome seeds 1..4 at 30k and 10k for the chosen recipe R (oracle | winner)
+  --phase rest --recipe R    AlphaGenome seeds 1..9 at 30k and 10k for recipe R (oracle | winner | both). An AlphaGenome model takes about 10 minutes
+                             (a Stage 2 epoch at 30k is 8 s), so both recipes are run in full and the primary one is chosen on V0c validation
 
 Seeds are drawn once from os.urandom (outputs/bench33/seeds.json; Peter asked for fresh randomness instead of pinned seeds) and baked into each command line
 and recorded in every meta file. LegNet cells may run on V100 (the code is the same fp16-autocast path on every GPU); AlphaGenome cells are H100 only and the
@@ -29,18 +30,24 @@ SEEDS = f"{R}/outputs/bench33/seeds.json"
 DS = (30000, 10000)
 CFGS = ("pub", "e100", "b256")
 RECIPES = ("oracle", "winner")
-N_LN, N_AG = 20, 5
+N_LN, N_AG = 20, 10
 
 
 def seeds() -> dict:
-    if os.path.exists(SEEDS):
-        return json.load(open(SEEDS))
+    """Seed lists drawn once from os.urandom; a later call with larger N_LN / N_AG appends fresh draws and never changes the ones already used."""
     draw = lambda n: [int.from_bytes(os.urandom(4), "little") & 0x7FFFFFFF for _ in range(n)]  # noqa: E731
-    s = {
-        "ln": {str(D): draw(N_LN) for D in DS},
-        "ag": {f"{D}_{r}": draw(N_AG) for D in DS for r in RECIPES},
-        "drawn_from": "os.urandom",
-    }
+    s = (
+        json.load(open(SEEDS))
+        if os.path.exists(SEEDS)
+        else {"ln": {}, "ag": {}, "drawn_from": "os.urandom"}
+    )
+    for D in DS:
+        s["ln"][str(D)] = s["ln"].get(str(D), []) + draw(
+            max(0, N_LN - len(s["ln"].get(str(D), [])))
+        )
+        for r in RECIPES:
+            k = f"{D}_{r}"
+            s["ag"][k] = s["ag"].get(k, []) + draw(max(0, N_AG - len(s["ag"].get(k, []))))
     os.makedirs(os.path.dirname(SEEDS), exist_ok=True)
     json.dump(s, open(SEEDS, "w"), indent=1)
     return s
@@ -93,7 +100,7 @@ def ag_cells(sd, recipe, indices, Ds=DS):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", choices=["probe", "rest"], required=True)
-    ap.add_argument("--recipe", choices=RECIPES)
+    ap.add_argument("--recipe", choices=RECIPES + ("both",))
     ap.add_argument("--dry", action="store_true")
     a = ap.parse_args()
     path = "scratchpad/dispatch_registry.json"
@@ -106,7 +113,11 @@ def main():
             new = ag_cells(sd, "oracle", [0]) + ag_cells(sd, "winner", [0]) + ln_cells(sd)
         else:
             assert a.recipe, "--recipe is required for --phase rest"
-            new = ag_cells(sd, a.recipe, range(1, N_AG))
+            new = [
+                c
+                for r in (RECIPES if a.recipe == "both" else (a.recipe,))
+                for c in ag_cells(sd, r, range(1, N_AG))
+            ]
         new = [c for c in new if c["name"] not in have]
         last = max(
             i for i, c in enumerate(reg) if c["name"].startswith("sc32_") and "_30k_s" in c["name"]
