@@ -157,11 +157,68 @@ def slides(P):
             read="Each point is the average change in test r when the same architecture, trained on the same 30k genomic sequences with the same seed, is also shown real plasmid sequence on each side of its 200-bp insert (x). Blue and purple are scored against oracle labels, open orange against the experimental measurements. The grey band is seed noise.",
             so=sweep_txt,
             nums=flank_numbers,
-            change="The gain shrinks to the +0.008 of the zero-padded real-flank shift once all 15 architectures finish, or the reservoir ranking flips (slide S5).",
+            change="The gain shrinks to the +0.008 of the zero-padded real-flank shift once all 15 architectures finish, or the reservoir ranking flips (slide <<s5>>).",
             links=[("#loop", "training loop entry"), ("#student-input", "parameter table")],
             qs="flank context plasmid input collaborator gap why better student sees",
         )
     )
+    ca = None
+    try:
+        ca = json.load(open("slide_figures/benchmarks/data_context_allsets.json"))["arms"]
+    except Exception:
+        pass
+    if ca:
+        c20 = ca.get("c20", {})
+        c200 = ca.get("c200", {})
+        d20 = c20.get("delta", {})
+        e20 = c20.get("ens", {})
+        eb = c20.get("ens_base_same", {})
+        vs = c200.get("vs_c20", {}).get("genomic", {})
+        S.append(
+            dict(
+                id="s1b",
+                grp="A. What the student sees and how it trains",
+                status="running" if not ctx_done else "supported",
+                img="deck/deck_context_effect_absolute.png",
+                own_title=True,
+                read="Four panels, one per evaluation set. The x-axis is the real flank given per side. Blue: mean single-model r with context; orange: ensemble of the same architectures with context; the grey lines are the same architectures without context. The gap between colour and grey is the gain.",
+                so="Use 20 bases per side, not the full 200 that the oracle sees: more context adds nothing measurable beyond 12 to 20 bases and costs compute (a 600-bp input is 3 times the length and one architecture no longer fits in 32 GB).",
+                nums=(
+                    f"20 bases: single model {c20['single']['genomic']:.3f} against {c20['single']['genomic'] - d20['genomic']['mean']:.3f} without; ensemble {e20.get('genomic', float('nan')):.3f} against {eb.get('genomic', float('nan')):.3f} without (n = {c20.get('n', 0)} architectures). "
+                    f"200 bases against 20, genomic test, same architectures: {vs.get('mean', float('nan')):+.3f} (SE {vs.get('se', float('nan')):.3f}, n = {vs.get('n', 0)})."
+                ),
+                change="A larger sample showing 60 to 200 bases beating 20 by more than the 0.005 noise margin on at least two evaluation sets.",
+                links=[],
+                qs="context size how much flank 200 full oracle window 600 bp why 20",
+                size="2667 x 1500, 16:9",
+            )
+        )
+        S.append(
+            dict(
+                id="s1c",
+                grp="A. What the student sees and how it trains",
+                status="running" if not ctx_done else "supported",
+                img="deck/deck_context_effect_allsets.png",
+                own_title=True,
+                read="Rows are the 18 evaluation sets of the battery plus the SNV effect (predicted alt minus ref against the oracle's); columns are the amount of real flank. Each cell is the paired change in single-model r against the unchanged menu; darker means a larger gain.",
+                so="The context is not tuned to one test set: every set gains, the SNV effect most, and the GC sweep least (it is the set whose labels depend least on junction sequence).",
+                nums="With 20 bases per side: genomic test "
+                + (f"{d20['genomic']['mean']:+.3f}" if d20 else "")
+                + ", designed high-activity "
+                + (f"{d20['ood']['mean']:+.3f}" if d20 else "")
+                + ", random "
+                + (f"{d20['random_32k']['mean']:+.3f}" if d20 else "")
+                + ", SNV effect "
+                + (f"{d20['snv_delta']['mean']:+.3f}" if d20 else "")
+                + ", GC sweep "
+                + (f"{d20['gc_sweep']['mean']:+.3f}" if d20 else "")
+                + ".",
+                change="A set that loses with context (none so far).",
+                links=[],
+                qs="all evaluation sets snv effect designed ood mutation insertion deletion translocation inversion gc sweep",
+                size="2667 x 1800",
+            )
+        )
     S.append(
         dict(
             id="s2",
@@ -423,17 +480,20 @@ def build(page, deck_dir, figs_dir, out, P):
     deck = (
         '<section class="deck" id="deck"><h2 class="dgrp">What changed on Oct 29</h2>'
         '<div class="callout"><h3>The student was not seeing what the oracle sees.</h3>'
-        "<p>Students trained on the 200-bp insert alone, with zeros beyond it, while every label comes from an oracle that reads the insert inside the plasmid. Showing the student 20 real plasmid bases on each side raises a single model's test r by about 0.07 (slides S1 to S3) and brings single models to the range of the collaborator's best search (S2, S4).</p>"
-        "<ul><li>The earlier menu, recipe, patience, ensemble and scaling results were all obtained without the context; whether they carry over is being measured (S5 and the live strip below).</li>"
+        "<p>Students trained on the 200-bp insert alone, with zeros beyond it, while every label comes from an oracle that reads the insert inside the plasmid. Showing the student 20 real plasmid bases on each side raises a single model's test r by about 0.07 (slides <<s1>> to <<s1c>>) and brings single models to the range of the collaborator's best search (<<s2>>, <<s4>>).</p>"
+        "<ul><li>The earlier menu, recipe, patience, ensemble and scaling results were all obtained without the context; whether they carry over is being measured (<<s5>> and the live strip below).</li>"
         "<li>The AutoResearch loop now takes the context as an option (built, under test); long runs at 10k and 30k follow.</li></ul></div>"
         f'<div class="live">{live}</div>'
         '<h2 class="dgrp">Why did you do it this way? Find the answer</h2>'
         + finder
         + f'<h2 class="dgrp">The evidence in slides (PowerPoint-ready PNGs)</h2><div class="jump">{jump}</div>'
         + "".join(body)
-        + f'<p class="note">Slide figures regenerate from the experiment outputs with scripts/analysis/make_deck_figures.py; captions for S1 to S5 read their numbers from data_pk35.json. Built {stamp}.</p></section>'
+        + f'<p class="note">Slide figures regenerate from the experiment outputs with scripts/analysis/make_deck_figures.py; captions of the context, benchmark and single-model slides read their numbers from data_pk35.json. Built {stamp}.</p></section>'
         + FINDER_JS
     )
+    for k_, n_ in idmap.items():
+        deck = deck.replace(f"<<{k_}>>", n_)
+    new_rows_tokens = idmap
     # header text and stamp
     inner = inner.replace("</header>", "</header>" + deck, 1)
     inner = re.sub(
@@ -450,11 +510,13 @@ def build(page, deck_dir, figs_dir, out, P):
     # parameter-table rows for the new choices
     new_rows = (
         '<tr><td><a href="#s1" id="student-input">What the student sees (input context)</a></td><td>200-bp insert plus real plasmid flank on each side (20 bases to start; the sweep to 200 is running). Training window shifts over real flank. Architectures must accept any input length divisible by 8.</td>'
-        '<td>Paired by architecture and seed: about +0.07 test r at 20 bases per side (slide S1); single models reach the collaborator\'s range (S2).</td><td><span class="chip s-running">Running</span></td>'
-        "<td>Which context size is enough; whether strategy rankings are unchanged (S5); five of the 20 menu architectures are hard-wired to 200 positions and need rewriting.</td></tr>"
+        '<td>Paired by architecture and seed: about +0.07 test r at 20 bases per side (slide <<s1>>); single models reach the collaborator\'s range (<<s2>>).</td><td><span class="chip s-running">Running</span></td>'
+        "<td>Which context size is enough; whether strategy rankings are unchanged (<<s5>>); five of the 20 menu architectures are hard-wired to 200 positions and need rewriting.</td></tr>"
         '<tr><td><a href="#s3">Weight averaging and BatchNorm recalculation</a></td><td>Off by default; available as harness switches.</td>'
-        '<td>+0.01 on a single model, no measurable gain in an ensemble of the same configurations (S3).</td><td><span class="chip s-provisional">Provisional</span></td><td>Arms still training; LegNet-style reference under the same switches.</td></tr>'
+        '<td>+0.01 on a single model, no measurable gain in an ensemble of the same configurations (<<s3>>).</td><td><span class="chip s-provisional">Provisional</span></td><td>Arms still training; LegNet-style reference under the same switches.</td></tr>'
     )
+    for k_, n_ in idmap.items():
+        new_rows = new_rows.replace(f"<<{k_}>>", n_)
     anchor = '<tr class="gr"><td colspan="5">4. The menu and its retraining</td></tr>'
     assert anchor in inner
     inner = inner.replace(anchor, new_rows + anchor, 1)
@@ -482,7 +544,7 @@ _ex(
     size="2438 x 989",
     title="The recipe the menu shares is the empirical winner of 1,712 proposed recipes, but the proposer's settings come as a package",
     read="Left: share of all candidates (grey) and of each run's best three (orange) that use the menu's setting. Middle: within each of 84 runs, Muon minus AdamW validation r. Right: how the proposer drifts toward the setting as it sees results.",
-    so="Share the recipe across students. Muon beats AdamW within 82 of 84 runs (+0.021), but Muon runs use weight decay 1e-4 and AdamW 0.01 or more, so the optimizer and the decay are confounded (slide S3 separates the recipe knobs).",
+    so="Share the recipe across students. Muon beats AdamW within 82 of 84 runs (+0.021), but Muon runs use weight decay 1e-4 and AdamW 0.01 or more, so the optimizer and the decay are confounded (slide <<s3>> separates the recipe knobs).",
     nums="Top 3 of each run: 91% Muon, 96% lr 2e-3, 88% wd 1e-4, 94% batch 256, 98% one-cycle. The recipe was not re-tuned per dataset size except patience and epochs.",
     change="A recipe arm that beats the shared recipe by more than the noise band on two reservoirs.",
     links=[("#recipe", "epochs and early stopping")],
@@ -675,7 +737,7 @@ _ex(
     read="1 - r against training-set size on log axes, one line per reservoir; steeper = gains faster with data.",
     so="Rank reservoirs by level at the deployed size; the rate differs by evaluation set.",
     nums="Genomic test r at 100k: genomic 0.830, motif CT 0.833, EvoAug 0.832, Evo2 0.832, mutagenesis 0.828, motif core 0.828, GC sweep 0.805, random 0.804, D3-64 0.819, D3-256 0.804, Zoonomia 0.769.",
-    change="Context changes the ordering (slide S5).",
+    change="Context changes the ordering (slide <<s5>>).",
     links=[("#fam", "reservoir families entry")],
 )
 _ex(

@@ -524,6 +524,163 @@ def fig_manager(Mg, out):
     save(fig, os.path.join(out, "deck_manager.png"))
 
 
+CTX_COLS = [
+    ("shift_only", "0*"),
+    ("c4", "4"),
+    ("c8", "8"),
+    ("c12", "12"),
+    ("c20", "20"),
+    ("c60", "60"),
+    ("c100", "100"),
+    ("c200", "200"),
+]
+SET_NAMES = {
+    "genomic": "genomic test (chr7/13)",
+    "ood": "designed high-activity",
+    "random_32k": "random sequences",
+    "gc_sweep": "GC sweep",
+    "dinuc_shuffle": "dinucleotide shuffle",
+    "snv_ref": "SNV, reference allele",
+    "snv_alt": "SNV, alternative allele",
+    "snv_delta": "SNV effect (alt - ref)",
+    "sub_low": "substitutions, low",
+    "sub_med": "substitutions, medium",
+    "sub_high": "substitutions, high",
+    "ins_low": "insertions, low",
+    "ins_med": "insertions, medium",
+    "ins_high": "insertions, high",
+    "del_low": "deletions, low",
+    "del_med": "deletions, medium",
+    "del_high": "deletions, high",
+    "translocation": "translocation",
+    "inversion": "inversion",
+}
+
+
+def fig_context_abs(C, out):
+    A = C["arms"]
+    cols = [(k, lab) for k, lab in CTX_COLS if k in A and A[k]["n"] >= 2]
+    if len(cols) < 3:
+        return
+    fig = slide(
+        "More context helps up to about 20 bases per side, then it stops",
+        "Mean single-model test r (solid) and the ensemble of the same architectures (open) with the given amount of real plasmid flank in the input, against the same architectures without it (grey). Genomic test, designed high-activity, random sequences and the SNV effect.",
+        "menu v1, 30k genomic training pool, oracle_v3 labels; each point uses the architectures that have finished for that arm (n under the tick), the grey reference is the unchanged menu on the same architectures; ensembles are positive ElasticNet stacks fitted on V0c. 0* = no extra bases, shift over real flank only.",
+    )
+    sets = ["genomic", "ood", "random_32k", "snv_delta"]
+    for j, st in enumerate(sets):
+        ax = fig.add_axes([0.06 + j * 0.24, 0.20, 0.20, 0.50])
+        xs = np.arange(len(cols))
+        single = np.array([A[k]["single"][st] for k, _ in cols])
+        ref = np.array(
+            [
+                A[k]["single"][st] - (A[k]["delta"][st]["mean"] if "delta" in A[k] else 0.0)
+                for k, _ in cols
+            ]
+        )
+        ax.plot(xs, ref, "--o", color=GREY, ms=5, lw=1.6, label="no context")
+        ax.plot(xs, single, "-o", color=BLUE, ms=7, lw=2.4, label="with context, mean single model")
+        ens = [
+            (i, A[k]["ens"][st], A[k]["ens_base_same"][st])
+            for i, (k, _) in enumerate(cols)
+            if "ens" in A[k]
+        ]
+        if ens:
+            ax.plot(
+                [e[0] for e in ens],
+                [e[1] for e in ens],
+                "-D",
+                mfc="white",
+                color=ORANGE,
+                ms=7,
+                lw=2,
+                label="with context, ensemble",
+            )
+            ax.plot(
+                [e[0] for e in ens],
+                [e[2] for e in ens],
+                ":D",
+                mfc="white",
+                color=GREY,
+                ms=5,
+                lw=1.4,
+                label="no context, ensemble",
+            )
+        ax.set_xticks(xs)
+        ax.set_xticklabels([f"{lab}\nn={A[k]['n']}" for k, lab in cols], fontsize=8.5)
+        ax.set_title(SET_NAMES[st], fontsize=13)
+        ax.set_xlabel("real flank bases per side", fontsize=11)
+        if j == 0:
+            ax.set_ylabel("Pearson r against the oracle", fontsize=12)
+            ax.legend(fontsize=8.5, frameon=False, loc="lower right")
+    save(fig, os.path.join(out, "deck_context_effect_absolute.png"))
+
+
+def fig_context_heat(C, out):
+    A = C["arms"]
+    cols = [(k, lab) for k, lab in CTX_COLS if k in A and A[k]["n"] >= 2]
+    if len(cols) < 3:
+        return
+    rows = [
+        "genomic",
+        "ood",
+        "random_32k",
+        "gc_sweep",
+        "dinuc_shuffle",
+        "snv_ref",
+        "snv_alt",
+        "snv_delta",
+        "sub_low",
+        "sub_med",
+        "sub_high",
+        "ins_low",
+        "ins_med",
+        "ins_high",
+        "del_low",
+        "del_med",
+        "del_high",
+        "translocation",
+        "inversion",
+    ]
+    M = np.array([[A[k]["delta"][r]["mean"] for k, _ in cols] for r in rows])
+    fig = slide(
+        "Every evaluation set gains from context, the SNV effect most (+0.12 with 20 bases per side)",
+        "Paired change in single-model Pearson r (same architecture, same seed) from adding real plasmid flank to the input, on all 18 evaluation sets of the battery and the SNV effect. Darker = larger gain.",
+        "menu v1, 30k genomic training pool, oracle_v3 labels; n = architectures that have finished for the arm (15 can take wider input); the first column is the shift over real flank without extra input.",
+        figsize=(13.333, 9.0),
+    )
+    ax = fig.add_axes([0.25, 0.11, 0.72, 0.60])
+    im = ax.imshow(M, aspect="auto", cmap="Blues", vmin=-0.01, vmax=max(0.13, np.nanmax(M)))
+    for i in range(M.shape[0]):
+        for j in range(M.shape[1]):
+            ax.text(
+                j,
+                i,
+                f"{M[i, j]:+.3f}",
+                ha="center",
+                va="center",
+                fontsize=10,
+                color="white" if M[i, j] > 0.075 else INK,
+            )
+    ax.set_xticks(range(len(cols)))
+    ax.set_xticklabels([f"{lab}\nn={A[k]['n']}" for k, lab in cols], fontsize=10)
+    ax.xaxis.tick_top()
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([SET_NAMES[r] for r in rows], fontsize=11)
+    ax.set_xlabel(
+        "real flank bases per side given as input (first column: shift over real flank, no extra input)",
+        fontsize=11,
+        labelpad=6,
+    )
+    ax.xaxis.set_label_position("bottom")
+    ax.grid(False)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    ax.axhline(7.5, color="white", lw=3)
+    ax.axhline(4.5, color="white", lw=3)
+    save(fig, os.path.join(out, "deck_context_effect_allsets.png"))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="slide_figures/benchmarks")
@@ -532,6 +689,11 @@ def main():
     P = json.load(open(f"{a.data}/data_pk35.json"))
     Mg = json.load(open(f"{a.data}/data_mgr34.json"))
     fig_flank(P, a.out)
+    cp = f"{a.data}/data_context_allsets.json"
+    if os.path.exists(cp):
+        C = json.load(open(cp))
+        fig_context_abs(C, a.out)
+        fig_context_heat(C, a.out)
     fig_scatter(P, a.out)
     fig_forest(P, a.out)
     fig_ladder(P, None, a.out)

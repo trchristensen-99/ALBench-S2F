@@ -2,7 +2,7 @@
 #!/usr/bin/env python
 """Compile the Oct 13-14 reservoir-scaling results (13 reservoirs in 5 families x D in {10k, 30k, 100k}, oracle_v3, llm2x20 HP search, cells in outputs/scaling_canonical_oct13) into tables.
 
-Per cell (reservoir, D), on three fixed eval sets scored against the oracle (genomic test chr7/13, designed high-activity "ood", random_32k):
+Per cell (reservoir, D), on every evaluation set of the battery, scored against the oracle: genomic test chr7/13, designed high-activity "ood", random_32k, GC sweep, dinucleotide shuffle, SNV reference and alternative alleles and the SNV effect (alt minus ref), substitution / insertion / deletion sets at three strengths, translocation, inversion:
   n_models        trained models in the cell
   f4_first6       F4 metric: mean single-model Pearson r of the first 6 models of the search (rounds 0-2), equal search budget at every size and strategy
   top8_by_val     mean single-model r of the 8 models with the best validation r (the preliminary plot of Oct 14)
@@ -34,7 +34,29 @@ FAMILIES = [
     ("model-based", ["d3_steps64", "evo2"]),
 ]
 DS = [10000, 30000, 100000]
-EVALS = ["genomic", "ood", "random_32k"]
+EVALS = [
+    "genomic",
+    "ood",
+    "random_32k",
+    "gc_sweep",
+    "dinuc_shuffle",
+    "snv_ref",
+    "snv_alt",
+    "sub_low",
+    "sub_med",
+    "sub_high",
+    "ins_low",
+    "ins_med",
+    "ins_high",
+    "del_low",
+    "del_med",
+    "del_high",
+    "translocation",
+    "inversion",
+]
+OUTSETS = EVALS + [
+    "snv_delta"
+]  # snv_delta = predicted alt minus ref against the oracle's alt minus ref
 MAXM = 40
 VALSUB = 8000
 
@@ -72,14 +94,15 @@ def load(res, D):
             not np.isfinite(x).all() or np.abs(x).max() > 1e3 for x in t.values()
         ):
             continue
-        ps = m.get("per_set_metrics", {})
+        ps = {e: pear(t[e], yte[e]) for e in EVALS}
+        ps["snv_delta"] = pear(t["snv_alt"] - t["snv_ref"], yte["snv_alt"] - yte["snv_ref"])
         ms.append(
             {
                 "id": m["model_id"],
                 "round": m.get("round", 0),
                 "val": v,
                 "test": t,
-                "ps": {e: ps.get(e, {}).get("pearson") for e in EVALS},
+                "ps": ps,
                 "valr": pear(v, yval),
             }
         )
@@ -113,7 +136,12 @@ def enet(cols, V, T, yval, yte, sub):
     en = ElasticNetCV(
         cv=5, n_alphas=40, max_iter=5000, l1_ratio=[0.1, 0.5, 0.9], positive=True
     ).fit(V[np.ix_(sub, cols)], yval[sub])
-    return {e: pear(en.predict(T[e][:, cols]), yte[e]) for e in EVALS}
+    out = {e: pear(en.predict(T[e][:, cols]), yte[e]) for e in EVALS}
+    out["snv_delta"] = pear(
+        en.predict(T["snv_alt"][:, cols]) - en.predict(T["snv_ref"][:, cols]),
+        yte["snv_alt"] - yte["snv_ref"],
+    )
+    return out
 
 
 def main():
@@ -146,7 +174,7 @@ def main():
                 g = greedy(V, yval, sub)
                 eg = enet(g, V, T, yval, yte, sub)
                 ea = enet(list(range(V.shape[1])), V, T, yval, yte, sub)
-                for e in EVALS:
+                for e in OUTSETS:
                     rows.append(
                         {
                             "family": fam,
@@ -155,21 +183,32 @@ def main():
                             "eval": e,
                             "n_models": n,
                             "n_in_ensemble": len(use),
-                            "f4_first6": np.mean(
-                                [m["ps"][e] for m in first6 if m["ps"][e] is not None]
-                            )
+                            "f4_first6": np.mean([m["ps"][e] for m in first6])
                             if len(first6)
                             else None,
                             "n_first6": len(first6),
-                            "top8_by_val": np.mean(
-                                [m["ps"][e] for m in top8 if m["ps"][e] is not None]
+                            "top8_by_val": np.mean([m["ps"][e] for m in top8]),
+                            "best_single": (
+                                pear(T[e][:, best], yte[e])
+                                if e != "snv_delta"
+                                else pear(
+                                    T["snv_alt"][:, best] - T["snv_ref"][:, best],
+                                    yte["snv_alt"] - yte["snv_ref"],
+                                )
                             ),
-                            "best_single": pear(T[e][:, best], yte[e]),
                             "enet_greedy_k5": eg[e],
                             "enet_all_pos": ea[e],
                         }
                     )
-                print(fam, res, D, "n", n, {e: round(eg[e], 4) for e in EVALS}, flush=True)
+                print(
+                    fam,
+                    res,
+                    D,
+                    "n",
+                    n,
+                    {e: round(eg[e], 4) for e in ("genomic", "ood", "random_32k", "snv_delta")},
+                    flush=True,
+                )
     keys = list(rows[0].keys())
     with open(f"{a.out}/scaling_oct14_long.csv", "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=keys)

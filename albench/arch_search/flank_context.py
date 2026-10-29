@@ -32,24 +32,58 @@ def wide_onehot(seqs, margin: int) -> np.ndarray:
 
 
 def _crop_module():
+    import torch
     import torch.nn as nn
 
     class WideCrop(nn.Module):
-        """Feeds ``net`` a ``200 + 2*ctx`` window of a wider input; random shift in +-shift while training, centred otherwise."""
+        """Feeds ``net`` a ``200 + 2*ctx`` window of a wider input.
 
-        def __init__(self, net, ctx: int, shift: int):
+        Training: a random shift in +-shift real bases, the same for the whole batch (default) or drawn per sample (``per_sample``), applied with probability ``prob`` (the oracle shifts +-15 on half of its
+        samples). Evaluation: the centred window, or, with ``tta`` = k > 0, the mean prediction over the offsets -k, -k/2, 0, k/2, k (needs k <= shift).
+        """
+
+        def __init__(
+            self,
+            net,
+            ctx: int,
+            shift: int,
+            per_sample: bool = False,
+            prob: float = 1.0,
+            tta: int = 0,
+        ):
             super().__init__()
             self.net, self.ctx, self.shift = net, int(ctx), int(shift)
+            self.per_sample, self.prob, self.tta = bool(per_sample), float(prob), int(tta)
+            if self.tta > self.shift:
+                raise ValueError("tta offsets must stay inside the shift margin")
             self.width = INSERT + 2 * self.ctx
 
+        def _window(self, x, offset):
+            lo = (x.shape[-1] - self.width) // 2 + offset
+            return x[:, :, lo : lo + self.width]
+
         def forward(self, x):
-            lo = (x.shape[-1] - self.width) // 2
             if self.training and self.shift > 0:
-                lo += random.randint(-self.shift, self.shift)
-            return self.net(x[:, :, lo : lo + self.width])
+                if self.per_sample:
+                    b = x.shape[0]
+                    off = torch.randint(-self.shift, self.shift + 1, (b,), device=x.device)
+                    if self.prob < 1.0:
+                        off = torch.where(
+                            torch.rand(b, device=x.device) < self.prob, off, torch.zeros_like(off)
+                        )
+                    lo = (x.shape[-1] - self.width) // 2 + off
+                    idx = lo[:, None] + torch.arange(self.width, device=x.device)[None, :]
+                    return self.net(x.gather(2, idx[:, None, :].expand(-1, x.shape[1], -1)))
+                off = random.randint(-self.shift, self.shift) if random.random() < self.prob else 0
+                return self.net(self._window(x, off))
+            if not self.training and self.tta > 0:
+                k = self.tta
+                outs = [self.net(self._window(x, o)) for o in sorted({-k, -k // 2, 0, k // 2, k})]
+                return sum(outs) / len(outs)
+            return self.net(self._window(x, 0))
 
     return WideCrop
 
 
-def wrap(net, ctx: int, shift: int):
-    return _crop_module()(net, ctx, shift)
+def wrap(net, ctx: int, shift: int, per_sample: bool = False, prob: float = 1.0, tta: int = 0):
+    return _crop_module()(net, ctx, shift, per_sample, prob, tta)
