@@ -47,6 +47,7 @@ KEEP_FILES = (
 # tests of the live package; the AutoResearch loop tests, the legacy experiment-utility tests and tests that need absent data are left out
 KEEP_TESTS = (
     "tests/test_menu.py",
+    "tests/test_flank_context.py",
     "tests/test_acquisition.py",
     "tests/test_registry.py",
     "tests/test_pools.py",

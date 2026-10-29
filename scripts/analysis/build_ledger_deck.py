@@ -289,6 +289,11 @@ def slides(P):
 def finder_rows():
     return [
         (
+            "What input do the students see?",
+            "The 200-bp insert inside its real plasmid sequence: 20 bases on each side (240 bp), training shift +-10 over the real flank, both strands averaged. This is fixed in the harness, so proposals and new runs cannot change it.",
+            ["s1", "s2"],
+        ),
+        (
             "Why was our old student so much worse than the collaborator's?",
             "It saw the 200-bp insert alone; the oracle and the assay see it inside the plasmid. Adding 20 real bases of flank each side lifts a single model by about +0.07.",
             ["s1", "s2"],
@@ -440,7 +445,14 @@ def build(page, deck_dir, figs_dir, out, P):
             "Fairness (10 reservoirs)",
             f"{sum(1 for v in P.get('fairness', {}).values() if v['complete'])} of 10 complete",
         ),
-        ("Loop with context", "built and under test; long runs (10k, 30k) queued next"),
+        (
+            "Student input (fixed standard)",
+            "insert + 20 real plasmid bases each side (240 bp), shift +-10; changed only if the sweeps beat it",
+        ),
+        (
+            "Steering experiment (st38)",
+            "5 arms of the AutoResearch loop on genomic 10k, then 30k and other reservoirs; running",
+        ),
     ]
     live = "".join(f'<div class="pill"><b>{esc(a)}</b>{esc(b)}</div>' for a, b in pills)
     # finder
