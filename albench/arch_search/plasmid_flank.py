@@ -1,9 +1,22 @@
-"""Constant plasmid sequence on each side of the 200-bp MPRA insert (the context the oracle sees), trimmed to what a shift of up to +-{N} bp can pull in.
+"""Constant plasmid sequence on each side of the 200-bp MPRA insert (the context the oracle sees).
 
-Source: data/k562_full.py MPRA_UPSTREAM (last 40 bases) and MPRA_DOWNSTREAM (first 40 bases), the same constants experiments/train_oracle_s2_v2.py uses. Used by the student harness when
-AL_FLANK_SHIFT=1, so that a shifted training window takes real flank bases in instead of zeros.
+Source: data/k562_full.py MPRA_UPSTREAM / MPRA_DOWNSTREAM (the last / first 300 bases next to the insert), the same constants experiments/train_oracle_s2_v2.py uses. Two consumers: AL_FLANK_SHIFT=1,
+where a shifted training window takes real flank bases in instead of zeros (needs only the nearest N = 40 bases), and albench.arch_search.flank_context, where a student is given F real flank bases on
+each side as input (flank-context experiments).
 """
 
+UPSTREAM_FULL = (
+    "ACGAAAATGTTGGATGCTCATACTCGTCCTTTTTCAATATTATTGAAGCATTTATCAGGGTTACTAGTACGTCTCTCAAGGATAAGTAAGTAATATTAAG"
+    "GTACGGGAGGTATTGGACAGGCCGCAATAAAATATCTTTATTTTCATTACATCTGTGTGTTGGTTTTTTGTGTGAATCGATAGTACTAACATACGCTCTC"
+    "CATCAAAACAAAACGAAACAAAACAAACTAGCAAAATAGGCTGTCCCCAGTGCAAGTGCAGGTGCCAGAACATTTCTCTGGCCTAACTGGCCGCTTGACG"
+)
+
+DOWNSTREAM_FULL = (
+    "CACTGCGGCTCCTGCGATCTAACTGGCCGGTACCTGAGCTCGCTAGCCTCGAGGATATCAAGATCTGGCCTCGGCGGCCAAGCTTAGACACTAGAGGGTA"
+    "TATAATGGAAGCTCGACTTCCAGCTTGGCAATCCGGTACTGTTGGTAAAGCCACCATGGTGAGCAAGGGCGAGGAGCTGTTCACCGGGGTGGTGCCCATC"
+    "CTGGTCGAGCTGGACGGCGACGTAAACGGCCACAAGTTCAGCGTGTCCGGCGAGGGCGAGGGCGATGCCACCTACGGCAAGCTGACCCTGAAGTTCATCT"
+)
+
 N = 40
-UPSTREAM_TAIL = "GGTGCCAGAACATTTCTCTGGCCTAACTGGCCGCTTGACG"
-DOWNSTREAM_HEAD = "CACTGCGGCTCCTGCGATCTAACTGGCCGGTACCTGAGCT"
+UPSTREAM_TAIL = UPSTREAM_FULL[-N:]
+DOWNSTREAM_HEAD = DOWNSTREAM_FULL[:N]
