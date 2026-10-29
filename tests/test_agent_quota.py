@@ -96,3 +96,33 @@ def test_feature_coverage_counts_source(tmp_path):
         "recurrent: 1" in t and "self-attention: 1" in t and "dense / concatenation skips: 1" in t
     )
     assert "NOT YET TRIED" in t and "state-space" in t and "training recipes used" not in t
+
+
+class UserSpy(CoordLLM):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.proposer_users: list[str] = []
+
+    def __call__(self, system, user, model=None):
+        if "You are the PROPOSER" in system:
+            self.proposer_users.append(user)
+        return super().__call__(system, user, model)
+
+
+@pytest.mark.parametrize("recipe_source,kept", [("harness", False), ("proposal", True)])
+def test_training_note_is_dropped_only_for_harness_recipes(
+    tmp_path, monkeypatch, recipe_source, kept
+):
+    """The real launcher puts the input-context paragraph after the training note; a suffix test on the note missed it."""
+    monkeypatch.delenv("AL_RECIPE_MODE", raising=False)
+    h = make_harness(tmp_path)
+    h.guidance_note = lambda rd: "GUIDANCE-BLOCK\n\n" + h.train_note + "\n\nINPUT CONTEXT: L = 240"
+    args = make_args(
+        tmp_path, rounds=1, agent_cfg=cfg(manager="quota", recipe_source=recipe_source)
+    )
+    llm = UserSpy()
+    al.run_agent_loop(args, h, llm=llm)
+    assert llm.proposer_users
+    for u in llm.proposer_users:
+        assert "GUIDANCE-BLOCK" in u and "INPUT CONTEXT: L = 240" in u
+        assert ("TRAINNOTE" in u) is kept

@@ -667,6 +667,10 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
     note = h.guidance_note(rd)
     guidance = note[: -len(h.train_note)].rstrip() if note.endswith(h.train_note) else note
     harness_recipe = ctx.cfg.recipe_source == "harness"
+    if harness_recipe:
+        # with context the launcher appends its input-context paragraph AFTER the training note, so the suffix test above
+        # misses it; the proposer must never be told it may choose a recipe
+        guidance = re.sub(r"\n{3,}", "\n\n", guidance.replace(h.train_note, "")).strip()
     setup = (PROPOSER_SETUP_HARNESS if harness_recipe else PROPOSER_SETUP).format(
         max_min=h.cap_min, max_params=args.max_params
     )
