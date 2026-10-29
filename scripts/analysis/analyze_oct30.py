@@ -37,7 +37,15 @@ STRATS = [
     ("motif_shared_core", "motif, shared core", "motif"),
     ("random", "uniform random", "random"),
     ("random_gc_sweep", "random, GC 25-75% batches", "random"),
+    ("d3_steps64", "D3 diffusion, 64 steps", "model"),
+    ("d3_steps256", "D3 diffusion, 256 steps", "model"),
+    ("evo2", "Evo2 regeneration", "model"),
 ]
+SC32 = (
+    "d3_steps64",
+    "d3_steps256",
+    "evo2",
+)  # collaborator reservoirs: same design, cells named sc32_
 SIZES = (10_000, 30_000, 100_000)
 FIRST = 6  # menu positions every cell has trained (the unstarted top-up and 100k cells were cut to the first 6 at 06:55 to fit the time)
 DATA: dict = {}
@@ -104,7 +112,7 @@ def an_scale():
     for st, label, fam in STRATS:
         res[st] = {"label": label, "family": fam, "sizes": {}}
         for D in SIZES:
-            cell = load_cell(f"{MR}/sc31_{D // 1000}k_{st}")
+            cell = load_cell(f"{MR}/{'sc32' if st in SC32 else 'sc31'}_{D // 1000}k_{st}")
             src = "sc31"
             V1VAL = {
                 "genomic": "v1_100k_genomic_r1",
@@ -258,6 +266,7 @@ def figures(out):
         "perturbation": "#c4571a",
         "motif": "#2a8f5b",
         "random": "#7a5195",
+        "model": "#b08a2e",
     }
     names = {
         "genomic": "genomic test set (chr7/13)",

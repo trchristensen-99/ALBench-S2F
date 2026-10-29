@@ -1,0 +1,1572 @@
+{
+ "runs": {
+  "c15": {
+   "1": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.765192234490974,
+     "ood": 0.26883666583182253,
+     "random_32k": 0.7018121674887183,
+     "genomic_measured": 0.7269768161328473
+    },
+    "describe20": {
+     "pairwise_corr": 0.8638299177100733,
+     "n_recipes": 13,
+     "share_not_muon": 0.4,
+     "share_not_default_recipe": 0.55,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 1,
+     "attn_pool": 3,
+     "best_single_val": 0.8150719510524903,
+     "best_single_test": 0.7322774686448786,
+     "mean_single_test": 0.6987596837878871
+    },
+    "stack30": {
+     "genomic": 0.766150192428,
+     "ood": 0.27215442697475734,
+     "random_32k": 0.7028317120687542,
+     "genomic_measured": 0.7279129928873886
+    },
+    "describe30": {
+     "pairwise_corr": 0.8555670276702988,
+     "n_recipes": 16,
+     "share_not_muon": 0.43333333333333335,
+     "share_not_default_recipe": 0.5666666666666667,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 2,
+     "dilated": 1,
+     "attn_pool": 4,
+     "best_single_val": 0.8150719510524903,
+     "best_single_test": 0.7322774686448786,
+     "mean_single_test": 0.6905347631105069
+    }
+   },
+   "2": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7727222503242266,
+     "ood": 0.26951791151287163,
+     "random_32k": 0.6942225120636429,
+     "genomic_measured": 0.7350363284851514
+    },
+    "describe20": {
+     "pairwise_corr": 0.868141924373815,
+     "n_recipes": 11,
+     "share_not_muon": 0.15,
+     "share_not_default_recipe": 0.35,
+     "self_attention": 2,
+     "recurrent": 1,
+     "updown": 2,
+     "dilated": 1,
+     "attn_pool": 7,
+     "best_single_val": 0.8196888871607871,
+     "best_single_test": 0.7447741545993817,
+     "mean_single_test": 0.7044923775780202
+    },
+    "stack30": {
+     "genomic": 0.7730104867887602,
+     "ood": 0.2712351242272112,
+     "random_32k": 0.6949418343242904,
+     "genomic_measured": 0.7353104362843038
+    },
+    "describe30": {
+     "pairwise_corr": 0.8642515390663544,
+     "n_recipes": 14,
+     "share_not_muon": 0.26666666666666666,
+     "share_not_default_recipe": 0.4,
+     "self_attention": 3,
+     "recurrent": 1,
+     "updown": 3,
+     "dilated": 1,
+     "attn_pool": 8,
+     "best_single_val": 0.8196888871607871,
+     "best_single_test": 0.7447741545993817,
+     "mean_single_test": 0.6986898408545
+    }
+   },
+   "3": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7657137130313277,
+     "ood": 0.25056985760299316,
+     "random_32k": 0.6907430817789816,
+     "genomic_measured": 0.7278466745275131
+    },
+    "describe20": {
+     "pairwise_corr": 0.8624548970816998,
+     "n_recipes": 9,
+     "share_not_muon": 0.2,
+     "share_not_default_recipe": 0.45,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 2,
+     "dilated": 3,
+     "attn_pool": 3,
+     "best_single_val": 0.8145999899488774,
+     "best_single_test": 0.7380805915246913,
+     "mean_single_test": 0.7001080414554942
+    },
+    "stack30": {
+     "genomic": 0.7640582068959019,
+     "ood": 0.24679708877044199,
+     "random_32k": 0.6873783803663449,
+     "genomic_measured": 0.7263650005525031
+    },
+    "describe30": {
+     "pairwise_corr": 0.8528798173511506,
+     "n_recipes": 12,
+     "share_not_muon": 0.23333333333333334,
+     "share_not_default_recipe": 0.4666666666666667,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 2,
+     "dilated": 3,
+     "attn_pool": 3,
+     "best_single_val": 0.8145999899488774,
+     "best_single_test": 0.7380805915246913,
+     "mean_single_test": 0.6892314476407377
+    }
+   },
+   "4": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7738542692536884,
+     "ood": 0.2757573544828164,
+     "random_32k": 0.7019553009742572,
+     "genomic_measured": 0.736073868618259
+    },
+    "describe20": {
+     "pairwise_corr": 0.8644162104406279,
+     "n_recipes": 10,
+     "share_not_muon": 0.2,
+     "share_not_default_recipe": 0.5,
+     "self_attention": 0,
+     "recurrent": 1,
+     "updown": 2,
+     "dilated": 1,
+     "attn_pool": 1,
+     "best_single_val": 0.8275062999347099,
+     "best_single_test": 0.7534590492072233,
+     "mean_single_test": 0.700136398455233
+    },
+    "stack30": {
+     "genomic": 0.7755954418051215,
+     "ood": 0.2744032962564404,
+     "random_32k": 0.7082134057391243,
+     "genomic_measured": 0.7376937352852552
+    },
+    "describe30": {
+     "pairwise_corr": 0.8466937852958433,
+     "n_recipes": 13,
+     "share_not_muon": 0.23333333333333334,
+     "share_not_default_recipe": 0.6,
+     "self_attention": 0,
+     "recurrent": 1,
+     "updown": 2,
+     "dilated": 1,
+     "attn_pool": 2,
+     "best_single_val": 0.8275062999347099,
+     "best_single_test": 0.7534590492072233,
+     "mean_single_test": 0.6897757617034945
+    }
+   },
+   "5": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7634897631501126,
+     "ood": 0.2541256873130731,
+     "random_32k": 0.690808669190617,
+     "genomic_measured": 0.7255824190112415
+    },
+    "describe20": {
+     "pairwise_corr": 0.8688177327253017,
+     "n_recipes": 11,
+     "share_not_muon": 0.35,
+     "share_not_default_recipe": 0.5,
+     "self_attention": 3,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 0,
+     "attn_pool": 5,
+     "best_single_val": 0.8231947313201445,
+     "best_single_test": 0.7446656276252508,
+     "mean_single_test": 0.7049339591070986
+    },
+    "stack30": {
+     "genomic": 0.7631550157548231,
+     "ood": 0.25521561972840523,
+     "random_32k": 0.6913252436799764,
+     "genomic_measured": 0.7253238354235396
+    },
+    "describe30": {
+     "pairwise_corr": 0.848829879112969,
+     "n_recipes": 17,
+     "share_not_muon": 0.4666666666666667,
+     "share_not_default_recipe": 0.6,
+     "self_attention": 4,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 0,
+     "attn_pool": 7,
+     "best_single_val": 0.8231947313201445,
+     "best_single_test": 0.7446656276252508,
+     "mean_single_test": 0.6907267666833312
+    }
+   },
+   "6": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7768338424226413,
+     "ood": 0.2685700647760824,
+     "random_32k": 0.7078859048694395,
+     "genomic_measured": 0.7384694450609441
+    },
+    "describe20": {
+     "pairwise_corr": 0.8792278933517378,
+     "n_recipes": 14,
+     "share_not_muon": 0.2,
+     "share_not_default_recipe": 0.45,
+     "self_attention": 0,
+     "recurrent": 2,
+     "updown": 6,
+     "dilated": 3,
+     "attn_pool": 4,
+     "best_single_val": 0.8264445840250196,
+     "best_single_test": 0.7532617514098625,
+     "mean_single_test": 0.7173856583667709
+    },
+    "stack30": {
+     "genomic": 0.7783098795245409,
+     "ood": 0.2745426929283966,
+     "random_32k": 0.707888439698152,
+     "genomic_measured": 0.7399477564569578
+    },
+    "describe30": {
+     "pairwise_corr": 0.8689719450930807,
+     "n_recipes": 17,
+     "share_not_muon": 0.2,
+     "share_not_default_recipe": 0.4666666666666667,
+     "self_attention": 0,
+     "recurrent": 2,
+     "updown": 6,
+     "dilated": 3,
+     "attn_pool": 5,
+     "best_single_val": 0.8264445840250196,
+     "best_single_test": 0.7532617514098625,
+     "mean_single_test": 0.7074655552873934
+    }
+   }
+  },
+  "s15": {
+   "1": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7769406827487143,
+     "ood": 0.25930215393571343,
+     "random_32k": 0.7065508107069363,
+     "genomic_measured": 0.738149584209108
+    },
+    "describe20": {
+     "pairwise_corr": 0.8302875705576646,
+     "n_recipes": 17,
+     "share_not_muon": 0.4,
+     "share_not_default_recipe": 0.7,
+     "self_attention": 1,
+     "recurrent": 2,
+     "updown": 7,
+     "dilated": 0,
+     "attn_pool": 13,
+     "best_single_val": 0.824296989824855,
+     "best_single_test": 0.7559662662248298,
+     "mean_single_test": 0.6881052702357078
+    },
+    "stack30": {
+     "genomic": 0.7793366276562488,
+     "ood": 0.27001859578790066,
+     "random_32k": 0.7097536521601591,
+     "genomic_measured": 0.7404120311948125
+    },
+    "describe30": {
+     "pairwise_corr": 0.8495493116036988,
+     "n_recipes": 21,
+     "share_not_muon": 0.26666666666666666,
+     "share_not_default_recipe": 0.6666666666666666,
+     "self_attention": 2,
+     "recurrent": 2,
+     "updown": 15,
+     "dilated": 0,
+     "attn_pool": 21,
+     "best_single_val": 0.824296989824855,
+     "best_single_test": 0.7559662662248298,
+     "mean_single_test": 0.7026205361252984
+    }
+   },
+   "2": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7753996263641919,
+     "ood": 0.275516555135222,
+     "random_32k": 0.6928077694880133,
+     "genomic_measured": 0.7370646518644809
+    },
+    "describe20": {
+     "pairwise_corr": 0.8679002907223384,
+     "n_recipes": 15,
+     "share_not_muon": 0.65,
+     "share_not_default_recipe": 0.65,
+     "self_attention": 2,
+     "recurrent": 2,
+     "updown": 9,
+     "dilated": 3,
+     "attn_pool": 7,
+     "best_single_val": 0.8296248976742913,
+     "best_single_test": 0.7585453902670632,
+     "mean_single_test": 0.7065048540753195
+    },
+    "stack30": {
+     "genomic": 0.7765348159450912,
+     "ood": 0.28058807909849465,
+     "random_32k": 0.6943675910240078,
+     "genomic_measured": 0.7382723376996275
+    },
+    "describe30": {
+     "pairwise_corr": 0.8753131442199867,
+     "n_recipes": 19,
+     "share_not_muon": 0.4666666666666667,
+     "share_not_default_recipe": 0.5333333333333333,
+     "self_attention": 3,
+     "recurrent": 3,
+     "updown": 19,
+     "dilated": 3,
+     "attn_pool": 9,
+     "best_single_val": 0.8296248976742913,
+     "best_single_test": 0.7585453902670632,
+     "mean_single_test": 0.710614333420704
+    }
+   },
+   "3": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7699839593428186,
+     "ood": 0.2667925551227666,
+     "random_32k": 0.706940589900117,
+     "genomic_measured": 0.7323132398443831
+    },
+    "describe20": {
+     "pairwise_corr": 0.8646936501371832,
+     "n_recipes": 15,
+     "share_not_muon": 0.55,
+     "share_not_default_recipe": 0.7,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 2,
+     "dilated": 0,
+     "attn_pool": 7,
+     "best_single_val": 0.8219184424328829,
+     "best_single_test": 0.7497656935441328,
+     "mean_single_test": 0.6940885990237928
+    },
+    "stack30": {
+     "genomic": 0.7747923702153876,
+     "ood": 0.27288726407515423,
+     "random_32k": 0.7120774755406923,
+     "genomic_measured": 0.7367116295302307
+    },
+    "describe30": {
+     "pairwise_corr": 0.8677797791303979,
+     "n_recipes": 17,
+     "share_not_muon": 0.43333333333333335,
+     "share_not_default_recipe": 0.6333333333333333,
+     "self_attention": 1,
+     "recurrent": 3,
+     "updown": 4,
+     "dilated": 0,
+     "attn_pool": 10,
+     "best_single_val": 0.8219184424328829,
+     "best_single_test": 0.7497656935441328,
+     "mean_single_test": 0.6997723003478674
+    }
+   },
+   "4": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7651022744378814,
+     "ood": 0.2670852614761735,
+     "random_32k": 0.6883929286570509,
+     "genomic_measured": 0.7272079771225198
+    },
+    "describe20": {
+     "pairwise_corr": 0.8543390356126622,
+     "n_recipes": 14,
+     "share_not_muon": 0.45,
+     "share_not_default_recipe": 0.65,
+     "self_attention": 1,
+     "recurrent": 6,
+     "updown": 10,
+     "dilated": 1,
+     "attn_pool": 6,
+     "best_single_val": 0.8156297662344887,
+     "best_single_test": 0.7388177885792055,
+     "mean_single_test": 0.6952490672403551
+    },
+    "stack30": {
+     "genomic": 0.7719851619613776,
+     "ood": 0.28672612858852553,
+     "random_32k": 0.6943000121846484,
+     "genomic_measured": 0.7334920703344011
+    },
+    "describe30": {
+     "pairwise_corr": 0.8576789643389914,
+     "n_recipes": 17,
+     "share_not_muon": 0.3333333333333333,
+     "share_not_default_recipe": 0.5333333333333333,
+     "self_attention": 1,
+     "recurrent": 16,
+     "updown": 18,
+     "dilated": 1,
+     "attn_pool": 9,
+     "best_single_val": 0.8198230982250378,
+     "best_single_test": 0.7401056873543507,
+     "mean_single_test": 0.7023075152828706
+    }
+   },
+   "5": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7720386686668856,
+     "ood": 0.26582974702956885,
+     "random_32k": 0.6984014774135653,
+     "genomic_measured": 0.7339599418075
+    },
+    "describe20": {
+     "pairwise_corr": 0.8642523907641522,
+     "n_recipes": 14,
+     "share_not_muon": 0.45,
+     "share_not_default_recipe": 0.7,
+     "self_attention": 4,
+     "recurrent": 1,
+     "updown": 3,
+     "dilated": 2,
+     "attn_pool": 12,
+     "best_single_val": 0.8245102607011093,
+     "best_single_test": 0.7504867553519691,
+     "mean_single_test": 0.704909355247849
+    },
+    "stack30": {
+     "genomic": 0.7780275817457774,
+     "ood": 0.2696974128596288,
+     "random_32k": 0.707217892435056,
+     "genomic_measured": 0.7397409800018379
+    },
+    "describe30": {
+     "pairwise_corr": 0.8705504974489826,
+     "n_recipes": 17,
+     "share_not_muon": 0.36666666666666664,
+     "share_not_default_recipe": 0.7,
+     "self_attention": 7,
+     "recurrent": 2,
+     "updown": 3,
+     "dilated": 2,
+     "attn_pool": 16,
+     "best_single_val": 0.8337948822268737,
+     "best_single_test": 0.7547714381945722,
+     "mean_single_test": 0.7117586577270553
+    }
+   },
+   "6": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7717490064485115,
+     "ood": 0.2609760492079935,
+     "random_32k": 0.7019988112064378,
+     "genomic_measured": 0.7338826132773909
+    },
+    "describe20": {
+     "pairwise_corr": 0.874111428984547,
+     "n_recipes": 18,
+     "share_not_muon": 0.55,
+     "share_not_default_recipe": 0.85,
+     "self_attention": 2,
+     "recurrent": 1,
+     "updown": 5,
+     "dilated": 2,
+     "attn_pool": 4,
+     "best_single_val": 0.8190820520121048,
+     "best_single_test": 0.7479348484381286,
+     "mean_single_test": 0.7118308247604356
+    },
+    "stack30": {
+     "genomic": 0.7765939611854844,
+     "ood": 0.2706633354332851,
+     "random_32k": 0.7035601197575599,
+     "genomic_measured": 0.7388418101029987
+    },
+    "describe30": {
+     "pairwise_corr": 0.8780466254615907,
+     "n_recipes": 22,
+     "share_not_muon": 0.36666666666666664,
+     "share_not_default_recipe": 0.6666666666666666,
+     "self_attention": 6,
+     "recurrent": 2,
+     "updown": 5,
+     "dilated": 2,
+     "attn_pool": 12,
+     "best_single_val": 0.832133879855447,
+     "best_single_test": 0.755788674923777,
+     "mean_single_test": 0.7168975430601141
+    }
+   }
+  },
+  "e15": {
+   "1": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7675156443084197,
+     "ood": 0.2643404233883603,
+     "random_32k": 0.6943539612674684,
+     "genomic_measured": 0.729385294742647
+    },
+    "describe20": {
+     "pairwise_corr": 0.8779260850940196,
+     "n_recipes": 12,
+     "share_not_muon": 0.45,
+     "share_not_default_recipe": 0.75,
+     "self_attention": 1,
+     "recurrent": 2,
+     "updown": 5,
+     "dilated": 3,
+     "attn_pool": 6,
+     "best_single_val": 0.8231924722616277,
+     "best_single_test": 0.7450251691152808,
+     "mean_single_test": 0.7102595119376288
+    },
+    "stack30": {
+     "genomic": 0.7720971012156401,
+     "ood": 0.26248181075545757,
+     "random_32k": 0.6994631101547314,
+     "genomic_measured": 0.7335291620341868
+    },
+    "describe30": {
+     "pairwise_corr": 0.8849472911873841,
+     "n_recipes": 16,
+     "share_not_muon": 0.3333333333333333,
+     "share_not_default_recipe": 0.5666666666666667,
+     "self_attention": 1,
+     "recurrent": 3,
+     "updown": 11,
+     "dilated": 3,
+     "attn_pool": 9,
+     "best_single_val": 0.8231924722616277,
+     "best_single_test": 0.7450251691152808,
+     "mean_single_test": 0.7152361671933348
+    }
+   },
+   "2": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7737459829297482,
+     "ood": 0.24227686008156438,
+     "random_32k": 0.701995848797859,
+     "genomic_measured": 0.7360377349551017
+    },
+    "describe20": {
+     "pairwise_corr": 0.8674556360701289,
+     "n_recipes": 14,
+     "share_not_muon": 0.35,
+     "share_not_default_recipe": 0.65,
+     "self_attention": 2,
+     "recurrent": 2,
+     "updown": 8,
+     "dilated": 2,
+     "attn_pool": 4,
+     "best_single_val": 0.8241789579604617,
+     "best_single_test": 0.7487386262728597,
+     "mean_single_test": 0.7055701000699033
+    },
+    "stack30": {
+     "genomic": 0.7758504896988558,
+     "ood": 0.24894550869100657,
+     "random_32k": 0.702358368140762,
+     "genomic_measured": 0.73802024954179
+    },
+    "describe30": {
+     "pairwise_corr": 0.8672074750808835,
+     "n_recipes": 18,
+     "share_not_muon": 0.3333333333333333,
+     "share_not_default_recipe": 0.5666666666666667,
+     "self_attention": 2,
+     "recurrent": 2,
+     "updown": 15,
+     "dilated": 4,
+     "attn_pool": 5,
+     "best_single_val": 0.8241789579604617,
+     "best_single_test": 0.7487386262728597,
+     "mean_single_test": 0.7066477725785476
+    }
+   },
+   "3": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7491249287420603,
+     "ood": 0.2717770101602459,
+     "random_32k": 0.674676208097158,
+     "genomic_measured": 0.7121476976959475
+    },
+    "describe20": {
+     "pairwise_corr": 0.8742321810686634,
+     "n_recipes": 15,
+     "share_not_muon": 0.75,
+     "share_not_default_recipe": 0.8,
+     "self_attention": 2,
+     "recurrent": 6,
+     "updown": 2,
+     "dilated": 2,
+     "attn_pool": 8,
+     "best_single_val": 0.8044319586690306,
+     "best_single_test": 0.73033366534623,
+     "mean_single_test": 0.6909743034691921
+    },
+    "stack30": {
+     "genomic": 0.7516961519610319,
+     "ood": 0.2634323186519836,
+     "random_32k": 0.6765715183608233,
+     "genomic_measured": 0.7145814083261844
+    },
+    "describe30": {
+     "pairwise_corr": 0.8759845924367666,
+     "n_recipes": 16,
+     "share_not_muon": 0.5333333333333333,
+     "share_not_default_recipe": 0.5666666666666667,
+     "self_attention": 2,
+     "recurrent": 12,
+     "updown": 3,
+     "dilated": 2,
+     "attn_pool": 11,
+     "best_single_val": 0.8044319586690306,
+     "best_single_test": 0.73033366534623,
+     "mean_single_test": 0.6940466475960174
+    }
+   },
+   "4": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7775949928027914,
+     "ood": 0.2813844132616667,
+     "random_32k": 0.7039566611076694,
+     "genomic_measured": 0.7389967325971335
+    },
+    "describe20": {
+     "pairwise_corr": 0.8705619995128228,
+     "n_recipes": 16,
+     "share_not_muon": 0.4,
+     "share_not_default_recipe": 0.7,
+     "self_attention": 1,
+     "recurrent": 2,
+     "updown": 10,
+     "dilated": 1,
+     "attn_pool": 8,
+     "best_single_val": 0.8258730307902535,
+     "best_single_test": 0.7566485997768475,
+     "mean_single_test": 0.7096250489946326
+    },
+    "stack30": {
+     "genomic": 0.7790800751885605,
+     "ood": 0.28032620270386155,
+     "random_32k": 0.7071417750013845,
+     "genomic_measured": 0.7404612672686933
+    },
+    "describe30": {
+     "pairwise_corr": NaN,
+     "n_recipes": 21,
+     "share_not_muon": 0.36666666666666664,
+     "share_not_default_recipe": 0.6333333333333333,
+     "self_attention": 2,
+     "recurrent": 2,
+     "updown": 18,
+     "dilated": 4,
+     "attn_pool": 11,
+     "best_single_val": NaN,
+     "best_single_test": NaN,
+     "mean_single_test": NaN
+    }
+   },
+   "5": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7738038912456089,
+     "ood": 0.2754851986384989,
+     "random_32k": 0.7053933696815411,
+     "genomic_measured": 0.7354539484367658
+    },
+    "describe20": {
+     "pairwise_corr": 0.8634830156166791,
+     "n_recipes": 17,
+     "share_not_muon": 0.4,
+     "share_not_default_recipe": 0.6,
+     "self_attention": 1,
+     "recurrent": 12,
+     "updown": 5,
+     "dilated": 0,
+     "attn_pool": 9,
+     "best_single_val": 0.8260326315096507,
+     "best_single_test": 0.7508496899332473,
+     "mean_single_test": 0.6980760624611266
+    },
+    "stack30": {
+     "genomic": 0.7788416126899369,
+     "ood": 0.2805381844483524,
+     "random_32k": 0.7120714786144087,
+     "genomic_measured": 0.7403152402110884
+    },
+    "describe30": {
+     "pairwise_corr": 0.8709203065430373,
+     "n_recipes": 23,
+     "share_not_muon": 0.26666666666666666,
+     "share_not_default_recipe": 0.5333333333333333,
+     "self_attention": 1,
+     "recurrent": 21,
+     "updown": 6,
+     "dilated": 0,
+     "attn_pool": 17,
+     "best_single_val": 0.8319130268903333,
+     "best_single_test": 0.7558461214316959,
+     "mean_single_test": 0.7105226604110473
+    }
+   },
+   "6": {
+    "n": 30,
+    "stack20": {
+     "genomic": 0.7741497940372769,
+     "ood": 0.2672166393786628,
+     "random_32k": 0.7053837231973703,
+     "genomic_measured": 0.7363430051766096
+    },
+    "describe20": {
+     "pairwise_corr": 0.8607062091997618,
+     "n_recipes": 16,
+     "share_not_muon": 0.4,
+     "share_not_default_recipe": 0.65,
+     "self_attention": 1,
+     "recurrent": 10,
+     "updown": 4,
+     "dilated": 2,
+     "attn_pool": 7,
+     "best_single_val": 0.8154446559043531,
+     "best_single_test": 0.7428633876045292,
+     "mean_single_test": 0.7056931783698067
+    },
+    "stack30": {
+     "genomic": 0.7773199228666802,
+     "ood": 0.2790672232400785,
+     "random_32k": 0.7093827276645512,
+     "genomic_measured": 0.7394553506461584
+    },
+    "describe30": {
+     "pairwise_corr": 0.8730814558222002,
+     "n_recipes": 18,
+     "share_not_muon": 0.26666666666666666,
+     "share_not_default_recipe": 0.4666666666666667,
+     "self_attention": 1,
+     "recurrent": 19,
+     "updown": 5,
+     "dilated": 2,
+     "attn_pool": 12,
+     "best_single_val": 0.8243407363534972,
+     "best_single_test": 0.7538329506703998,
+     "mean_single_test": 0.7157652501761882
+    }
+   }
+  },
+  "coord10": {
+   "1": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7669097895133663,
+     "ood": 0.2705712037661173,
+     "random_32k": 0.6982310541382102,
+     "genomic_measured": 0.7287632001273178
+    },
+    "describe20": {
+     "pairwise_corr": 0.8484259374651153,
+     "n_recipes": 12,
+     "share_not_muon": 0.25,
+     "share_not_default_recipe": 0.5,
+     "self_attention": 0,
+     "recurrent": 1,
+     "updown": 3,
+     "dilated": 1,
+     "attn_pool": 10,
+     "best_single_val": 0.8160369089219363,
+     "best_single_test": 0.7457927847441019,
+     "mean_single_test": 0.6940271422207938
+    }
+   },
+   "2": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7745235994134523,
+     "ood": 0.27606820200031185,
+     "random_32k": 0.6989524119449281,
+     "genomic_measured": 0.7366549350915825
+    },
+    "describe20": {
+     "pairwise_corr": 0.8816233780509477,
+     "n_recipes": 12,
+     "share_not_muon": 0.15,
+     "share_not_default_recipe": 0.55,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 3,
+     "dilated": 2,
+     "attn_pool": 5,
+     "best_single_val": 0.8221328609841402,
+     "best_single_test": 0.7487330559299693,
+     "mean_single_test": 0.7210995469821825
+    }
+   },
+   "3": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7693735384857039,
+     "ood": 0.28432296702991344,
+     "random_32k": 0.6956597607927811,
+     "genomic_measured": 0.7316042276408428
+    },
+    "describe20": {
+     "pairwise_corr": 0.8511194347095828,
+     "n_recipes": 12,
+     "share_not_muon": 0.25,
+     "share_not_default_recipe": 0.45,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 1,
+     "attn_pool": 4,
+     "best_single_val": 0.82421448318426,
+     "best_single_test": 0.7493362494848793,
+     "mean_single_test": 0.692749105478599
+    }
+   },
+   "4": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7679062826779661,
+     "ood": 0.2780618296291101,
+     "random_32k": 0.6954677124711687,
+     "genomic_measured": 0.7294551752705253
+    },
+    "describe20": {
+     "pairwise_corr": 0.8422262772634996,
+     "n_recipes": 10,
+     "share_not_muon": 0.3,
+     "share_not_default_recipe": 0.5,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 3,
+     "dilated": 1,
+     "attn_pool": 7,
+     "best_single_val": 0.8144631059173432,
+     "best_single_test": 0.7388400268038707,
+     "mean_single_test": 0.6878633743544886
+    }
+   },
+   "5": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7764600438647816,
+     "ood": 0.28786941625281953,
+     "random_32k": 0.7075686806535856,
+     "genomic_measured": 0.7378336897958879
+    },
+    "describe20": {
+     "pairwise_corr": 0.8700121485261508,
+     "n_recipes": 9,
+     "share_not_muon": 0.15,
+     "share_not_default_recipe": 0.35,
+     "self_attention": 0,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 1,
+     "attn_pool": 4,
+     "best_single_val": 0.8349226434166027,
+     "best_single_test": 0.7562547825532964,
+     "mean_single_test": 0.7102120999720999
+    }
+   },
+   "6": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7766422985489343,
+     "ood": 0.27548462900904586,
+     "random_32k": 0.7070853239474169,
+     "genomic_measured": 0.7384512619793085
+    },
+    "describe20": {
+     "pairwise_corr": 0.8729358671644937,
+     "n_recipes": 10,
+     "share_not_muon": 0.2,
+     "share_not_default_recipe": 0.4,
+     "self_attention": 0,
+     "recurrent": 1,
+     "updown": 3,
+     "dilated": 2,
+     "attn_pool": 4,
+     "best_single_val": 0.8264331332037855,
+     "best_single_test": 0.7554759868934604,
+     "mean_single_test": 0.7160090102121377
+    }
+   }
+  },
+  "default10": {
+   "1": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7661698359133061,
+     "ood": 0.2554906299729054,
+     "random_32k": 0.695964737314432,
+     "genomic_measured": 0.7278363186973953
+    },
+    "describe20": {
+     "pairwise_corr": 0.8809838532182699,
+     "n_recipes": 10,
+     "share_not_muon": 0.5,
+     "share_not_default_recipe": 0.5,
+     "self_attention": 2,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 0,
+     "attn_pool": 2,
+     "best_single_val": 0.8246277782537201,
+     "best_single_test": 0.7464930283528379,
+     "mean_single_test": 0.7050657106531661
+    }
+   },
+   "2": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7682737424999703,
+     "ood": 0.2734751226419007,
+     "random_32k": 0.6790465527365005,
+     "genomic_measured": 0.7308334689696809
+    },
+    "describe20": {
+     "pairwise_corr": 0.8727995960301209,
+     "n_recipes": 11,
+     "share_not_muon": 0.5,
+     "share_not_default_recipe": 0.55,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 2,
+     "attn_pool": 4,
+     "best_single_val": 0.8201519484503222,
+     "best_single_test": 0.7421120385111987,
+     "mean_single_test": 0.7080653281205216
+    }
+   },
+   "3": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7687288169681671,
+     "ood": 0.260504534876391,
+     "random_32k": 0.6910165818583932,
+     "genomic_measured": 0.7309843069041362
+    },
+    "describe20": {
+     "pairwise_corr": 0.8543410411349147,
+     "n_recipes": 10,
+     "share_not_muon": 0.45,
+     "share_not_default_recipe": 0.5,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 0,
+     "attn_pool": 3,
+     "best_single_val": 0.8156878357476981,
+     "best_single_test": 0.7363712950992243,
+     "mean_single_test": 0.6946528578434197
+    }
+   },
+   "4": {
+    "n": 21,
+    "stack20": {
+     "genomic": 0.7640594206040143,
+     "ood": 0.25543981165166146,
+     "random_32k": 0.6786911132349019,
+     "genomic_measured": 0.7261468128902342
+    },
+    "describe20": {
+     "pairwise_corr": 0.8521659295451561,
+     "n_recipes": 12,
+     "share_not_muon": 0.45,
+     "share_not_default_recipe": 0.5,
+     "self_attention": 0,
+     "recurrent": 1,
+     "updown": 2,
+     "dilated": 0,
+     "attn_pool": 0,
+     "best_single_val": 0.820437747709115,
+     "best_single_test": 0.7504248357786877,
+     "mean_single_test": 0.6903367431862615
+    }
+   },
+   "5": {
+    "n": 21,
+    "stack20": {
+     "genomic": 0.7701886725063242,
+     "ood": 0.27923370413946885,
+     "random_32k": 0.6949628311576307,
+     "genomic_measured": 0.7318369308070724
+    },
+    "describe20": {
+     "pairwise_corr": 0.8790249804790287,
+     "n_recipes": 10,
+     "share_not_muon": 0.45,
+     "share_not_default_recipe": 0.45,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 0,
+     "attn_pool": 3,
+     "best_single_val": 0.8262788808459216,
+     "best_single_test": 0.7490518802685158,
+     "mean_single_test": 0.7099644292332792
+    }
+   },
+   "6": {
+    "n": 20,
+    "stack20": {
+     "genomic": 0.7641644138899136,
+     "ood": 0.23606415501195074,
+     "random_32k": 0.6771429566502739,
+     "genomic_measured": 0.7269417966910973
+    },
+    "describe20": {
+     "pairwise_corr": 0.8803539735280327,
+     "n_recipes": 8,
+     "share_not_muon": 0.5,
+     "share_not_default_recipe": 0.5,
+     "self_attention": 1,
+     "recurrent": 1,
+     "updown": 1,
+     "dilated": 1,
+     "attn_pool": 2,
+     "best_single_val": 0.8191049941855563,
+     "best_single_test": 0.746991234706941,
+     "mean_single_test": 0.7057190616320228
+    }
+   }
+  }
+ },
+ "summary": {
+  "c15": {
+   "stack20": {
+    "n_runs": 6,
+    "genomic": {
+     "mean": 0.7696343454454951,
+     "sd": 0.005514259153413302
+    },
+    "ood": {
+     "mean": 0.2645629235866099,
+     "sd": 0.00988869089800777
+    },
+    "random_32k": {
+     "mean": 0.6979046060609427,
+     "sd": 0.007021410938134986
+    },
+    "genomic_measured": {
+     "mean": 0.7316642586393259,
+     "sd": 0.005489278940051326
+    }
+   },
+   "stack30": {
+    "n_runs": 6,
+    "genomic": {
+     "mean": 0.7700465371995245,
+     "sd": 0.006424839859430019
+    },
+    "ood": {
+     "mean": 0.2657247081476088,
+     "sd": 0.011776896292428042
+    },
+    "random_32k": {
+     "mean": 0.6987631693127737,
+     "sd": 0.008816681081284312
+    },
+    "genomic_measured": {
+     "mean": 0.7320922928149912,
+     "sd": 0.006316982731838444
+    }
+   },
+   "describe20": {
+    "pairwise_corr": 0.8678147626138758,
+    "n_recipes": 11.333333333333334,
+    "share_not_muon": 0.24999999999999997,
+    "share_not_default_recipe": 0.46666666666666673,
+    "self_attention": 1.1666666666666667,
+    "recurrent": 1.1666666666666667,
+    "updown": 2.3333333333333335,
+    "dilated": 1.5,
+    "attn_pool": 3.8333333333333335,
+    "best_single_val": 0.8210844072403383,
+    "best_single_test": 0.7444197738352147,
+    "mean_single_test": 0.7043026864584173
+   },
+   "describe30": {
+    "pairwise_corr": 0.8561989989316161,
+    "n_recipes": 14.833333333333334,
+    "share_not_muon": 0.3055555555555555,
+    "share_not_default_recipe": 0.5166666666666667,
+    "self_attention": 1.5,
+    "recurrent": 1.1666666666666667,
+    "updown": 2.6666666666666665,
+    "dilated": 1.5,
+    "attn_pool": 4.833333333333333,
+    "best_single_val": 0.8210844072403383,
+    "best_single_test": 0.7444197738352147,
+    "mean_single_test": 0.6944040225466607
+   }
+  },
+  "s15": {
+   "stack20": {
+    "n_runs": 6,
+    "genomic": {
+     "mean": 0.771869036334834,
+     "sd": 0.0041850311215184555
+    },
+    "ood": {
+     "mean": 0.2659170536512397,
+     "sd": 0.005700169939408763
+    },
+    "random_32k": {
+     "mean": 0.69918206456202,
+     "sd": 0.007484298288973821
+    },
+    "genomic_measured": {
+     "mean": 0.7337630013542303,
+     "sd": 0.003879851773008533
+    }
+   },
+   "stack30": {
+    "n_runs": 6,
+    "genomic": {
+     "mean": 0.7762117531182278,
+     "sd": 0.00257648006830315
+    },
+    "ood": {
+     "mean": 0.2750968026404982,
+     "sd": 0.006998208715611587
+    },
+    "random_32k": {
+     "mean": 0.7035461238503541,
+     "sd": 0.007675096033083941
+    },
+    "genomic_measured": {
+     "mean": 0.7379118098106514,
+     "sd": 0.0025126233782273356
+    }
+   },
+   "describe20": {
+    "pairwise_corr": 0.8592640611297578,
+    "n_recipes": 15.5,
+    "share_not_muon": 0.5083333333333334,
+    "share_not_default_recipe": 0.7083333333333331,
+    "self_attention": 1.8333333333333333,
+    "recurrent": 2.1666666666666665,
+    "updown": 6.0,
+    "dilated": 1.3333333333333333,
+    "attn_pool": 8.166666666666666,
+    "best_single_val": 0.8225104014799554,
+    "best_single_test": 0.7502527904008881,
+    "mean_single_test": 0.70011466176391
+   },
+   "describe30": {
+    "pairwise_corr": 0.8664863870339413,
+    "n_recipes": 18.833333333333332,
+    "share_not_muon": 0.37222222222222223,
+    "share_not_default_recipe": 0.6222222222222221,
+    "self_attention": 3.3333333333333335,
+    "recurrent": 4.666666666666667,
+    "updown": 10.666666666666666,
+    "dilated": 1.3333333333333333,
+    "attn_pool": 12.833333333333334,
+    "best_single_val": 0.8269320317065646,
+    "best_single_test": 0.7524905250847875,
+    "mean_single_test": 0.7073284809939849
+   }
+  },
+  "e15": {
+   "stack20": {
+    "n_runs": 6,
+    "genomic": {
+     "mean": 0.7693225390109842,
+     "sd": 0.01041723174188975
+    },
+    "ood": {
+     "mean": 0.26708009081816647,
+     "sd": 0.013564993235925147
+    },
+    "random_32k": {
+     "mean": 0.6976266286915109,
+     "sd": 0.011975694827712255
+    },
+    "genomic_measured": {
+     "mean": 0.731394068934034,
+     "sd": 0.00994783091920481
+    }
+   },
+   "stack30": {
+    "n_runs": 6,
+    "genomic": {
+     "mean": 0.7724808922701176,
+     "sd": 0.010496962500514436
+    },
+    "ood": {
+     "mean": 0.26913187474845673,
+     "sd": 0.012948557405412129
+    },
+    "random_32k": {
+     "mean": 0.7011648296561103,
+     "sd": 0.012894681529062228
+    },
+    "genomic_measured": {
+     "mean": 0.7343937796713503,
+     "sd": 0.010039188284906877
+    }
+   },
+   "describe20": {
+    "pairwise_corr": 0.8690608544270125,
+    "n_recipes": 15.0,
+    "share_not_muon": 0.4583333333333333,
+    "share_not_default_recipe": 0.6916666666666668,
+    "self_attention": 1.3333333333333333,
+    "recurrent": 5.666666666666667,
+    "updown": 5.666666666666667,
+    "dilated": 1.6666666666666667,
+    "attn_pool": 7.0,
+    "best_single_val": 0.8198589511825629,
+    "best_single_test": 0.7457431896748323,
+    "mean_single_test": 0.7033663675503817
+   },
+   "describe30": {
+    "pairwise_corr": NaN,
+    "n_recipes": 18.666666666666668,
+    "share_not_muon": 0.35000000000000003,
+    "share_not_default_recipe": 0.5555555555555555,
+    "self_attention": 1.5,
+    "recurrent": 9.833333333333334,
+    "updown": 9.666666666666666,
+    "dilated": 2.5,
+    "attn_pool": 10.833333333333334,
+    "best_single_val": NaN,
+    "best_single_test": NaN,
+    "mean_single_test": NaN
+   }
+  },
+  "coord10": {
+   "stack20": {
+    "n_runs": 6,
+    "genomic": {
+     "mean": 0.7719692587507008,
+     "sd": 0.004413000687590565
+    },
+    "ood": {
+     "mean": 0.2787297079478863,
+     "sd": 0.006315698191314368
+    },
+    "random_32k": {
+     "mean": 0.7004941573246818,
+     "sd": 0.005470420647839289
+    },
+    "genomic_measured": {
+     "mean": 0.7337937483175775,
+     "sd": 0.004361733196473807
+    }
+   },
+   "describe20": {
+    "pairwise_corr": 0.8610571738632983,
+    "n_recipes": 10.833333333333334,
+    "share_not_muon": 0.21666666666666665,
+    "share_not_default_recipe": 0.4583333333333333,
+    "self_attention": 0.5,
+    "recurrent": 1.0,
+    "updown": 2.3333333333333335,
+    "dilated": 1.3333333333333333,
+    "attn_pool": 5.666666666666667,
+    "best_single_val": 0.8230338559380113,
+    "best_single_test": 0.7490721477349297,
+    "mean_single_test": 0.703660046536717
+   }
+  },
+  "default10": {
+   "stack20": {
+    "n_runs": 6,
+    "genomic": {
+     "mean": 0.7669308170636159,
+     "sd": 0.0025348321809842466
+    },
+    "ood": {
+     "mean": 0.260034659715713,
+     "sd": 0.015269682799000941
+    },
+    "random_32k": {
+     "mean": 0.6861374621586886,
+     "sd": 0.008773807862810555
+    },
+    "genomic_measured": {
+     "mean": 0.7290966058266027,
+     "sd": 0.0024092444608401088
+    }
+   },
+   "describe20": {
+    "pairwise_corr": 0.8699448956559205,
+    "n_recipes": 10.166666666666666,
+    "share_not_muon": 0.47500000000000003,
+    "share_not_default_recipe": 0.5,
+    "self_attention": 1.0,
+    "recurrent": 1.0,
+    "updown": 1.1666666666666667,
+    "dilated": 0.5,
+    "attn_pool": 2.3333333333333335,
+    "best_single_val": 0.8210481975320557,
+    "best_single_test": 0.7452407187862343,
+    "mean_single_test": 0.7023006884447783
+   }
+  }
+ },
+ "paired": {
+  "s15_minus_c15_stack20": {
+   "n": 6,
+   "genomic": {
+    "mean": 0.00223469088933879,
+    "se": 0.003209377291282794,
+    "better": 4
+   },
+   "ood": {
+    "mean": 0.0013541300646297734,
+    "se": 0.004650891782740916,
+    "better": 3
+   },
+   "random_32k": {
+    "mean": 0.001277458501077337,
+    "se": 0.004294456331462726,
+    "better": 3
+   },
+   "genomic_measured": {
+    "mean": 0.0020987427149044002,
+    "se": 0.0031213921470683087,
+    "better": 4
+   }
+  },
+  "s15_minus_c15_stack30": {
+   "n": 6,
+   "genomic": {
+    "mean": 0.006165215918703226,
+    "se": 0.0032178544803782502,
+    "better": 4
+   },
+   "ood": {
+    "mean": 0.009372094492889366,
+    "se": 0.004554645246217914,
+    "better": 4
+   },
+   "random_32k": {
+    "mean": 0.004782954537580246,
+    "se": 0.0057327176392447075,
+    "better": 3
+   },
+   "genomic_measured": {
+    "mean": 0.005819516995660042,
+    "se": 0.0031389066298063454,
+    "better": 4
+   }
+  },
+  "e15_minus_c15_stack20": {
+   "n": 6,
+   "genomic": {
+    "mean": -0.0003118064345108788,
+    "se": 0.0036906596207351176,
+    "better": 4
+   },
+   "ood": {
+    "mean": 0.002517167231556617,
+    "se": 0.007447017050287956,
+    "better": 3
+   },
+   "random_32k": {
+    "mean": -0.00027797736943171075,
+    "se": 0.004459858926528187,
+    "better": 3
+   },
+   "genomic_measured": {
+    "mean": -0.0002701897052918752,
+    "se": 0.0034801121459351503,
+    "better": 4
+   }
+  },
+  "e15_minus_c15_stack30": {
+   "n": 6,
+   "genomic": {
+    "mean": 0.002434355070592975,
+    "se": 0.00374115509176162,
+    "better": 4
+   },
+   "ood": {
+    "mean": 0.0034071666008478976,
+    "se": 0.007057499822496048,
+    "better": 4
+   },
+   "random_32k": {
+    "mean": 0.0024016603433365167,
+    "se": 0.004405755469092422,
+    "better": 3
+   },
+   "genomic_measured": {
+    "mean": 0.002301486856358892,
+    "se": 0.0035524655911920266,
+    "better": 4
+   }
+  },
+  "e15_minus_s15_stack20": {
+   "n": 6,
+   "genomic": {
+    "mean": -0.002546497323849669,
+    "se": 0.00466442192214715,
+    "better": 3
+   },
+   "ood": {
+    "mean": 0.0011630371669268437,
+    "se": 0.0070323746555569135,
+    "better": 5
+   },
+   "random_32k": {
+    "mean": -0.0015554358705090476,
+    "se": 0.007216259282029599,
+    "better": 4
+   },
+   "genomic_measured": {
+    "mean": -0.0023689324201962756,
+    "se": 0.004465070784091942,
+    "better": 3
+   }
+  },
+  "e15_minus_s15_stack30": {
+   "n": 6,
+   "genomic": {
+    "mean": -0.003730860848110251,
+    "se": 0.004298549629749122,
+    "better": 3
+   },
+   "ood": {
+    "mean": -0.005964927892041468,
+    "se": 0.0062264915355464525,
+    "better": 2
+   },
+   "random_32k": {
+    "mean": -0.002381294194243729,
+    "se": 0.007345675214248727,
+    "better": 4
+   },
+   "genomic_measured": {
+    "mean": -0.00351803013930115,
+    "se": 0.004131992349099173,
+    "better": 3
+   }
+  },
+  "c15_minus_coord10_stack20": {
+   "n": 6,
+   "genomic": {
+    "mean": -0.002334913305205651,
+    "se": 0.0025200639573469963,
+    "better": 2
+   },
+   "ood": {
+    "mean": -0.014166784361276469,
+    "se": 0.006252364074114445,
+    "better": 0
+   },
+   "random_32k": {
+    "mean": -0.0025895512637389984,
+    "se": 0.0033801534599909463,
+    "better": 3
+   },
+   "genomic_measured": {
+    "mean": -0.0021294896782514026,
+    "se": 0.0024941462859892757,
+    "better": 2
+   }
+  },
+  "c15_minus_default10_stack20": {
+   "n": 6,
+   "genomic": {
+    "mean": 0.0027035283818791687,
+    "se": 0.003094674187817176,
+    "better": 3
+   },
+   "ood": {
+    "mean": 0.004528263870896845,
+    "se": 0.008697302625395267,
+    "better": 3
+   },
+   "random_32k": {
+    "mean": 0.011767143902254048,
+    "se": 0.005589845817086525,
+    "better": 4
+   },
+   "genomic_measured": {
+    "mean": 0.0025676528127233644,
+    "se": 0.0029396286277141173,
+    "better": 3
+   }
+  },
+  "s15_minus_coord10_stack20": {
+   "n": 6,
+   "genomic": {
+    "mean": -0.00010022241586686113,
+    "se": 0.0022587158385198505,
+    "better": 3
+   },
+   "ood": {
+    "mean": -0.012812654296646695,
+    "se": 0.0029796948107466727,
+    "better": 0
+   },
+   "random_32k": {
+    "mean": -0.0013120927626616614,
+    "se": 0.003577081465164049,
+    "better": 2
+   },
+   "genomic_measured": {
+    "mean": -3.0746963347002186e-05,
+    "se": 0.0020792424419372154,
+    "better": 3
+   }
+  },
+  "e15_minus_coord10_stack20": {
+   "n": 6,
+   "genomic": {
+    "mean": -0.00264671973971653,
+    "se": 0.003983658373300556,
+    "better": 2
+   },
+   "ood": {
+    "mean": -0.011649617129719852,
+    "se": 0.0050218357579309945,
+    "better": 1
+   },
+   "random_32k": {
+    "mean": -0.0028675286331707093,
+    "se": 0.004061843546365815,
+    "better": 2
+   },
+   "genomic_measured": {
+    "mean": -0.0023996793835432775,
+    "se": 0.0038553986402276473,
+    "better": 2
+   }
+  }
+ }
+}

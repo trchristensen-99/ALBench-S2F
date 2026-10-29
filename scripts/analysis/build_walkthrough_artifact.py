@@ -35,7 +35,13 @@ from build_prelim_artifact import (
 
 SETS3 = ("genomic", "ood", "random_32k")
 SETN = {"genomic": "genomic test", "ood": "designed OOD", "random_32k": "random sequences"}
-FAM_COL = {"genomic": "#1b6ca8", "perturbation": "#c4571a", "motif": "#2a8f5b", "random": "#7a5195"}
+FAM_COL = {
+    "genomic": "#1b6ca8",
+    "perturbation": "#c4571a",
+    "motif": "#2a8f5b",
+    "random": "#7a5195",
+    "model": "#b08a2e",
+}
 STRATS = [
     ("genomic", "Gosai genomic", "genomic"),
     ("zoonomia_orthologs", "Zoonomia orthologs", "genomic"),
@@ -45,6 +51,9 @@ STRATS = [
     ("motif_shared_core", "Motif, shared core", "motif"),
     ("random", "Uniform random", "random"),
     ("random_gc_sweep", "Random, GC 25-75% batches", "random"),
+    ("d3_steps64", "D3 diffusion, 64 steps", "model"),
+    ("d3_steps256", "D3 diffusion, 256 steps", "model"),
+    ("evo2", "Evo2 regeneration", "model"),
 ]
 EXTRA_CSS = """
 .step{display:grid;grid-template-columns:44px 1fr;gap:14px;margin:12px 0;align-items:start}

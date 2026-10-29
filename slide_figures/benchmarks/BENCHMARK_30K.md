@@ -17,8 +17,9 @@ the oracle_v3 labels; "measured" is r against the experimental labels on the gen
 | Ours: best single model by V0c validation, any run, same training pool | 1 | 0.760 | 0.275 | 0.677 | 0.723 |
 | Ours: one AutoResearch run alone (92 runs: mean, sd 0.006, best run 0.780) | about 20 | 0.769 | 0.268 | 0.696 | |
 | Ours: menu v1 ensemble (20 architectures x 1 seed) | 20 | 0.782 | 0.271 | 0.711 | 0.742 |
-| Ours: ALL runs on this training set, ensemble (1,249 models from 28 run directories) | 1,249 | **0.797** | 0.302 | 0.742 | 0.757 |
-| Ours: the same, best 20 by validation | 20 | 0.796 | 0.304 | 0.741 | 0.757 |
+| Ours: ALL runs on this training set, ensemble (1,297 models from 28 run directories) | 1,297 | **0.798** | 0.297 | 0.742 | 0.758 |
+| Ours: the same, best 20 by validation | 20 | 0.798 | 0.297 | 0.743 | 0.758 |
+| Ours: menu v1 with the real-flank shift and the LegNet recipe (AdamW, lr 0.01, wd 0.1), 20 architectures x 1 seed | 20 | 0.790 | 0.283 | 0.723 | 0.751 |
 
 Pooling models trained on other 30k draws of the genomic reservoir (replicate pools r1 to r15; 4,022 models) gives 0.805 / 0.311 / 0.760 (measured 0.765), but those models have jointly seen far more than 30k distinct sequences, so it is not a 30k number.
 Best single model by validation on a single replicate pool ranges 0.738 to 0.770 across the 15 pools: the draw of the 30k sequences moves a single model by about 0.01.

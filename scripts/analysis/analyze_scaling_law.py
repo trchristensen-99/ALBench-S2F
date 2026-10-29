@@ -38,7 +38,15 @@ STRATS = [
     "motif_shared_core",
     "random",
     "random_gc_sweep",
+    "d3_steps64",
+    "d3_steps256",
+    "evo2",
 ]
+SC32 = (
+    "d3_steps64",
+    "d3_steps256",
+    "evo2",
+)  # collaborator reservoirs (menu v1, sc32_ cells); 100k points have only the first 6 menu configurations
 FAMILY = {
     "genomic": "genomic",
     "zoonomia_orthologs": "genomic",
@@ -48,6 +56,9 @@ FAMILY = {
     "motif_shared_core": "motif",
     "random": "random",
     "random_gc_sweep": "random",
+    "d3_steps64": "model",
+    "d3_steps256": "model",
+    "evo2": "model",
 }
 LABEL = {
     "genomic": "Gosai genomic",
@@ -58,6 +69,9 @@ LABEL = {
     "motif_shared_core": "Motif, shared core",
     "random": "Uniform random",
     "random_gc_sweep": "Random, GC sweep",
+    "d3_steps64": "D3 diffusion, 64 steps",
+    "d3_steps256": "D3 diffusion, 256 steps",
+    "evo2": "Evo2 regeneration",
 }
 V1_POOLS = {"genomic": "genomic", "random": "random", "motif_ct_enriched": "motif_ct_enriched"}
 V0_DIRS = {  # strategy -> list of (D, directory); first seed only
@@ -148,8 +162,16 @@ def stack_metrics(c):
 def cells():
     out = []
     for st in STRATS:
-        for D in (10_000, 30_000):
-            out.append(("sc31", st, D, f"sc31_{D // 1000}k_{st}", False))
+        for D in (10_000, 30_000, 100_000):
+            out.append(
+                (
+                    "sc31",  # sc32 cells are the same design and share the series name
+                    st,
+                    D,
+                    f"{'sc32' if st in SC32 else 'sc31'}_{D // 1000}k_{st}",
+                    False,
+                )
+            )
     for st in V1_POOLS:
         for D in (10_000, 30_000, 100_000):
             out.append(("v1", st, D, f"v1_{D // 1000}k_{V1_POOLS[st]}_r1", False))
@@ -238,7 +260,13 @@ def fits(recs):
 
 
 # ------------------------------------------------------------------------------------------------------ plotting
-COL = {"genomic": "#1b6ca8", "perturbation": "#c4571a", "motif": "#2a8f5b", "random": "#7a5195"}
+COL = {
+    "genomic": "#1b6ca8",
+    "perturbation": "#c4571a",
+    "motif": "#2a8f5b",
+    "random": "#7a5195",
+    "model": "#b08a2e",
+}
 INK, MUTED, GRID = "#1c2530", "#5b6b67", "#e1e6e4"
 SETN = {
     "genomic": "genomic test (chr7/13)",
@@ -256,6 +284,9 @@ STYLE = {  # strategy -> (marker, linestyle)
     "motif_shared_core": ("s", "--"),
     "random": ("o", "-"),
     "random_gc_sweep": ("s", "--"),
+    "d3_steps64": ("^", "-"),
+    "d3_steps256": ("^", "--"),
+    "evo2": ("v", "-"),
 }
 
 
@@ -347,7 +378,7 @@ def plot_all(data, out, key, ylabel, fname):
         labelcolor=INK,
     )
     fig.suptitle(
-        f"{ylabel} against dataset size, log-log: straight lines are power laws (err ~ D^-b); every line is two points (10k and 30k)",
+        f"{ylabel} against dataset size, log-log: straight lines are power laws (err ~ D^-b); every line is three points (10k, 30k, 100k; the 100k point stacks only the first 6 menu configurations)",
         fontsize=11,
         color=INK,
         x=0.01,
