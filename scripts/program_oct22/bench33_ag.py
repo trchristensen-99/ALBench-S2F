@@ -60,15 +60,25 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=128)
     ap.add_argument("--max-shift", type=int, default=15)
     ap.add_argument("--dropout", type=float, default=0.1)
+    ap.add_argument(
+        "--window",
+        type=int,
+        default=600,
+        help="input window in bp: 200-bp insert plus (window - 200) / 2 real plasmid flank on each side (600 = the oracle's)",
+    )
     ap.add_argument("--smoke", action="store_true")
     a = ap.parse_args()
+    assert a.window >= 200 and (a.window - 200) % 2 == 0
     if a.smoke:  # tiny arrays must never land next to real results
         a.out_root, a.ckpt_root = (
             str(C.R / "outputs/bench33/smoke"),
             str(C.R / "outputs/bench33/smoke/s1_ckpt"),
         )
     rec = dict(RECIPES[a.recipe])
-    tag = f"{a.recipe}_{a.D // 1000}k"
+    tag = f"{a.recipe}_{a.D // 1000}k" + (f"_w{a.window}" if a.window != 600 else "")
+    pool_res = Path(a.pool).stem.split("_d")[0] if a.pool else "genomic"
+    if pool_res != "genomic":  # students on another reservoir must not share an output directory
+        tag += f"_{pool_res}"
     out2 = Path(a.out_root) / f"bench33_agS2_{tag}"
     out1 = Path(a.out_root) / f"bench33_agS1_{tag}"
     name = f"r{a.seed_index:02d}_menu_000"
@@ -109,7 +119,9 @@ def main() -> None:
     # ── data: 600 bp windows from 200 bp cores and the real plasmid flanks ───────────────────────────────────────────────────────────────────────────────
     CTX = 300
     f5_full, f3_full = C.mpra_flanks(CTX)
-    f5, f3 = f5_full[-200:], f3_full[:200]
+    WIN = a.window
+    FL = (WIN - 200) // 2
+    f5, f3 = f5_full[CTX - FL :], f3_full[:FL]
     X_tr, y_tr = C.onehot_core200(d["train_seqs"]), d["train_y"]
     rng = np.random.default_rng(a.seed)
     np.random.seed(a.seed % (2**32))
@@ -125,24 +137,24 @@ def main() -> None:
             ],
             axis=1,
         )  # (B, 800, 4)
-        x = np.empty((bsz, 600, 4), np.float32)
+        x = np.empty((bsz, WIN, 4), np.float32)
         for i in range(bsz):
             shift = (
                 int(rng.integers(-a.max_shift, a.max_shift + 1))
                 if (a.max_shift > 0 and rng.random() > 0.5)
                 else 0
             )
-            st = max(0, min(wide.shape[1] - 600, (wide.shape[1] - 600) // 2 + shift))
-            w = wide[i, st : st + 600]
+            st = max(0, min(wide.shape[1] - WIN, (wide.shape[1] - WIN) // 2 + shift))
+            w = wide[i, st : st + WIN]
             x[i] = w[::-1, ::-1] if rng.random() > 0.5 else w
         return x, y_tr[idx]
 
     def eval_windows(cores):
         return np.concatenate(
             [
-                np.broadcast_to(f5, (len(cores), 200, 4)),
+                np.broadcast_to(f5, (len(cores), FL, 4)),
                 cores,
-                np.broadcast_to(f3, (len(cores), 200, 4)),
+                np.broadcast_to(f3, (len(cores), FL, 4)),
             ],
             axis=1,
         )
@@ -163,7 +175,7 @@ def main() -> None:
         use_encoder_output=True,
         detach_backbone=False,
     )
-    reinit_head_params(model, HEAD_NAME, num_tokens=5, dim=1536, rng=a.seed % (2**31))
+    reinit_head_params(model, HEAD_NAME, num_tokens=-(-WIN // 128), dim=1536, rng=a.seed % (2**31))
 
     def path_str(path):
         return "/".join(str(p.key if hasattr(p, "key") else p) for p in path)
@@ -450,7 +462,7 @@ def main() -> None:
             "dropout": a.dropout,
             "optimizer": "adamw",
             "loss": "mse",
-            "window": "600 bp = 200 bp insert + 200 bp real plasmid flank each side",
+            "window": f"{WIN} bp = 200 bp insert + {FL} bp real plasmid flank each side",
             "augmentation": "shift +-15 on real flanks (p .5), reverse complement (p .5)",
             "unfrozen": "all encoder blocks (stage 2), head only (stage 1)",
             "head": "boda-flatten-512-512, 1 track",

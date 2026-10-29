@@ -106,3 +106,25 @@ def test_per_sample_shift_and_tta():
     assert len(seen) == 5 and out.shape[0] == X.shape[0]  # offsets -4, -2, 0, 2, 4
     with pytest.raises(ValueError):
         wrap(Probe(), ctx, shift, tta=8)
+
+
+def test_multihead_wrapper_trains_two_targets_and_evaluates_one():
+    from albench.arch_search.multitask import wrap as mt_wrap
+
+    net = torch.nn.Sequential(
+        torch.nn.Conv1d(4, 8, 3),
+        torch.nn.AdaptiveAvgPool1d(1),
+        torch.nn.Flatten(),
+        torch.nn.Linear(8, 4),
+        torch.nn.Linear(4, 1),
+        torch.nn.Flatten(0),
+    )
+    m = mt_wrap(net, 1, 0.25)
+    x = torch.randn(5, 4, 20)
+    m.train()
+    assert m(x).shape == (5, 2)
+    m.eval()
+    assert m(x).shape == (5,)
+    m.train()
+    m(x).sum().backward()
+    assert m.aux.weight.grad is not None and m.net[4].weight.grad is not None

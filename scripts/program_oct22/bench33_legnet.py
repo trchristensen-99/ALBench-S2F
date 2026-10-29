@@ -71,6 +71,15 @@ def main() -> None:
     )
     ap.add_argument("--pool", default=None)
     ap.add_argument("--out-root", default=str(C.OUT_ROOT))
+    ap.add_argument(
+        "--ctx",
+        type=int,
+        default=0,
+        help="real plasmid flank bases given as input on each side (0 = the 200-bp insert alone, as in bench33)",
+    )
+    ap.add_argument(
+        "--shift", type=int, default=SHIFT, help="+-shift of the training window over real flank"
+    )
     ap.add_argument("--smoke", action="store_true")
     a = ap.parse_args()
     if a.smoke:
@@ -78,7 +87,13 @@ def main() -> None:
     cfg = dict(CFGS[a.cfg])
     if a.smoke:
         cfg["epochs"] = 2
-    out = Path(a.out_root) / f"bench33_ln_{a.cfg}_{a.D // 1000}k"
+    ctx_tag = f"_c{a.ctx}" if (a.ctx or a.shift != SHIFT) else ""
+    prefix = "bench38" if ctx_tag else "bench33"
+    pool_res = Path(a.pool).stem.split("_d")[0] if a.pool else "genomic"
+    if pool_res != "genomic":  # students on another reservoir must not share an output directory
+        ctx_tag += f"_{pool_res}"
+        prefix = "bench38"
+    out = Path(a.out_root) / f"{prefix}_ln_{a.cfg}_{a.D // 1000}k{ctx_tag}"
     todo = [(int(i), int(s)) for i, s in (kv.split("=") for kv in a.seeds.split(","))]
 
     import torch
@@ -91,14 +106,16 @@ def main() -> None:
     C.save_labels(out, d)
     n_tr = len(d["train_seqs"])
 
-    f5, f3 = C.mpra_flanks(SHIFT)
+    S, FC = a.shift, a.ctx
+    W = 200 + 2 * FC
+    f5, f3 = C.mpra_flanks(FC + S)
     cores = torch.from_numpy(C.onehot_core200(d["train_seqs"])).to(dev)  # (N, 200, 4)
     wide = (
         torch.cat(
             [
-                torch.from_numpy(f5).to(dev).expand(n_tr, SHIFT, 4),
+                torch.from_numpy(f5).to(dev).expand(n_tr, FC + S, 4),
                 cores,
-                torch.from_numpy(f3).to(dev).expand(n_tr, SHIFT, 4),
+                torch.from_numpy(f3).to(dev).expand(n_tr, FC + S, 4),
             ],
             dim=1,
         )
@@ -106,12 +123,30 @@ def main() -> None:
         .contiguous()
     )
     y_tr = torch.from_numpy(d["train_y"]).to(dev)
-    ar200 = torch.arange(200, device=dev)
+    arW = torch.arange(W, device=dev)
+    fF5, fF3 = C.mpra_flanks(FC) if FC else (None, None)
 
     def to_x(seqs):
-        return (
-            torch.from_numpy(C.onehot_core200(seqs)).to(dev).permute(0, 2, 1).contiguous()
-        )  # (N, 4, 200)
+        core = torch.from_numpy(C.onehot_core200(seqs)).to(dev)  # (N, 200, 4)
+        if FC:
+            n = len(core)
+            core = torch.cat(
+                [
+                    torch.from_numpy(fF5).to(dev).expand(n, FC, 4),
+                    core,
+                    torch.from_numpy(fF3).to(dev).expand(n, FC, 4),
+                ],
+                dim=1,
+            )
+        return core.permute(0, 2, 1).contiguous()  # (N, 4, 200 + 2F)
+
+    _t = torch.arange(
+        8, device=dev
+    )  # the unshifted training window must equal the evaluation window
+    assert torch.equal(
+        torch.gather(wide[_t], 2, (S + arW)[None, None, :].expand(8, 4, -1)),
+        to_x(d["train_seqs"][:8]),
+    ), "window layout mismatch"
 
     va_x = to_x(d["val_seqs"])
 
@@ -157,8 +192,8 @@ def main() -> None:
             tl = []
             for b in range(steps_pe):
                 ib = perm[b * bs : (b + 1) * bs]
-                sh = torch.randint(-SHIFT, SHIFT + 1, (len(ib),), device=dev)
-                pos = (SHIFT + sh)[:, None] + ar200[None, :]
+                sh = torch.randint(-S, S + 1, (len(ib),), device=dev)
+                pos = (S + sh)[:, None] + arW[None, :]
                 xb = torch.gather(wide[ib], 2, pos[:, None, :].expand(-1, 4, -1))
                 rcm = torch.rand(len(ib), device=dev) > 0.5
                 xb = torch.where(rcm[:, None, None], xb.flip(1).flip(2), xb)
@@ -221,7 +256,9 @@ def main() -> None:
                 "loss": "mse",
                 "precision": "fp16 autocast + GradScaler",
                 "grad_clip": 1.0,
-                "augmentation": f"shift uniform +-{SHIFT} on the real plasmid flank (every sample), reverse complement p .5",
+                "augmentation": f"shift uniform +-{S} on the real plasmid flank (every sample), reverse complement p .5",
+                "flank_ctx": FC,
+                "input_length": W,
                 "selection": "best epoch by V0c Pearson (forward only)",
             },
             "pearson_note": "val/test_pred are reverse-complement averaged; fwd_* hold forward-only predictions",
