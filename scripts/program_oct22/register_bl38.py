@@ -4,7 +4,7 @@ bench38_ln_<cfg>_<D>k_c<F>_s<k>    published MPRA-LegNet (schedules pub, e100, b
                                    at 10k and 30k on the canonical genomic pool.
 bench38_ag_oracle_<D>k_w256_s<i>   AlphaGenome-FT-MPRA, the oracle recipe (Stage 1 then Stage 2), 10 seeds as in bench33 (same seeds), input 256 bp = 200-bp insert + 28 real flank bases each side (AlphaGenome reads
                                    multiples of 128 bp; the oracle itself uses 600 bp) at 10k and 30k.
-Student-type check (does the ranking of reservoirs depend on the student?): the tuned LegNet (b256, F = 20, 5 seeds) and AlphaGenome-FT (256 bp, 2 seeds) on the random, CT-enriched motif, EvoAug and Evo2 pools at 30k:
+Student-type check (does the ranking of reservoirs depend on the student?): the tuned LegNet (b256, F = 20, 5 seeds) and AlphaGenome-FT (256 bp, 2 seeds) on the random and CT-enriched motif pools at 30k:
 bench38_ln_b256_30k_c20_<res>, bench38_ag_oracle_30k_w256_<res>.
 
   python scripts/program_oct22/register_bl38.py [--dry]
@@ -25,7 +25,7 @@ DRY = "--dry" in sys.argv
 OUT = "outputs/menu_retrain_v0"
 SEEDS = json.load(open(f"{R}/outputs/bench33/seeds.json"))
 NEST = "outputs/grid_pools/k562_nested"
-OTHER = ["random", "motif_ct_enriched", "evoaug_paper2023", "evo2"]
+OTHER = ["random", "motif_ct_enriched"]
 
 
 def ln_cell(cfg, D, F, k, res=None, seeds=None):
