@@ -45,7 +45,7 @@ sub(
     "        if _miss:\n"
     '            raise SystemExit(f"{len(_miss)} training sequences have no auxiliary label in {args.aux_labels}")\n'
     "        _ay = np.asarray([_amap[x] for x in tr_s], np.float32)\n"
-    "        ytr = np.stack([ytr, np.sqrt(args.aux_weight) * _ay], axis=1)\n"
+    "        ytr = np.stack([ytr, np.sqrt(args.aux_weight) * _ay], axis=1).astype(np.float32)\n"
     '        print(f"  aux labels: {args.aux_labels} weight {args.aux_weight} corr(primary, aux) = {np.corrcoef(ytr[:, 0], _ay)[0, 1]:.3f}", flush=True)\n',
 )
 sub(
