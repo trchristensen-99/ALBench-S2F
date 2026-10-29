@@ -1,0 +1,55 @@
+{
+ "menu": "v1",
+ "rule": "given",
+ "criterion": "one weighted ensemble over every configuration trained (positive ElasticNetCV on z-scored validation predictions); no subset of 8 is selected. 20 configurations at every size up to 100k; 12 from 300k (tentative: cost)",
+ "construction": "top configuration by search validation r of each of 18 runs (3 on each of genomic, random, motif CT-enriched, evoaug, evo2 and 3 on the mixed corpus), plus the best 2 of the remaining candidates; built by scripts/analysis/build_menu_v1.py from existing 30k runs",
+ "skip": {},
+ "order": [
+  "motif_ct_enriched_rep3_r05_arch_10",
+  "motif_ct_enriched_rep1_r04_arch_08",
+  "son55_wide_rep1_r09_arch_19",
+  "motif_ct_enriched_rep2_r09_arch_17",
+  "evo2_rep3_r04_arch_08",
+  "GRM_30k_rep2_r05_arch_10",
+  "evoaug_paper2023_rep3_r04_arch_09",
+  "evoaug_paper2023_rep1_r02_arch_03",
+  "GRM_30k_rep3_r01_arch_02",
+  "evo2_rep2_r01_arch_02",
+  "GRM_30k_rep1_r06_arch_13",
+  "son55_wide_rep2_r08_arch_15",
+  "evo2_rep1_r06_arch_12",
+  "evoaug_paper2023_rep2_r07_arch_13",
+  "son55_wide_rep3_r06_arch_09",
+  "random_rep3_r03_arch_06",
+  "random_rep1_r09_arch_18",
+  "random_rep2_r01_arch_02",
+  "motif_ct_enriched_rep3_r02_arch_04",
+  "motif_ct_enriched_rep3_r04_arch_08"
+ ],
+ "sizes": {
+  "10000": {
+   "k": 20,
+   "seeds": 1,
+   "patience": 16,
+   "max_minutes_h100": 15.0
+  },
+  "30000": {
+   "k": 20,
+   "seeds": 1,
+   "patience": 16,
+   "max_minutes_h100": 25.0
+  },
+  "100000": {
+   "k": 20,
+   "seeds": 1,
+   "patience": 16,
+   "max_minutes_h100": 60.0
+  },
+  "300000": {
+   "k": 12,
+   "seeds": 1,
+   "patience": 16,
+   "max_minutes_h100": 120.0
+  }
+ }
+}

@@ -78,6 +78,15 @@ whatever labelled set you have and stacked on the validation set. `albench.ensem
 validation set is the oracle_v3-labelled `val_v0c` asset (never train on it), and the library refuses to train with AdamW when a configuration
 asks for Muon and the package is missing (the loop would otherwise fall back silently).
 
+## The student input standard (fixed; do not change it in passing)
+
+Every student sees the 200-bp insert inside its real plasmid context: **20 real flank bases on each side (input 240 bp)**, with the training window shifted by up to +-10 bases over the real plasmid sequence and the
+centred window at evaluation; predictions average the two strands. This is how the oracle that labels every sequence reads it, and it was worth about +0.07 test r over the bare insert (Evidence Ledger, slides on
+context). The constants live in `albench/arch_search/harness_standard.py`; the library (`albench.ensemble.menu`), the retraining script and the AutoResearch loop take them from there, and a proposal cannot change
+them. A run that deliberately differs says so with an explicit flag (`--flank_ctx`, `--shift_max`, `--no_context`) and is not comparable with the study's numbers. Do not hard-code 200 in new code: use
+`INPUT_LEN`, and use `flank_context.wide_onehot` / `flank_context.wrap` rather than your own padding. The value stays at 20 until the context and shift sweeps (`sw38_` cells) show something better; if they do, edit
+`harness_standard.py` and nothing else.
+
 ## House rules that are not obvious
 
 - **No absolute paths in `albench/`.** Everything resolves through

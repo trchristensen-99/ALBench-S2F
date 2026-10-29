@@ -3,23 +3,34 @@
 from __future__ import annotations
 
 import json
+import os
 
 import numpy as np
 import pytest
 
+from albench.arch_search.harness_standard import FLANK_CTX, INPUT_LEN, SHIFT_MAX
+from albench.ensemble import menu as menu_mod
 from albench.ensemble.menu import (
+    DEFAULT_MENU,
     Menu,
     MenuEnsemble,
     MenuEntry,
+    TrainedMember,
+    build_net,
+    encode,
+    encode_train,
     evaluate,
     exploded,
+    input_length,
     load_labelled,
     load_menu,
     load_test_sets,
+    member_predict,
     one_hot,
     pearson,
     probe_sequences,
     stack_dir,
+    train_member,
     train_menu,
 )
 from albench.ensemble.stack import ZStack, fit_zscored_stack
@@ -255,11 +266,9 @@ def test_test_sets_load_and_evaluate(tmp_path):
     assert all(abs(v - 1.0) < 1e-6 for v in res.values())
 
 
-def test_menu_v1_is_the_default_and_every_configuration_is_used():
-    from albench.ensemble.menu import DEFAULT_MENU
-
+def test_menu_v1c_is_the_default_and_every_configuration_is_used():
     m = load_menu()
-    assert DEFAULT_MENU == "v1" and m.name == "menu_v1" and len(m) == 20 and not m.skipped
+    assert DEFAULT_MENU == "v1c" and m.name == "menu_v1c" and len(m) == 20 and not m.skipped
     assert [e.id for e in m.priority()] == m.per_size["order"] and len(
         {e.id for e in m.entries}
     ) == 20
@@ -269,3 +278,248 @@ def test_menu_v1_is_the_default_and_every_configuration_is_used():
     assert (
         len(load_menu("v0")) == 33 and len(load_menu("menu_v0").priority()) == 30
     )  # older name forms still resolve
+
+
+def test_menu_v1_stays_loadable_and_has_the_same_recipe_table_as_v1c():
+    v1, v1c = load_menu("v1"), load_menu("v1c")
+    assert v1.name == "menu_v1" and len(v1) == 20
+    assert [e.id for e in v1.entries] == [e.id for e in v1c.entries]
+    assert v1.per_size == v1c.per_size
+    assert sum(a.source_sha1 != b.source_sha1 for a, b in zip(v1.entries, v1c.entries)) == 5
+
+
+def test_every_v1c_configuration_builds_at_the_standard_input_length():
+    pytest.importorskip("torch")
+    assert INPUT_LEN == 240 == input_length()
+    failed = {}
+    for e in load_menu("v1c").entries:
+        net, info = build_net(e, max_fwd_ms=1e9)  # default seq_len = INPUT_LEN
+        if net is None:
+            failed[e.id] = str(info)[:80]
+    assert not failed, failed
+
+
+# ------------------------------------------------------------------------------------------------- the standard input context
+def _train_tiny(entry, tiny, **kw):
+    tr_s, tr_y, va_s, va_y = tiny
+    return train_member(entry, tr_s, tr_y, va_s, va_y, device="cpu", log=lambda *_: None, **kw)
+
+
+def _short(entry, epochs=2):
+    return MenuEntry(
+        entry.id, entry.run, "", None, None, entry.source, {**entry.train_config, "epochs": epochs}
+    )
+
+
+def test_encodings_have_the_standard_widths_and_real_flank(tiny):
+    from albench.arch_search.flank_context import wide_onehot
+    from albench.ensemble.menu import _as_window
+
+    seqs = tiny[0][:5]
+    x, xt = encode(seqs), encode_train(seqs)
+    assert x.shape == (5, 4, INPUT_LEN) and xt.shape == (5, 4, INPUT_LEN + 2 * SHIFT_MAX)
+    assert np.array_equal(x, wide_onehot(seqs, FLANK_CTX))
+    assert np.array_equal(x[:, :, FLANK_CTX : FLANK_CTX + 200], one_hot(seqs))
+    assert (x.sum(1) == 1).all()  # flank positions are real bases, not zeros
+    assert (
+        np.array_equal(encode(seqs, 0), one_hot(seqs))
+        and encode_train(seqs, 0, 10).shape[-1] == 200
+    )
+    # a bare one-hot array is re-framed with the flank, and a wider one is cut back; a fitting one is untouched
+    assert np.array_equal(_as_window(one_hot(seqs), FLANK_CTX), x)
+    assert np.array_equal(_as_window(xt, FLANK_CTX), x) and np.array_equal(
+        _as_window(x, 0), one_hot(seqs)
+    )
+    assert _as_window(x, FLANK_CTX).shape == x.shape
+    with pytest.raises(ValueError):
+        _as_window(np.zeros((2, 4, 201), np.float32), FLANK_CTX)
+
+
+def test_train_member_trains_at_240_with_the_shift_done_by_the_wrapper(tiny, monkeypatch):
+    torch = pytest.importorskip("torch")
+    from albench.arch_search import arch_autoresearch as aa
+
+    seen, built = [], []
+
+    class Spy(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.c, self.f = torch.nn.Conv1d(4, 8, 3, padding=1), torch.nn.Linear(8, 1)
+
+        def forward(self, x):
+            seen.append((self.training, tuple(x.shape), float(x.sum(1).min())))
+            return self.f(torch.relu(self.c(x)).mean(-1)).squeeze(-1)
+
+    def fake_build(entry, *, seq_len=INPUT_LEN, **_):
+        built.append(seq_len)
+        return Spy(), 77
+
+    monkeypatch.setattr(menu_mod, "build_net", fake_build)
+    monkeypatch.delenv("AL_SHIFT_MAX", raising=False)
+    shift_before = aa.shift
+    m = _train_tiny(_toy_entries()[0], tiny, patience=3)
+    assert built == [INPUT_LEN] and m.input_context == FLANK_CTX and m.input_length == INPUT_LEN
+    train_batches = [t for t in seen if t[0]]
+    assert train_batches and all(t[1][1:] == (4, INPUT_LEN) for t in train_batches)
+    # no zero-padded shift reached the window: every position of every training window is a real base
+    assert all(t[2] == 1.0 for t in seen)
+    assert aa.shift is shift_before and "AL_SHIFT_MAX" not in os.environ  # overrides undone
+    assert m.val_pred.shape == (len(tiny[2]),) and np.isfinite(m.val_pred).all()
+    assert not any(k.startswith("net.") for k in m.state)  # the wrapper's prefix is not stored
+    assert m.info["shift_max"] == SHIFT_MAX
+
+
+def test_flank_ctx_zero_reproduces_the_bare_insert_recipe(tiny, monkeypatch):
+    torch = pytest.importorskip("torch")
+    seen, built = [], []
+
+    class Spy(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.f = torch.nn.Linear(4, 1)
+
+        def forward(self, x):
+            seen.append(tuple(x.shape))
+            return self.f(x.mean(-1)).squeeze(-1)
+
+    def fake_build(entry, *, seq_len=INPUT_LEN, **_):
+        built.append(seq_len)
+        return Spy(), 5
+
+    monkeypatch.setattr(menu_mod, "build_net", fake_build)
+    m = _train_tiny(_toy_entries()[0], tiny, flank_ctx=0)
+    assert built == [200] and m.input_context == 0 and {s[1:] for s in seen} == {(4, 200)}
+    assert m.info["shift_max"] is None
+
+
+def test_tiny_member_trains_on_cpu_and_predicts_at_240(tiny):
+    torch = pytest.importorskip("torch")
+    tr_s, tr_y, va_s, va_y = tiny
+    m = _train_tiny(_short(_toy_entries()[0]), tiny)
+    assert m is not None and m.input_context == FLANK_CTX and m.epochs >= 1
+    p = member_predict(m, va_s, device="cpu")  # sequences are framed for the member
+    assert p.shape == (len(va_s),) and np.isfinite(p).all()
+    # bare one-hot arrays, wide arrays and sequences all give the same predictions for a context member
+    assert np.allclose(p, member_predict(m, one_hot(va_s), device="cpu"), atol=1e-5)
+    assert np.allclose(p, member_predict(m, encode_train(va_s), device="cpu"), atol=1e-5)
+    assert np.allclose(
+        p, m.val_pred, atol=1e-4
+    )  # validation predictions came from the centred window
+    assert m.net()(torch.zeros(2, 4, INPUT_LEN)).shape == (2,)
+
+
+def test_wrapper_prefixed_checkpoints_load_like_plain_ones(tiny):
+    m = _train_tiny(_short(_toy_entries()[0]), tiny)
+    prefixed = TrainedMember(
+        m.entry,
+        {f"net.{k}": v for k, v in m.state.items()},
+        m.seed,
+        m.val_pred,
+        m.val_r,
+        m.epochs,
+        m.minutes,
+        m.n_params,
+        input_context=m.input_context,
+    )
+    va_s = tiny[2]
+    assert np.allclose(
+        member_predict(m, va_s, device="cpu"), member_predict(prefixed, va_s, device="cpu")
+    )
+
+
+def test_context_ensemble_saves_its_context_and_old_metadata_loads_as_200bp(tiny, tmp_path):
+    tr_s, tr_y, va_s, va_y = tiny
+    entries = _toy_entries()[:3]
+    new = MenuEnsemble(entries, va_s, va_y, devices=["cpu"], log=lambda *_: None)
+    new.fit(tr_s, tr_y)
+    assert {m.input_context for m in new.members} == {FLANK_CTX}
+    assert new._encode_sequences(va_s).shape == (len(va_s), 4, INPUT_LEN)
+    new.save(tmp_path / "new")
+    meta = json.loads((tmp_path / "new" / "ensemble.json").read_text())
+    assert meta["input_context"] == FLANK_CTX and {r["input_context"] for r in meta["members"]} == {
+        FLANK_CTX
+    }
+    import torch
+
+    saved = torch.load(
+        tmp_path / "new" / "members" / f"{new.members[0].member_id}.pt", map_location="cpu"
+    )
+    assert not any(
+        k.startswith("net.") for k in saved
+    )  # a checkpoint is the bare network's weights
+    back = MenuEnsemble.load(tmp_path / "new", va_s, va_y, menu=Menu(entries), devices=["cpu"])
+    assert {m.input_context for m in back.members} == {FLANK_CTX} and back.flank_ctx == FLANK_CTX
+    assert np.allclose(back.predict(va_s), new.predict(va_s), atol=1e-4)
+
+    # an ensemble from before the standard: members trained on the bare insert, metadata without any input_context key
+    old = MenuEnsemble(entries, va_s, va_y, devices=["cpu"], flank_ctx=0, log=lambda *_: None)
+    old.fit(tr_s, tr_y)
+    old.save(tmp_path / "old")
+    f = tmp_path / "old" / "ensemble.json"
+    meta = json.loads(f.read_text())
+    meta.pop("input_context")
+    for r in meta["members"]:
+        r.pop("input_context")
+        r.pop("shift_max")
+    f.write_text(json.dumps(meta))
+    loaded = MenuEnsemble.load(tmp_path / "old", va_s, va_y, menu=Menu(entries), devices=["cpu"])
+    assert {m.input_context for m in loaded.members} == {0} and loaded.flank_ctx == 0
+    assert loaded._encode_sequences(va_s).shape == (len(va_s), 4, 200)
+    assert loaded.member_predictions(va_s).shape == (3, len(va_s))
+    assert np.allclose(loaded.predict(va_s), old.predict(va_s), atol=1e-4)
+    assert loaded.members[0].net()(torch.zeros(2, 4, 200)).shape == (2,)  # rebuilt at 200 positions
+
+
+def test_mixed_context_ensemble_encodes_per_member_and_screens_with_the_right_probes(
+    tiny, monkeypatch
+):
+    tr_s, tr_y, va_s, va_y = tiny
+    entries = _toy_entries()[:2]
+    kw = dict(devices=["cpu"], log=lambda *_: None)
+    new = MenuEnsemble(entries, va_s, va_y, **kw)
+    new.fit(tr_s, tr_y)
+    old = MenuEnsemble(entries, va_s, va_y, flank_ctx=0, **kw)
+    old.fit(tr_s, tr_y)
+    mixed = MenuEnsemble(entries, va_s, va_y, **kw)
+    mixed.members = [new.members[0], old.members[1]]
+    mixed.fit_stack()
+    enc = mixed._encode_sequences(va_s[:6])
+    assert isinstance(enc, dict) and {c: a.shape for c, a in enc.items()} == {
+        FLANK_CTX: (6, 4, INPUT_LEN),
+        0: (6, 4, 200),
+    }
+    mp = mixed.member_predictions(va_s)
+    assert mp.shape == (2, len(va_s)) and np.isfinite(mp).all()
+    assert np.allclose(mp[0], member_predict(new.members[0], va_s, device="cpu"))
+    assert np.allclose(mp[1], member_predict(old.members[1], va_s, device="cpu"))
+    for j, m in enumerate(
+        mixed.members
+    ):  # the per-context encodings are routed to the right member
+        assert np.allclose(mixed._predict_member(m, enc), mp[j][:6], atol=1e-5)
+        assert np.allclose(mixed._predict_member(m, va_s[:6]), mp[j][:6], atol=1e-5)
+    assert mixed.predict(va_s).shape == (len(va_s),)
+
+    widths = []
+    real = menu_mod.member_predict
+    monkeypatch.setattr(
+        menu_mod,
+        "member_predict",
+        lambda m, x, **k: (widths.append((m.input_context, x.shape[-1])), real(m, x, **k))[1],
+    )
+    assert mixed.screen() == []
+    assert sorted(widths) == [(0, 200), (FLANK_CTX, INPUT_LEN)]
+
+
+def test_evaluate_and_probes_work_on_a_context_ensemble(tiny, tmp_path):
+    tr_s, tr_y, va_s, va_y = tiny
+    ens = MenuEnsemble(_toy_entries()[:2], va_s, va_y, devices=["cpu"], log=lambda *_: None)
+    ens.fit(tr_s, tr_y)
+    assert ens.screened_out == [] and len(probe_sequences()) > 1000
+    assert ens.member_predictions(probe_sequences()[:50]).shape == (2, 50)
+    for name in ("genomic", "ood", "random_32k"):
+        np.savez(tmp_path / f"{name}_oracle.npz", sequences=np.array(va_s), oracle_mean=va_y)
+    res = evaluate(ens, path=tmp_path)
+    assert list(res) == ["genomic", "ood", "random_32k"] and all(
+        np.isfinite(v) for v in res.values()
+    )
+    assert res["genomic"] == pytest.approx(pearson(ens.predict(va_s), va_y))

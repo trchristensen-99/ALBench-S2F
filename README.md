@@ -28,6 +28,9 @@ strategy needs none:
 albench generate --strategy random --n 1000 --out /tmp/x.npz
 ```
 
+**Student input standard:** every student sees the 200-bp insert with 20 real plasmid bases on each side (240-bp input), shifted by up to 10 bases in training. It is fixed in
+`albench/arch_search/harness_standard.py` (see [AGENTS.md](AGENTS.md)); results from students that see the bare insert are not comparable with the study's numbers.
+
 ### Sweeping parameters
 
 Parameters are swept from the command line; there is no file to add and no code to

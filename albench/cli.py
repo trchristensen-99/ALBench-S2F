@@ -502,7 +502,7 @@ def main(argv=None) -> int:
     mn.add_argument(
         "--menu",
         default=None,
-        help="shipped menu name (v1 = current recipe, v0 = the older 30-configuration menu) or a menu.json path; default v1, or the ensemble's own menu for predict / evaluate",
+        help="shipped menu name (v1c = current recipe, buildable at the 240-base standard input; v1 = the same at 200 bases only; v0 = the older 30-configuration menu) or a menu.json path; default v1c, or the ensemble's own menu for predict / evaluate",
     )
     msub = mn.add_subparsers(dest="menu_cmd", required=True)
     m_ls = msub.add_parser(

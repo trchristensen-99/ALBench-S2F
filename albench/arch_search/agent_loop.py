@@ -96,6 +96,8 @@ class AgentConfig:
     manager: str = "none"  # "schedule": the coordinator and proposer get an explore (early rounds) then exploit (later rounds) directive and a coverage table of architecture classes and recipes already trained;
     # "schedule_ens": additionally the coordinator sees the validation stack of everything trained so far (weight and correlation per model). Needs the coordinate stage.
     explore_frac: float = 0.4  # manager: the first round(explore_frac * rounds) rounds are explore rounds, the rest exploit
+    # manager "quota": every round trains one EXPLOIT model and (select_per_round - 1) EXPLORE models; the coordinator sees a coverage table of architectural features (and which are still untried) and the validation stack.
+    recipe_source: str = "proposal"  # "proposal": the proposer writes a TRAIN line per idea (the default of every earlier run); "harness": the proposer writes architectures only and the harness assigns each model a recipe from a safe set (AL_RECIPE_MODE=harness)
     cli_overhead_tokens: int = CLI_OVERHEAD_TOKENS
 
     @classmethod
@@ -137,9 +139,13 @@ class AgentConfig:
             raise AgentConfigError(
                 f"proposer_style must be 'none' or 'explore', got {self.proposer_style!r}"
             )
-        if self.manager not in ("none", "schedule", "schedule_ens"):
+        if self.manager not in ("none", "schedule", "schedule_ens", "quota"):
             raise AgentConfigError(
-                f"manager must be 'none', 'schedule' or 'schedule_ens', got {self.manager!r}"
+                f"manager must be 'none', 'schedule', 'schedule_ens' or 'quota', got {self.manager!r}"
+            )
+        if self.recipe_source not in ("proposal", "harness"):
+            raise AgentConfigError(
+                f"recipe_source must be 'proposal' or 'harness', got {self.recipe_source!r}"
             )
         if self.manager != "none" and "coordinate" not in st:
             raise AgentConfigError(
@@ -660,10 +666,19 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
         )
     note = h.guidance_note(rd)
     guidance = note[: -len(h.train_note)].rstrip() if note.endswith(h.train_note) else note
-    setup = PROPOSER_SETUP.format(max_min=h.cap_min, max_params=args.max_params)
+    harness_recipe = ctx.cfg.recipe_source == "harness"
+    setup = (PROPOSER_SETUP_HARNESS if harness_recipe else PROPOSER_SETUP).format(
+        max_min=h.cap_min, max_params=args.max_params
+    )
     parts.append("\nNOTE: " + (guidance + "\n\n" if guidance else "") + setup)
-    parts.append(f"\nPropose {n} architectures now (IDEA / WHY / DESIGN / TRAIN for each).")
+    if ctx.cfg.manager == "quota":
+        parts.append("\n" + coverage_text_quota(ctx))
+    parts.append(
+        f"\nPropose {n} architectures now (IDEA / WHY / DESIGN{'' if harness_recipe else ' / TRAIN'} for each)."
+    )
     system = PROPOSER_SYSTEM.replace("{n}", str(n))
+    if harness_recipe:
+        system = _TRAIN_LINE.sub("", system)
     if ctx.cfg.proposer_style == "explore":
         system += "\n\n" + PROPOSER_EXPLORE
     mode = manager_mode(ctx, rd)
@@ -671,6 +686,8 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
         system += "\n\n" + PROPOSER_EXPLORE + "\n\n" + PROPOSER_MANAGER_EXPLORE
     elif mode == "exploit":
         system += "\n\n" + PROPOSER_MANAGER_EXPLOIT
+    elif mode == "quota":
+        system += "\n\n" + PROPOSER_MANAGER_QUOTA
     if "coordinate" in ctx.cfg.stages:
         k = ctx.n_select()
         system += (
@@ -736,6 +753,42 @@ PROPOSER_MANAGER_EXPLOIT = (
     "REFINEMENT ROUND: the exploration phase is over. Build on what the tried list shows works: improve the best architectures and their "
     "recipes (depth, width, kernel sizes, pooling, head, regularisation, learning rate), and keep one bet that tests something different."
 )
+MANAGER_QUOTA = (
+    "MANAGER MODE: QUOTA. Every round trains one EXPLOIT model and {k1} EXPLORE model(s). EXPLOIT: the candidate most likely to raise the ensemble by refining a model that carries weight in the stack or by "
+    "filling a gap the stack shows. EXPLORE: the candidate that adds the architectural features least represented in the coverage table (especially the ones listed as NOT YET TRIED), accepting a lower "
+    "expected validation r; a width or depth tweak of a trained model does not count as exploration. Do not pick two candidates that rely on the same new feature."
+)
+PROPOSER_MANAGER_QUOTA = (
+    "QUOTA ROUND: the final product is an ensemble, so each round needs both refinement and genuinely different bets. Make at least half of your ideas introduce an architectural feature that the coverage "
+    "table below shows as rare or untried (a different block type, skip-connection scheme, normalisation, readout, receptive-field layout, attention placement, ...); make the others refinements of the "
+    "models that carry weight."
+)
+PROPOSER_SETUP_HARNESS = (
+    "SETUP: you choose WHAT to build; a coding agent writes the Net class from your DESIGN, so be specific and stay within what can be written with the allowed imports. A fixed harness trains it: "
+    "the input includes real plasmid context, reverse-complement + random-shift augmentation are ALWAYS applied, and the harness assigns each model its own training recipe (optimizer, learning rate, "
+    "weight decay, batch size, schedule), so do not propose one. BUDGET: each model must train within ~{max_min:.0f} min of GPU wall-clock (slow models are stopped early and keep their best epoch) and "
+    "<= {max_params:,} params; design within that. Each tried architecture above reports its validation r AND its train seconds, so prefer ideas that are both strong and efficient."
+)
+_TRAIN_LINE = re.compile(r"### TRAIN:.*?\}\n", re.S)
+_FEATURES = {
+    "squeeze-excitation": r"class\s+\w*(SE|Squeeze)\w*|SELayer|Squeeze",
+    "self-attention": r"MultiheadAttention|TransformerEncoder|nn\.Transformer|scaled_dot_product_attention",
+    "recurrent": r"nn\.(LSTM|GRU|RNN)\b",
+    "state-space": r"[Mm]amba|[Ss]tate.?[Ss]pace|selective.?scan",
+    "U-Net-like (up/down path)": r"ConvTranspose|F\.interpolate|nn\.Upsample",
+    "dilated convolutions": r"dilation\s*=\s*(?!1\b)\d+",
+    "attention pooling": r"AttnPool|AttentionPool|[Aa]ttn[_A-Za-z]*\s*=",
+    "dense / concatenation skips": r"torch\.(cat|concat)\(",
+    "layer or group norm": r"nn\.(LayerNorm|GroupNorm|InstanceNorm1d|RMSNorm)",
+    "depthwise convolutions": r"groups\s*=\s*(?!1\b)",
+    "gating (GLU / sigmoid gates)": r"F\.glu|nn\.GLU|\*\s*torch\.sigmoid|\*\s*F\.sigmoid|\.sigmoid\(\)\s*\*",
+    "top-k hit statistics": r"\.topk\(|torch\.topk",
+    "position-resolved flatten readout": r"nn\.Flatten|\.flatten\(1\)|\.view\([^)]*-1\)|\.reshape\([^)]*-1\)",
+    "global max pooling": r"AdaptiveMaxPool1d|amax\(|\.max\(dim|\.max\(-1\)|adaptive_max_pool1d",
+    "windowed / multiple-instance": r"\.unfold\(|windows",
+    "parallel multi-kernel branches": r"ModuleList",
+    "second-order terms (einsum / bmm)": r"einsum|bmm|torch\.matmul",
+}
 _ARCH_CLASSES = {
     "self-attention": r"MultiheadAttention|TransformerEncoder|nn\.Transformer|scaled_dot_product_attention",
     "recurrent": r"nn\.(LSTM|GRU|RNN)\b",
@@ -750,6 +803,8 @@ def manager_mode(ctx: AgentCtx, rd: int) -> str | None:
     """'explore' for the first round(explore_frac * rounds) rounds, then 'exploit'; None when the manager is off."""
     if ctx.cfg.manager == "none":
         return None
+    if ctx.cfg.manager == "quota":
+        return "quota"
     return "explore" if rd < round(ctx.args.rounds * ctx.cfg.explore_frac) else "exploit"
 
 
@@ -785,6 +840,49 @@ def coverage_text(ctx: AgentCtx) -> str:
         if top
         else " - no recipes yet"
     )
+    return "\n".join(lines)
+
+
+def coverage_text_quota(ctx: AgentCtx) -> str:
+    """Architectural features of everything trained so far (from the models' source) and the ones nobody has tried; recipes are left out when the harness assigns them."""
+    counts = {k: 0 for k in _FEATURES}
+    n = 0
+    for m in ctx.records:
+        try:
+            src = (
+                json.loads((ctx.out_p / f"{m.model_id}_meta.json").read_text()).get("source") or ""
+            )
+        except Exception:  # noqa: BLE001 - coverage is advice, never a reason to stop
+            continue
+        n += 1
+        for k, pat in _FEATURES.items():
+            if re.search(pat, src):
+                counts[k] += 1
+    lines = [
+        f"COVERAGE of the {len(ctx.records)} trained models (counts are models whose source contains the feature):"
+    ]
+    if n:
+        lines.append(" - " + ", ".join(f"{k}: {v}" for k, v in counts.items() if v))
+        untried = [k for k, v in counts.items() if v == 0]
+        lines.append(
+            " - NOT YET TRIED: "
+            + (
+                ", ".join(untried)
+                if untried
+                else "(every listed feature appears in at least one model)"
+            )
+        )
+    else:
+        lines.append(" - (no source available yet)")
+    if ctx.cfg.recipe_source == "proposal":
+        recipes: dict[str, int] = {}
+        for m in ctx.records:
+            recipes[m.recipe] = recipes.get(m.recipe, 0) + 1
+        top = sorted(recipes.items(), key=lambda kv: -kv[1])[:6]
+        if top:
+            lines.append(
+                " - training recipes used (count): " + "; ".join(f"{r[:70]} ({c})" for r, c in top)
+            )
     return "\n".join(lines)
 
 
@@ -835,7 +933,13 @@ def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
             + ctx.lessons
         )
     mode = manager_mode(ctx, plan["round"])
-    if mode:
+    if mode == "quota":
+        parts.append("\n" + coverage_text_quota(ctx))
+        es = ensemble_status_text(ctx)
+        if es:
+            parts.append("\n" + es)
+        parts.append("\n" + MANAGER_QUOTA.format(k1=max(k - 1, 0)))
+    elif mode:
         total = ctx.args.rounds
         n_explore = round(total * ctx.cfg.explore_frac)
         parts.append("\n" + coverage_text(ctx))
@@ -849,8 +953,13 @@ def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
         )
     parts.append(f"\nCANDIDATES this round ({n}):")
     for i, it in enumerate(plan["items"], 1):
+        recipe_line = (
+            ""
+            if ctx.cfg.recipe_source == "harness"
+            else f"\n    TRAIN: {_fmt_recipe(it['train_spec'])}"
+        )
         parts.append(
-            f"[{i}] IDEA: {it['idea']}\n    WHY: {it['why']}\n    DESIGN: {it['design'][:900]}\n    TRAIN: {_fmt_recipe(it['train_spec'])}"
+            f"[{i}] IDEA: {it['idea']}\n    WHY: {it['why']}\n    DESIGN: {it['design'][:900]}{recipe_line}"
         )
     parts.append(f"\nChoose {k} of the {n} candidates now.")
     return COORDINATOR_SYSTEM.replace("{n}", str(n)).replace("{k}", str(k)), "\n".join(parts)
@@ -911,7 +1020,9 @@ def coder_prompt(ctx: AgentCtx, item: dict) -> tuple[str, str]:
         idea=item["idea"],
         why=item["why"] or "(none given)",
         design=item["design"],
-        recipe=_fmt_recipe(item["train_spec"]),
+        recipe="a recipe the harness assigns (do not assume one)"
+        if ctx.cfg.recipe_source == "harness"
+        else _fmt_recipe(item["train_spec"]),
     )
     return CODER_SYSTEM, user
 
@@ -1030,7 +1141,7 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
         getattr(h, "wrap_model", None) is not None
     ):  # flank-context students: WideCrop around the checked architecture
         model = h.wrap_model(model)
-    tc = h.sample_train(item["train_spec"])
+    tc = h.sample_train({} if ctx.cfg.recipe_source == "harness" else item["train_spec"])
     torch.manual_seed(1000 + ctx.midx)
     t0 = time.time()
     try:
@@ -1084,6 +1195,8 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
             "coder_calls": item["coder_calls"],
             "repairs": item["repairs"],
             "train_spec": item["train_spec"],
+            "recipe_source": ctx.cfg.recipe_source,
+            "manager": ctx.cfg.manager,
         },
     }
     h.atomic_savez(
@@ -1341,6 +1454,10 @@ def run_agent_loop(args, h, llm: Callable | None = None) -> None:
     if getattr(args, "style", "none") not in ("none", None):
         raise AgentConfigError("--loop agent replaces --style; leave --style at 'none'")
     cfg = AgentConfig.from_arg(getattr(args, "agent_cfg", ""))
+    if cfg.recipe_source == "harness":
+        os.environ["AL_RECIPE_MODE"] = (
+            "harness"  # the launcher's sample_train draws from the safe set
+        )
     out_p = Path(args.out_dir)
     (out_p / "prompts").mkdir(parents=True, exist_ok=True)
     (out_p / "agent_logs").mkdir(exist_ok=True)

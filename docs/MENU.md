@@ -8,7 +8,24 @@ Code: `albench/ensemble/menu.py` (library), `albench/ensemble/menus/` (the data)
 `tests/test_menu.py`. Evidence for every choice below is in the evidence ledger (the artifact the study is argued from); the numbers
 quoted here are from its K-curve card.
 
-## The current recipe (menu v1, from Oct 28)
+## The student input standard (fixed: 20 real flank bases per side)
+
+Every configuration is trained and used with the 200-bp insert **inside its real plasmid context: 20 real bases on each side, input 240 bp**, the training window sliding by up to +-10 bases over the real
+plasmid sequence (never zeros) and the centred window used at evaluation; predictions average both strands. This is how the oracle that labels the sequences reads them. It is the default of
+`albench.ensemble.menu` (`train_member`, `train_menu`, `MenuEnsemble.fit`, `predict`) and of `albench menu train`; the constants live in `albench/arch_search/harness_standard.py` and are changed only there,
+and only if the context and shift sweeps (the `sw38_` cells) show something better. On the 30k genomic set the context was worth about +0.07 test r for single models and the ensemble (a bare-insert student sat
+at 0.745 single / 0.78 ensemble and reaches 0.82 / 0.85 with context); 12 to 20 bases give the whole gain and 60 or 200 add nothing measurable.
+
+* **Menu v1c is the default menu.** It is menu v1 with the five entries that were hard-wired to 200 positions (indices 0, 10, 12, 13, 15) rewritten to be length-agnostic; at 200 bp it is identical to v1 and at 240 all 20 build.
+  `menu_v1` itself builds only 15 of 20 at 240 bases, so do not use it with the standard input.
+* **Old ensembles still load.** A member saved without an `input_context` is read as context 0 (bare 200 bp, its network rebuilt at 200); a loaded old ensemble keeps refitting as context 0 unless you pass `flank_ctx`.
+  `flank_ctx=0` (Python only; the command line always uses the standard) reproduces the old bare-insert recipe on purpose. Such a run is not comparable with the study's numbers.
+* **Predict from sequences, not from your own one-hot.** `predict` and `member_predictions` frame each member with the real flank themselves; a bare one-hot array is re-framed rather than trusted.
+* **The shift is done by the context wrapper, not the harness.** The harness's own shift fills with zeros; the library switches it off (`AL_SHIFT_MAX=0`) so the only shifting is over real flank bases.
+* **Every number in the tables below was measured before the standard existed** (bare 200-bp students). The ordering conclusions are expected to hold, the levels are about 0.07 too low, and they are being
+  re-measured with the standard input (the `st38_` and `sw38_` cells and the menu v2 rebuild).
+
+## The current recipe (menu v1 / v1c, from Oct 28)
 
 * **20 configurations** (`menus/menu_v1.json`), built from existing AutoResearch runs: 3 runs on each of five reservoir families (genomic, random, motif CT-enriched, evoaug, evo2)
   and 3 on the mixed corpus (genomic + random + motif) = 18 runs; the top configuration by search validation r of every run, plus the best 2 of the remaining candidates
@@ -124,7 +141,8 @@ that starts from a saved ensemble does not retrain it.
 `menu_ensembles` asset (CSHL: `/grid/koo/home/shared/albench/ensembles`): for 10,000 and 30,000 genomic sequences (the first 10k / 30k of `outputs/grid_pools/k562_nested/genomic_d{D}.npz`,
 seed 42, labelled by oracle_v3), the 30 usable configurations of the **v0** menu x 3 seeds = 90 members each, with weights, per-member validation predictions and the stack. Variants:
 `genomic_{10k,30k}_patience8` and `genomic_{10k,30k}_patience16` (patience 16 is the standard from Oct 28). Load one with `MenuEnsemble.load(dir, val_s, val_y)` (it finds the v0 menu from its own metadata);
-`ensemble.json` lists every member with its weight and validation r. They are the starting points for scoring candidates; the ensembles you train afterwards at each size use the v1 recipe above.
+`ensemble.json` lists every member with its weight and validation r. They are the starting points for scoring candidates; the ensembles you train afterwards at each size use the v1c recipe above. **These saved ensembles were trained on the bare 200-bp insert** (they load as context 0 and score
+correctly, but they are about 0.07 below what the same configurations reach with the standard input; the standard-input replacements are being trained).
 Before this, only predictions had been stored, never weights.
 
 ## Things that will bite
@@ -135,7 +153,7 @@ Before this, only predictions had been stored, never weights.
 * **Muon.** Most configurations use the Muon optimizer. The training loop silently falls back to AdamW if the `muon` package is missing, which
   trains different models; the library refuses unless `ALBENCH_ALLOW_OPTIMIZER_FALLBACK=1`. The repo `.venv` on the cluster has it vendored.
 * **Patience.** The recipe is early stopping with patience 16 (the standard since Oct 28) and best-weight restore, reverse-complement averaged MSE, shift augmentation up
-  to 10 bp, gradient clipping 1.0, fp32. Patience 16 beat 8 in every cell of the first recipe study (+0.001 at 100k to +0.011 at 10k) for 1.0 to 1.6x
+  to 10 bp (over the real flank, see the input standard above), gradient clipping 1.0, fp32. Patience 16 beat 8 in every cell of the first recipe study (+0.001 at 100k to +0.011 at 10k) for 1.0 to 1.6x
   the training time; patience 24 and 32 are being tested, and replicate pools for 16 against 8 are running. Results in the lab ledger from before Oct 28 used patience 8, and the
   ensembles in `ensembles/` are labelled with the patience they were trained with.
 * **Three of the 33 configurations are left out** (`per_size.json["skip"]`): two exceed the 8 s CPU forward-time check on 10 to 14% of
