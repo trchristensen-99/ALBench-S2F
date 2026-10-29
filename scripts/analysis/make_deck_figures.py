@@ -180,7 +180,7 @@ def fig_flank(P, out):
     )
     ax.set_xlabel("real flank bases per side given as input", fontsize=15, labelpad=8)
     ax.set_ylabel("change in test Pearson r", fontsize=15)
-    ax.legend(loc="upper left", fontsize=12.5, frameon=False)
+    ax.legend(loc="lower right", fontsize=12.5, frameon=False)
     save(fig, os.path.join(out, "deck_flank_context.png"))
 
 

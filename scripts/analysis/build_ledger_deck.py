@@ -113,6 +113,39 @@ def slides(P):
         else ""
     )
     pooled = E.get("pool_all_menu_arms")
+    sw = {
+        k: pr[k]["genomic"]["mean"]
+        for k in (
+            "c4s10",
+            "c8s10",
+            "c12s10",
+            "c20s10",
+            "c60s10",
+            "c100s10",
+            "c200s10",
+            "c20s0",
+            "c20s30",
+        )
+        if k in pr and pr[k]["n"] >= 2
+    }
+    sweep_txt = (
+        "Students get the plasmid flank the assay and the oracle see, not the bare insert; every student before Oct 29 saw 200 bases with zeros beyond them. "
+        + (
+            f"The gain is a junction effect that saturates quickly: {sw.get('c4s10', float('nan')):+.3f} with 4 bases per side, {sw.get('c12s10', float('nan')):+.3f} with 12, {sw.get('c20s10', float('nan')):+.3f} with 20, and no more with 60, 100 or 200 ({sw.get('c60s10', float('nan')):+.3f}, {sw.get('c100s10', float('nan')):+.3f}, {sw.get('c200s10', float('nan')):+.3f}). "
+            f"Use 20 bases and a +-10 shift over real flank (no shift {sw.get('c20s0', float('nan')):+.3f}, +-30 {sw.get('c20s30', float('nan')):+.3f})."
+            if sw
+            else ""
+        )
+    )
+    ctx_models = [m for m in P["models"] if m["arm"] == "c20s10"]
+    allctx = [m for m in P["models"] if m["arm"][0] == "c" and m["arm"][1].isdigit()]
+    best_ctx = max(allctx, key=lambda m: m["val"]) if allctx else None
+    single_txt = (
+        f"Flank-context singles (20 bases, {len(ctx_models)} of 15 architectures so far): validation {min(m['val'] for m in ctx_models):.3f} to {max(m['val'] for m in ctx_models):.3f}, test {min(m['genomic'] for m in ctx_models):.3f} to {max(m['genomic'] for m in ctx_models):.3f}; best by validation {best_ctx['genomic']:.3f} (val {best_ctx['val']:.3f}). "
+        "Best earlier single model of ours: val 0.840, test 0.754 by validation (best test of any single 0.774)."
+        if ctx_models and best_ctx
+        else ""
+    )
     S = []
     S.append(
         dict(
@@ -122,7 +155,7 @@ def slides(P):
             img="deck/deck_flank_context.png",
             own_title=True,
             read="Each point is the average change in test r when the same architecture, trained on the same 30k genomic sequences with the same seed, is also shown real plasmid sequence on each side of its 200-bp insert (x). Blue and purple are scored against oracle labels, open orange against the experimental measurements. The grey band is seed noise.",
-            so="Students get the plasmid flank the assay and the oracle see, not the bare insert. This was the missing piece: every student before Oct 29 saw 200 bases with zeros beyond them.",
+            so=sweep_txt,
             nums=flank_numbers,
             change="The gain shrinks to the +0.008 of the zero-padded real-flank shift once all 15 architectures finish, or the reservoir ranking flips (slide S5).",
             links=[("#loop", "training loop entry"), ("#student-input", "parameter table")],
@@ -138,7 +171,7 @@ def slides(P):
             own_title=True,
             read="Every dot is one trained model on the 30k genomic pool: x = validation r, y = test r. The red star is the collaborator's best single model as he reported it. Models with flank context have the same validation-to-test gap (about 0.04) as his; our earlier models have 0.07 to 0.08.",
             so="Treat the collaborator's lead as explained first by input context, not by more search rounds. His files and code are still needed to confirm that his val/test sets and labels match ours.",
-            nums="Best earlier single model of ours: val 0.840, test 0.754 (best test of any single 0.774). Flank-context singles so far: val 0.855 to 0.873, test 0.80 to 0.83.",
+            nums=single_txt,
             change="His validation and test files turn out to differ from ours, or his training recipe adds something large on top of context.",
             links=[],
             qs="collaborator peter koo 0.8165 single model replicate pi gap",
