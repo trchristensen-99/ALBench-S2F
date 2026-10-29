@@ -1026,6 +1026,10 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
     if model is None:
         ctx.say(f"    discard: {verdict.reason[:75]}")
         return fail(f"rebuild failed: {verdict.reason}")
+    if (
+        getattr(h, "wrap_model", None) is not None
+    ):  # flank-context students: WideCrop around the checked architecture
+        model = h.wrap_model(model)
     tc = h.sample_train(item["train_spec"])
     torch.manual_seed(1000 + ctx.midx)
     t0 = time.time()
@@ -1073,6 +1077,7 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
         "train_time_sec": time.time() - t0,
         "gpu": h.gpu,
         "source": item["source"],
+        "harness": getattr(h, "harness", {}),
         # agent-loop extras (load_cell ignores unknown keys)
         "agent": {
             "design": item["design"],
