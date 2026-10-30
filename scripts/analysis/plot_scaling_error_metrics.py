@@ -32,7 +32,30 @@ FAMILIES = {
     "augmentation": ("#7b3294", ["evoaug_paper2023", "evoaug_prm010"]),
     "model-based": ("#636363", ["d3_steps64", "evo2"]),
 }
-STYLES = [("-", "o"), ("--", "s"), (":", "^")]
+STYLES = [("-", "o"), ("--", "s"), (":", "^"), ("-.", "v")]
+FAMILY_COLORS = {
+    "genomic": "#1b7837",
+    "random": "#2166ac",
+    "motif": "#d95f02",
+    "perturbation": "#7b3294",
+    "augmentation": "#7b3294",
+    "model": "#636363",
+    "model-based": "#636363",
+}
+TITLE = "every reservoir on every evaluation set (Oct 13-14 setup, bare 200-bp students)"
+SERIES_NOTE = {}
+
+
+def families_from_csv(path: str) -> dict:
+    """Reservoir groups and colours from the ``family`` column of a table (for tables with other reservoirs than the Oct 13-14 ones)."""
+    fams: dict[str, list[str]] = {}
+    for r in csv.DictReader(open(path)):
+        fams.setdefault(r["family"], [])
+        if r["reservoir"] not in fams[r["family"]]:
+            fams[r["family"]].append(r["reservoir"])
+    return {f: (FAMILY_COLORS.get(f, "#444444"), rs) for f, rs in fams.items()}
+
+
 EVALS = [
     ("genomic", "genomic test (chr7/13)"),
     ("ood", "designed high-activity"),
@@ -152,7 +175,7 @@ def figure(cells, series, metric, out_png, highlight=None, note=""):
     h, lab = flat[0].get_legend_handles_labels()
     flat[-1].legend(h, lab, loc="center", fontsize=8.2, frameon=False, ncol=1)
     fig.suptitle(
-        f"{ylab} against training-set size, every reservoir on every evaluation set (Oct 13-14 setup, bare 200-bp students)\n{SERIES[series]}"
+        f"{ylab} against training-set size, {TITLE}\n{SERIES_NOTE.get(series, SERIES[series])}"
         + (f"\n{note}" if note else ""),
         fontsize=13,
     )
@@ -226,7 +249,28 @@ def main() -> None:
     ap.add_argument(
         "--series", nargs="+", default=["enet_greedy_k5", "f4_first6"], choices=list(SERIES)
     )
+    ap.add_argument(
+        "--dynamic_families",
+        action="store_true",
+        help="take reservoirs and families from the family column of --long",
+    )
+    ap.add_argument(
+        "--title", default="", help="replaces the figure title text after the metric name"
+    )
+    ap.add_argument(
+        "--series_note",
+        default="",
+        help="replaces the second title line (what the series is)",
+    )
     a = ap.parse_args()
+    global FAMILIES, TITLE
+    if a.dynamic_families:
+        FAMILIES = families_from_csv(a.long)
+    if a.title:
+        TITLE = a.title
+    if a.series_note:
+        for k in SERIES:
+            SERIES_NOTE[k] = a.series_note
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     r_cells, m_cells = read(a.long), (read(a.mse) if a.mse else None)

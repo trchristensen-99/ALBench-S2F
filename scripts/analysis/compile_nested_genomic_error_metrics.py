@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Genomic reservoir at 10k, 30k and 100k from NESTED pools, on all 19 evaluation sets, with r and MSE: the replacement for the genomic line of the
+"""Reservoirs (genomic by default; ``--reservoirs`` for more) at 10k, 30k and 100k from NESTED pools, on all 19 evaluation sets, with r and MSE: the replacement for the genomic line of the
 Oct 13-14 scaling table.
 
 Why: in the Oct 13-14 cells every D had its own independent draw of genomic sequences, so 100k could (and did) score below 30k on several sets. Here
@@ -35,20 +35,34 @@ from compile_oct14_error_metrics import cell_rows, write_rows  # noqa: E402
 from compile_oct14_scaling import EVALS, pear  # noqa: E402
 
 MR = "outputs/menu_retrain_v0"
-POOLS = "outputs/grid_pools/k562_nested/genomic_d{D}.npz"
+POOLS = "outputs/grid_pools/k562_nested/{res}_d{D}.npz"
 DS = (10000, 30000, 100000)
 SERIES = {
-    "sw38_base": "sw38_{k}k_genomic_base",
-    "sw38_c20": "sw38_{k}k_genomic_c20",
-    "sc31": "sc31_{k}k_genomic",
+    "sw38_base": "sw38_{k}k_{res}_base",
+    "sw38_c20": "sw38_{k}k_{res}_c20",
+    "sc31": "sc31_{k}k_{res}",
+    "sc32": "sc32_{k}k_{res}",
+}
+FAMILY = {
+    "genomic": "genomic",
+    "zoonomia_orthologs": "genomic",
+    "evoaug_paper2023": "perturbation",
+    "mutagenesis_mr10": "perturbation",
+    "motif_ct_enriched": "motif",
+    "motif_shared_core": "motif",
+    "random": "random",
+    "random_gc_sweep": "random",
+    "d3_steps64": "model",
+    "d3_steps256": "model",
+    "evo2": "model",
 }
 
 
-def check_pools(template: str = POOLS) -> None:
+def check_pools(template: str = POOLS, res: str = "genomic") -> None:
     """Fail unless each pool is the exact prefix of the next (sequences and labels)."""
     pools = {}
     for D in DS:
-        z = np.load(template.format(D=D), allow_pickle=True)
+        z = np.load(template.format(D=D, res=res), allow_pickle=True)
         pools[D] = (
             np.asarray(z["sequences"]).astype(str),
             np.asarray(z["oracle_labels"], np.float64),
@@ -62,7 +76,7 @@ def check_pools(template: str = POOLS) -> None:
                 f"NOT NESTED: the {small} pool is not a prefix of the {big} pool; nothing written"
             )
     print(
-        "pools nested: 10k is a prefix of 30k, 30k a prefix of 100k (sequences and labels)",
+        f"{res}: pools nested: 10k is a prefix of 30k, 30k a prefix of 100k (sequences and labels)",
         flush=True,
     )
 
@@ -104,12 +118,12 @@ def load_menu_cell(cell: str, mr: str = MR):
     return ms, yval, yte
 
 
-def series_rows(name: str, template: str, mr: str, rng):
+def series_rows(name: str, template: str, mr: str, rng, res: str = "genomic"):
     cells = {}
     for D in DS:
-        c = load_menu_cell(template.format(k=D // 1000), mr)
+        c = load_menu_cell(template.format(k=D // 1000, res=res), mr)
         if c is None or not c[0]:
-            print(f"{name}: cell for D={D} missing or empty; series skipped", flush=True)
+            print(f"{res} {name}: cell for D={D} missing or empty; series skipped", flush=True)
             return []
         cells[D] = c
     for D in DS[1:]:  # the same labels at every size, or the sizes are not comparable
@@ -117,14 +131,17 @@ def series_rows(name: str, template: str, mr: str, rng):
             not np.allclose(cells[D][2][e], cells[DS[0]][2][e]) for e in EVALS
         ):
             raise SystemExit(
-                f"{name}: validation or test labels differ between D={DS[0]} and D={D}"
+                f"{res} {name}: validation or test labels differ between D={DS[0]} and D={D}"
             )
     common = set.intersection(*[{m["key"] for m in cells[D][0]} for D in DS])
     if len(common) < 4:
-        print(f"{name}: only {len(common)} models at all three sizes; series skipped", flush=True)
+        print(
+            f"{res} {name}: only {len(common)} models at all three sizes; series skipped",
+            flush=True,
+        )
         return []
     print(
-        f"{name}: {len(common)} models at every size (of "
+        f"{res} {name}: {len(common)} models at every size (of "
         + "/".join(str(len(cells[D][0])) for D in DS)
         + ")",
         flush=True,
@@ -133,7 +150,7 @@ def series_rows(name: str, template: str, mr: str, rng):
     for D in DS:
         ms, yval, yte = cells[D]
         keep = [m for m in ms if m["key"] in common]
-        for r in cell_rows("genomic", "genomic", D, keep, yval, yte, rng):
+        for r in cell_rows(FAMILY.get(res, res), res, D, keep, yval, yte, rng):
             r["source"] = name
             rows.append(r)
     return rows
@@ -143,18 +160,37 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="outputs/compile_oct14_scaling")
     ap.add_argument("--menu_retrain", default=MR)
-    ap.add_argument("--pools", default=POOLS, help="pool path template with {D}")
+    ap.add_argument("--pools", default=POOLS, help="pool path template with {D} (and {res})")
     ap.add_argument("--series", nargs="+", default=list(SERIES), choices=list(SERIES))
+    ap.add_argument("--reservoirs", nargs="+", default=["genomic"])
+    ap.add_argument(
+        "--skip_non_nested",
+        action="store_true",
+        help="skip (and say so) a reservoir whose pools are not nested instead of stopping",
+    )
+    ap.add_argument("--stem", default="")
     a = ap.parse_args()
-    check_pools(a.pools)
     os.makedirs(a.out, exist_ok=True)
     rng = np.random.default_rng(0)
     rows = []
-    for name in a.series:
-        rows += series_rows(name, SERIES[name], a.menu_retrain, rng)
+    for res in a.reservoirs:
+        try:
+            check_pools(a.pools, res)
+        except (SystemExit, OSError, KeyError) as e:
+            if not a.skip_non_nested:
+                raise
+            print(f"{res}: SKIPPED ({e})", flush=True)
+            continue
+        for name in a.series:
+            rows += series_rows(name, SERIES[name], a.menu_retrain, rng, res)
     if not rows:
         raise SystemExit("no complete series found")
-    write_rows(rows, a.out, stem="scaling_error_cells_genomic_nested")
+    stem = a.stem or (
+        "scaling_error_cells_genomic_nested"
+        if a.reservoirs == ["genomic"]
+        else "scaling_error_cells_latest_nested"
+    )
+    write_rows(rows, a.out, stem=stem)
 
 
 if __name__ == "__main__":
