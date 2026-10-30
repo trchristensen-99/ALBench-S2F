@@ -26,6 +26,8 @@ from albench.ensemble.stack import fit_zscored_stack  # noqa: E402
 MR = "outputs/menu_retrain_v0"
 SETS = ("genomic", "ood", "random_32k")
 PATTERNS = [
+    "scl100k_*",
+    "v1_100k_*",
     "bench33_agS2_oracle_*",
     "bench33_ln_*",
     "fx36_*",
@@ -50,10 +52,19 @@ PAIRS = [  # (cell, control)
     ("mt38_aux10_r1_30k", "mt38_k562only_r1_30k"),
 ]
 for arm in ("lrx05", "lrx2", "bs128", "bs512", "wd1e3", "wd1e2"):
-    PAIRS += [
-        (f"hp38_{arm}_genomic_10k", "hp38_base_genomic_10k"),
-        (f"hp38_{arm}_genomic_100k", "hp38_base_genomic_100k"),
+    PAIRS += [  # width-scaled menu v1 (x2, x3 channels) against menu v1 on the same replicate pool at 100k, bare input
+        (f"scl100k_x{w}_{res}_r1", f"v1_100k_{base}_r1")
+        for w in (2, 3)
+        for res, base in (
+            ("genomic", "genomic"),
+            ("random", "random"),
+            ("motif", "motif_ct_enriched"),
+        )
     ]
+PAIRS += [
+    (f"hp38_{arm}_genomic_10k", "hp38_base_genomic_10k"),
+    (f"hp38_{arm}_genomic_100k", "hp38_base_genomic_100k"),
+]
 PAIRS += [
     ("rc38_rca_genomic_10k", "hp38_base_genomic_10k"),
     ("rc38_rca_genomic_100k", "hp38_base_genomic_100k"),
@@ -61,6 +72,11 @@ PAIRS += [
     ("rc38_rca_random_30k", "rc38_c20_random_30k"),
     ("rc38_rca_motif_ct_enriched_30k", "rc38_c20_motif_ct_enriched_30k"),
 ]
+
+
+PAIRS = list(
+    dict.fromkeys(PAIRS)
+)  # the width pairs were added inside a loop once; keep every pair once
 
 
 def pearson(a, b) -> float:
