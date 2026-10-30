@@ -63,9 +63,12 @@ SERIES = {
 }
 
 
-def read(path: str) -> dict[tuple[str, int, str], dict[str, float]]:
+def read(path: str, source: str = "") -> dict[tuple[str, int, str], dict[str, float]]:
+    """Cells keyed by (reservoir, D, eval); with ``source`` only the rows of that series (tables that carry a ``source`` column)."""
     out: dict[tuple[str, int, str], dict[str, float]] = {}
     for r in csv.DictReader(open(path)):
+        if source and r.get("source", source) != source:
+            continue
         out[(r["reservoir"], int(r["D"]), r["eval"])] = {
             k: float(v) for k, v in r.items() if v not in ("", None) and _num(v)
         }
@@ -78,6 +81,13 @@ def _num(v: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def apply_override(cells, over, reservoir):
+    """Replace every cell of ``reservoir`` by the cells of ``over``; evaluation sets the override does not have stay empty (no old data are kept)."""
+    out = {k: v for k, v in cells.items() if k[0] != reservoir}
+    out.update({k: v for k, v in over.items() if k[0] == reservoir})
+    return out
 
 
 def value(cells, res, D, ev, series, metric):
@@ -96,7 +106,8 @@ def slope(xs, ys):
     return float(np.polyfit(xs, ys, 1)[0]) if len(xs) >= 2 else float("nan")
 
 
-def figure(cells, series, metric, out_png):
+def figure(cells, series, metric, out_png, highlight=None, note=""):
+    highlight = highlight or {}
     Ds = sorted({k[1] for k in cells})
     ylab = "1 - Pearson r" if metric == "one_minus_r" else "MSE against the oracle labels"
     fig, axes = plt.subplots(4, 5, figsize=(21, 15.5), constrained_layout=True)
@@ -109,15 +120,17 @@ def figure(cells, series, metric, out_png):
                 if not pts:
                     continue
                 ls, mk = STYLES[k % len(STYLES)]
+                hl = res in highlight
                 ax.plot(
                     *zip(*pts),
-                    ls=ls,
-                    marker=mk,
-                    ms=4.5,
-                    lw=1.5,
-                    color=col,
-                    alpha=0.9,
-                    label=f"{fam}: {res}",
+                    ls="-" if hl else ls,
+                    marker="D" if hl else mk,
+                    ms=6.5 if hl else 4.5,
+                    lw=2.8 if hl else 1.5,
+                    color="black" if hl else col,
+                    alpha=1.0 if hl else 0.9,
+                    zorder=5 if hl else 2,
+                    label=highlight.get(res, f"{fam}: {res}"),
                 )
         ax.set_xscale("log")
         ax.set_yscale("log")
@@ -139,7 +152,8 @@ def figure(cells, series, metric, out_png):
     h, lab = flat[0].get_legend_handles_labels()
     flat[-1].legend(h, lab, loc="center", fontsize=8.2, frameon=False, ncol=1)
     fig.suptitle(
-        f"{ylab} against training-set size, every reservoir on every evaluation set (Oct 13-14 setup, bare 200-bp students)\n{SERIES[series]}",
+        f"{ylab} against training-set size, every reservoir on every evaluation set (Oct 13-14 setup, bare 200-bp students)\n{SERIES[series]}"
+        + (f"\n{note}" if note else ""),
         fontsize=13,
     )
     fig.savefig(out_png, dpi=150)
@@ -198,27 +212,56 @@ def main() -> None:
     )
     ap.add_argument("--out", required=True)
     ap.add_argument(
+        "--override",
+        default="",
+        help="table (same schema, optional source column) that replaces one reservoir, e.g. the nested genomic cells",
+    )
+    ap.add_argument("--override_source", default="", help="series name inside the override table")
+    ap.add_argument("--override_reservoir", default="genomic")
+    ap.add_argument("--override_label", default="genomic: NEW nested pools (latest data)")
+    ap.add_argument(
+        "--override_note", default="", help="second subtitle line, e.g. what the new line is"
+    )
+    ap.add_argument("--tag", default="", help="suffix for the output file names")
+    ap.add_argument(
         "--series", nargs="+", default=["enet_greedy_k5", "f4_first6"], choices=list(SERIES)
     )
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    r_cells = read(a.long)
-    jobs = [("one_minus_r", r_cells, "1mr")]
-    if a.mse:
-        jobs.append(("mse", read(a.mse), "mse"))
+    r_cells, m_cells = read(a.long), (read(a.mse) if a.mse else None)
+    hl = {}
+    if a.override:
+        over = read(a.override, a.override_source)
+        r_cells = apply_override(r_cells, over, a.override_reservoir)
+        if m_cells is not None:
+            m_cells = apply_override(m_cells, over, a.override_reservoir)
+        hl = {a.override_reservoir: a.override_label}
+    jobs = [("one_minus_r", r_cells, "1mr")] + (
+        [("mse", m_cells, "mse")] if m_cells is not None else []
+    )
+    sfx = f"_{a.tag}" if a.tag else ""
     for metric, cells, tag in jobs:
         for series in a.series:
-            figure(cells, series, metric, out / f"scaling_{tag}_all_eval_sets_{series}.png")
+            figure(
+                cells,
+                series,
+                metric,
+                out / f"scaling_{tag}_all_eval_sets_{series}{sfx}.png",
+                hl,
+                a.override_note,
+            )
             rows = exponents(cells, series, metric)
-            with open(out / f"scaling_{tag}_exponents_{series}.csv", "w", newline="") as fh:
+            with open(out / f"scaling_{tag}_exponents_{series}{sfx}.csv", "w", newline="") as fh:
                 w = csv.DictWriter(fh, fieldnames=["family", "reservoir"] + [e for e, _ in EVALS])
                 w.writeheader()
                 for r in rows:
                     w.writerow(
                         {k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}
                     )
-            exponent_heatmap(rows, out / f"scaling_{tag}_exponents_{series}.png", metric, series)
+            exponent_heatmap(
+                rows, out / f"scaling_{tag}_exponents_{series}{sfx}.png", metric, series
+            )
             print("wrote", tag, series)
 
 
