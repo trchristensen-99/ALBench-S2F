@@ -87,6 +87,10 @@ them. A run that deliberately differs says so with an explicit flag (`--flank_ct
 `INPUT_LEN`, and use `flank_context.wide_onehot` / `flank_context.wrap` rather than your own padding. The value stays at 20 until the context and shift sweeps (`sw38_` cells) show something better; if they do, edit
 `harness_standard.py` and nothing else.
 
+**AlphaGenome-based students are baselines, never members.** AlphaGenome-FT students (frozen or fine-tuned) are reported as a baseline and a ceiling, individually and as an ensemble. They are not
+members of the per-D ensembles and are not used in scaling or reservoir comparisons: the encoder carries a lot of outside knowledge and is architecturally close to the oracle ensemble that labels the data.
+Students that learn only from the training set (the menu, the published MPRA-LegNet with many independent seeds, AutoResearch runs) are the ones that measure what a corpus adds.
+
 ## House rules that are not obvious
 
 - **No absolute paths in `albench/`.** Everything resolves through
