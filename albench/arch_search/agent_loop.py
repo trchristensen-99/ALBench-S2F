@@ -95,6 +95,7 @@ class AgentConfig:
     proposer_style: str = "none"  # "explore" adds the bold/diverse paragraph of the single loop's --style explore to the proposer
     manager: str = "none"  # "schedule": the coordinator and proposer get an explore (early rounds) then exploit (later rounds) directive and a coverage table of architecture classes and recipes already trained;
     # "schedule_ens": additionally the coordinator sees the validation stack of everything trained so far (weight and correlation per model). Needs the coordinate stage.
+    # "schedule_fb": schedule_ens plus a reference check in the exploit rounds: the best model so far is compared (validation r, measured) with the published MPRA-LegNet trained by the same harness; if nothing beats the reference by more than 0.005 the exploit slots go to small modifications of the reference instead of the explored winner.
     explore_frac: float = 0.4  # manager: the first round(explore_frac * rounds) rounds are explore rounds, the rest exploit
     # manager "quota": every round trains one EXPLOIT model and (select_per_round - 1) EXPLORE models; the coordinator sees a coverage table of architectural features (and which are still untried) and the validation stack.
     recipe_source: str = "proposal"  # "proposal": the proposer writes a TRAIN line per idea (the default of every earlier run); "harness": the proposer writes architectures only and the harness assigns each model a recipe from a safe set (AL_RECIPE_MODE=harness)
@@ -139,9 +140,9 @@ class AgentConfig:
             raise AgentConfigError(
                 f"proposer_style must be 'none' or 'explore', got {self.proposer_style!r}"
             )
-        if self.manager not in ("none", "schedule", "schedule_ens", "quota"):
+        if self.manager not in ("none", "schedule", "schedule_ens", "schedule_fb", "quota"):
             raise AgentConfigError(
-                f"manager must be 'none', 'schedule', 'schedule_ens' or 'quota', got {self.manager!r}"
+                f"manager must be 'none', 'schedule', 'schedule_ens', 'schedule_fb' or 'quota', got {self.manager!r}"
             )
         if self.recipe_source not in ("proposal", "harness"):
             raise AgentConfigError(
@@ -689,7 +690,12 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
     if mode == "explore":
         system += "\n\n" + PROPOSER_EXPLORE + "\n\n" + PROPOSER_MANAGER_EXPLORE
     elif mode == "exploit":
-        system += "\n\n" + PROPOSER_MANAGER_EXPLOIT
+        if ctx.cfg.manager == "schedule_fb":
+            system += "\n\n" + PROPOSER_MANAGER_EXPLOIT_FB.format(
+                reference_check=reference_check_text(ctx)
+            )
+        else:
+            system += "\n\n" + PROPOSER_MANAGER_EXPLOIT
     elif mode == "quota":
         system += "\n\n" + PROPOSER_MANAGER_QUOTA
     if "coordinate" in ctx.cfg.stages:
@@ -757,6 +763,43 @@ PROPOSER_MANAGER_EXPLOIT = (
     "REFINEMENT ROUND: the exploration phase is over. Build on what the tried list shows works: improve the best architectures and their "
     "recipes (depth, width, kernel sizes, pooling, head, regularisation, learning rate), and keep one bet that tests something different."
 )
+MANAGER_EXPLOIT_FB = (
+    "MANAGER MODE: EXPLOIT with a reference check (round {rd1} of {total}; exploration ended after round {n_explore}). {reference_check} Pick the {k} candidates most likely to raise the ensemble by SMALL "
+    "modifications of the incumbent named above (depth, width, kernel sizes, dilation, pooling, head, regularisation, learning rate, weight decay) or by filling a gap the stack shows; at most one pick may be a "
+    "different mechanism. Avoid mechanisms that failed or scored clearly below the rest."
+)
+PROPOSER_MANAGER_EXPLOIT_FB = (
+    "REFINEMENT ROUND: the exploration phase is over. {reference_check} Propose small, well-motivated modifications of the INCUMBENT named above (depth, width, kernel sizes, dilation, pooling, head, "
+    "regularisation, learning rate, weight decay); keep at most one idea that tests a different mechanism."
+)
+REFERENCE_MARGIN = 0.005
+_REF_R = re.compile(r"validation Pearson r = ([0-9]+\.[0-9]+)")
+
+
+def reference_check_text(ctx: AgentCtx) -> str:
+    """Compare the best trained model with the published MPRA-LegNet that the harness trained on the same training set (validation r only) and name the incumbent to refine.
+    Falls back to a neutral sentence when the reference number is not available."""
+    best = max((m.val for m in ctx.records), default=None)
+    ref = None
+    path = getattr(ctx.args, "baseline_file", "") or ""
+    try:
+        m = _REF_R.search(open(path).read()) if path else None
+        ref = float(m.group(1)) if m else None
+    except (OSError, ValueError):
+        ref = None
+    if best is None or ref is None:
+        return "INCUMBENT: the best model so far in the tried list."
+    if best > ref + REFERENCE_MARGIN:
+        return (
+            f"REFERENCE CHECK: the best model so far reaches validation r {best:.4f}; the published MPRA-LegNet trained by this harness reaches {ref:.4f}. The explored architecture beats the reference by "
+            f"{best - ref:+.4f}, so the INCUMBENT is that best explored architecture (and the models that carry weight in the stack)."
+        )
+    return (
+        f"REFERENCE CHECK: the best model so far reaches validation r {best:.4f}; the published MPRA-LegNet trained by this harness reaches {ref:.4f}. No explored architecture beats the reference by more than "
+        f"{REFERENCE_MARGIN}, so the INCUMBENT is the published MPRA-LegNet written out in the prompt: modify it slightly rather than refining the explored designs."
+    )
+
+
 MANAGER_QUOTA = (
     "MANAGER MODE: QUOTA. Every round trains one EXPLOIT model and {k1} EXPLORE model(s). EXPLOIT: the candidate most likely to raise the ensemble by refining a model that carries weight in the stack or by "
     "filling a gap the stack shows. EXPLORE: the candidate that adds the architectural features least represented in the coverage table (especially the ones listed as NOT YET TRIED), accepting a lower "
@@ -947,13 +990,19 @@ def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
         total = ctx.args.rounds
         n_explore = round(total * ctx.cfg.explore_frac)
         parts.append("\n" + coverage_text(ctx))
-        if ctx.cfg.manager == "schedule_ens":
+        if ctx.cfg.manager in ("schedule_ens", "schedule_fb"):
             es = ensemble_status_text(ctx)
             if es:
                 parts.append("\n" + es)
         directive = MANAGER_EXPLORE if mode == "explore" else MANAGER_EXPLOIT
+        extra = {}
+        if mode == "exploit" and ctx.cfg.manager == "schedule_fb":
+            directive, extra = MANAGER_EXPLOIT_FB, {"reference_check": reference_check_text(ctx)}
         parts.append(
-            "\n" + directive.format(rd1=plan["round"] + 1, total=total, n_explore=n_explore, k=k)
+            "\n"
+            + directive.format(
+                rd1=plan["round"] + 1, total=total, n_explore=n_explore, k=k, **extra
+            )
         )
     parts.append(f"\nCANDIDATES this round ({n}):")
     for i, it in enumerate(plan["items"], 1):
