@@ -66,6 +66,21 @@ STEPS = [
             "fe35_c20s10_emabn_30k",
         ],
     ),
+    (
+        "LegNet + menu v2 + menu v2 under the LegNet recipe (tr38) + PI architectures (pi38, tr38)",
+        ["bench38_ln_e100_30k_c20", "bench38_ln_b256_30k_c20"]
+        + [
+            "v2m38_genomic_30k",
+            "tr38_v2e100_genomic_30k",
+            "pi38_base_genomic_30k",
+            "tr38_pie100_genomic_30k",
+        ],
+    ),
+    ("menu v2 + menu v2 under the LegNet recipe", ["v2m38_genomic_30k", "tr38_v2e100_genomic_30k"]),
+    (
+        "PI architectures, both recipes (pi38 + tr38)",
+        ["pi38_base_genomic_30k", "tr38_pie100_genomic_30k"],
+    ),
 ]
 
 
@@ -88,6 +103,21 @@ STEPS_10K = [
         + LN10
         + ["lg38_c20_10k", "lg38_c20_emabn_10k"]
         + [f"hp38_{x}_genomic_10k" for x in ("lrx05", "lrx2", "bs128", "bs512", "wd1e3", "wd1e2")],
+    ),
+    (
+        "LegNet + menu v2 + menu v2 under the LegNet recipe (tr38) + PI architectures (pi38, tr38)",
+        LN10
+        + [
+            "v2m38_genomic_10k",
+            "tr38_v2e100_genomic_10k",
+            "pi38_base_genomic_10k",
+            "tr38_pie100_genomic_10k",
+        ],
+    ),
+    ("menu v2 + menu v2 under the LegNet recipe", ["v2m38_genomic_10k", "tr38_v2e100_genomic_10k"]),
+    (
+        "PI architectures, both recipes (pi38 + tr38)",
+        ["pi38_base_genomic_10k", "tr38_pie100_genomic_10k"],
     ),
 ]
 
@@ -114,6 +144,24 @@ STEPS_100K = [
         + LN100
         + ["lg38_c20_100k", "lg38_c20_emabn_100k"]
         + [f"hp38_{x}_genomic_100k" for x in ("lrx05", "lrx2", "bs128", "bs512", "wd1e3")],
+    ),
+    (
+        "LegNet + menu v2 + menu v2 under the LegNet recipe (tr38) + PI architectures (pi38, tr38)",
+        LN100
+        + [
+            "v2m38_genomic_100k",
+            "tr38_v2e100_genomic_100k",
+            "pi38_base_genomic_100k",
+            "tr38_pie100_genomic_100k",
+        ],
+    ),
+    (
+        "menu v2 + menu v2 under the LegNet recipe",
+        ["v2m38_genomic_100k", "tr38_v2e100_genomic_100k"],
+    ),
+    (
+        "PI architectures, both recipes (pi38 + tr38)",
+        ["pi38_base_genomic_100k", "tr38_pie100_genomic_100k"],
     ),
 ]
 
