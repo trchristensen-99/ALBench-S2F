@@ -5,6 +5,7 @@ round, so our loop is anchored the same way (99.5% of its candidates contained s
   --guidance open            the minimal facts (ensemble is what is scored; augmentation and context are applied; seed noise) WITHOUT the sentence naming a best architecture family
   --reference_from_round N   the reference LegNet code and the in-run baseline are shown only from round N on (default 0 = every round, as before); the baseline is still trained at the start, so the
                              reference check of the 'schedule_fb' manager works while exploration rounds see no LegNet
+  --target_delta D           the target is the in-run baseline's validation r + D (a known-achievable target that follows the training-set size)
   --target_val R             optional sentence: models with validation Pearson r of about R have been trained on this task at this training-set size (a known-achievable target); default off
 
     python scripts/program_oct22/patch_loop_open.py scratchpad/arch_autoresearch.py      (idempotent; backup .bak_open)
@@ -52,7 +53,14 @@ s = s.replace(
     b,
     'parts = [{"minimal": MINIMAL_GUIDANCE, "open": OPEN_GUIDANCE}.get(args.guidance, KNOWN_GOOD)] + ([ctx] if ctx else [])\n'
     '    if getattr(args, "target_val", 0):\n'
-    '        parts.append(f"TARGET: models with validation Pearson r of about {args.target_val:.3f} have been trained on this task at this training-set size.")',
+    '        parts.append(f"TARGET: models with validation Pearson r of about {args.target_val:.3f} have been trained on this task at this training-set size.")\n'
+    '    elif getattr(args, "target_delta", 0) and getattr(args, "baseline_file", ""):\n'
+    "        import re as _re\n"
+    "        try:\n"
+    '            _b = float(_re.search(r"validation Pearson r = ([0-9]+[.][0-9]+)", open(args.baseline_file).read()).group(1))\n'
+    '            parts.append(f"TARGET: models with validation Pearson r of about {_b + args.target_delta:.3f} (a little above a well-tuned convolutional baseline) have been trained on this task at this training-set size.")\n'
+    "        except Exception:\n"
+    "            pass",
     1,
 )
 
@@ -78,6 +86,7 @@ must(m is not None, "--reference_legnet argument")
 new_args = (
     '    ap.add_argument("--reference_from_round", type=int, default=0, help="show the reference LegNet code and baseline only from this round on (0 = every round)")\n'
     '    ap.add_argument("--target_val", type=float, default=0.0, help="optional known-achievable validation r stated in the prompt (0 = off)")\n'
+    '    ap.add_argument("--target_delta", type=float, default=0.0, help="state a target = the in-run baseline validation r + this delta (needs the baseline, i.e. --reference_legnet; 0 = off)")\n'
 )
 s = s[: m.start()] + new_args + s[m.start() :]
 g = re.search(r'^    ap\.add_argument\("--guidance"[^\n]*\n', s, re.M)

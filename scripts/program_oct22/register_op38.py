@@ -3,6 +3,8 @@ grouped-convolution, ResNeXt and second-order-convolution models that match a we
 mgr35_e15 (known-good guidance, schedule_ens manager): genomic 30k replicate pools r1..r3, 15 rounds x 2 models, proposer-chosen recipes, standard input, V0c validation, Sonnet 5.5.
 
   op38_open_r<k>   --guidance open (no architecture-family hint), no reference code, manager schedule_ens (explore 40%, then exploit)
+  op38_target_r<k> --guidance open, no reference code, plus a stated known-achievable target: the in-run LegNet baseline's validation r + 0.003 (the collaborator's open-world models reached about that
+                   much above a tuned LegNet at 30k; the target follows the training-set size because the baseline is measured in the run)
   op38_fb_r<k>     --guidance open, the reference LegNet and its in-run baseline are revealed only from the exploit phase (round 6), manager schedule_fb: explore without an anchor, then refine the best
                    explored design or fall back to small modifications of the reference if nothing beats it by 0.005
 
@@ -37,6 +39,11 @@ def all_cells():
             "fb",
             {"manager": "schedule_fb", "explore_frac": EXPLORE},
             f" --reference_legnet --reference_from_round {REVEAL}",
+        ),
+        (
+            "target",
+            {"manager": "schedule_ens", "explore_frac": EXPLORE},
+            " --reference_legnet --reference_from_round 999 --target_delta 0.003",
         ),
     ):
         for r in range(1, REPS + 1):

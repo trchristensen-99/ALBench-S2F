@@ -38,6 +38,11 @@ GROUPS = {
     "st38 a0 (2)": f"{AR}/st38_a0_genomic_30k/rep*",
     "st38 a4 gentle steering (2)": f"{AR}/st38_a4_genomic_30k/rep*",
     "lng35 long runs (2)": f"{AR}/genomic_30k_lng35/rep*",
+    "mgr38 reference shown, schedule_ens (3)": f"{AR}/genomic_30k_mgr38_ref/rep*",
+    "mgr38 reference + fallback manager (3)": f"{AR}/genomic_30k_mgr38_fb/rep*",
+    "op38 open prompt, no reference (3)": f"{AR}/genomic_30k_op38_open/rep*",
+    "op38 open prompt, late reference + fallback (3)": f"{AR}/genomic_30k_op38_fb/rep*",
+    "op38 open prompt + target (3)": f"{AR}/genomic_30k_op38_target/rep*",
 }
 GROUPS_10K = {
     f"st38 {a} (3)": f"{AR}/st38_{a}_genomic_10k/rep*" for a in ("a0", "a1", "a2", "a3", "a4")

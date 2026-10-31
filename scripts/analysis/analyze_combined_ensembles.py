@@ -92,12 +92,38 @@ STEPS_10K = [
 ]
 
 
+LN100 = [f"bench38_ln_{r}_100k_c20" for r in ("e100", "b256")]
+STEPS_100K = [
+    ("LegNet e100 (10 seeds)", ["bench38_ln_e100_100k_c20"]),
+    ("LegNet e100 + b256 (20 models)", LN100),
+    (
+        "collaborator-style LegNet reference (lg38, 3 seeds, + weight averaging)",
+        ["lg38_c20_100k", "lg38_c20_emabn_100k"],
+    ),
+    ("menu v1c (hp38_base, 20 configurations)", ["hp38_base_genomic_100k"]),
+    ("menu v2 (20 configurations)", ["v2m38_genomic_100k"]),
+    ("menu v1c with single-pass RC augmentation (rc38_rca)", ["rc38_rca_genomic_100k"]),
+    ("menu v2 + LegNet e100", ["v2m38_genomic_100k", "bench38_ln_e100_100k_c20"]),
+    (
+        "menu v1c + menu v2 + LegNet e100 + b256",
+        ["hp38_base_genomic_100k", "v2m38_genomic_100k"] + LN100,
+    ),
+    (
+        "everything at 100k (adds the recipe-sweep variants, rc38_rca and lg38)",
+        ["hp38_base_genomic_100k", "v2m38_genomic_100k", "rc38_rca_genomic_100k"]
+        + LN100
+        + ["lg38_c20_100k", "lg38_c20_emabn_100k"]
+        + [f"hp38_{x}_genomic_100k" for x in ("lrx05", "lrx2", "bs128", "bs512", "wd1e3")],
+    ),
+]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="outputs/justification_oct22")
-    ap.add_argument("--size", default="30k", choices=["30k", "10k"])
+    ap.add_argument("--size", default="30k", choices=["30k", "10k", "100k"])
     a = ap.parse_args()
-    steps = STEPS if a.size == "30k" else STEPS_10K
+    steps = {"30k": STEPS, "10k": STEPS_10K, "100k": STEPS_100K}[a.size]
     cache, out = {}, []
     ref = None
     for label, dirs in steps:
