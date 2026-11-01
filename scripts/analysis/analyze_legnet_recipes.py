@@ -23,7 +23,17 @@ from analyze_extras38 import SETS, load, pearson  # noqa: E402
 
 from albench.ensemble.stack import fit_zscored_stack  # noqa: E402
 
-ARMS = ("e100_lr5", "e100_lr20", "e150", "e100_b2048", "e100_wd2", "e100_wd05")
+ARMS = (
+    "e100_lr5",
+    "e100_lr20",
+    "e150",
+    "e100_b2048",
+    "e100_wd2",
+    "e100_wd05",
+    "e200",
+    "e300",
+    "e150_wd2",
+)
 
 
 def singles(c):

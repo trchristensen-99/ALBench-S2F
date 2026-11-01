@@ -45,6 +45,10 @@ CFGS = {
     "e100_b2048": dict(batch=2048, epochs=100, max_lr=0.01),
     "e100_wd2": dict(batch=1024, epochs=100, max_lr=0.01, wd=0.2),
     "e100_wd05": dict(batch=1024, epochs=100, max_lr=0.01, wd=0.05),
+    # Nov-1: 150 epochs beat 100 at every size (lr38_), so push the epoch axis and test weight decay 0.2 on top of it
+    "e200": dict(batch=1024, epochs=200, max_lr=0.01),
+    "e300": dict(batch=1024, epochs=300, max_lr=0.01),
+    "e150_wd2": dict(batch=1024, epochs=150, max_lr=0.01, wd=0.2),
 }
 ARCH = dict(
     in_ch=4,
