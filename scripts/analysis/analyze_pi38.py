@@ -118,7 +118,8 @@ def main() -> None:
     )
     cache: dict = {}
     names = sorted(
-        os.path.basename(p) for p in glob.glob(f"{MR}/pi38_*") + glob.glob(f"{MR}/tr38_*")
+        os.path.basename(p)
+        for p in glob.glob(f"{MR}/pi38_*") + glob.glob(f"{MR}/tr38_*") + glob.glob(f"{MR}/ep38_*")
     )
     for c in names:
         cache[c] = models(c)
@@ -146,6 +147,7 @@ def main() -> None:
         and "x2" not in c
     ]
     pairs += [(f"tr38_v2e100_genomic_{k}k", f"v2m38_genomic_{k}k") for k in (10, 30, 100)]
+    pairs += [(f"ep38_v2x3_genomic_{k}k", f"v2m38_genomic_{k}k") for k in (10, 30)]
     pairs += [
         ("tr38_pie100_genomic_30k", "pi38_base_genomic_30k"),
         ("tr38_pie100_genomic_100k", "pi38_base_genomic_100k"),
@@ -162,6 +164,12 @@ def main() -> None:
             r = paired(
                 {(e.removesuffix("_e100"), 0): v for (e, _), v in sx.items()},
                 {(e, 0): v for (e, _), v in sy.items()},
+            )
+        elif x.startswith(
+            "ep38_"
+        ):  # same menu entries, own recipe against 3x epochs, one seed each
+            r = paired(
+                {(e, 0): v for (e, _), v in sx.items()}, {(e, 0): v for (e, _), v in sy.items()}
             )
         elif x.startswith(
             "tr38_pie100"
