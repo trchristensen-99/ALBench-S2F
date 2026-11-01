@@ -81,6 +81,12 @@ STEPS = [
         "PI architectures, both recipes (pi38 + tr38)",
         ["pi38_base_genomic_30k", "tr38_pie100_genomic_30k"],
     ),
+    ("tuned LegNet (best per-size recipe, 5 seeds)", ["bench38_ln_e500_wd2_30k_c20"]),
+    ("tuned LegNet + menu v2", ["bench38_ln_e500_wd2_30k_c20", "v2m38_genomic_30k"]),
+    (
+        "tuned LegNet + menu v2 + menu v2 with 3x epochs",
+        ["bench38_ln_e500_wd2_30k_c20", "v2m38_genomic_30k", "ep38_v2x3_genomic_30k"],
+    ),
 ]
 
 
@@ -118,6 +124,12 @@ STEPS_10K = [
     (
         "PI architectures, both recipes (pi38 + tr38)",
         ["pi38_base_genomic_10k", "tr38_pie100_genomic_10k"],
+    ),
+    ("tuned LegNet (best per-size recipe, 5 seeds)", ["bench38_ln_e800_wd4_10k_c20"]),
+    ("tuned LegNet + menu v2", ["bench38_ln_e800_wd4_10k_c20", "v2m38_genomic_10k"]),
+    (
+        "tuned LegNet + menu v2 + menu v2 with 3x epochs",
+        ["bench38_ln_e800_wd4_10k_c20", "v2m38_genomic_10k", "ep38_v2x3_genomic_10k"],
     ),
 ]
 
@@ -162,6 +174,12 @@ STEPS_100K = [
     (
         "PI architectures, both recipes (pi38 + tr38)",
         ["pi38_base_genomic_100k", "tr38_pie100_genomic_100k"],
+    ),
+    ("tuned LegNet (best per-size recipe, 5 seeds)", ["bench38_ln_e500_100k_c20"]),
+    ("tuned LegNet + menu v2", ["bench38_ln_e500_100k_c20", "v2m38_genomic_100k"]),
+    (
+        "tuned LegNet + menu v2 + menu v2 with 3x epochs",
+        ["bench38_ln_e500_100k_c20", "v2m38_genomic_100k", "bench38_ln_e500_100k_c20"],
     ),
 ]
 
