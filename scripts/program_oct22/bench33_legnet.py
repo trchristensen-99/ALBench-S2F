@@ -49,6 +49,10 @@ CFGS = {
     "e200": dict(batch=1024, epochs=200, max_lr=0.01),
     "e300": dict(batch=1024, epochs=300, max_lr=0.01),
     "e150_wd2": dict(batch=1024, epochs=150, max_lr=0.01, wd=0.2),
+    # Nov-1 round 3: genomic r still rose from 200 to 300 epochs at 10k and 30k, and wd 0.2 on top of 150 epochs gave +0.039 OOD at 30k
+    "e500": dict(batch=1024, epochs=500, max_lr=0.01),
+    "e300_wd2": dict(batch=1024, epochs=300, max_lr=0.01, wd=0.2),
+    "e500_wd2": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.2),
 }
 ARCH = dict(
     in_ch=4,
