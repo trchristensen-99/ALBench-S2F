@@ -38,6 +38,13 @@ CFGS = {
     "pub": dict(batch=1024, epochs=25, max_lr=0.01),
     "e100": dict(batch=1024, epochs=100, max_lr=0.01),
     "b256": dict(batch=256, epochs=60, max_lr=0.01),
+    # Oct-31 recipe neighbours of e100 (one knob changed each; weight decay defaults to the published 0.1)
+    "e100_lr5": dict(batch=1024, epochs=100, max_lr=0.005),
+    "e100_lr20": dict(batch=1024, epochs=100, max_lr=0.02),
+    "e150": dict(batch=1024, epochs=150, max_lr=0.01),
+    "e100_b2048": dict(batch=2048, epochs=100, max_lr=0.01),
+    "e100_wd2": dict(batch=1024, epochs=100, max_lr=0.01, wd=0.2),
+    "e100_wd05": dict(batch=1024, epochs=100, max_lr=0.01, wd=0.05),
 }
 ARCH = dict(
     in_ch=4,
@@ -175,7 +182,9 @@ def main() -> None:
         n_params = sum(p.numel() for p in model.parameters())
         bs, epochs = cfg["batch"], cfg["epochs"]
         steps_pe = -(-n_tr // bs)
-        opt = torch.optim.AdamW(model.parameters(), lr=cfg["max_lr"] / 25, weight_decay=0.1)
+        opt = torch.optim.AdamW(
+            model.parameters(), lr=cfg["max_lr"] / 25, weight_decay=cfg.get("wd", 0.1)
+        )
         sched = torch.optim.lr_scheduler.OneCycleLR(
             opt,
             max_lr=cfg["max_lr"],
@@ -247,7 +256,7 @@ def main() -> None:
             "hparams": {
                 "architecture": ARCH,
                 "optimizer": "AdamW",
-                "weight_decay": 0.1,
+                "weight_decay": cfg.get("wd", 0.1),
                 "max_lr": cfg["max_lr"],
                 "start_lr": cfg["max_lr"] / 25,
                 "schedule": "OneCycleLR pct_start 0.3",
