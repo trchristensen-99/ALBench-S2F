@@ -53,6 +53,10 @@ CFGS = {
     "e500": dict(batch=1024, epochs=500, max_lr=0.01),
     "e300_wd2": dict(batch=1024, epochs=300, max_lr=0.01, wd=0.2),
     "e500_wd2": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.2),
+    # Nov-1 round 4: still rising at 500 epochs with wd 0.2 (10k genomic +0.058, 30k +0.023 at 300 epochs), so go longer and stronger
+    "e800_wd2": dict(batch=1024, epochs=800, max_lr=0.01, wd=0.2),
+    "e500_wd4": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.4),
+    "e800_wd4": dict(batch=1024, epochs=800, max_lr=0.01, wd=0.4),
 }
 ARCH = dict(
     in_ch=4,
