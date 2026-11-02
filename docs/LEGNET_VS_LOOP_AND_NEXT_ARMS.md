@@ -4,13 +4,13 @@ Answers to the follow-ups after the lab meeting. Numbers are genomic-pool studen
 
 ## Update (Nov 2, evening): the loop launcher stopped every model after 8 stagnant epochs
 
-The launcher every loop cell runs (`scratchpad/arch_autoresearch.py`, with its own `train_one`) had `if bad >= 8: break` hard-coded and ignored `AL_PATIENCE` (the repository copy that the menu library uses reads it, which is why the menu retrains had patience 16 and the loop never did). On the 1,498 models of the standard-input loop runs:
+The launcher every loop cell runs (`scratchpad/arch_autoresearch.py`, with its own `train_one`) had `if bad >= 8: break` hard-coded and ignored `AL_PATIENCE` (the repository copy that the menu library uses reads it, which is why the menu retrains had patience 16 and the loop never did). On the 1,498 models of the standard-input loop runs (the first version of this table read the size from the run name incompletely; corrected after the audit):
 
 | size | requested epochs, median (p90) | trained epochs, median | stopped before 90% of the schedule | one-cycle: trained / requested |
 |---|---|---|---|---|
-| 10k | 120 (300) | 34 | 100% | 0.26 |
-| 30k | 80 (100) | 45 | 90% | 0.64 |
-| 100k | 80 (100) | 52 | 81% | 0.84 |
+| 10k (550 models) | 80 (120) | 38 | 98% | 0.50 |
+| 30k (847) | 80 (100) | 45 | 91% | 0.64 |
+| 100k (101) | 80 (80) | 52 | 87% | 0.77 |
 
 A model that asked for 200 epochs or more trained a median 26 to 36. A one-cycle schedule only anneals at its end, so those models were cut in the high-learning-rate phase; the first `lv38` proposals asked for the tuned recipe (AdamW, lr 0.008, wd 0.2, batch 1024, 300 epochs, one-cycle) and trained 11 to 55 epochs. The proposer is not told about the patience, the default precision is fp32 (the bank trains fp16), and the per-model cap is 25 to 45 minutes. So "Peter's best models have more epochs" is right, and it is a harness limit, not a proposer choice. It is the most likely cause of the section-2 gap: the loop's best single model sits 0.02 to 0.05 below the mean tuned seed at every size, and the harness handicap is largest where schedules are longest. Everything compared so far (loop against bank, explore/exploit curves, scaling exponents of loop students) was measured with this truncation.
 
