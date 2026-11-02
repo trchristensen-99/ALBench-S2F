@@ -857,7 +857,16 @@ def variant_status_text(ctx: AgentCtx) -> str:
         if ref
         else ""
     )
-    return f"INCUMBENT: the best variant so far reaches validation r {best.val:.4f}{bar}; build on it and on the other variants that carry weight in the stack."
+    design = ""
+    try:  # the title alone is not enough to modify a design (audit F9): show the incumbent's own DESIGN text and recipe
+        meta = json.loads((ctx.out_p / f"{best.model_id}_meta.json").read_text())
+        design = ((meta.get("agent") or {}).get("design") or "")[:900].replace("\n", " ")
+    except Exception:  # noqa: BLE001 - advice only
+        pass
+    text = f"INCUMBENT: the best variant so far reaches validation r {best.val:.4f}{bar}; build on it and on the other variants that carry weight in the stack."
+    if design:
+        text += f" Its design: {design} Its recipe: {best.recipe}."
+    return text
 
 
 MANAGER_QUOTA = (
