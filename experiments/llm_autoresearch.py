@@ -793,8 +793,25 @@ def build_prompt(
     return system, "\n".join(parts)
 
 
+_CLI_CWD: str | None = None
+
+
+def _isolated_cwd() -> str:
+    """An empty working directory for the CLI: started in the repository, every agent call was a full Claude Code session that loaded AGENTS.md as project instructions and could read the repository,
+    the menu files and the run logs (audit of Nov 2, F1). One directory per process."""
+    global _CLI_CWD
+    if _CLI_CWD is None:
+        import tempfile
+
+        _CLI_CWD = tempfile.mkdtemp(prefix="llm_cli_")
+    return _CLI_CWD
+
+
 def _call_claude_cli(system: str, user: str, model: str) -> str:
-    """One CLI attempt. Raises RateLimitExceeded on usage-limit, RuntimeError else."""
+    """One CLI attempt. Raises RateLimitExceeded on usage-limit, RuntimeError else.
+
+    LLM_CLI_ISOLATE (default on, 0 restores the old behaviour): no tools and an empty working directory, the call only has to produce text.
+    """
     import subprocess
 
     prompt = f"<system>\n{system}\n</system>\n\n{user}"
@@ -804,17 +821,22 @@ def _call_claude_cli(system: str, user: str, model: str) -> str:
     )
     # Strip date suffix from model id for CLI (CLI expects sonnet, opus, etc.)
     cli_model = model.split("-202")[0] if "-202" in model else model
-    try:
-        result = subprocess.run(
-            [claude_bin, "-p", prompt, "--model", cli_model],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-    except subprocess.TimeoutExpired as e:
-        # Transient; treat like a short throttle so the retry loop waits + retries
-        # rather than aborting the whole strategy.
-        raise RateLimitExceeded(f"claude CLI timed out after 300s: {e}", retry_after=30)
+    cmd = [claude_bin, "-p", prompt, "--model", cli_model]
+    cwd = None
+    if os.environ.get("LLM_CLI_ISOLATE", "1") != "0":
+        cmd += ["--tools", ""]
+        cwd = _isolated_cwd()
+    result = None
+    for attempt in range(
+        2
+    ):  # a 300 s timeout is not a usage limit: retry once, then fail the call (not the whole experiment)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=cwd)
+            break
+        except subprocess.TimeoutExpired as e:
+            print(f"  [cli timeout after 300s, attempt {attempt + 1} of 2]", flush=True)
+            if attempt == 1:
+                raise RuntimeError(f"claude CLI timed out twice after 300s: {e}")
     combined = (result.stdout or "") + "\n" + (result.stderr or "")
     if result.returncode != 0:
         # Log raw text so the exact usage-limit message can be characterized later.
@@ -829,22 +851,24 @@ def _call_claude_cli(system: str, user: str, model: str) -> str:
                 retry_after=_parse_reset_seconds(combined),
             )
         raise RuntimeError(f"claude CLI failed rc={result.returncode}: {result.stderr[:500]}")
-    # rc==0 but a usage-limit notice in stdout (no JSON array present) → treat as limit
-    if "[" not in result.stdout and _looks_rate_limited(result.stdout):
-        print(f"  [cli rc=0 looks rate-limited] {result.stdout[:500]!r}", flush=True)
+    # rc==0 but a usage-limit notice in stdout (no JSON array present) -> treat as limit. A real answer is long and carries
+    # the section headers of the loop's formats; marker words such as "quota" or "resets" inside it are not a limit (audit F7).
+    out = result.stdout
+    if "[" not in out and len(out) < 1500 and "###" not in out and _looks_rate_limited(out):
+        print(f"  [cli rc=0 looks rate-limited] {out[:500]!r}", flush=True)
         raise RateLimitExceeded(
-            f"claude CLI returned usage-limit text: {result.stdout[:300]}",
-            retry_after=_parse_reset_seconds(result.stdout),
+            f"claude CLI returned usage-limit text: {out[:300]}",
+            retry_after=_parse_reset_seconds(out),
         )
     # rc==0 with no JSON array and not a known limit message: log the raw text so
     # the downstream "No JSON recoverable" failure is diagnosable (e.g. opus arm).
-    if "[" not in result.stdout:
+    if "[" not in out:
         print(
             f"  [cli rc=0 no-JSON] model={model!r} "
-            f"stdout={result.stdout[:800]!r} stderr={result.stderr[:300]!r}",
+            f"stdout={out[:800]!r} stderr={result.stderr[:300]!r}",
             flush=True,
         )
-    return result.stdout
+    return out
 
 
 def _call_claude_api(
@@ -1117,8 +1141,9 @@ class LLMAutoResearch(Strategy):
         # Per-ROUND style schedule: comma list cycled by round (e.g.
         # "explore,explore,exploit,exploit" = 2 arch-exploration rounds then 2 HP-refine
         # rounds, repeating). Empty -> fixed self.style (byte-identical default behaviour).
-        self.style_schedule = [x.strip() for x in
-            os.environ.get("LLM_STYLE_SCHEDULE", "").split(",") if x.strip()]
+        self.style_schedule = [
+            x.strip() for x in os.environ.get("LLM_STYLE_SCHEDULE", "").split(",") if x.strip()
+        ]
         self.model = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
         # Context level (full | nokb | none); no-prior styles force "none".
         self.context = os.environ.get("LLM_CONTEXT", "full")

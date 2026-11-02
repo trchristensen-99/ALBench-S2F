@@ -297,7 +297,10 @@ def build_and_check(
     # quietly pollute the ensemble, so require the output to actually move
     with torch.no_grad():
         y2 = model(torch.randn(batch, n_channels, seq_len)).squeeze()
-    if torch.allclose(y, y2, atol=1e-7):
+    # relative to the output scale: freshly initialised networks with a small head (the published LegNet's init std is 0.001) have outputs of 1e-4 or less, and an absolute tolerance
+    # rejected the same source for some seeds and accepted it for others (audit F2)
+    scale = max(float(y.detach().abs().max()), float(y2.detach().abs().max()), 1e-30)
+    if float((y - y2).detach().abs().max()) <= 1e-6 * scale:
         return None, Verdict(False, "output does not depend on input", n_params=n_params)
 
     # Train-mode forward+backward at a DIFFERENT batch size — the real training step.

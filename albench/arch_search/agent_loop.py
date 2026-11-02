@@ -262,15 +262,15 @@ PROPOSER_SETUP = (
 
 def training_facts_text() -> str:
     """What the harness really does with a TRAIN line, said only for the fixed harness (AL_ONECYCLE_FULL=1) so that every earlier arm keeps its prompt.
-    The numbers are the seed-bank recipe sweeps for a plain LegNet (docs/TUNED_LEGNET.md, single-model genomic test r, 5 seeds per arm)."""
+    The numbers are validation r (V0c) of the seed-bank recipe sweeps of a plain LegNet (docs/TUNED_LEGNET.md), never test numbers."""
     if os.environ.get("AL_ONECYCLE_FULL") != "1":
         return ""
     pat = os.environ.get("AL_PATIENCE", "8")
     return (
-        "TRAINING FACTS (measured): a onecycle schedule always runs its full number of epochs (the best epoch by validation is kept; a short schedule is a different schedule, not an early stop), "
-        f"cosine and plateau schedules stop after {pat} epochs without improvement, and every model is stopped at the time cap. For a plain LegNet, 300 epochs reach within 0.002 of 500 epochs at 30k and 100k "
-        "(150 epochs: -0.009 at 30k, -0.002 at 100k); at 10k more epochs keep helping up to 800 (with weight decay 0.4). Large batches with onecycle and a high learning rate (AdamW, lr 0.01, batch 1024) "
-        "need those long schedules; small batches (128 to 256) with Muon converge in 40 to 80 epochs."
+        "TRAINING FACTS (measured on validation): a onecycle schedule always runs its full number of epochs (the best epoch by validation is kept; a short schedule is a different schedule, not an early stop), "
+        f"cosine and plateau schedules stop after {pat} epochs without improvement, and every model is stopped at the time cap. For a plain LegNet, 300 epochs reach within 0.002 of 500 epochs at 30k "
+        "(validation r 0.9033 against 0.9052) and within 0.0003 at 100k, 150 epochs lose 0.009 at 30k and 0.002 at 100k; at 10k, 500 to 800 epochs with weight decay 0.4 reach 0.809 against 0.756 for 100 epochs. "
+        "Large batches with onecycle and a high learning rate (AdamW, lr 0.01, batch 1024) need those long schedules; small batches (128 to 256) with Muon converge in 40 to 80 epochs."
     )
 
 
@@ -1295,7 +1295,9 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
     _bad = [k for k, v in res.items() if (not np.isfinite(v).all()) or float(np.abs(v).max()) > 1e3]
     if _bad:
         ctx.say(f"    train-fail: exploded predictions on {_bad[0]} (|pred|>1e3)")
-        return fail(f"exploded predictions on {_bad[0]} (|pred|>1e3)")
+        return fail(
+            "exploded predictions on a held-out input (|pred|>1e3)"
+        )  # no evaluation-set name in what the agents read (audit F3)
     r = h.pear(res["test_pred"], h.te_oracle)
     vr = h.pear(res["val_pred"], h.yva)
     mid = f"r{rd:02d}_arch_{ctx.midx:02d}"
