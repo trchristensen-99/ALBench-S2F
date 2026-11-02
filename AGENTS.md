@@ -73,7 +73,8 @@ value — that was the old design and it is what made the codebase hard to exten
 The student is not one network but an ensemble of up to 33 model-written configurations (architecture source + training recipe), trained on
 whatever labelled set you have and stacked on the validation set. `albench.ensemble.menu` is the library for it (`Menu`, `train_member`,
 `MenuEnsemble`, a `SequenceModel` for the AL loop), `albench menu list|export|train|stack|predict` the command line, and
-[docs/MENU.md](docs/MENU.md) says how many configurations to train per dataset size (K = 21 / 11 / 12 at 10k / 30k / 100k) and why. Do not copy
+[docs/MENU.md](docs/MENU.md) says how many configurations to train per dataset size (K = 21 / 11 / 12 at 10k / 30k / 100k) and why. The published MPRA-LegNet, trained with the per-size recipe measured on Nov 1 (see [docs/TUNED_LEGNET.md](docs/TUNED_LEGNET.md)), beats the menu at 30k and 100k and is the reference every other student should be
+compared with; the menu is still the better student only at 10k, and a combined set is best there. Do not copy
 `scripts/program_oct22/menu_retrain.py`: it is the experiment script, kept so old runs can be reproduced. Two guards that are not obvious: the
 validation set is the oracle_v3-labelled `val_v0c` asset (never train on it), and the library refuses to train with AdamW when a configuration
 asks for Muon and the package is missing (the loop would otherwise fall back silently).
