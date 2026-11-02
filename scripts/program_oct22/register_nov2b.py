@@ -12,7 +12,7 @@ The "39" arms below run under H2 = AL_PATIENCE 16 (the menu standard), AL_ONECYC
   ef39_<ef>_30k_r<k>  explore fraction 0.2, 0.6 and 1.0 with the rr39 settings (rr39 is the 0.4 arm). GATED (ef39_go).
   vc39_30k_r<k>   the rr39 settings with the mixed validation set val_B1 (scripts/val_variants/build_val_composition.py). GATED (vc39_go).
 
-Gates are files the cell `needs` (scratchpad/gates/<name>_go); `touch` one to release a group.
+Gates are files the cell `needs` (scratchpad/gates/<name>_go); `touch` one to release a group (lv39b_go: the 10k and 100k variant cells, staged after the account limit was hit with 11 loop cells).
 
     python scripts/program_oct22/register_nov2b.py [--dry] [--only pa38,lv39,rr39,ef39,vc39]
 """
@@ -132,6 +132,9 @@ def lv39_cells():
                     COORD_VARIANTS,
                 )
             )
+    for c in out:  # staged: the 30k arm first, 10k and 100k when the LLM account limit allows (the first launch hit it with 11 loop cells)
+        if "_30k_" not in c["name"]:
+            c["needs"] = c["needs"] + [f"{GATES}/lv39b_go"]
     return out
 
 
