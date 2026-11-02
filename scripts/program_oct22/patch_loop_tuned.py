@@ -1,4 +1,7 @@
-"""AutoResearch launcher: the in-run LegNet baseline is the TUNED per-size recipe of docs/TUNED_LEGNET.md, and the out-of-the-box recipe is reported beside it.
+"""NOT APPLIED (reverted Nov 2): the in-harness baseline is not on the scale of the seed-bank LegNet (10k: 0.639 / 0.618 here against 0.756 / 0.808 for the 20-seed banks, and the same recipe gave 0.644 and 0.784 in two earlier 10k runs),
+and the manually launched cells had no LLM credentials. Use a bar taken from the seed banks instead of retraining the baseline inside the loop.
+
+AutoResearch launcher: the in-run LegNet baseline is the TUNED per-size recipe of docs/TUNED_LEGNET.md, and the out-of-the-box recipe is reported beside it.
 
 Until Nov 2 the bar shown to the proposer (and used by the manager's reference check) was the best of the published recipe at 100 epochs and a 60-epoch batch-256 variant. That recipe is under-trained: with 500 to 800
 epochs and per-size weight decay a single LegNet gains +0.066 (10k), +0.024 (30k) and +0.007 (100k) genomic-test r, so the bar was too low and the loop could look better than it is. The baseline is now trained twice in the

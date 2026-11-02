@@ -1,4 +1,6 @@
-"""Nov-2: the loop against the tuned bar. The in-run LegNet baseline is now the per-size tuned recipe (patch_loop_tuned.py), with the out-of-the-box recipe reported beside it. These cells repeat the best manager arm of
+"""NOT REGISTERED (reverted Nov 2, see patch_loop_tuned.py): needs a bar that is on the scale of the seed banks, and LLM credentials when launched by hand.
+
+Nov-2: the loop against the tuned bar. The in-run LegNet baseline is now the per-size tuned recipe (patch_loop_tuned.py), with the out-of-the-box recipe reported beside it. These cells repeat the best manager arm of
 Oct 30 (mgr38_ref: coordinator, explore the first 40% of the rounds then exploit, published MPRA-LegNet shown as the reference, known-good guidance, 15 rounds x 2 models, Sonnet 5.5, standard input, V0c) at all three sizes:
 
   rr38_<D>k_r<k>   D = 10k and 30k on replicate pools r1 to r3, 100k on r1 and r2 (per-model cap 45 H100-min at 100k, 25 otherwise)
