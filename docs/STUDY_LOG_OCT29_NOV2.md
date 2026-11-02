@@ -36,3 +36,16 @@ sections of `scratchpad/oct28/PLAN.md` (a local working log); the conclusions th
 * SSH key login to bamdev4 works only while the account home `/grid/koo/home/christen` is not group-writable (memory note); a 36-hour network outage on Oct 31 to Nov 1 cost nothing because every job ran under Slurm.
 * bamdev4 became unreachable on Nov 1 around 23:07 (the dispatcher and its cron live there); bamdev1, bamdev2 and bamdev3 stayed reachable. `scratchpad/dispatch_registry.json` was found truncated to 0 bytes at 23:10 and restored from `dispatch_registry.json.bak_lr38s`
   plus the nine `lr38s_` cells (2840 cells; empty file kept as `dispatch_registry.json.empty_nov1_2310`). Cause not yet identified (see the crontab on bamdev4 when it is back).
+
+## Things that were tried and did not help (paired by entry or pool; genomic-test r unless noted)
+* Loop modules and prompts (30k and 10k): a reflector stage adds nothing beyond the coordinator (+0.005 either way); the explore-style prompt is 0 pooled (n = 51); picking 2 of 6 ideas at random is +0.001 (the coordinator's pick is +0.004 better); an
+  explore-then-exploit manager is within noise of the coordinator alone; a fallback manager is -0.005 (SE 0.012) against showing the reference; the quota manager, minimal guidance and harness-assigned recipes (st38 arms) are within noise;
+  an open prompt without the architecture hint is -0.017 (SE 0.007), a late reference reveal -0.010, a stated target -0.015; 50-round long runs (203 models) are no better than 30-model runs.
+* Training harness: early-stopping patience 4 is worse (members -0.02 to -0.06 r), 16 beats 8 (+0.001 at 100k to +0.011 at 10k in the ensemble), and patience 24 or 32 changes members by +0.0004 to +0.002 (+0.002 +- 0.001 at 100k) and ensembles by -0.004 to +0.003
+  for 1.3 to 1.6x the time (`analyze_patience.py`, bare-insert v0 menu, pool r1). Epochs x0.5 or x2: -0.005 to +0.002; x3 with early stopping off and the standard input: +0.001 +- 0.004 (10k) and +0.001 +- 0.003 (30k).
+  Per-sample shifts -0.0002 +- 0.0022; the oracle's own augmentation (shift +-15 on half of the samples) -0.0046 +- 0.0019; test-time averaging over 8 shifts +0.0003 +- 0.0020; contexts longer than 20 bases add nothing; EMA with batch-norm recalibration is mixed
+  (single LegNet +0.013 at 100k, -0.016 at 10k).
+* Other student changes: width x2 or x3 of the menu at 100k -0.002 and -0.001 (+- 0.006, n = 8); an auxiliary HepG2 target +0.001 to +0.002 on genomic but -0.008 to -0.013 on OOD; single-pass reverse-complement augmentation +0.004 (30k), +0.023 (100k) and -0.014 (10k)
+  on genomic but -0.013 to -0.030 on OOD; recipe sweeps of the menu (lr, batch, weight decay) at 10k and 100k are flat within +-0.005; giving the menu members the LegNet recipe lowers them by 0.02 to 0.07; re-implemented architectures from the collaborator
+  are below the tuned LegNet at every size.
+* Ensembles: uncertainty-based and DPP selection add nothing over the positive-ElasticNet stack; greedy K = 5 is 0.01 lower; more seeds of the best configurations are worth less than more distinct configurations.

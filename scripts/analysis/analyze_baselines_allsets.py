@@ -41,7 +41,7 @@ def pearson(a, b) -> float:
     return float(np.corrcoef(a, b)[0, 1]) if a.std() > 0 and b.std() > 0 else float("nan")
 
 
-def load_dir(d: str, pattern: str):
+def load_dir(d: str, pattern: str, sets=SETS):
     """(val_labels, oracle labels, [(val_pred, {set: test_pred})]) of the models of one directory that trained to finite predictions."""
     if not os.path.exists(f"{d}/labels.npz"):
         return None
@@ -51,7 +51,7 @@ def load_dir(d: str, pattern: str):
         try:
             z = np.load(mf.replace("_meta.json", ".npz"))
             v = z["val_pred"].astype(np.float64)
-            t = {s: z[f"test_pred_{s}"].astype(np.float64) for s in SETS}
+            t = {s: z[f"test_pred_{s}"].astype(np.float64) for s in sets}
         except Exception:
             continue
         if not np.isfinite(v).all() or any(
@@ -62,22 +62,25 @@ def load_dir(d: str, pattern: str):
     return {"yv": lab["val_labels"].astype(np.float64), "lab": lab, "ms": ms}
 
 
-def score(g) -> dict:
+def score(g, sets=SETS) -> dict:
     ms, lab, yv = g["ms"], g["lab"], g["yv"]
     out = {"n": len(ms)}
-    y = {s: lab[f"oracle_{s}"].astype(np.float64) for s in SETS}
-    dy = y["snv_alt"] - y["snv_ref"]
-    for s in SETS:
+    y = {s: lab[f"oracle_{s}"].astype(np.float64) for s in sets}
+    snv = "snv_ref" in sets and "snv_alt" in sets
+    dy = y["snv_alt"] - y["snv_ref"] if snv else None
+    for s in sets:
         out[f"single_{s}"] = float(np.mean([pearson(m[1][s], y[s]) for m in ms]))
-    out["single_snv_delta"] = float(
-        np.mean([pearson(m[1]["snv_alt"] - m[1]["snv_ref"], dy) for m in ms])
-    )
+    if snv:
+        out["single_snv_delta"] = float(
+            np.mean([pearson(m[1]["snv_alt"] - m[1]["snv_ref"], dy) for m in ms])
+        )
     if len(ms) >= 3:
         st = fit_zscored_stack(np.stack([m[0] for m in ms]), yv)
-        P = {s: st.predict(np.stack([m[1][s] for m in ms])) for s in SETS}
-        for s in SETS:
+        P = {s: st.predict(np.stack([m[1][s] for m in ms])) for s in sets}
+        for s in sets:
             out[f"stack_{s}"] = pearson(P[s], y[s])
-        out["stack_snv_delta"] = pearson(P["snv_alt"] - P["snv_ref"], dy)
+        if snv:
+            out["stack_snv_delta"] = pearson(P["snv_alt"] - P["snv_ref"], dy)
     return out
 
 
@@ -106,24 +109,41 @@ def main() -> None:
         }
         if k <= 30:
             fams["AlphaGenome S1 (frozen encoder)"] = [
-                (f"{MR}/bench33_agS1_oracle_{k}k", "r*_menu_*_meta.json")
+                (
+                    f"{MR}/bench33_agS1_oracle_{k}k",
+                    "r*_menu_*_meta.json",
+                    ("genomic", "ood", "random_32k"),
+                )
             ]
             fams["AlphaGenome S2 (fine-tuned)"] = [
                 (f"{MR}/bench33_agS2_oracle_{k}k", "r*_menu_*_meta.json")
             ]
         for name, dirs in fams.items():
             rows = []
-            for d, pat in dirs:
-                g = load_dir(d, pat)
+            for spec in dirs:
+                d, pat = spec[0], spec[1]
+                sets = spec[2] if len(spec) > 2 else SETS
+                g = load_dir(d, pat, sets)
                 if g and len(g["ms"]) >= 3:
-                    rows.append(score(g))
+                    rows.append(score(g, sets))
             if not rows:
                 continue
             res.setdefault(f"{k}k", {})[name] = average(rows)
             r = res[f"{k}k"][name]
             print(
-                f"{k:3d}k {name:32s} n={r['n']:2d} runs={r['runs']} | stack: genomic {r['stack_genomic']:.4f} ood {r['stack_ood']:.4f} random {r['stack_random_32k']:.4f} snv_delta {r['stack_snv_delta']:.4f}"
-                f" gc {r['stack_gc_sweep']:.4f} dinuc {r['stack_dinuc_shuffle']:.4f} | single: genomic {r['single_genomic']:.4f} ood {r['single_ood']:.4f}",
+                f"{k:3d}k {name:32s} n={r['n']:2d} runs={r['runs']} | stack: "
+                + " ".join(
+                    f"{m} {r[f'stack_{m}']:.4f}"
+                    for m in (
+                        "genomic",
+                        "ood",
+                        "random_32k",
+                        "snv_delta",
+                        "gc_sweep",
+                        "dinuc_shuffle",
+                    )
+                    if f"stack_{m}" in r
+                ),
                 flush=True,
             )
     os.makedirs(a.out, exist_ok=True)

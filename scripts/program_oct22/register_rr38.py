@@ -1,4 +1,4 @@
-"""NOT REGISTERED (reverted Nov 2, see patch_loop_tuned.py): needs a bar that is on the scale of the seed banks, and LLM credentials when launched by hand.
+"""Nov-2 (registered again after patch_loop_bankbar.py: the bar is the seed banks' mean validation r, and the LLM credentials were fixed by linking the old home's .local, .claude and .bash_profile into the new home).
 
 Nov-2: the loop against the tuned bar. The in-run LegNet baseline is now the per-size tuned recipe (patch_loop_tuned.py), with the out-of-the-box recipe reported beside it. These cells repeat the best manager arm of
 Oct 30 (mgr38_ref: coordinator, explore the first 40% of the rounds then exploit, published MPRA-LegNet shown as the reference, known-good guidance, 15 rounds x 2 models, Sonnet 5.5, standard input, V0c) at all three sizes:

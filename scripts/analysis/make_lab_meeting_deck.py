@@ -40,6 +40,7 @@ FAM_COL = {
     "LegNet tuned": "#1b7f8c",
     "menu v2": "#b8741a",
     "AutoResearch run": "#b44a3e",
+    "AlphaGenome S1 (frozen encoder)": "#a99bd0",
     "AlphaGenome S2 (fine-tuned)": "#5b4b8a",
 }
 SETS = [
@@ -107,29 +108,35 @@ def fig_recipes(rec: dict, out: str) -> str:
 
 
 def fig_allsets(base: dict, out: str) -> str:
-    """Stack r of every student family on all evaluation sets, one panel per training size."""
-    fig, axs = plt.subplots(1, 3, figsize=(14, 6.6), sharey=True)
+    """Single-model mean (open circle) and weighted stack (filled circle, joined by a line) of every student family on all evaluation sets, one panel per training size."""
+    fig, axs = plt.subplots(1, 3, figsize=(14, 6.8), sharey=True)
     ys = np.arange(len(SETS))[::-1]
     for ax, size in zip(axs, ("10k", "30k", "100k")):
         for fam, col in FAM_COL.items():
             if fam not in base[size]:
                 continue
-            x = [base[size][fam][f"stack_{k}"] for k, _ in SETS]
-            ax.plot(x, ys, "o", color=col, label=fam if size == "10k" else None, ms=6, alpha=0.95)
+            v = base[size][fam]
+            xs = [v.get(f"stack_{k}", float("nan")) for k, _ in SETS]
+            x1 = [v.get(f"single_{k}", float("nan")) for k, _ in SETS]
+            for y, a, b in zip(ys, x1, xs):
+                if not (np.isnan(a) or np.isnan(b)):
+                    ax.plot([a, b], [y, y], "-", color=col, lw=1, alpha=0.5)
+            ax.plot(x1, ys, "o", mfc="white", mec=col, mew=1.4, ms=6, alpha=0.95)
+            ax.plot(xs, ys, "o", color=col, ms=6, alpha=0.95, label=fam if size == "10k" else None)
         ax.set_title(f"{size} training sequences", fontsize=13, fontweight="bold")
-        ax.set_xlabel("stack r (20 models; AlphaGenome: 10)")
+        ax.set_xlabel("r vs oracle labels (open: mean single model, filled: weighted stack)")
         ax.set_yticks(ys)
         ax.set_yticklabels([n for _, n in SETS], fontsize=9)
         ax.grid(axis="x", alpha=0.25)
-        for s in ("top", "right"):
-            ax.spines[s].set_visible(False)
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
     h, lab = axs[0].get_legend_handles_labels()
     fig.legend(
-        h, lab, loc="lower center", ncol=5, frameon=False, fontsize=10, bbox_to_anchor=(0.5, -0.02)
+        h, lab, loc="lower center", ncol=6, frameon=False, fontsize=9.5, bbox_to_anchor=(0.5, -0.02)
     )
     fig.suptitle(
-        "Student families on all 18 evaluation sets (oracle labels; weighted stack fitted on V0c)",
-        fontsize=12,
+        "Student families on all evaluation sets (oracle labels; stacks fitted on V0c; 20 models, AlphaGenome-FT 10; AlphaGenome S1 holds three sets)",
+        fontsize=11,
     )
     fig.tight_layout(rect=(0, 0.04, 1, 1))
     p = f"{out}/fig_all_eval_sets.png"
@@ -760,7 +767,7 @@ def build(args) -> None:
         6.5,
         12.4,
         0.8,
-        "At 30k and 100k the tuned LegNet beats the menu, which beats the loop's own 20-model run; at 10k the menu and the tuned LegNet are within 0.005 on genomic (the menu is higher on random sequences). The loop's single models are weak (explore phase) and its stack recovers. All 18 sets on the next slide.",
+        "At 30k and 100k the tuned LegNet beats the menu, which beats the loop's own 20-model run; at 10k the menu and the tuned LegNet are within 0.005 on genomic (the menu is higher on random sequences). The loop's single models are weak (explore phase) and its stack recovers. All 18 sets on the next slide. AlphaGenome-FT: students trained on the same 10k / 30k pool (S1: head on the frozen encoder, S2: fine-tuned from S1), scored against oracle labels; against measured labels the genomic r is 0.907 (S2, 10k) and 0.917 (S2, 30k).",
         10.5,
         False,
         GREY_D,

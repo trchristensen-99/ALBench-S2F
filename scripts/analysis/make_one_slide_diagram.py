@@ -91,6 +91,9 @@ def draw(d: Deck, s, ox: float, oy: float, base: dict) -> None:
         True,
         TEAL,
     )
+    ag = lambda k: (
+        f"{base[k]['AlphaGenome S1 (frozen encoder)']['stack_genomic']:.3f} | {base[k]['AlphaGenome S2 (fine-tuned)']['stack_genomic']:.3f}"
+    )
     g = lambda k, f: f"{base[k][f]['stack_genomic']:.3f}"  # noqa: E731
     rows = [
         ["", "10k", "30k", "100k"],
@@ -116,9 +119,9 @@ def draw(d: Deck, s, ox: float, oy: float, base: dict) -> None:
             g("100k", "AutoResearch run"),
         ],
         [
-            "AlphaGenome-FT x 10 (ceiling)",
-            g("10k", "AlphaGenome S2 (fine-tuned)"),
-            g("30k", "AlphaGenome S2 (fine-tuned)"),
+            "AlphaGenome-FT x10, S1 | S2 (ceiling)",
+            ag("10k"),
+            ag("30k"),
             "not run",
         ],
         [
@@ -141,15 +144,22 @@ def draw(d: Deck, s, ox: float, oy: float, base: dict) -> None:
         rows,
         col_w=[1.75, 0.93, 0.93, 0.94],
         size=7.5,
-        row_h=0.215,
+        row_h=0.2,
         fills=fills,
     )
     chip(
         0,
-        4.28,
+        4.14,
+        4.55,
+        0.2,
+        "tuned vs published recipe, one LegNet: +0.066 (10k) +0.024 (30k) +0.007 (100k)",
+    )
+    chip(
+        0,
+        4.37,
         4.55,
         0.22,
-        "tuned vs published recipe, one LegNet: +0.066 (10k) +0.024 (30k) +0.007 (100k)",
+        "AlphaGenome-FT vs measured labels: 0.89|0.91 (10k), 0.90|0.92 (30k)",
     )
     # ---------------------------------------------------------------- 3. by reservoir
     text(4.7, 2.08, 4.2, 0.22, "3  By reservoir (one pool each, same D)", 9.5, True, TEAL)
@@ -232,7 +242,7 @@ def draw(d: Deck, s, ox: float, oy: float, base: dict) -> None:
         4.62,
         4.5,
         0.22,
-        "4  Student ladder at 30k on other evaluation sets (stack r)",
+        "4  30k ladder: single model vs ensemble, four evaluation sets",
         9.5,
         True,
         TEAL,
@@ -245,44 +255,52 @@ def draw(d: Deck, s, ox: float, oy: float, base: dict) -> None:
         ("gc_sweep", "GC sweep"),
         ("dinuc_shuffle", "dinuc shuffle"),
     ]
-    cd = CategoryChartData()
-    cd.categories = [n for _, n in sets]
     fams = [
         ("LegNet published", "out-of-box LegNet"),
         ("LegNet tuned", "tuned LegNet"),
         ("menu v2", "menu v2"),
         ("AutoResearch run", "loop run"),
-        ("AlphaGenome S2 (fine-tuned)", "AlphaGenome-FT"),
+        ("AlphaGenome S2 (fine-tuned)", "AlphaGenome-FT S2"),
     ]
-    for f, lab in fams:
-        cd.add_series(lab, [round(base["30k"][f][f"stack_{k}"], 3) for k, _ in sets])
-    gf = s.shapes.add_chart(
-        XL_CHART_TYPE.COLUMN_CLUSTERED,
-        Inches(X(0)),
-        Inches(Y(4.82)),
-        Inches(4.55),
-        Inches(1.85),
-        cd,
-    )
-    ch = gf.chart
-    ch.font.size = Pt(7)
-    ch.has_legend, ch.legend.position, ch.legend.include_in_layout = (
-        True,
-        XL_LEGEND_POSITION.BOTTOM,
-        False,
-    )
-    ch.value_axis.minimum_scale, ch.value_axis.maximum_scale = 0.2, 1.0
-    ch.value_axis.major_unit = 0.2
-    ch.plots[0].gap_width = 60
-    for ser, col in zip(ch.series, ("9AA3B2", "1B7F8C", "B8741A", "B44A3E", "5B4B8A")):
-        ser.format.fill.solid()
-        ser.format.fill.fore_color.rgb = rgb(col)
+    sets = sets[:4]
+    for j, (kind, title) in enumerate(
+        (("single", "single model (mean)"), ("stack", "ensemble: weighted stack"))
+    ):
+        cd = CategoryChartData()
+        cd.categories = [n for _, n in sets]
+        for f, lab in fams:
+            cd.add_series(lab, [round(base["30k"][f][f"{kind}_{k}"], 3) for k, _ in sets])
+        gf = s.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED,
+            Inches(X(0) + j * 2.3),
+            Inches(Y(4.82)),
+            Inches(2.25),
+            Inches(1.85),
+            cd,
+        )
+        ch = gf.chart
+        ch.font.size = Pt(6.5)
+        ch.has_title = True
+        ch.chart_title.text_frame.text = title
+        ch.chart_title.text_frame.paragraphs[0].runs[0].font.size = Pt(7.5)
+        ch.chart_title.text_frame.paragraphs[0].runs[0].font.bold = True
+        ch.has_legend, ch.legend.position, ch.legend.include_in_layout = (
+            True,
+            XL_LEGEND_POSITION.BOTTOM,
+            False,
+        )
+        ch.value_axis.minimum_scale, ch.value_axis.maximum_scale = 0.0, 1.0
+        ch.value_axis.major_unit = 0.25
+        ch.plots[0].gap_width = 50
+        for ser, col in zip(ch.series, ("9AA3B2", "1B7F8C", "B8741A", "B44A3E", "5B4B8A")):
+            ser.format.fill.solid()
+            ser.format.fill.fore_color.rgb = rgb(col)
     text(4.7, 4.62, 4.2, 0.22, "5  Reading it", 9.5, True, TEAL)
     pts = [
         "Tuned LegNet is the strongest student trained from scratch at 30k and 100k; the menu only adds diversity at 10k.",
         "The loop's own 20 models trail the tuned LegNet at every size (0.842 vs 0.891 at 30k), the menu at all sizes. Redo against the tuned bar is running (rr38).",
         "Doubling or tripling epochs does not help the menu (+0.001 +- 0.004) but helps LegNet a lot: search the recipe per size?",
-        "AlphaGenome-FT (0.963 at 30k) is a ceiling only: it shares the pretrained encoder with the oracle.",
+        "AlphaGenome-FT students (same 30k pool; S1 frozen encoder, S2 fine-tuned) score 0.96 vs oracle labels because the oracle is itself an AlphaGenome model (0.92 vs measured labels): a ceiling only.",
         "Feedback wanted: reference choice, per-size ensemble, epoch budget at 100k.",
     ]
     d.box(
