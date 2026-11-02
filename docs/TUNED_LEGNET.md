@@ -14,8 +14,7 @@ Input standard unchanged (200 bp + 20 real flank bases per side, shift +-10, RC 
 | 30k | 500 | 0.2 | `e500_wd2` | 0.8745 | +0.024 (SE 0.001); OOD +0.047 | 0.8907 / 0.8487 |
 | 100k | 500 | 0.1 (published) | `e500` | 0.9269 | +0.007 (SE 0.0003) | 0.9381 / 0.8953 |
 
-Smaller data wants more epochs and more regularisation. Boundaries found: weight decay 0.4 is too strong at 30k (-0.005 to -0.009), weight decay 0.2 hurts at 100k (-0.003 to -0.007) and its OOD
-by 0.03; at 30k 800 epochs is no better than 500; at 10k the gain was still rising at 800 epochs (not saturated, the 10k recipe is a lower bound on what is possible). Halving the learning rate or
+Smaller data wants more epochs and more regularisation. Boundaries found: weight decay 0.4 is too strong at 30k (-0.005 to -0.009), weight decay 0.2 hurts at 100k (-0.003 to -0.007 genomic, about -0.03 OOD); at 30k 800 epochs is no better than 500; at 10k the gain was still rising at 800 epochs (not saturated, the 10k recipe is a lower bound on what is possible). Halving the learning rate or
 doubling the batch was worse at every size. Controls: the published recipe with 20 seeds (`bench38_ln_e100_*`) scores 0.689 / 0.850 / 0.920 single and 0.731 / 0.868 / 0.931 as a stack at 10k / 30k / 100k.
 
 ## What it means for the per-size ensemble (genomic-test stack, oracle labels)
