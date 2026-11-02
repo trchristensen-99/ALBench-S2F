@@ -17,6 +17,33 @@ Input standard unchanged (200 bp + 20 real flank bases per side, shift +-10, RC 
 Smaller data wants more epochs and more regularisation. Boundaries found: weight decay 0.4 is too strong at 30k (-0.005 to -0.009), weight decay 0.2 hurts at 100k (-0.003 to -0.007 genomic, about -0.03 OOD); at 30k 800 epochs is no better than 500; at 10k the gain was still rising at 800 epochs (not saturated, the 10k recipe is a lower bound on what is possible). Halving the learning rate or
 doubling the batch was worse at every size. Controls: the published recipe with 20 seeds (`bench38_ln_e100_*`) scores 0.689 / 0.850 / 0.920 single and 0.731 / 0.868 / 0.931 as a stack at 10k / 30k / 100k.
 
+## How many epochs, and is there early stopping? (Nov 2)
+
+The bank trainer has **no early stopping**: it runs the whole one-cycle schedule and keeps the epoch with the best validation Pearson (V0c, forward-only). That epoch is always at the end of the schedule (mean best epoch 473 of 500 at 30k, 477 of 500 at 100k, 723 of 800 at 10k; the earliest in any seed is 91% of the way), because a one-cycle schedule only anneals in its last third. The recipes are tuned per size and all long: **10k 800 epochs (wd 0.4), 30k 500 (wd 0.2), 100k 500 (wd 0.1)**; in optimiser steps that is 8k, 14.6k and 49k (batch 1024), so the small sets need the most epochs.
+
+Single-model genomic test r by schedule length (5 seeds per arm, the 20-seed arm in bold; same pools, V0c selection):
+
+| size | e100 | e150 | e200 | e300 | e500 | e800 |
+|---|---|---|---|---|---|---|
+| 30k, wd 0.1 | 0.8502 (20 seeds) | 0.8601 | 0.8621 | 0.8658 | 0.8700 | not run |
+| 30k, wd 0.2 | not run | 0.8654 | `lr39_` running | 0.8730 | **0.8748** (20) | 0.8732 |
+| 100k, wd 0.1 | 0.9202 (20) | 0.9245 | 0.9254 | 0.9261 | **0.9269** (20) | not run |
+| 10k, wd 0.1 | 0.6891 (20) | 0.7077 | 0.7141 | 0.7196 | 0.7360 | not run |
+| 10k, wd 0.2 | not run | 0.7191 | not run | 0.7356 | 0.7468 | 0.7510 |
+| 10k, wd 0.4 | not run | not run | `lr39_` running | `lr39_` running | 0.7508 | **0.7557** (20) |
+
+So 200 epochs costs about -0.005 at 30k (interpolating the wd 0.2 row; -0.008 at wd 0.1), -0.0015 at 100k and about -0.02 at 10k; **300 epochs is within 0.002 of 500 at 30k and within 0.001 at 100k**, which is where the loop should aim when compute matters. At 10k the gain was still rising at 800.
+
+Early stopping inside the full schedule is far worse: replaying the stored per-epoch validation curves of the 20-seed banks, the validation Pearson plateaus between 20% and 40% of the schedule (30k mean 0.8146 at 20%, 0.8141 at 40%, 0.8384 at 60%, 0.8816 at 80%, 0.8928 at 90%, 0.8948 at 100%) because the learning rate is still high, so any patience short enough to save time stops there:
+
+| size (recipe) | patience 8 | patience 16 | patience 32 | patience 64 |
+|---|---|---|---|---|
+| 30k (e500, wd 0.2): median stop epoch / validation r given up | 44 / 0.133 | 114 / 0.059 | 141 / 0.054 | 500 / 0.008 (a fifth of seeds still stop, min epoch 174) |
+| 100k (e500): | 67 / 0.044 | 85 / 0.042 | 116 / 0.040 | 153 / 0.037 |
+| 10k (e800, wd 0.4): | 24 / 0.191 | 81 / 0.121 | 184 / 0.060 | 266 / 0.050 |
+
+(`lr39_*_es16` measure this on the test sets: the same schedules with patience 16, 5 seeds.) A shorter schedule is the efficient alternative, not an early stop: it completes its annealing. This is also what the loop harness did to every long recipe until Nov 2 (patience 8 on the validation MSE), see `LEGNET_VS_LOOP_AND_NEXT_ARMS.md`.
+
 ## What it means for the per-size ensemble (genomic-test stack, oracle labels)
 
 | size | tuned LegNet (20 seeds) | menu v2 (20 configs) | tuned + menu v2 | tuned + menu v2 + menu v2 at 3x epochs |

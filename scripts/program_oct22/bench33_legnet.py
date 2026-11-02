@@ -57,6 +57,14 @@ CFGS = {
     "e800_wd2": dict(batch=1024, epochs=800, max_lr=0.01, wd=0.2),
     "e500_wd4": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.4),
     "e800_wd4": dict(batch=1024, epochs=800, max_lr=0.01, wd=0.4),
+    # Nov-2: how much of the tuned recipe is the schedule length, and does early stopping on the validation Pearson work with a one-cycle schedule?
+    # `patience`: stop when the best validation Pearson is `patience` epochs old (the schedule itself is unchanged, so the learning rate has not annealed when it stops); every other arm runs its full schedule and keeps the best epoch.
+    "e200_wd2": dict(batch=1024, epochs=200, max_lr=0.01, wd=0.2),
+    "e200_wd4": dict(batch=1024, epochs=200, max_lr=0.01, wd=0.4),
+    "e300_wd4": dict(batch=1024, epochs=300, max_lr=0.01, wd=0.4),
+    "e500_wd2_es16": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.2, patience=16),
+    "e800_wd4_es16": dict(batch=1024, epochs=800, max_lr=0.01, wd=0.4, patience=16),
+    "e500_es16": dict(batch=1024, epochs=500, max_lr=0.01, patience=16),
 }
 ARCH = dict(
     in_ch=4,
@@ -233,6 +241,8 @@ def main() -> None:
             if np.isfinite(r) and r > best:
                 best, best_ep = r, ep
                 best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            elif cfg.get("patience") and ep - best_ep >= cfg["patience"]:
+                break
         if best_state is None:
             raise RuntimeError(f"{name}: no finite validation Pearson")
         model.load_state_dict(best_state)
@@ -280,7 +290,12 @@ def main() -> None:
                 "augmentation": f"shift uniform +-{S} on the real plasmid flank (every sample), reverse complement p .5",
                 "flank_ctx": FC,
                 "input_length": W,
-                "selection": "best epoch by V0c Pearson (forward only)",
+                "selection": "best epoch by V0c Pearson (forward only)"
+                + (
+                    f", stopped after {cfg['patience']} epochs without improvement"
+                    if cfg.get("patience")
+                    else ""
+                ),
             },
             "pearson_note": "val/test_pred are reverse-complement averaged; fwd_* hold forward-only predictions",
         }
