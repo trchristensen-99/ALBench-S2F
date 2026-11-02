@@ -344,6 +344,7 @@ class Deck:
                 cell.fill.fore_color.rgb = rgb(f)
                 cell.vertical_anchor = MSO_ANCHOR.MIDDLE
                 cell.margin_left = cell.margin_right = Inches(0.06)
+                cell.margin_top = cell.margin_bottom = Inches(0.012 if size <= 9 else 0.04)
         return t
 
     def tag(self, s, x, y, txt, w=1.6):
