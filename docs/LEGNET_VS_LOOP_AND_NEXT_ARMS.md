@@ -35,6 +35,8 @@ Positive-ElasticNet stacks fitted on V0c. "Loop" = all models of finished runs w
 | | loop (rr38, 2 runs so far) | 0.899 | 0.386 | 0.841 | 0.766 | 0.861 | 4.9 |
 | | loop + bank | 0.938 | 0.584 | 0.905 | 0.876 | 0.917 | 18.7 |
 
+Caveat on the SNV-effect column: the menu, loop and AutoResearch encoders left-align the 7.9% of SNV pairs that are indels while the bank centre-pads, which inflates the loop-versus-bank SNV gaps by 0.02 to 0.03 (`AUDIT_NOV2.md`, item 1); read that column on Hamming-1 pairs only.
+
 The loop's ensemble is below the 20-seed tuned LegNet on every set at every size (-0.03 genomic at 10k, -0.04 at 30k and 100k; -0.10 OOD at 30k, -0.20 OOD at 100k), and on top of the bank it adds only at 10k (+0.007 genomic, +0.009 mean of 18; OOD -0.02). At 30k and 100k the stack puts its weight on the bank and the loop's models are redundant.
 The loop's stack is concentrated: 4.6-6.5 effective members against 16-19 for the bank. Its best members are LegNet variants: in the 30k runs 76-100% of the stack weight is on members derived from the reference LegNet, and a stack of only those equals the whole loop stack (0.853 vs 0.854 genomic) while the members that are not LegNet-derived stack to 0.818.
 Even the best single model of a run is below the average tuned LegNet seed: 10k 0.71-0.74 (tuned LegNet 0.756), 30k 0.83-0.85 (0.875), 100k 0.87-0.88 (0.927). 20 seeds of one good model average out their noise (single 0.875 -> stack 0.891 at 30k); the loop has to find several equally good and different models, and does not.
