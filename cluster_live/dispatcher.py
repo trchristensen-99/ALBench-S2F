@@ -89,9 +89,12 @@ def parse_reset(text: str) -> float | None:
 def llm_probe() -> tuple[bool, str]:
     """One tiny CLI call through the same token path the cells use. True when the account accepts calls again."""
     try:
-        r = subprocess.run("bash -c 'set +u; . ~/.config/albench/llm.env 2>/dev/null; set -u; echo Reply with the word OK. | claude -p --model claude-sonnet-5-5'",
+        # PATH: started from cron the dispatcher has no ~/.local/bin, so `claude` was "not found" (rc 127) and every probe looked like a usage limit (Nov 2: LLM cells paused for 1 h 15 min on a lifted limit)
+        r = subprocess.run("bash -c 'export PATH=$HOME/.local/bin:$PATH; set +u; . ~/.config/albench/llm.env 2>/dev/null; set -u; echo Reply with the word OK. | claude -p --model claude-sonnet-5-5'",
                            shell=True, capture_output=True, text=True, timeout=150)
         out = (r.stdout or "") + "\n" + (r.stderr or "")
+        if r.returncode != 0:
+            log(f"LLM probe rc={r.returncode}: {out.strip()[:200]!r}")
         return (r.returncode == 0 and "OK" in (r.stdout or "") and not LIMIT_RE.search(r.stdout or "")), out
     except Exception as e:  # noqa: BLE001
         return False, f"probe error {type(e).__name__}: {e}"
