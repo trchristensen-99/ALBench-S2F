@@ -810,22 +810,39 @@ def _isolated_cwd() -> str:
 def _call_claude_cli(system: str, user: str, model: str) -> str:
     """One CLI attempt. Raises RateLimitExceeded on usage-limit, RuntimeError else.
 
-    LLM_CLI_ISOLATE (default on, 0 restores the old behaviour): no tools and an empty working directory, the call only has to produce text.
+    LLM_CLI_ISOLATE (default on, 0 restores the old behaviour): no tools, an empty working directory, the loop's own system prompt in place of the Claude Code one, and `--effort medium`
+    (LLM_CLI_EFFORT); the call only has to produce text.
     """
     import subprocess
 
-    prompt = f"<system>\n{system}\n</system>\n\n{user}"
     claude_bin = os.environ.get(
         "CLAUDE_BIN",
         os.environ.get("CLAUDE_CLI", "claude"),  # resolve on PATH by default,
     )
     # Strip date suffix from model id for CLI (CLI expects sonnet, opus, etc.)
     cli_model = model.split("-202")[0] if "-202" in model else model
-    cmd = [claude_bin, "-p", prompt, "--model", cli_model]
     cwd = None
     if os.environ.get("LLM_CLI_ISOLATE", "1") != "0":
-        cmd += ["--tools", ""]
+        # What a call costs against the account's 5-hour session limit (measured on the cluster, Nov 2): the default Claude Code system prompt and tool definitions are ~32k tokens per call (12.6k of
+        # them cache writes) for a prompt of five words; `--tools ""` from an empty directory leaves 8.5k; replacing the system prompt leaves ~0.3k. Hidden reasoning is the other half: the same proposer
+        # prompt generates 5,353 output tokens at the default effort and 2,683 at `--effort medium` for the same visible answer. LLM_CLI_EFFORT=high restores the default.
+        cmd = [
+            claude_bin,
+            "-p",
+            user,
+            "--model",
+            cli_model,
+            "--system-prompt",
+            system,
+            "--tools",
+            "",
+        ]
+        effort = os.environ.get("LLM_CLI_EFFORT", "medium")
+        if effort and effort != "default":
+            cmd += ["--effort", effort]
         cwd = _isolated_cwd()
+    else:
+        cmd = [claude_bin, "-p", f"<system>\n{system}\n</system>\n\n{user}", "--model", cli_model]
     result = None
     for attempt in range(
         2

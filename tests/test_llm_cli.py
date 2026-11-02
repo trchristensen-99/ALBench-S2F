@@ -23,8 +23,23 @@ def test_call_is_tool_free_and_runs_outside_the_repository(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run(cap, stdout="### SELECT: 1, 2\n"))
     monkeypatch.delenv("LLM_CLI_ISOLATE", raising=False)
     llm._call_claude_cli("sys", "user", "claude-sonnet-5-5")
-    assert cap["cmd"][-2:] == ["--tools", ""]
+    assert ["--tools", ""] == cap["cmd"][
+        cap["cmd"].index("--tools") : cap["cmd"].index("--tools") + 2
+    ]
+    assert cap["cmd"][cap["cmd"].index("--system-prompt") + 1] == "sys" and cap["cmd"][2] == "user"
+    assert cap["cmd"][cap["cmd"].index("--effort") + 1] == "medium"
     assert cap["kw"]["cwd"] and "llm_cli_" in cap["kw"]["cwd"]
+
+
+def test_effort_can_be_changed_or_left_at_the_default(monkeypatch):
+    cap: dict = {}
+    monkeypatch.setattr(subprocess, "run", fake_run(cap, stdout="### SELECT: 1\n"))
+    monkeypatch.setenv("LLM_CLI_EFFORT", "high")
+    llm._call_claude_cli("sys", "user", "sonnet")
+    assert cap["cmd"][cap["cmd"].index("--effort") + 1] == "high"
+    monkeypatch.setenv("LLM_CLI_EFFORT", "default")
+    llm._call_claude_cli("sys", "user", "sonnet")
+    assert "--effort" not in cap["cmd"]
 
 
 def test_isolation_can_be_switched_off(monkeypatch):
@@ -33,6 +48,7 @@ def test_isolation_can_be_switched_off(monkeypatch):
     monkeypatch.setenv("LLM_CLI_ISOLATE", "0")
     llm._call_claude_cli("sys", "user", "sonnet")
     assert "--tools" not in cap["cmd"] and cap["kw"]["cwd"] is None
+    assert cap["cmd"][2].startswith("<system>\nsys\n</system>")
 
 
 def test_a_real_answer_that_mentions_quota_is_not_a_usage_limit(monkeypatch):

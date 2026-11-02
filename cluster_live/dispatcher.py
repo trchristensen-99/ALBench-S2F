@@ -50,7 +50,8 @@ MAX_LLM_ACTIVE = 40           # overnight: laptop idle, V100 LLM cells draw few 
 LLM_COOLDOWN_S = 1800         # after any cell exits 75 (rate limited) pause ALL LLM submissions this long
 
 
-CLAUDE_LOGS = Path("/grid/wsbs/home_norepl/christen/.claude/projects")
+# the CLI writes its session logs under the home the job sees: the old home until the Oct 31 move, /grid/koo/home/christen since (the status line undercounted by 3x after the move)
+CLAUDE_LOGS_DIRS = [Path("/grid/koo/home/christen/.claude/projects"), Path("/grid/wsbs/home_norepl/christen/.claude/projects")]
 LIMIT_RE = re.compile(r"hit your .{0,30}limit|usage limit|rate limit|limit reached", re.I)
 WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -104,7 +105,7 @@ def llm_tokens_last_hour() -> tuple[int, int, int]:
     """(calls, input+output+cache-write tokens, output tokens) over the last 60 min, from the CLI's own session logs."""
     now, calls, tot, out = time.time(), 0, 0, 0
     seen = set()
-    for f in CLAUDE_LOGS.rglob("*.jsonl"):
+    for f in (g for root in CLAUDE_LOGS_DIRS for g in root.rglob("*.jsonl")):
         try:
             if f.stat().st_mtime < now - 3900:
                 continue
