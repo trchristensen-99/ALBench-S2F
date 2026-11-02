@@ -259,6 +259,21 @@ PROPOSER_SETUP = (
     "only what you care about."
 )
 
+
+def training_facts_text() -> str:
+    """What the harness really does with a TRAIN line, said only for the fixed harness (AL_ONECYCLE_FULL=1) so that every earlier arm keeps its prompt.
+    The numbers are the seed-bank recipe sweeps for a plain LegNet (docs/TUNED_LEGNET.md, single-model genomic test r, 5 seeds per arm)."""
+    if os.environ.get("AL_ONECYCLE_FULL") != "1":
+        return ""
+    pat = os.environ.get("AL_PATIENCE", "8")
+    return (
+        "TRAINING FACTS (measured): a onecycle schedule always runs its full number of epochs (the best epoch by validation is kept; a short schedule is a different schedule, not an early stop), "
+        f"cosine and plateau schedules stop after {pat} epochs without improvement, and every model is stopped at the time cap. For a plain LegNet, 300 epochs reach within 0.002 of 500 epochs at 30k and 100k "
+        "(150 epochs: -0.009 at 30k, -0.002 at 100k); at 10k more epochs keep helping up to 800 (with weight decay 0.4). Large batches with onecycle and a high learning rate (AdamW, lr 0.01, batch 1024) "
+        "need those long schedules; small batches (128 to 256) with Muon converge in 40 to 80 epochs."
+    )
+
+
 CODER_SYSTEM = """\
 You are the CODING agent in a team that searches for neural-network architectures on a genomics \
 regression task. A proposer agent decides what to try; your only job is to turn ONE architecture \
@@ -683,6 +698,8 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
     setup = (PROPOSER_SETUP_HARNESS if harness_recipe else PROPOSER_SETUP).format(
         max_min=h.cap_min, max_params=args.max_params
     )
+    if not harness_recipe and training_facts_text():
+        setup += "\n\n" + training_facts_text()
     parts.append("\nNOTE: " + (guidance + "\n\n" if guidance else "") + setup)
     if ctx.cfg.manager == "quota":
         parts.append("\n" + coverage_text_quota(ctx))

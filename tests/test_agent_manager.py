@@ -112,3 +112,21 @@ def test_variants_manager_restricts_every_round_to_modifications(tmp_path):
     assert "INCUMBENT: none yet" in llm.coord_prompts[0]
     assert "INCUMBENT: the best variant so far reaches validation r" in llm.coord_prompts[-1]
     assert all("EXPLORATION ROUND" not in s for s in llm.proposer_systems)
+
+
+def test_training_facts_only_for_the_fixed_harness(tmp_path, monkeypatch):
+    monkeypatch.delenv("AL_ONECYCLE_FULL", raising=False)
+    assert al.training_facts_text() == ""
+    monkeypatch.setenv("AL_ONECYCLE_FULL", "1")
+    monkeypatch.setenv("AL_PATIENCE", "16")
+    txt = al.training_facts_text()
+    assert "TRAINING FACTS" in txt and "16 epochs without improvement" in txt
+    h, args, llm = (
+        make_harness(tmp_path),
+        make_args(tmp_path, rounds=1, agent_cfg=cfg("none")),
+        CoordLLM(),
+    )
+    al.run_agent_loop(
+        args, h, llm=llm
+    )  # the loop still runs with the paragraph appended to the setup
+    assert llm.proposer_systems
