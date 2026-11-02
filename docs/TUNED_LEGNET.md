@@ -48,3 +48,21 @@ is 0.06 below the tuned 30k stack; on measured labels the tuned stack is 0.849. 
 Five-seed arms were compared with a 20-seed control (unpaired, SEs above); the final per-size arms were then run to 20 seeds. The recipe was selected on validation-set behaviour of the sweeps and reported on test
 sets that were never used for a choice, but the arms themselves were chosen from the same sweep, so the gain over the published recipe is slightly optimistic at the margin (the margins are 5 to 10 SE at 10k and 30k).
 At 10k the best arm was the longest one tried; longer training may help further. 300k and larger sizes have not been tuned.
+
+## Comparison with the collaborator's Nov 2 results (30k genomic)
+
+His table (single networks and "ensembles" that put two or three full networks inside one model) against the tuned LegNet at 30k (20 seeds, same label sets: oracle "genomic r" and experimental "measured genomic r"):
+
+| model | genomic r (oracle labels) | measured genomic r |
+|---|---|---|
+| his "tuned LegNet" baseline (1.3M params, 60 epochs) | 0.799 | 0.760 |
+| published recipe, e100, our harness (single network, mean of 20) | 0.850 | 0.809 |
+| his best single networks (C510, C370, 5.7M to 7.3M params) | 0.862 to 0.864 | 0.821 to 0.822 |
+| **tuned LegNet single network (e500, wd 0.2; mean of 20, 1.3M params)** | **0.8748** | **0.8336** |
+| his best two or three network models (C426, C514, C538) | 0.874 to 0.877 | 0.832 to 0.836 |
+| tuned LegNet, plain average of 2 / 3 independent networks | 0.8829 / 0.8856 | 0.8413 / 0.8439 |
+| tuned LegNet, 20-seed stack | 0.8907 | 0.8487 |
+
+A single tuned LegNet is about 0.011 above his best single network and a plain average of two LegNets is above his best twin and triple models. His baseline is 0.05 below the published recipe in our harness, which is
+what an under-trained reference (60 epochs) looks like. The gap between oracle and measured labels (0.041 for his best, 0.041 for ours) is the same, so the two harnesses appear to use equivalent test sets, but that is unconfirmed.
+(`scripts/analysis/measured_singles.py`.)
