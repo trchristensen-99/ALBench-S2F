@@ -91,3 +91,24 @@ def test_manager_off_leaves_prompts_unchanged(tmp_path):
     assert all(
         "EXPLORATION ROUND" not in s and "REFINEMENT ROUND" not in s for s in llm.proposer_systems
     )
+
+
+def test_variants_manager_restricts_every_round_to_modifications(tmp_path):
+    assert al.AgentConfig.from_arg(cfg("variants")).manager == "variants"
+    h, args, llm = (
+        make_harness(tmp_path),
+        make_args(tmp_path, rounds=3, agent_cfg=cfg("variants")),
+        CoordLLM(),
+    )
+    al.run_agent_loop(args, h, llm=llm)
+    out = Path(args.out_dir)
+    plans = [json.loads((out / "agent_logs" / f"plan_r{r:02d}.json").read_text()) for r in range(3)]
+    assert [p["coordinator"].get("manager_mode") for p in plans] == ["variants"] * 3
+    assert all("MANAGER MODE: VARIANTS" in p for p in llm.coord_prompts)
+    assert all(
+        "VARIANT ROUND" in s and "Do NOT propose a different mechanism" in s
+        for s in llm.proposer_systems
+    )
+    assert "INCUMBENT: none yet" in llm.coord_prompts[0]
+    assert "INCUMBENT: the best variant so far reaches validation r" in llm.coord_prompts[-1]
+    assert all("EXPLORATION ROUND" not in s for s in llm.proposer_systems)

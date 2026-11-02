@@ -97,6 +97,7 @@ class AgentConfig:
     # "schedule_ens": additionally the coordinator sees the validation stack of everything trained so far (weight and correlation per model). Needs the coordinate stage.
     # "schedule_fb": schedule_ens plus a reference check in the exploit rounds: the best model so far is compared (validation r, measured) with the published MPRA-LegNet trained by the same harness; if nothing beats the reference by more than 0.005 the exploit slots go to small modifications of the reference instead of the explored winner.
     explore_frac: float = 0.4  # manager: the first round(explore_frac * rounds) rounds are explore rounds, the rest exploit
+    # manager "variants": every round is a refinement round restricted to small modifications of the tuned MPRA-LegNet (depth, width, kernels, wiring, recipe) and of the best variant so far; no new mechanisms. explore_frac is ignored.
     # manager "quota": every round trains one EXPLOIT model and (select_per_round - 1) EXPLORE models; the coordinator sees a coverage table of architectural features (and which are still untried) and the validation stack.
     recipe_source: str = "proposal"  # "proposal": the proposer writes a TRAIN line per idea (the default of every earlier run); "harness": the proposer writes architectures only and the harness assigns each model a recipe from a safe set (AL_RECIPE_MODE=harness)
     cli_overhead_tokens: int = CLI_OVERHEAD_TOKENS
@@ -140,9 +141,16 @@ class AgentConfig:
             raise AgentConfigError(
                 f"proposer_style must be 'none' or 'explore', got {self.proposer_style!r}"
             )
-        if self.manager not in ("none", "schedule", "schedule_ens", "schedule_fb", "quota"):
+        if self.manager not in (
+            "none",
+            "schedule",
+            "schedule_ens",
+            "schedule_fb",
+            "quota",
+            "variants",
+        ):
             raise AgentConfigError(
-                f"manager must be 'none', 'schedule', 'schedule_ens', 'schedule_fb' or 'quota', got {self.manager!r}"
+                f"manager must be 'none', 'schedule', 'schedule_ens', 'schedule_fb', 'quota' or 'variants', got {self.manager!r}"
             )
         if self.recipe_source not in ("proposal", "harness"):
             raise AgentConfigError(
@@ -698,6 +706,8 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
             system += "\n\n" + PROPOSER_MANAGER_EXPLOIT
     elif mode == "quota":
         system += "\n\n" + PROPOSER_MANAGER_QUOTA
+    elif mode == "variants":
+        system += "\n\n" + PROPOSER_MANAGER_VARIANTS.format(variant_status=variant_status_text(ctx))
     if "coordinate" in ctx.cfg.stages:
         k = ctx.n_select()
         system += (
@@ -800,6 +810,39 @@ def reference_check_text(ctx: AgentCtx) -> str:
     )
 
 
+PROPOSER_MANAGER_VARIANTS = (
+    "VARIANT ROUND: the tuned MPRA-LegNet written out above, trained with the tuned recipe quoted in the baseline, is the model to improve at this dataset size, and the final product is an ensemble of "
+    "near-optimal models. {variant_status} Every proposal must be a SMALL change to that network or to the best variant so far: the number of blocks, widths, kernel sizes, expansion factor, squeeze-excitation "
+    "ratio, pooling positions, skip or residual wiring, normalisation and activation, the head, regularisation (dropout, weight decay) and the training recipe (learning rate, weight decay, batch size, epochs, "
+    "schedule). Change one or two things per proposal and say which. Do NOT propose a different mechanism (attention, recurrent layers, state-space models, U-Nets, new block families): that search is done elsewhere."
+)
+MANAGER_VARIANTS = (
+    "MANAGER MODE: VARIANTS (round {rd1} of {total}). {variant_status} Pick the {k} candidates most likely to raise the validation r of the final ensemble: strong small modifications of the tuned MPRA-LegNet "
+    "or of the best variant so far that also differ from each other (for example one depth or width change and one wiring or recipe change), not two near-duplicates. Reject a candidate that introduces a "
+    "new mechanism instead of modifying the LegNet."
+)
+
+
+def variant_status_text(ctx: AgentCtx) -> str:
+    """Name the incumbent for the variants manager: the best variant trained so far, with the quoted baseline beside it.
+    The incumbent is the best variant even while it is below the quoted bar: the bar is the reference script's, and this harness trains every model for less time, so waiting to beat it would stall the search."""
+    best = max(ctx.records, key=lambda m: m.val, default=None)
+    path = getattr(ctx.args, "baseline_file", "") or ""
+    try:
+        m = _REF_R.search(open(path).read()) if path else None
+        ref = float(m.group(1)) if m else None
+    except (OSError, ValueError):
+        ref = None
+    if best is None:
+        return "INCUMBENT: none yet; start from the tuned MPRA-LegNet itself."
+    bar = (
+        f" (the quoted baseline is {ref:.4f}, reached by the reference script with a much longer schedule)"
+        if ref
+        else ""
+    )
+    return f"INCUMBENT: the best variant so far reaches validation r {best.val:.4f}{bar}; build on it and on the other variants that carry weight in the stack."
+
+
 MANAGER_QUOTA = (
     "MANAGER MODE: QUOTA. Every round trains one EXPLOIT model and {k1} EXPLORE model(s). EXPLOIT: the candidate most likely to raise the ensemble by refining a model that carries weight in the stack or by "
     "filling a gap the stack shows. EXPLORE: the candidate that adds the architectural features least represented in the coverage table (especially the ones listed as NOT YET TRIED), accepting a lower "
@@ -852,6 +895,8 @@ def manager_mode(ctx: AgentCtx, rd: int) -> str | None:
         return None
     if ctx.cfg.manager == "quota":
         return "quota"
+    if ctx.cfg.manager == "variants":
+        return "variants"
     return "explore" if rd < round(ctx.args.rounds * ctx.cfg.explore_frac) else "exploit"
 
 
@@ -986,6 +1031,19 @@ def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
         if es:
             parts.append("\n" + es)
         parts.append("\n" + MANAGER_QUOTA.format(k1=max(k - 1, 0)))
+    elif mode == "variants":
+        es = ensemble_status_text(ctx)
+        if es:
+            parts.append("\n" + es)
+        parts.append(
+            "\n"
+            + MANAGER_VARIANTS.format(
+                rd1=plan["round"] + 1,
+                total=ctx.args.rounds,
+                k=k,
+                variant_status=variant_status_text(ctx),
+            )
+        )
     elif mode:
         total = ctx.args.rounds
         n_explore = round(total * ctx.cfg.explore_frac)
