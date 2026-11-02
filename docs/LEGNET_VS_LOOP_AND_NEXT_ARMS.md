@@ -2,6 +2,22 @@
 
 Answers to the follow-ups after the lab meeting. Numbers are genomic-pool students, oracle labels, V0c selection, the standard input. Analyses: `scripts/analysis/compare_legnet_vs_loop.py`, `analyze_val_compositions.py`, `analyze_loop_proposals.py` (see `docs/LOOP_DIVERSITY_AND_VALIDATION.md`).
 
+## Update (Nov 2, evening): the loop launcher stopped every model after 8 stagnant epochs
+
+The launcher every loop cell runs (`scratchpad/arch_autoresearch.py`, with its own `train_one`) had `if bad >= 8: break` hard-coded and ignored `AL_PATIENCE` (the repository copy that the menu library uses reads it, which is why the menu retrains had patience 16 and the loop never did). On the 1,498 models of the standard-input loop runs:
+
+| size | requested epochs, median (p90) | trained epochs, median | stopped before 90% of the schedule | one-cycle: trained / requested |
+|---|---|---|---|---|
+| 10k | 120 (300) | 34 | 100% | 0.26 |
+| 30k | 80 (100) | 45 | 90% | 0.64 |
+| 100k | 80 (100) | 52 | 81% | 0.84 |
+
+A model that asked for 200 epochs or more trained a median 26 to 36. A one-cycle schedule only anneals at its end, so those models were cut in the high-learning-rate phase; the first `lv38` proposals asked for the tuned recipe (AdamW, lr 0.008, wd 0.2, batch 1024, 300 epochs, one-cycle) and trained 11 to 55 epochs. The proposer is not told about the patience, the default precision is fp32 (the bank trains fp16), and the per-model cap is 25 to 45 minutes. So "Peter's best models have more epochs" is right, and it is a harness limit, not a proposer choice. It is the most likely cause of the section-2 gap: the loop's best single model sits 0.02 to 0.05 below the mean tuned seed at every size, and the harness handicap is largest where schedules are longest. Everything compared so far (loop against bank, explore/exploit curves, scaling exponents of loop students) was measured with this truncation.
+
+Fix (applied, `scripts/program_oct22/patch_loop_patience.py`, backup kept): the launcher now reads `AL_PATIENCE` (default 8, so every earlier arm and running cell is unchanged) and `AL_ONECYCLE_FULL=1` (a one-cycle schedule is never stopped by patience; the time cap still applies and the best epoch by validation is still kept). The new arms run under H2 = patience 16 (the menu standard), one-cycle never stopped, fp16, and longer caps (40 to 100 H100-minutes). The `lv38`, `ef38` and `vc38` registrations were cancelled (they ran under patience 8) and replaced by the `39` arms below; `pa38_ref` was restarted with fp16.
+
+**Was the tuned LegNet tuned for 30k?** For each size separately: sweeps of epochs (150 to 800), weight decay (0.1 to 0.4), learning rate and batch size were run at 10k, 30k and 100k on the genomic nested pools and selected on V0c (`docs/TUNED_LEGNET.md`: 10k e800 wd 0.4, 30k e500 wd 0.2, 100k e500 wd 0.1). At 30k 800 epochs was no better than 500 and wd 0.4 was worse; at 10k the best arm was the longest tried. Its 30k single-model genomic test r is 0.8748 (20 seeds), against 0.862 to 0.864 for the best single networks the collaborator reports; the loop's best single models at 30k were 0.826 to 0.854 in six runs, none reaching 0.86.
+
 ## 1. The 20-seed tuned LegNet ensemble against the loop's ensemble (every set)
 
 Positive-ElasticNet stacks fitted on V0c. "Loop" = all models of finished runs with every current feature (flank input, reference LegNet shown with the seed-bank bar, manager schedule 40% explore, coordinator): `mgr38_ref` (30 models, complete) and `rr38` (still running: 18-25 models at 30k, 13-16 at 100k, 30 at 10k).
@@ -35,7 +51,7 @@ What the data rules out:
 
 What is left, in order of how much I believe it:
 
-1. **The training procedure of the harness, not the architecture.** The bank uses its own trainer (`bench33_legnet.py`: published AdamW, batch 1024, one-cycle, fp16, shift on every sample, 100-800 epochs); the loop and the menu retrains use `arch_autoresearch.train_one` with proposer-written recipes (Muon or AdamW, mostly batches 128-256, 20-90 epochs under a 25-45 min cap and patience-16 early stopping). The loop's best member being 0.02-0.05 below the mean bank seed at every size, with a gap that widens with D (the harness handicap is larger where the models have more to fit), is what that predicts. It has never been measured directly: no cell trains the *same* LegNet with the *same* recipe in both pipelines. `pa38_ref_<D>k` does (section 5).
+1. **The training procedure of the harness, not the architecture (now with a concrete mechanism: patience 8, see the update above).** The bank uses its own trainer (`bench33_legnet.py`: published AdamW, batch 1024, one-cycle, fp16, shift on every sample, 100-800 epochs); the loop and the menu retrains use `arch_autoresearch.train_one` with proposer-written recipes (Muon or AdamW, mostly batches 128-256, 20-90 epochs under a 25-45 min cap and patience-16 early stopping). The loop's best member being 0.02-0.05 below the mean bank seed at every size, with a gap that widens with D (the harness handicap is larger where the models have more to fit), is what that predicts. It has never been measured directly: no cell trains the *same* LegNet with the *same* recipe in both pipelines. `pa38_ref_<D>k` does (section 5).
 2. **The architecture and its recipe were built for far more data.** The published MPRA-LegNet is trained on ~600k sequences (`bench33_legnet.py`); at 10-30k its default schedule has very few optimiser steps, which is why the published recipe is under-trained there (tuned +0.066 at 10k, +0.006 at 100k) and why its exponent is the steepest of all. It was not designed for ~100k; our sizes sit on the rising part of its curve. The menu members were selected on 30k runs under a 25-minute cap, i.e. for fast convergence at small data, which would give them the flatter curve.
 3. Selection at 30k for the menu (members chosen on 30k validation r) and a fixed per-size time cap are harness choices that cannot rank architectures by what they would do with more data.
 
@@ -72,14 +88,14 @@ Groups: genomic; mutated genomic (PRM); EvoAug; random@GC / gc-matched / dinucle
 
 **The LegNet-variant arm (`lv38`).** New manager `variants` in `albench/arch_search/agent_loop.py`: every round is a refinement round restricted to small modifications of the tuned MPRA-LegNet and of the best variant so far (blocks, widths, kernels, expansion, SE ratio, pooling, skip/residual wiring, normalisation, head, regularisation, recipe); no new mechanisms; the tuned recipe and bar are in the prompt as in every rr38 run. The incumbent is the best variant even while it is below the quoted bar (the bar is the reference script's, and the harness has been shown to train below it). 10 rounds x 2 models (8 at 100k), per-model caps 30/60/100 H100-minutes (rr38: 25/25/45) so that the tuned schedules are not truncated.
 
-## What was registered (`scripts/program_oct22/register_nov2b.py`, 24 cells)
+## What is registered now (`scripts/program_oct22/register_nov2b.py`, 6 + 18 cells; supersedes the first list)
 
 | cells | what | released |
 |---|---|---|
-| `pa38_ref_{10,30,100}k_s{0,1}` (6 jobs) | harness parity: published LegNet trained by the loop's harness with the bank's recipes (e100 and per-size tuned), 3 seeds, no early stopping | now |
-| `lv38_10k_r{1,2}`, `lv38_30k_r{1,2,3}`, `lv38_100k_r1` | LegNet-variant loop arm | now |
-| `ef38_{20,60,100}_30k_r{1,2,3}` (9) | explore fraction 0.2 / 0.6 / 1.0 at 30k with the rr38 settings | gate `scratchpad/gates/ef38_go` |
-| `vc38_30k_r{1,2,3}` | rr38 at 30k with the mixed validation set B1 | gate `scratchpad/gates/vc38_go` |
+| `pa38_ref_{10,30,100}k_s{0,1}` (6 jobs) | harness parity (menu library, patience off, fp16): published LegNet with the bank's recipes (e100 and per-size tuned), 3 seeds, against `bench38_ln_*` | now |
+| `rr39_30k_r{1,2,3}` | the standard managed loop (rr38 settings) under the fixed harness: does the loop reach the bank's single-model level now? | now |
+| `lv39_10k_r{1,2}`, `lv39_30k_r{1,2,3}`, `lv39_100k_r1` | LegNet-variant loop arm (manager `variants`) under the fixed harness, 8 rounds x 2 (6 at 100k) | now |
+| `ef39_{20,60,100}_30k_r{1,2,3}` (9) | explore fraction 0.2 / 0.6 / 1.0 with the rr39 settings | gate `scratchpad/gates/ef39_go` |
+| `vc39_30k_r{1,2,3}` | rr39 with the mixed validation set B1 | gate `scratchpad/gates/vc39_go` |
 
-The loop cells use the same Claude account limit as everything else, so the gated groups wait until the five rr38 cells finish. Release with `touch scratchpad/gates/ef38_go` (and `vc38_go`).
-Read-outs when done: `pa38` against `bench38_ln_*` (same architecture and recipe, two pipelines; if the harness matches the bank within ~0.005 the gap in section 1 is the loop's recipes and caps, if not it is the harness); `lv38` against the bank and `rr38`/`mgr38_ref` with `compare_legnet_vs_loop.py --loop lv38`; `ef38` and `vc38` against `rr38` with `analyze_loop_proposals.py`.
+The gated groups wait for the rr39 baseline: explore-fraction and validation conclusions drawn on the truncated harness would not carry over. Success criterion for "reliably reach the collaborator's level" at 30k: best single genomic test r >= 0.86 in at least two of three rr39 runs (the bank's single mean is 0.875), and an ensemble that adds to the bank rather than sitting under it. Read-outs: `compare_legnet_vs_loop.py --loop rr39,lv39`, `analyze_loop_proposals.py`, and `pa38` against `bench38_ln_*`.
