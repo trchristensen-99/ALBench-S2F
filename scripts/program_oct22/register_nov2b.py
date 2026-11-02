@@ -60,6 +60,7 @@ H2 = {
     "AL_PATIENCE": "16",
     "AL_ONECYCLE_FULL": "1",
     "AL_PRECISION": "fp16",
+    "AL_NONFINITE_SKIP": "1",  # fp16: skip a non-finite batch instead of dropping the model (patch_loop_nonfinite.py)
 }  # the fixed harness (see the docstring)
 
 
