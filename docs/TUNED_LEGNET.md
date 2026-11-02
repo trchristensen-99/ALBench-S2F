@@ -19,7 +19,7 @@ doubling the batch was worse at every size. Controls: the published recipe with 
 
 ## How many epochs, and is there early stopping? (Nov 2)
 
-The bank trainer has **no early stopping**: it runs the whole one-cycle schedule and keeps the epoch with the best validation Pearson (V0c, forward-only). That epoch is always at the end of the schedule (mean best epoch 473 of 500 at 30k, 477 of 500 at 100k, 723 of 800 at 10k; the earliest in any seed is 91% of the way), because a one-cycle schedule only anneals in its last third. The recipes are tuned per size and all long: **10k 800 epochs (wd 0.4), 30k 500 (wd 0.2), 100k 500 (wd 0.1)**; in optimiser steps that is 8k, 14.6k and 49k (batch 1024), so the small sets need the most epochs.
+The bank trainer has **no early stopping**: it runs the whole one-cycle schedule and keeps the epoch with the best validation Pearson (V0c, forward-only). That epoch is always at the end of the schedule (mean best epoch 473 of 500 at 30k, 477 of 500 at 100k, 723 of 800 at 10k; the earliest in any seed is 83% (10k) to 91% (30k) of the way), because a one-cycle schedule only anneals in its last third. The recipes are tuned per size and all long: **10k 800 epochs (wd 0.4), 30k 500 (wd 0.2), 100k 500 (wd 0.1)**; in optimiser steps that is 8k, 14.6k and 49k (batch 1024), so the small sets need the most epochs.
 
 Single-model genomic test r by schedule length (5 seeds per arm, the 20-seed arm in bold; same pools, V0c selection):
 
@@ -50,7 +50,7 @@ Early stopping inside the full schedule is far worse: replaying the stored per-e
 |---|---|---|---|---|
 | 10k | 0.7801 | 0.7846 | 0.7916 | **0.7941** |
 | 30k | **0.8907** | 0.8674 | 0.8908 | 0.8905 |
-| 100k | **0.9381** | 0.9205 | 0.9380 | 0.9381 |
+| 100k | **0.9381** | 0.9205 | 0.9380 | 0.9380 (no `ep38_v2x3` run exists at 100k; the script listed the tuned bank twice, so this cell is tuned x2 + menu v2; corrected in the audit of Nov 2) |
 
 Use the tuned LegNet seeds alone at 30k and above; at 10k add the menu (it contributes diversity, +0.012 to +0.014). The menu members are not under-trained: tripling their epochs with early stopping
 off changes the genomic r by +0.001 +- 0.004 (`ep38_v2x3`). Giving the menu members the LegNet recipe lowers each member by 0.02 to 0.07 (`tr38_*`), so the LegNet advantage is the architecture plus
