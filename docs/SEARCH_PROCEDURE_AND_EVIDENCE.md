@@ -38,11 +38,11 @@ To extend to a new size: sweep epochs (150-800) and weight decay (0.1-0.4) with 
 
 | size | best measured ensemble | status of the loop at this size under H3 |
 |---|---|---|
-| 10k | tuned LegNet bank + menu v2 (+ menu at 3x epochs): 0.7916 / 0.7941 (bank alone 0.7801; menu v2 alone 0.7846). Old-harness loop + bank: 0.787 | `rr40_10k`, `lv40_10k` running (3 pools each) |
+| 10k | **H3 loop + bank 0.8109 / OOD 0.293 / mean of 18 0.7661**; loop alone 0.8029 / 0.267 / 0.7535; bank 0.7801 / 0.288 / 0.7309; bank + menu v2 0.7916 (0.7941 with the menu at 3x epochs) | done (3 pools each, Nov 3) |
 | 30k | **loop + bank 0.8975 / 0.420 / 0.8615** against bank 0.8907 / 0.422 / 0.853 and loop alone 0.8865 / 0.385 / 0.846 (`rr40`); the menu adds nothing | done (3 pools); long and diversity arms running |
 | 100k | tuned LegNet bank 0.9381; the old-harness loop (patience 8) 0.899 adds nothing to it | `rr40_100k`, `lv40_100k` waiting for H100 |
 
-So there is **one procedure that is validated at all three sizes (the tuned-LegNet bank, no LLM)** and **one that adds to it at 30k (the H3 loop)**; the loop's value at 10k and 100k under H3 is not measured yet.
+So there is **one procedure that is validated at all three sizes (the tuned-LegNet bank, no LLM)** and **one that beats or adds to it at 10k and 30k (the H3 loop)**; at 100k the H3 loop has one finished run and two running.
 
 ## 2. The decisions and their evidence
 

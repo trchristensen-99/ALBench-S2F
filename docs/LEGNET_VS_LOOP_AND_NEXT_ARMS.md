@@ -66,6 +66,21 @@ Training on the average of the forward and reverse-complement losses (two forwar
 
 **First fixed-harness loop numbers (30k, runs still in progress, genomic stack, loop alone):** `rr39` 0.8661 / 0.8577 / 0.8571 (20 / 16 / 12 models so far) against 0.8501 / 0.8495 / 0.8617 for the finished `mgr38_ref` (30 models) and 0.8434 for `rr38`; `lv39` 0.8497 / 0.8478 / 0.8485 (6 / 8 / 16 models); OOD 0.35 to 0.38 against 0.32 for `mgr38_ref`; mean single model 0.78 to 0.81 against 0.77. The bank stack is 0.8907 / OOD 0.422. Best single models are 0.835 to 0.843, still not the 0.86 that the collaborator reports, and the loop plus the bank adds nothing to the bank (0.8913 to 0.8919). The patience fix moved the loop up by about 0.01 to 0.02; the rest of the distance to the bank is the harness gap above.
 
+## Result Nov 3 (16:30): the H3 loop at 10k beats the bank
+
+Six finished 10k runs under H3 (`rr40_10k` x3, 30 models each; `lv40_10k` x3, 16 models each), stacks fitted on V0c, `compare_legnet_vs_loop.py --size 10k` (genomic / OOD / random / SNV effect / mean of 18):
+
+| ensemble | genomic | OOD | random | SNV effect | mean of 18 | effective members |
+|---|---|---|---|---|---|---|
+| tuned LegNet bank (20 seeds) | 0.7801 | 0.288 | 0.682 | 0.601 | 0.7309 | 10.3 |
+| `rr40` loop (3 pools) | **0.8029** | 0.267 | 0.716 | 0.606 | 0.7535 | 5.4 |
+| `rr40` loop + bank | **0.8109** | 0.293 | 0.733 | 0.633 | **0.7661** | 8.7 |
+| `lv40` loop (3 pools) | 0.7892 | 0.243 | 0.695 | 0.579 | 0.7375 | 4.3 |
+| `lv40` loop + bank | 0.8033 | 0.286 | 0.721 | 0.619 | 0.7575 | 7.6 |
+| `rr38` (old harness, patience 8) + bank | 0.7867 | 0.269 | 0.700 | 0.608 | 0.7395 | 11.3 |
+
+Per pool the `rr40` loop stack is 0.8078, 0.8061, 0.7948 (bank 0.7801) and the union 0.8137, 0.8142, 0.8047, so the loop is above the bank in every pool (+0.015 to +0.028), by +0.023 on the mean of 18 sets (random +0.034; OOD -0.021 alone, +0.005 in the union). Loop + bank (0.8109) is also above bank + menu v2 (0.7916) and bank + menu v2 at 3x epochs (0.7941). At 10k the LLM loop is the strongest ensemble measured; at 30k it is 0.004 below the bank alone and +0.007 above it in the union; the 100k H3 runs are still running. The "other members only" stack of `rr40` (members that do not name LegNet) is 0.7205, so as at 30k the useful members are LegNet descendants.
+
 ## Registered Nov 3 (18 loop cells, H3 harness: `register_nov3.py`, `register_nov3b.py`)
 
 | cells | question | design |

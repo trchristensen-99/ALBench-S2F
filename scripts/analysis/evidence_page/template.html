@@ -122,11 +122,11 @@ ol.gaps li{margin:.5em 0}
   <h4>Where each size stands (genomic test r, oracle labels, stack)</h4>
   <div class="scroll"><table>
     <tr><th>size</th><th class="n">bank</th><th class="n">loop alone</th><th class="n">loop + bank</th><th>what is measured</th></tr>
-    <tr><td>10k</td><td class="n">0.7801</td><td class="n">0.749*</td><td class="n">0.787*</td><td>bank + menu v2 reaches 0.7916 (0.7941 with the menu at 3× epochs). *old harness; H3 runs <span class="st run">running</span></td></tr>
+    <tr><td>10k</td><td class="n">0.7801</td><td class="n">0.8029</td><td class="n">0.8109</td><td>H3 loop, three pools: above the bank by +0.023 genomic and +0.023 on the mean of 18 sets, OOD −0.021. Bank + menu v2 reaches 0.7916.</td></tr>
     <tr><td>30k</td><td class="n">0.8907</td><td class="n">0.8865</td><td class="n">0.8975</td><td>H3 loop, three pools. The menu adds nothing. Long-run and diversity arms <span class="st run">running</span></td></tr>
     <tr><td>100k</td><td class="n">0.9381</td><td class="n">0.899*</td><td class="n">0.938*</td><td>*old harness. H3 runs <span class="st wait">waiting for H100</span></td></tr>
   </table></div>
-  <p class="limits">One procedure is validated at all three sizes (the bank). One adds to it at 30k (the H3 loop). The loop's value at 10k and 100k under H3 is not measured yet.</p>
+  <p class="limits">One procedure is validated at all three sizes (the bank). The H3 loop beats the bank at 10k and adds to it at 30k. At 100k it has one finished run (<code>lv40</code>) and two more running.</p>
 </div>
 </section>
 
@@ -243,10 +243,10 @@ ol.gaps li{margin:.5em 0}
 
 <article class="card" id="d16" data-nav="16 Bank + loop">
   <header><span class="num">16</span><h3>Pool the bank and the loop's models in one stack</h3><span class="pill gB">B</span></header>
-  <p class="decision">Where the loop's models are good, they add to the bank. Where they are not (old harness, 100k), the stack ignores them.</p>
-  <div class="figs"><figure><h4>Genomic stack r by size</h4><div class="legend"></div><div class="plot" data-chart="union"></div><figcaption>Faded bars: old harness (patience 8); 30k is harness H3. The axis does not start at zero.</figcaption></figure></div>
-  <p class="evidence">30k under H3: loop + bank 0.8975 / OOD 0.420 / mean of 18 0.8615 against the bank's 0.8907 / 0.422 / 0.853. Per pool the union is 0.8986, 0.8970, 0.8969 (<code>rr40</code>) and 0.8973, 0.8980, 0.8971 (<code>lv40</code>), always above the bank. At 10k (old harness) the union adds +0.007; at 100k it adds nothing.</p>
-  <p class="limits"><b>Not tested</b> The 10k and 100k H3 loops (<span class="st run">running</span>).</p>
+  <p class="decision">Under the fixed harness the loop adds to the bank at 10k and 30k, by a lot at 10k. Where the loop was run with the old harness (100k), the stack ignored its models.</p>
+  <div class="figs"><figure><h4>Genomic stack r by size</h4><div class="legend"></div><div class="plot" data-chart="union"></div><figcaption>10k and 30k are harness H3, three pools each; the faded 100k bars are the old harness (patience 8). The axis does not start at zero.</figcaption></figure></div>
+  <p class="evidence">30k under H3: loop + bank 0.8975 / OOD 0.420 / mean of 18 0.8615 against the bank's 0.8907 / 0.422 / 0.853. Per pool the union is 0.8986, 0.8970, 0.8969 (<code>rr40</code>) and 0.8973, 0.8980, 0.8971 (<code>lv40</code>), always above the bank. At 10k under H3 the loop alone (0.8029) is already above the bank by +0.023 (random +0.034, mean of 18 sets +0.023, OOD −0.021) and the union reaches 0.8109 (+0.031; OOD +0.005), above bank + menu v2 (0.7941). At 100k the old-harness loop added nothing.</p>
+  <p class="limits"><b>Not tested</b> The 100k H3 loop: one finished run (<code>lv40</code>), two more <span class="st run">running</span>. The 10k loop gain comes with a lower OOD stack alone (0.267 against 0.288) that the bank repairs in the union.</p>
   <p class="src"><b>Sources</b> <code>docs/LEGNET_VS_LOOP_AND_NEXT_ARMS.md</code>, <code>compare_legnet_vs_loop.py</code></p>
 </article>
 
@@ -370,7 +370,7 @@ ol.gaps li{margin:.5em 0}
 <h2 data-nav="What would add evidence">What would add evidence, in order</h2>
 <ol class="gaps">
   <li><b>Does an independent family reach rough optimality when trained like LegNet?</b> <span class="st run">running</span> bake-off, <code>ar41</code>, <code>ln41</code>, <code>is40</code>. Rule: within 0.01 validation r of the best LegNet-derived member under the matched recipe, and useful if adding it raises the stack by more than 0.003.</li>
-  <li><b>The loop at 10k and 100k under H3.</b> <span class="st run">running</span> / <span class="st wait">waiting for H100</span>.</li>
+  <li><b>The loop at 100k under H3.</b> <span class="st run">running</span> (10k is done: the loop beats the bank).</li>
   <li><b>Explore fraction and mixed validation under H3 on more pools.</b> Both current results are three pools under H2.</li>
   <li><b>Loss function.</b> Everything is MSE although the score is Pearson r; Huber, correlation and rank losses were never compared. <span class="st">not started</span></li>
   <li><b>Give the proposer the ensemble signal</b> (stack weights and member correlation; today only the coordinator sees them). <span class="st">not started</span></li>
@@ -495,7 +495,7 @@ const K={
  spearman:{cats:['rr39','rr40','ef 0.2','ef 0.6','ef 1.0','vc39','mgr38'],all:[0.96,0.98,0.95,0.94,0.98,0.95,0.97],top:[0.69,0.83,0.81,0.54,0.78,0.78,0.83]},
  agree:[{l:'genomic',v:0.84,c:'loop'},{l:'random',v:0.75,c:'loop'},{l:'SNV effect',v:0.68,c:'loop'},{l:'OOD (designed)',v:0.49,c:'indep'},{l:'GC sweep',v:0.24,c:'indep'}],
  stack:[{l:'stack vs plain mean (12 cells)',est:0.010,lo:0.002,hi:0.018,txt:'+0.002 to +0.018'},{l:'greedy K = 5 vs stack',est:-0.010,txt:'−0.010'},{l:'uncertainty weighting vs mean',est:0.0,txt:'0.0000'},{l:'DPP-diverse selection vs greedy',est:0.0,txt:'≈0'},{l:'drop bottom members (by val)',est:-0.0001,txt:'≤ −0.0001'}],
- union:{cats:['10k','30k','100k'],bank:[0.7801,0.8907,0.9381],loop:[0.749,0.8865,0.899],both:[0.787,0.8975,0.938],old30:0.854},
+ union:{cats:['10k','30k','100k'],bank:[0.7801,0.8907,0.9381],loop:[0.8029,0.8865,0.899],both:[0.8109,0.8975,0.938],old30:0.854},
  menu:{bank:[0.7801,0.8907,0.9381],menu:[0.7846,0.8674,0.9205],both:[0.7916,0.8908,0.9380]},
  expo:[{l:'published LegNet',v:0.59,c:'mute'},{l:'tuned LegNet',v:0.52,c:'bank'},{l:'loop models',v:0.40,c:'loop'},{l:'menu v2',v:0.36,c:'indep'}],
  kcurve:{k12:[0.005,0.002,0.001],k20:[0.002,0.0003,0.0]},
@@ -535,7 +535,7 @@ const draw={
  spearman:h=>charts.bars(h,{cats:K.spearman.cats,series:[{n:'all 30 models',c:'loop',v:K.spearman.all},{n:'top 10 by validation',c:'indep',v:K.spearman.top}],lo:0.4,hi:1.0,vfmt:r2,yfmt:v=>v.toFixed(1),h:240,maxbw:22}),
  agreeSets:h=>charts.hbars(h,{rows:K.agree,lo:0,hi:1,fmt:v=>v.toFixed(2),xfmt:v=>v.toFixed(1),rh:32,nt:5,lw:110}),
  stack:h=>charts.forest(h,{rows:K.stack,dom:[-0.015,0.02],d:4,nt:5}),
- union:h=>{const u=K.union;charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'bank',c:'bank',v:u.bank},{n:'loop alone',c:'loop',v:u.loop,alphas:[.5,1,.5]},{n:'loop + bank',c:'union',v:u.both,alphas:[.5,1,.5]}],lo:0.74,hi:0.95,vfmt:r3,yfmt:v=>v.toFixed(2),h:260,maxbw:30});},
+ union:h=>{const u=K.union;charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'bank',c:'bank',v:u.bank},{n:'loop alone',c:'loop',v:u.loop,alphas:[1,1,.5]},{n:'loop + bank',c:'union',v:u.both,alphas:[1,1,.5]}],lo:0.74,hi:0.95,vfmt:r3,yfmt:v=>v.toFixed(2),h:260,maxbw:30});},
  menu:h=>charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'tuned LegNet bank',c:'bank',v:K.menu.bank},{n:'menu v2',c:'indep',v:K.menu.menu},{n:'bank + menu v2',c:'union',v:K.menu.both}],lo:0.74,hi:0.95,vfmt:r3,yfmt:v=>v.toFixed(2),h:260,maxbw:30}),
  expo:h=>charts.hbars(h,{rows:K.expo,lo:0,hi:0.7,fmt:v=>v.toFixed(2),xfmt:v=>v.toFixed(1),rh:34,nt:7,lw:120}),
  kcurve:h=>charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'K = 12',c:'indep',v:K.kcurve.k12},{n:'K = 20',c:'loop',v:K.kcurve.k20}],lo:0,hi:0.007,base:0,vfmt:r4,yfmt:v=>v.toFixed(3),h:230,maxbw:34}),
