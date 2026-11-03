@@ -1912,6 +1912,11 @@ def run_agent_loop(args, h, llm: Callable | None = None) -> None:
             raise AgentConfigError(
                 "AL_FIXED_EPOCHS needs an integer, recipe_source 'proposal' and no AL_RECIPE_MODE=tuned (it fixes only the epochs; the proposer writes the rest of the recipe)"
             )
+        if int(os.environ.get("AL_PATIENCE", "8")) < int(os.environ["AL_FIXED_EPOCHS"]):
+            raise AgentConfigError(
+                "AL_FIXED_EPOCHS needs AL_PATIENCE >= the epochs: AL_ONECYCLE_FULL only protects one-cycle schedules, so a cosine or plateau schedule would still be stopped early by patience "
+                "(Nov 3: af42 trained 69-105 of 300 epochs)"
+            )
     if os.environ.get("AL_RECIPE_MODE") == "tuned":
         if cfg.recipe_source != "harness" or not os.environ.get("AL_TUNED_RECIPE"):
             raise AgentConfigError(

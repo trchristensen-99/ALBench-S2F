@@ -47,7 +47,8 @@ def llm_cells():
                 f"{tag}_30k_r{r}", f"genomic_30k_{tag}", r, D, 15, cap, budget,
                 {**nb.RR, "manager": mgr, "explore_frac": 0.4},
             )  # fmt: skip
-            c["env"] = {**c["env"], **H3, "AL_FIXED_EPOCHS": "300"}
+            # patience off: AL_ONECYCLE_FULL protects only one-cycle schedules, and a proposer-chosen cosine schedule was stopped at 69-105 of 300 epochs (first launch, Nov 3 17:30)
+            c["env"] = {**c["env"], **H3, "AL_FIXED_EPOCHS": "300", "AL_PATIENCE": "9999"}
             out.append(c)
     return out
 
@@ -67,6 +68,11 @@ def pi_cells():
             }
             for e in base
         ]
+        for e in ents:  # C218's Fourier readout: cuFFT in half precision needs power-of-two sizes, so run the FFT in float32 (the design is unchanged)
+            e["source"] = e["source"].replace(
+                "torch.fft.rfft(h - h.mean(dim=2, keepdim=True), dim=2).abs()",
+                "torch.fft.rfft((h - h.mean(dim=2, keepdim=True)).float(), dim=2).abs().to(h.dtype)",
+            )
         path = f"{R}/outputs/menus_nov3/PI41_{name}_30k.json"
         if not DRY:
             os.makedirs(os.path.dirname(path), exist_ok=True)

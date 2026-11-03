@@ -384,6 +384,7 @@ def test_lanes_loop_trains_one_model_per_lane_and_rejects_reused_blocks(tmp_path
 
 def test_fixed_epochs_mode_fixes_only_the_epochs(tmp_path, monkeypatch):
     monkeypatch.setenv("AL_FIXED_EPOCHS", "3")
+    monkeypatch.setenv("AL_PATIENCE", "9999")
     monkeypatch.delenv("AL_RECIPE_MODE", raising=False)
     h, args, llm = (
         make_harness(tmp_path),
@@ -410,4 +411,17 @@ def test_fixed_epochs_rejects_a_harness_recipe(tmp_path, monkeypatch):
     with pytest.raises(al.AgentConfigError):
         al.run_agent_loop(
             make_args(tmp_path, rounds=1, agent_cfg=_harness_cfg("none")), h, llm=CoordLLM()
+        )
+
+
+def test_fixed_epochs_requires_patience_off(tmp_path, monkeypatch):
+    """Regression: with patience 16 a proposer-chosen cosine schedule stopped at 69-105 of 300 epochs (AL_ONECYCLE_FULL only protects one-cycle)."""
+    monkeypatch.setenv("AL_FIXED_EPOCHS", "300")
+    monkeypatch.setenv("AL_PATIENCE", "16")
+    monkeypatch.delenv("AL_RECIPE_MODE", raising=False)
+    with pytest.raises(al.AgentConfigError):
+        al.run_agent_loop(
+            make_args(tmp_path, rounds=1, agent_cfg=cfg("none")),
+            make_harness(tmp_path),
+            llm=CoordLLM(),
         )
