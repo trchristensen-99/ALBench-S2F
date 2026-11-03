@@ -266,6 +266,9 @@ def build_opt(model, name, lr, wd):
 
 def sample_train(spec):
     """Fill missing training HPs with randomly-varied defaults."""
+    if os.environ.get("AL_RECIPE_MODE") == "tuned":  # every model trains with the same, size-specific recipe (AL_TUNED_RECIPE), the one that makes the reference LegNet strong
+        _o, _lr, _wd, _bs, _ep, _sch = os.environ["AL_TUNED_RECIPE"].split(",")
+        return {"optimizer": _o, "lr": float(_lr), "weight_decay": float(_wd), "batch_size": int(_bs), "epochs": int(_ep), "lr_schedule": _sch}
     if os.environ.get("AL_RECIPE_MODE") == "harness":  # the harness assigns the recipe: Muon with a small spread around the settings that every recipe study found equivalent
         r = random.Random()
         return {
@@ -665,7 +668,7 @@ def main():
     def _wrap(m):
         return wrap_ctx(m, args.ctx_F, args.ctx_S) if args.wide else m
 
-    args.harness = {k: os.environ[k] for k in ("AL_EMA", "AL_BN_RECALC", "AL_FLANK_SHIFT", "AL_SHIFT_MAX", "AL_PATIENCE", "AL_PRECISION", "AL_ONECYCLE_FULL", "AL_NONFINITE_SKIP") if os.environ.get(k)}
+    args.harness = {k: os.environ[k] for k in ("AL_EMA", "AL_BN_RECALC", "AL_FLANK_SHIFT", "AL_SHIFT_MAX", "AL_PATIENCE", "AL_PRECISION", "AL_ONECYCLE_FULL", "AL_NONFINITE_SKIP", "AL_RC_MODE", "AL_RECIPE_MODE", "AL_TUNED_RECIPE") if os.environ.get(k)}
     if args.wide:
         args.harness.update({"flank_ctx": args.ctx_F, "shift_max": args.ctx_S})
 

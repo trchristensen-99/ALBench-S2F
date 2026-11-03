@@ -130,3 +130,11 @@ def test_training_facts_only_for_the_fixed_harness(tmp_path, monkeypatch):
         args, h, llm=llm
     )  # the loop still runs with the paragraph appended to the setup
     assert llm.proposer_systems
+
+
+def test_tuned_recipe_text_only_with_the_tuned_mode(monkeypatch):
+    monkeypatch.delenv("AL_TUNED_RECIPE", raising=False)
+    assert al.tuned_recipe_text() == ""
+    monkeypatch.setenv("AL_TUNED_RECIPE", "adamw,0.01,0.2,1024,300,onecycle")
+    txt = al.tuned_recipe_text()
+    assert "RECIPE:" in txt and "300 epochs" in txt and "batch size 1024" in txt

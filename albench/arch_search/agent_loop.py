@@ -260,6 +260,19 @@ PROPOSER_SETUP = (
 )
 
 
+def tuned_recipe_text() -> str:
+    """Said when the harness trains every model with the same tuned recipe (AL_RECIPE_MODE=tuned, AL_TUNED_RECIPE): architectures are compared under the recipe that makes the reference LegNet strong."""
+    try:
+        o, lr, wd, bs, ep, sch = os.environ["AL_TUNED_RECIPE"].split(",")
+    except (KeyError, ValueError):
+        return ""
+    return (
+        f"RECIPE: every model is trained with the same recipe, the one that makes the reference LegNet strong at this training-set size ({o}, learning rate {lr}, weight decay {wd}, batch size {bs}, {ep} epochs, "
+        f"{sch} schedule, run to the end). Judge each architecture under it: favour designs that train stably with a high learning rate and a large batch (normalisation after convolutions, residual paths, "
+        "no components that need warm-up or a small learning rate)."
+    )
+
+
 def training_facts_text() -> str:
     """What the harness really does with a TRAIN line, said only for the fixed harness (AL_ONECYCLE_FULL=1) so that every earlier arm keeps its prompt.
     The numbers are validation r (V0c) of the seed-bank recipe sweeps of a plain LegNet (docs/TUNED_LEGNET.md), never test numbers."""
@@ -700,6 +713,8 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
     )
     if not harness_recipe and training_facts_text():
         setup += "\n\n" + training_facts_text()
+    if harness_recipe and os.environ.get("AL_RECIPE_MODE") == "tuned":
+        setup += "\n\n" + tuned_recipe_text()
     parts.append("\nNOTE: " + (guidance + "\n\n" if guidance else "") + setup)
     if ctx.cfg.manager == "quota":
         parts.append("\n" + coverage_text_quota(ctx))
