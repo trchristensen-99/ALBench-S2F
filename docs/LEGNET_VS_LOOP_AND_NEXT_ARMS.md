@@ -33,6 +33,18 @@ Fix (applied, `scripts/program_oct22/patch_loop_patience.py`, backup kept): the 
 
 So even with patience off and fp16 the harness trains a given LegNet 0.02 to 0.04 worse than the native trainer, and the gap grows with D. At 30k the harness LegNet with the tuned recipe (0.8416) is exactly where the loop's best single models sit (0.835 to 0.854 in nine runs), which says the loop is limited by the harness protocol, not by the architectures it finds. The protocol differences (audit F17): one shift per batch against one per sample; the average of the forward and reverse-complement losses (two forward passes) against flipping half of the samples (one pass); best epoch by RC-averaged validation MSE against forward-only Pearson. `pa39_{rc,sh,both}_30k` (3 seeds each, tuned recipe) test the first two separately and together.
 
+**The gap is the reverse-complement consistency loss (`pa39`, 30k, tuned recipe, 3 seeds, single-model genomic / OOD / random test r):**
+
+| training protocol in the harness | genomic | OOD | random | validation |
+|---|---|---|---|---|
+| native bank (own trainer) | 0.8748 | 0.398 | 0.793 | 0.9052 |
+| harness default (RC consistency loss, one shift per batch), `pa38_ref` | 0.8416 | 0.338 | 0.759 | 0.8866 |
+| + per-sample shift (`pa39_sh`, 2 seeds so far) | 0.8389 | 0.337 | 0.780 | 0.8848 |
+| + single-pass RC augmentation, `AL_RC_MODE=aug` (`pa39_rc`) | **0.8736** | 0.387 | 0.791 | 0.9037 |
+| both (`pa39_both`) | 0.8737 | 0.384 | 0.791 | 0.9033 |
+
+Training on the average of the forward and reverse-complement losses (two forward passes per step) costs the LegNet 0.032 genomic r and 0.05 OOD at 30k; the per-sample shift does nothing; the oracle's and the bank's protocol (flip half of the samples, one pass) closes the gap to within 0.001. (Earlier menu tests of single-pass RC augmentation were mixed, +0.004 at 30k, +0.023 at 100k, -0.014 at 10k, with OOD -0.013 to -0.030: those members are other architectures with their own recipes; for the LegNet the effect is large.) The loop arms `rr40_30k` and `lv40_30k` (3 replicates each; `AL_RC_MODE=aug` on top of H2) rerun `rr39` and `lv39` with it and are registered. The benchmark to reach: best single model at 30k >= 0.86, and a loop ensemble that adds to the bank.
+
 **First fixed-harness loop numbers (30k, runs still in progress, genomic stack, loop alone):** `rr39` 0.8661 / 0.8577 / 0.8571 (20 / 16 / 12 models so far) against 0.8501 / 0.8495 / 0.8617 for the finished `mgr38_ref` (30 models) and 0.8434 for `rr38`; `lv39` 0.8497 / 0.8478 / 0.8485 (6 / 8 / 16 models); OOD 0.35 to 0.38 against 0.32 for `mgr38_ref`; mean single model 0.78 to 0.81 against 0.77. The bank stack is 0.8907 / OOD 0.422. Best single models are 0.835 to 0.843, still not the 0.86 that the collaborator reports, and the loop plus the bank adds nothing to the bank (0.8913 to 0.8919). The patience fix moved the loop up by about 0.01 to 0.02; the rest of the distance to the bank is the harness gap above.
 
 ## 1. The 20-seed tuned LegNet ensemble against the loop's ensemble (every set)
