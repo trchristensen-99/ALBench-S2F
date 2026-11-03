@@ -66,6 +66,18 @@ Training on the average of the forward and reverse-complement losses (two forwar
 
 **First fixed-harness loop numbers (30k, runs still in progress, genomic stack, loop alone):** `rr39` 0.8661 / 0.8577 / 0.8571 (20 / 16 / 12 models so far) against 0.8501 / 0.8495 / 0.8617 for the finished `mgr38_ref` (30 models) and 0.8434 for `rr38`; `lv39` 0.8497 / 0.8478 / 0.8485 (6 / 8 / 16 models); OOD 0.35 to 0.38 against 0.32 for `mgr38_ref`; mean single model 0.78 to 0.81 against 0.77. The bank stack is 0.8907 / OOD 0.422. Best single models are 0.835 to 0.843, still not the 0.86 that the collaborator reports, and the loop plus the bank adds nothing to the bank (0.8913 to 0.8919). The patience fix moved the loop up by about 0.01 to 0.02; the rest of the distance to the bank is the harness gap above.
 
+## Registered Nov 3 (18 loop cells, H3 harness: `register_nov3.py`, `register_nov3b.py`)
+
+| cells | question | design |
+|---|---|---|
+| `rr40_10k` r1-3, `lv40_10k` r1-3 | does the H3 loop reach the bank at 10k? | standard managed loop (15 rounds x 2) and LegNet variants (8 rounds x 2), cap 30 H100-min |
+| `rr40_100k` r1-2, `lv40_100k` r1-2 | and at 100k? | 10 and 6 rounds x 2, cap 100 H100-min, H100 only |
+| `rl40_30k` r1-2 | does the stack keep improving with 60 models now that the models are good? | standard loop, 30 rounds x 2 |
+| `ar40_30k` r1-3 | does an architecture-only search under the tuned recipe find strong non-LegNet architectures? | `AL_RECIPE_MODE=tuned` (AdamW lr 0.01, wd 0.2, batch 1024, 300 epochs, one-cycle for every model), `recipe_source` harness, the proposer is told the recipe |
+| `qt40_30k` r1-3 | does forcing one explore model per round (coverage table of untried features) put diverse members in the stack? | quota manager, proposal recipes |
+
+Read-outs: the bank comparison per size (`compare_legnet_vs_loop.py --size 10k|100k --loop rr40,lv40`), the 30k arms against `rr40` (same pools): stack r, share of stack weight on members not derived from the reference LegNet, effective members, stack of the non-LegNet members alone.
+
 ## 1. The 20-seed tuned LegNet ensemble against the loop's ensemble (every set)
 
 Positive-ElasticNet stacks fitted on V0c. "Loop" = all models of finished runs with every current feature (flank input, reference LegNet shown with the seed-bank bar, manager schedule 40% explore, coordinator): `mgr38_ref` (30 models, complete) and `rr38` (still running: 18-25 models at 30k, 13-16 at 100k, 30 at 10k).
