@@ -380,3 +380,34 @@ def test_lanes_loop_trains_one_model_per_lane_and_rejects_reused_blocks(tmp_path
     assert (
         "INCUMBENT" not in llm.coord_prompts[0] and "INCUMBENT" in llm.coord_prompts[-1]
     )  # the last round is a refinement round
+
+
+def test_fixed_epochs_mode_fixes_only_the_epochs(tmp_path, monkeypatch):
+    monkeypatch.setenv("AL_FIXED_EPOCHS", "3")
+    monkeypatch.delenv("AL_RECIPE_MODE", raising=False)
+    h, args, llm = (
+        make_harness(tmp_path),
+        make_args(tmp_path, rounds=2, agent_cfg=cfg("lanes", 0.5)),
+        LaneLLM(),
+    )
+    al.run_agent_loop(args, h, llm=llm)
+    metas = [
+        json.loads(p.read_text()) for p in sorted(Path(args.out_dir).glob("r*_arch_*_meta.json"))
+    ]
+    assert metas and all(
+        m["train_config"]["epochs"] == 3 for m in metas
+    )  # the harness's epochs, whatever the proposer wrote
+    assert any(
+        m["train_config"]["optimizer"] for m in metas
+    )  # the rest of the recipe is still the proposer's
+    assert all("exactly 3 epochs" in sx for sx in llm.proposer_systems)
+    assert all("same long schedule" in sx for sx in llm.proposer_systems)
+
+
+def test_fixed_epochs_rejects_a_harness_recipe(tmp_path, monkeypatch):
+    monkeypatch.setenv("AL_FIXED_EPOCHS", "300")
+    h = make_harness(tmp_path)
+    with pytest.raises(al.AgentConfigError):
+        al.run_agent_loop(
+            make_args(tmp_path, rounds=1, agent_cfg=_harness_cfg("none")), h, llm=CoordLLM()
+        )

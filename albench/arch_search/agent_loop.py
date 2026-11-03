@@ -279,6 +279,18 @@ def tuned_recipe_text() -> str:
     )
 
 
+def fixed_epochs_text() -> str:
+    """Said when every model trains for the same number of epochs (AL_FIXED_EPOCHS) but the proposer still chooses everything else about its recipe."""
+    n = os.environ.get("AL_FIXED_EPOCHS", "")
+    return (
+        f"TRAINING BUDGET: every model is trained for exactly {n} epochs, whatever the epochs field of its TRAIN line says, and its schedule runs to the end (a one-cycle schedule is never stopped early; a model that "
+        "exceeds the time cap is stopped and keeps its best epoch, which for a one-cycle schedule means an unfinished schedule, so keep designs fast enough). Choose the optimizer, learning rate, weight decay, batch size and "
+        f"schedule for a run of that length, per design. What is known at {n} epochs on 30k sequences: AdamW with peak lr 0.01, weight decay 0.2, batch 1024, one-cycle is the recipe of the strongest LegNet models but "
+        "diverged for one dilated residual tower; AdamW with peak lr 0.003, weight decay 0.1, batch 512, one-cycle trained every one of 8 non-LegNet designs without divergence; Muon with lr 2e-3, weight decay 1e-4, "
+        "batch 256 also works at this length. Do not give every design the same recipe: pick what suits each one."
+    )
+
+
 def training_facts_text() -> str:
     """What the harness really does with a TRAIN line, said only for the fixed harness (AL_ONECYCLE_FULL=1) so that every earlier arm keeps its prompt.
     The numbers are validation r (V0c) of the seed-bank recipe sweeps of a plain LegNet (docs/TUNED_LEGNET.md), never test numbers."""
@@ -721,6 +733,8 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int, plan: dict | None = None) ->
         setup += "\n\n" + training_facts_text()
     if harness_recipe and os.environ.get("AL_RECIPE_MODE") == "tuned":
         setup += "\n\n" + tuned_recipe_text()
+    elif not harness_recipe and os.environ.get("AL_FIXED_EPOCHS"):
+        setup += "\n\n" + fixed_epochs_text()
     parts.append("\nNOTE: " + (guidance + "\n\n" if guidance else "") + setup)
     if ctx.cfg.manager == "quota":
         parts.append("\n" + coverage_text_quota(ctx))
@@ -950,7 +964,7 @@ PROPOSER_MANAGER_LANES = (
     "LANE ROUND: this round trains TWO models, one from each lane, so write your {n} ideas in two groups. The FIRST {n_a} are LANE A: networks built on the reference LegNet's blocks (EffBlock, SE). The LAST {n_b} are "
     "LANE B: networks that do NOT reuse the reference's EffBlock or SELayer and are built from a different block family (for example ResNeXt or ConvNeXt-style towers, grouped or ShuffleNet-style convolutions, dilated "
     "residual towers, multi-resolution or U-Net paths, transformers, BiGRUs, state-space layers, Volterra or second-order convolutions, or hybrids of these on such a trunk). Begin each idea title with 'A:' or 'B:'. "
-    "{phase} Both lanes train with the same long recipe, so judge a design by what it can reach when trained like the strongest models. {lane_status}"
+    "{phase} Both lanes train for the same long schedule, so judge a design by what it can reach when trained like the strongest models. {lane_status}"
 )
 LANES_EXPLORE = "EXPLORATION: in each lane propose mechanisms and block families that the lane has not tried yet (see below); do not repeat a family the lane already covers."
 LANES_EXPLOIT = (
@@ -1571,6 +1585,10 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
             raise RuntimeError(
                 f"AL_RECIPE_MODE=tuned asks for {want} but the harness assigned {tc}; refusing to train a model with the wrong recipe"
             )
+    if os.environ.get(
+        "AL_FIXED_EPOCHS"
+    ):  # the proposer chooses optimizer, lr, wd, batch and schedule; the epoch budget is the harness's
+        tc = {**tc, "epochs": int(os.environ["AL_FIXED_EPOCHS"])}
     torch.manual_seed(1000 + ctx.midx)
     t0 = time.time()
     try:
@@ -1885,6 +1903,15 @@ def run_agent_loop(args, h, llm: Callable | None = None) -> None:
     if getattr(args, "style", "none") not in ("none", None):
         raise AgentConfigError("--loop agent replaces --style; leave --style at 'none'")
     cfg = AgentConfig.from_arg(getattr(args, "agent_cfg", ""))
+    if os.environ.get("AL_FIXED_EPOCHS"):
+        if (
+            not os.environ["AL_FIXED_EPOCHS"].isdigit()
+            or cfg.recipe_source != "proposal"
+            or os.environ.get("AL_RECIPE_MODE") == "tuned"
+        ):
+            raise AgentConfigError(
+                "AL_FIXED_EPOCHS needs an integer, recipe_source 'proposal' and no AL_RECIPE_MODE=tuned (it fixes only the epochs; the proposer writes the rest of the recipe)"
+            )
     if os.environ.get("AL_RECIPE_MODE") == "tuned":
         if cfg.recipe_source != "harness" or not os.environ.get("AL_TUNED_RECIPE"):
             raise AgentConfigError(

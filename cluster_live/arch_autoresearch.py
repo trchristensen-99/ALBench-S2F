@@ -668,7 +668,7 @@ def main():
     def _wrap(m):
         return wrap_ctx(m, args.ctx_F, args.ctx_S) if args.wide else m
 
-    args.harness = {k: os.environ[k] for k in ("AL_EMA", "AL_BN_RECALC", "AL_FLANK_SHIFT", "AL_SHIFT_MAX", "AL_PATIENCE", "AL_PRECISION", "AL_ONECYCLE_FULL", "AL_NONFINITE_SKIP", "AL_RC_MODE", "AL_RECIPE_MODE", "AL_TUNED_RECIPE") if os.environ.get(k)}
+    args.harness = {k: os.environ[k] for k in ("AL_EMA", "AL_BN_RECALC", "AL_FLANK_SHIFT", "AL_SHIFT_MAX", "AL_PATIENCE", "AL_PRECISION", "AL_ONECYCLE_FULL", "AL_NONFINITE_SKIP", "AL_RC_MODE", "AL_RECIPE_MODE", "AL_TUNED_RECIPE", "AL_FIXED_EPOCHS") if os.environ.get(k)}
     if args.wide:
         args.harness.update({"flank_ctx": args.ctx_F, "shift_max": args.ctx_S})
 
