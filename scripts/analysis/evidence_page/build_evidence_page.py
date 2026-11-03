@@ -68,11 +68,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--funnel", required=True)
     ap.add_argument("--bake", default="")
+    ap.add_argument("--stack", default="", help="data_bake_stack.json from analyze_bake_stack.py")
     ap.add_argument("--template", default=str(Path(__file__).with_name("template.html")))
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     data = funnel_data(a.funnel)
     data["bake"] = json.load(open(a.bake)) if a.bake else []
+    data["stack"] = json.load(open(a.stack)) if a.stack else {}
     html = Path(a.template).read_text()
     assert html.count("/*__DATA__*/{}") == 1
     Path(a.out).write_text(html.replace("/*__DATA__*/{}", json.dumps(data, separators=(",", ":"))))

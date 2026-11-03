@@ -105,7 +105,7 @@ ol.gaps li{margin:.5em 0}
   <h1>The search procedure and the evidence for each choice</h1>
   <p class="meta">What the study does to turn a labelled training set of D sequences into a student ensemble, with every decision followed by the measurements that support it, and everything tried and left out. Written Nov 3, 2026 from the stored results; sources are repository files named under each figure. Source write-up: <code>docs/SEARCH_PROCEDURE_AND_EVIDENCE.md</code>.</p>
   <div class="banner" id="update">
-    <b>Updated Nov 3, afternoon.</b> The question was whether non-LegNet designs lose because they are weaker or because they were never trained for 200–300 epochs. The stored runs and a partial bake-off both point at the recipe: see <a href="#sec-epochs">Epochs and diversity</a>. It also records a bug in two of my arms (<code>ar40</code>, <code>ia40</code> trained 80 epochs, not 300), now fixed and relaunched as <code>ar41</code> and <code>ln41</code>.
+    <b>Updated Nov 3, afternoon.</b> The question was whether non-LegNet designs lose because they are weaker or because they were never trained for 200–300 epochs. The stored runs and the finished bake-off both point at the recipe: see <a href="#sec-epochs">Epochs and diversity</a>. It also records a bug in two of my arms (<code>ar40</code>, <code>ia40</code> trained 80 epochs, not 300), now fixed and relaunched as <code>ar41</code> and <code>ln41</code>.
   </div>
 </header>
 
@@ -272,20 +272,20 @@ ol.gaps li{margin:.5em 0}
 
 <section id="sec-epochs">
 <h2 data-nav="Epochs and diversity">Epochs and diversity: do non-LegNet designs lose because they train too briefly?</h2>
-<p class="meta">Measured on the finished standard 30k loop runs plus a recipe-matched bake-off that is still running. Stage counts (proposed, picked) use all 21 runs; figures of validation r use the 18 runs validated on V0c (540 models; the mixed-validation arm has a different validation set). Genomic test r is reported but never used to choose anything.</p>
+<p class="meta">Measured on the finished standard 30k loop runs plus a recipe-matched bake-off (84 models, complete). Stage counts (proposed, picked) use all 21 runs; figures of validation r use the 18 runs validated on V0c (540 models; the mixed-validation arm has a different validation set). Genomic test r is reported but never used to choose anything.</p>
 
 <article class="card" id="e1" data-nav="Which designs train how long">
   <header><h3>The loop gave LegNet descendants the long schedules and everything else the short ones</h3></header>
   <p class="decision">Only 1 of 113 independent designs ever trained for 200 epochs or more, against 209 of 427 LegNet-named designs. LegNet-named models trained under 100 epochs average 0.840 validation r, against 0.882 for those trained 200 or more.</p>
   <div class="figs">
-    <figure style="grid-column:1/-1"><h4>Validation r against epochs trained, every model</h4><div class="legend"></div><div class="plot" data-chart="scatter" style="min-height:360px"></div><figcaption>Circles: models from the loop runs (explore and exploit phases together). Diamonds: the best independent designs retrained in the bake-off with an AdamW one-cycle recipe of 300 epochs (partial: one or two models per design so far). Horizontal axis is logarithmic.</figcaption></figure>
+    <figure style="grid-column:1/-1"><h4>Validation r against epochs trained, every model</h4><div class="legend"></div><div class="plot" data-chart="scatter" style="min-height:360px"></div><figcaption>Circles: models from the loop runs (explore and exploit phases together). Diamonds: the 8 best independent designs retrained in the bake-off with an AdamW one-cycle recipe of 300 epochs (tuned and gentler recipes, 2 seeds each). Horizontal axis is logarithmic.</figcaption></figure>
   </div>
-  <p class="evidence">Independent designs trained a median of 58 epochs with AdamW batch 128 or Muon batch 256; LegNet-named ones a median of 150 with AdamW batch 512–1024. At equal short training (under 100 epochs) the gap is 0.045 (0.840 against 0.795); at 300 epochs in the bake-off most independent designs reach 0.89–0.90 validation r (partial; see the table below), against 0.905–0.909 for the plain LegNet variants.</p>
+  <p class="evidence">Independent designs trained a median of 58 epochs with AdamW batch 128 or Muon batch 256; LegNet-named ones a median of 150 with AdamW batch 512–1024. At equal short training (under 100 epochs) the gap is 0.045 (0.840 against 0.795); in the bake-off the independent designs average 0.854 under their own recipe and 0.891 with the better of the two 300-epoch recipes, against 0.906 for the plain LegNet variants.</p>
   <p class="src"><b>Sources</b> <code>data_diversity_funnel_30k.json</code> (<code>extract_diversity_funnel.py</code>), <code>outputs/menu_retrain_v0/bake_*_30k</code></p>
 </article>
 
 <article class="card" id="e2" data-nav="Recipe-matched bake-off">
-  <header><h3>Recipe-matched bake-off: the same designs under three recipes</h3><span class="pill gB">partial</span></header>
+  <header><h3>Recipe-matched bake-off: the same designs under three recipes</h3><span class="pill gA">complete</span></header>
   <p class="decision">The 8 best independent designs, the 4 best LegNet hybrids and the 2 best plain LegNet variants from the earlier runs, retrained at 30k under harness H3 with their own recipe (full schedule), the tuned LegNet recipe (AdamW 0.01, wd 0.2, batch 1024, 300 epochs) and a gentler one (AdamW 0.003, wd 0.1, batch 512, 300 epochs).</p>
   <div class="figs">
     <figure><h4>Validation r</h4><div class="legend"></div><div class="plot" data-chart="slopeVal"></div></figure>
@@ -293,8 +293,21 @@ ol.gaps li{margin:.5em 0}
   </div>
   <div class="scroll" id="bakeTable"></div>
   <p class="evidence" id="bakeNote"></p>
-  <p class="limits"><b>Read with care</b> One or two models per cell so far; one design diverged at lr 0.01 and trained fine at the gentler recipe, so the best recipe for non-LegNet designs may not be the LegNet one. Full results follow when the 21 jobs finish.</p>
+  <p class="limits"><b>Read with care</b> Two seeds per cell. One design diverged at lr 0.01 (0.793) and trained fine at the gentler recipe (0.889); the gentler recipe improved all 8 independent designs (+0.017 to +0.043), so the best recipe for non-LegNet designs is not necessarily LegNet's. The 14 designs were chosen by validation r from the earlier runs.</p>
   <p class="src"><b>Sources</b> <code>scripts/program_oct22/register_nov3c.py</code>, <code>outputs/justification_nov3/bake_partial.json</code></p>
+</article>
+
+<article class="card" id="e2b" data-nav="Do they add to the ensemble?">
+  <header><h3>Do the long-trained independent designs add to the ensemble?</h3></header>
+  <p class="decision">Stacks fitted on V0c and scored on the genomic test set, with the 20-seed tuned LegNet bank and the bake-off models (tuned and gentler recipes; the 16 independent models trained with their own recipe get zero weight). The control adds the same kind of models from the LegNet family.</p>
+  <div class="figs">
+    <figure><h4>Genomic stack r, change against the bank alone (0.8907)</h4><div class="plot" data-chart="bakeStackG"></div></figure>
+    <figure><h4>Mean of 18 sets, change against the bank alone (0.8526)</h4><div class="plot" data-chart="bakeStackM"></div></figure>
+    <figure><h4>Stack weight in bank + all 84 bake models</h4><div class="plot" data-chart="bakeWeights"></div></figure>
+  </div>
+  <p class="evidence" id="stackNote"></p>
+  <p class="limits"><b>What this says</b> With the long recipe the independent family is near-optimal as an ensemble and the stack uses it (about 16% of the weight, against 1% in the loop runs), but it adds little to the bank at 30k, less than equal-count LegNet-derived models do. That matches the menu result (menu v2 adds nothing at 30k and above): at this size the diversity is real but buys little accuracy. Whether it matters for comparing reservoirs across student families is a separate question the scaling arms address.</p>
+  <p class="src"><b>Sources</b> <code>scripts/analysis/analyze_bake_stack.py</code>, <code>outputs/justification_nov3/data_bake_stack.json</code></p>
 </article>
 
 <article class="card" id="e3" data-nav="Earlier epoch tests">
@@ -530,8 +543,11 @@ const draw={
   charts.scatter(h,{xlo:8,xhi:600,ylo:0.6,yhi:0.93,groups:[{n:'LegNet-named, from the loop',c:'loop',pts:D.scatter.filter(p=>p[2]===0).map(p=>[p[0],p[1]]),r:2.8,alpha:.45},{n:'independent, from the loop',c:'indep',pts:D.scatter.filter(p=>p[2]===1).map(p=>[p[0],p[1]]),r:3.4,alpha:.75},{n:'independent, retrained at 300 epochs (bake-off)',c:'indep',pts:pts,shape:'diamond'}],h:360});},
  slopeVal:h=>{charts.slope(h,{cols:['loop run','own recipe','tuned e300','mid e300'],rows:bakeRows('val'),lo:0.78,hi:0.92,h:300});setLegend(h,[{n:'independent',c:'indep'},{n:'LegNet hybrid',c:'loop'},{n:'plain LegNet',c:'bank'}]);},
  slopeTest:h=>charts.slope(h,{cols:['own recipe','tuned e300','mid e300'],rows:bakeRows('test').map(r=>Object.assign({},r,{vals:r.vals.slice(1)})),lo:0.70,hi:0.89,h:300}),
+ bakeStackG:h=>stackForest(h,'genomic'),
+ bakeStackM:h=>stackForest(h,'mean18'),
+ bakeWeights:h=>{const w=(D.stack||{}).weight_share_in_bank_plus_all_bake||{};charts.hbars(h,{rows:[{l:'plain LegNet designs',v:100*(w['plain LegNet']||0),c:'bank'},{l:'20-seed bank',v:100*(w.bank||0),c:'bank'},{l:'independent designs',v:100*(w.independent||0),c:'indep'},{l:'LegNet hybrids',v:100*(w.hybrid||0),c:'loop'}],lo:0,hi:50,fmt:v=>v.toFixed(0)+'%',xfmt:v=>v+'%',rh:32,lw:140,nt:5});},
  epochTests:h=>{const B=(D.bake||[]).filter(r=>r.kind==='independent'&&r.own.n&&r.tuned.n).map(r=>r.tuned.val-r.own.val);const ok=B.filter(x=>x>-0.03);const rows=K.epochTests.slice(0,5);
-  if(ok.length)rows.push({h:'bake-off: independent designs, tuned AdamW one-cycle 300 epochs (validation r)'},{l:'tuned vs own recipe ('+ok.length+' designs)',est:ok.reduce((a,b)=>a+b,0)/ok.length,lo:Math.min(...ok),hi:Math.max(...ok),txt:fs(ok.reduce((a,b)=>a+b,0)/ok.length,3)+' (partial)',c:'pos'});
+  if(ok.length)rows.push({h:'bake-off: independent designs, tuned AdamW one-cycle 300 epochs (validation r)'},{l:'tuned vs own recipe ('+ok.length+' designs)',est:ok.reduce((a,b)=>a+b,0)/ok.length,lo:Math.min(...ok),hi:Math.max(...ok),txt:fs(ok.reduce((a,b)=>a+b,0)/ok.length,3),c:'pos'});
   charts.forest(h,{rows,dom:[-0.08,0.06],d:3,nt:7,rh:30});},
  funnel:h=>{charts.bars(h,{cats:['explore rounds','exploit rounds'],series:[{n:'of proposals',c:'indep',v:K.funnel.prop},{n:'of trained models',c:'loop',v:K.funnel.trained}],lo:0,hi:60,base:0,vfmt:v=>v+'%',yfmt:v=>v+'%',h:230,maxbw:40});},
  pick:h=>charts.bars(h,{cats:['explore rounds','exploit rounds'],series:[{n:'LegNet-named proposals',c:'loop',v:K.pick.named},{n:'independent proposals',c:'indep',v:K.pick.indep}],lo:0,hi:50,base:0,vfmt:v=>v+'%',yfmt:v=>v+'%',h:230,maxbw:40}),
@@ -540,13 +556,18 @@ const draw={
  incident:h=>charts.bars(h,{cats:K.incident.cats,series:[{n:'epochs requested',c:'loop',v:K.incident.v}],lo:0,hi:340,base:0,vfmt:v=>String(Math.round(v)),yfmt:v=>v,h:250,bh:44,maxbw:34,nt:4}),
  dropped:h=>charts.forest(h,{rows:K.dropped,dom:[-0.08,0.03],d:4,nt:6,rh:25,lw:Math.min(300,Math.max(150,h.clientWidth*0.38))})
 };
+function stackForest(h,key){const S=D.stack||{};const base=S['bank (20 seeds)'];if(!base){h.textContent='no stack data';return;}
+  const rows=[['independent alone (32 models)','independent, tuned+mid only','indep'],['LegNet-derived alone (24)','LegNet-derived (hybrid+plain), tuned+mid','loop'],['bank + independent (32)','bank + independent (tuned+mid)','indep'],['bank + LegNet-derived (24)','bank + LegNet-derived (tuned+mid)','loop'],['bank + all 84 bake models','bank + all 84 bake models','union']].filter(r=>S[r[1]]).map(r=>({l:r[0],est:S[r[1]][key]-base[key],c:r[2],txt:fs(S[r[1]][key]-base[key],4)}));
+  charts.forest(h,{rows,dom:key==='genomic'?[-0.008,0.008]:[-0.01,0.01],d:4,nt:4,rh:30});}
+function stackNote(){const S=D.stack||{};const b=S['bank (20 seeds)'];if(!b)return;const g=k=>S[k].genomic-b.genomic,m=k=>S[k].mean18-b.mean18,o=k=>S[k].ood-b.ood;
+  document.getElementById('stackNote').textContent='Bank alone: genomic '+b.genomic.toFixed(4)+', OOD '+b.ood.toFixed(3)+', mean of 18 '+b.mean18.toFixed(4)+'. The 32 independent models alone stack to '+S['independent, tuned+mid only'].genomic.toFixed(4)+' ('+fs(g('independent, tuned+mid only'),4)+'; OOD '+fs(o('independent, tuned+mid only'),3)+'). Added to the bank they give '+fs(g('bank + independent (tuned+mid)'),4)+' genomic and '+fs(m('bank + independent (tuned+mid)'),4)+' on the mean of 18; the 24 LegNet-derived models give '+fs(g('bank + LegNet-derived (tuned+mid)'),4)+' and '+fs(m('bank + LegNet-derived (tuned+mid)'),4)+'. The rule written before the results (a gain above 0.003) is not met by the independent family on genomic r.';}
 function bakeRows(key){const col={independent:'indep',hybrid:'loop','plain LegNet':'bank'};return (D.bake||[]).map(r=>({l:r.idea+' ['+r.kind+']',c:col[r.kind]||'mute',vals:[key==='val'?r.loop_val:null,r.own&&r.own.n?r.own[key]:null,r.tuned&&r.tuned.n?r.tuned[key]:null,r.mid&&r.mid.n?r.mid[key]:null]}));}
 
 function bakeSummary(){const B=D.bake||[];const ind=B.filter(r=>r.kind==='independent');const pair=(a,b)=>ind.filter(r=>r[a].n&&r[b].n).map(r=>({d:r[b].val-r[a].val,idea:r.idea}));
   const t=pair('own','tuned'),m=pair('own','mid');const mean=a=>a.reduce((s,x)=>s+x.d,0)/Math.max(a.length,1);
   const tOk=t.filter(x=>x.d>-0.03);const nfin=B.reduce((s,r)=>s+r.own.n+r.tuned.n+r.mid.n,0);
   const note=document.getElementById('bakeNote');
-  note.textContent='Independent designs, tuned recipe against their own recipe: '+t.length+' designs with both, mean '+fs(mean(t),3)+' validation r ('+fs(mean(tOk),3)+' without the one design that diverged); gentler recipe: '+m.length+' designs, mean '+fs(mean(m),3)+'. '+nfin+' models have finished so far; the plain LegNet variants change little ('+(B.filter(r=>r.kind==='plain LegNet').map(r=>r.tuned.n?fs(r.tuned.val-r.own.val,3):'n/a').join(', '))+').';
+  note.textContent='Independent designs, tuned recipe against their own recipe: '+t.length+' designs with both, mean '+fs(mean(t),3)+' validation r ('+fs(mean(tOk),3)+' without the one design that diverged); gentler recipe: '+m.length+' designs, mean '+fs(mean(m),3)+'. '+nfin+' models in total (2 seeds each); the plain LegNet variants change little ('+(B.filter(r=>r.kind==='plain LegNet').map(r=>r.tuned.n?fs(r.tuned.val-r.own.val,3):'n/a').join(', '))+').';
   const rows=B.map(r=>{const c=x=>x.n?x.val.toFixed(4)+' / '+x.test.toFixed(4)+' ('+x.n+')':'—';return '<tr><td>'+r.idea+'</td><td>'+r.kind+'</td><td class="n">'+r.loop_val.toFixed(4)+'</td><td class="n">'+c(r.own)+'</td><td class="n">'+c(r.tuned)+'</td><td class="n">'+c(r.mid)+'</td></tr>';}).join('');
   document.getElementById('bakeTable').innerHTML='<table><tr><th>design</th><th>kind</th><th class="n">loop val</th><th class="n">own: val / test (n)</th><th class="n">tuned e300</th><th class="n">mid e300</th></tr>'+rows+'</table>';}
 
@@ -556,7 +577,7 @@ function lines3(){const host=document.getElementById('lines3');host.replaceChild
 function render(){document.querySelectorAll('.plot[data-chart]').forEach(p=>{const f=draw[p.dataset.chart];if(f){try{f(p);}catch(e){p.textContent='chart error: '+e.message;}}});lines3();}
 function buildRail(){const rail=document.getElementById('rail');const ol=document.createElement('ol');
   document.querySelectorAll('main h2[data-nav], main .card[data-nav]').forEach((n,k)=>{if(!n.id)n.id='sec'+k;const a=document.createElement('a');a.href='#'+n.id;a.textContent=n.dataset.nav;if(n.tagName==='H2')a.className='sec';const li=document.createElement('li');li.appendChild(a);ol.appendChild(li);});rail.appendChild(ol);}
-bakeSummary();buildRail();render();
+bakeSummary();stackNote();buildRail();render();
 let t;if('ResizeObserver' in window){new ResizeObserver(()=>{clearTimeout(t);t=setTimeout(render,120);}).observe(document.querySelector('main'));}else{addEventListener('resize',()=>{clearTimeout(t);t=setTimeout(render,120);});}
 const btn=document.getElementById('themeBtn');btn.addEventListener('click',()=>{const r=document.documentElement;const cur=r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.setAttribute('data-theme',cur==='dark'?'light':'dark');setTimeout(render,30);});
 })();
