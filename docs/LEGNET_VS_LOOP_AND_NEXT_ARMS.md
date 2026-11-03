@@ -45,6 +45,25 @@ So even with patience off and fp16 the harness trains a given LegNet 0.02 to 0.0
 
 Training on the average of the forward and reverse-complement losses (two forward passes per step) costs the LegNet 0.032 genomic r and 0.05 OOD at 30k; the per-sample shift does nothing; the oracle's and the bank's protocol (flip half of the samples, one pass) closes the gap to within 0.001. (Earlier menu tests of single-pass RC augmentation were mixed, +0.004 at 30k, +0.023 at 100k, -0.014 at 10k, with OOD -0.013 to -0.030: those members are other architectures with their own recipes; for the LegNet the effect is large.) The loop arms `rr40_30k` and `lv40_30k` (3 replicates each; `AL_RC_MODE=aug` on top of H2) rerun `rr39` and `lv39` with it and are registered. The benchmark to reach: best single model at 30k >= 0.86, and a loop ensemble that adds to the bank.
 
+**Overnight results, all finished (30k, 3 replicate pools per arm, loop stack alone, oracle labels; `compare_legnet_vs_loop.py`):**
+
+| arm | models | genomic | OOD | random | mean of 18 | best single model (3 runs) |
+|---|---|---|---|---|---|---|
+| `mgr38_ref` (patience 8, old transport) | 30 | 0.8538 | 0.322 | 0.785 | 0.811 | 0.829 / 0.836 / 0.854 |
+| `rr39` (patience fix, fp16, long schedules; = explore 0.4) | 30 | 0.8744 | 0.357 | 0.814 | 0.835 | 0.878 / 0.855 / 0.853 |
+| **`rr40` (+ single-pass RC augmentation)** | 30 | **0.8865** | 0.385 | 0.821 | 0.846 | **0.878 / 0.871 / 0.873** |
+| `lv39` (LegNet variants) | 16 | 0.8544 | 0.370 | 0.811 | 0.822 | 0.857 / 0.844 / 0.835 |
+| **`lv40` (variants + RC augmentation)** | 16 | **0.8858** | 0.377 | 0.820 | 0.845 | **0.872 / 0.873 / 0.871** |
+| `ef39` explore 0.2 / 0.6 / 1.0 | 30 | 0.8587 / 0.8647 / 0.8700 | 0.366 / 0.358 / 0.351 | 0.811 / 0.813 / 0.806 | 0.824 / 0.828 / 0.829 | best single 0.839-0.870 |
+| `vc39` (mixed validation B1) | 30 | 0.8577 | 0.364 | 0.810 | 0.823 | 0.852 / 0.851 / 0.834 |
+| tuned LegNet bank (20 seeds) | 20 | 0.8907 | 0.422 | 0.823 | 0.853 | single mean 0.8748 |
+
+* **The loop now reaches the collaborator's level and the bank's.** The best single model of every `rr40` and `lv40` run is 0.871 to 0.878 (the bar was 0.86; the collaborator reports 0.862 to 0.864; the bank's mean single is 0.875), and the loop stack alone is within 0.005 genomic of the 20-seed bank (OOD still 0.04 lower). From `mgr38_ref` to `rr40` the loop stack gained +0.033 genomic, +0.063 OOD, +0.035 mean of 18: the patience fix (+0.021), then single-pass RC augmentation (+0.012).
+* **Loop plus bank beats the bank for the first time:** `rr40` + bank 0.8975 / 0.420 / mean 0.8615 and `lv40` + bank 0.8974 / 0.417 / 0.8616 against 0.8907 / 0.422 / 0.8526 for the bank alone (+0.007 genomic, +0.009 mean of 18; `rr39` + bank 0.8942).
+* **Explore fraction does not matter measurably at 30k.** 0.2 / 0.4 / 0.6 / 1.0 give 0.859 / 0.874 / 0.865 / 0.870 genomic with no trend (run-to-run SD about 0.005 to 0.01, 3 runs each). The pure-exploration arm is as good as the scheduled one; what the schedule changes is composition, not performance.
+* **Diversity is still thin.** The good members are LegNet descendants: in `rr40` the stack of the LegNet-derived members is the whole stack (0.8865) and the other members alone reach 0.810; the stack has 6 to 7 effective members against 16 for the bank.
+* **The mixed validation set did not help inside the loop** (`vc39`: genomic -0.017, mean of 18 -0.012, OOD +0.007 against `rr39`, same pools): the post-hoc stack-level test (+0.002) did not transfer to using B1 for early stopping and proposer feedback. Keep V0c for the loop.
+
 **First fixed-harness loop numbers (30k, runs still in progress, genomic stack, loop alone):** `rr39` 0.8661 / 0.8577 / 0.8571 (20 / 16 / 12 models so far) against 0.8501 / 0.8495 / 0.8617 for the finished `mgr38_ref` (30 models) and 0.8434 for `rr38`; `lv39` 0.8497 / 0.8478 / 0.8485 (6 / 8 / 16 models); OOD 0.35 to 0.38 against 0.32 for `mgr38_ref`; mean single model 0.78 to 0.81 against 0.77. The bank stack is 0.8907 / OOD 0.422. Best single models are 0.835 to 0.843, still not the 0.86 that the collaborator reports, and the loop plus the bank adds nothing to the bank (0.8913 to 0.8919). The patience fix moved the loop up by about 0.01 to 0.02; the rest of the distance to the bank is the harness gap above.
 
 ## 1. The 20-seed tuned LegNet ensemble against the loop's ensemble (every set)

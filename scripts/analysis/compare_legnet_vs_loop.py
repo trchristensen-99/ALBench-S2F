@@ -120,7 +120,10 @@ def main() -> None:
             c = load(d, "r*_arch_*.npz")
             if not c or len(c["ms"]) < 5:
                 continue
-            both = c["ms"] + bank["ms"]
+            same_val = (
+                len(c["yv"]) == len(bank["yv"])
+            )  # a loop run on another validation set (vc39: B1) cannot be stacked with the bank's V0c predictions
+            both = c["ms"] + bank["ms"] if same_val else None
             leg = [m for m in c["ms"] if legnet_derived(d, m[2])]
             non = [m for m in c["ms"] if not legnet_derived(d, m[2])]
             fam = {
@@ -131,10 +134,12 @@ def main() -> None:
                 {
                     "run": d,
                     "loop": stack_scores(c["ms"], c["yv"], c["y"]),
-                    "union": stack_scores(both, c["yv"], c["y"]),
+                    "union": stack_scores(both, c["yv"], c["y"]) if same_val else None,
                     "families": fam,
                     "n_legnet_derived": len(leg),
-                    "bank_on_this_val": stack_scores(bank["ms"], c["yv"], c["y"]),
+                    "bank_on_this_val": stack_scores(bank["ms"], c["yv"], c["y"])
+                    if same_val
+                    else None,
                     "single": single_mean(c["ms"], c["y"]),
                     "best_single": {
                         s: float(max(pearson(m[1][s], c["y"][s]) for m in c["ms"]))
@@ -143,7 +148,7 @@ def main() -> None:
                 }
             )
             print(
-                f"  {d}: {len(c['ms'])} models, loop genomic {runs[-1]['loop']['genomic']:.4f}, union {runs[-1]['union']['genomic']:.4f}",
+                f"  {d}: {len(c['ms'])} models, loop genomic {runs[-1]['loop']['genomic']:.4f}, union {runs[-1]['union']['genomic'] if runs[-1]['union'] else float('nan'):.4f}",
                 flush=True,
             )
         res["loops"][tag] = runs
@@ -171,7 +176,8 @@ def main() -> None:
     for tag, runs in res["loops"].items():
         if runs:
             row(f"{tag} loop stack (n={len(runs)} runs)", [r["loop"] for r in runs])
-            row(f"{tag} loop + bank", [r["union"] for r in runs])
+            if all(r["union"] for r in runs):
+                row(f"{tag} loop + bank", [r["union"] for r in runs])
             for key, label in (
                 ("legnet_derived", "LegNet-derived members only"),
                 ("other", "other members only"),
