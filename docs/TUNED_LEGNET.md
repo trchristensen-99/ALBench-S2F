@@ -26,13 +26,13 @@ Single-model genomic test r by schedule length (5 seeds per arm, the 20-seed arm
 | size | e100 | e150 | e200 | e300 | e500 | e800 |
 |---|---|---|---|---|---|---|
 | 30k, wd 0.1 | 0.8502 (20 seeds) | 0.8601 | 0.8621 | 0.8658 | 0.8700 | not run |
-| 30k, wd 0.2 | not run | 0.8654 | `lr39_` running | 0.8730 | **0.8748** (20) | 0.8732 |
+| 30k, wd 0.2 | not run | 0.8654 | 0.8684 | 0.8730 | **0.8748** (20) | 0.8732 |
 | 100k, wd 0.1 | 0.9202 (20) | 0.9245 | 0.9254 | 0.9261 | **0.9269** (20) | not run |
 | 10k, wd 0.1 | 0.6891 (20) | 0.7077 | 0.7141 | 0.7196 | 0.7360 | not run |
 | 10k, wd 0.2 | not run | 0.7191 | not run | 0.7356 | 0.7468 | 0.7510 |
-| 10k, wd 0.4 | not run | not run | `lr39_` running | `lr39_` running | 0.7508 | **0.7557** (20) |
+| 10k, wd 0.4 | not run | not run | 0.7374 | 0.7460 | 0.7508 | **0.7557** (20) |
 
-So 200 epochs costs about -0.005 at 30k (interpolating the wd 0.2 row; -0.008 at wd 0.1), -0.0015 at 100k and about -0.02 at 10k; **300 epochs is within 0.002 of 500 at 30k and within 0.001 at 100k**, which is where the loop should aim when compute matters. At 10k the gain was still rising at 800.
+So 200 epochs costs -0.0064 at 30k (measured at the tuned wd 0.2; -0.008 at wd 0.1), -0.0015 at 100k and -0.018 at 10k (wd 0.4; 300 epochs -0.010); **300 epochs is within 0.002 of 500 at 30k and within 0.001 at 100k**, which is where the loop should aim when compute matters. At 10k the gain was still rising at 800.
 
 Early stopping inside the full schedule is far worse: replaying the stored per-epoch validation curves of the 20-seed banks, the validation Pearson plateaus between 20% and 40% of the schedule (30k mean 0.8146 at 20%, 0.8141 at 40%, 0.8384 at 60%, 0.8816 at 80%, 0.8928 at 90%, 0.8948 at 100%) because the learning rate is still high, so any patience short enough to save time stops there:
 
@@ -42,7 +42,7 @@ Early stopping inside the full schedule is far worse: replaying the stored per-e
 | 100k (e500): | 67 / 0.044 | 85 / 0.042 | 116 / 0.040 | 153 / 0.037 |
 | 10k (e800, wd 0.4): | 24 / 0.191 | 81 / 0.121 | 184 / 0.060 | 266 / 0.050 |
 
-(`lr39_*_es16` measure this on the test sets: the same schedules with patience 16, 5 seeds.) A shorter schedule is the efficient alternative, not an early stop: it completes its annealing. This is also what the loop harness did to every long recipe until Nov 2 (patience 8 on the validation MSE), see `LEGNET_VS_LOOP_AND_NEXT_ARMS.md`.
+Measured on the test sets (`lr39_*_es16`, the tuned schedules with patience 16 on the validation Pearson, 5 seeds): **30k 0.8100 against 0.8748 (stopped at epoch 95 on average), 100k 0.8778 against 0.9269 (epoch 79), 10k 0.5738 against 0.7557 (epoch 40)**, i.e. -0.065, -0.049 and -0.18 genomic r (OOD -0.08, -0.11, -0.23), which is what the replay of the validation curves predicted. A shorter schedule is the efficient alternative, not an early stop: it completes its annealing. This is also what the loop harness did to every long recipe until Nov 2 (patience 8 on the validation MSE), see `LEGNET_VS_LOOP_AND_NEXT_ARMS.md`.
 
 ## What it means for the per-size ensemble (genomic-test stack, oracle labels)
 

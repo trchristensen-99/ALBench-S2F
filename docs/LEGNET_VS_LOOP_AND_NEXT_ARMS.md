@@ -18,6 +18,23 @@ Fix (applied, `scripts/program_oct22/patch_loop_patience.py`, backup kept): the 
 
 **Was the tuned LegNet tuned for 30k?** For each size separately: sweeps of epochs (150 to 800), weight decay (0.1 to 0.4), learning rate and batch size were run at 10k, 30k and 100k on the genomic nested pools and selected on V0c (`docs/TUNED_LEGNET.md`: 10k e800 wd 0.4, 30k e500 wd 0.2, 100k e500 wd 0.1). At 30k 800 epochs was no better than 500 and wd 0.4 was worse; at 10k the best arm was the longest tried. Its 30k single-model genomic test r is 0.8748 (20 seeds), against 0.862 to 0.864 for the best single networks the collaborator reports; the loop's best single models at 30k were 0.826 to 0.854 in six runs, none reaching 0.86.
 
+## Update (Nov 2, night): the harness costs the same LegNet 0.02 to 0.04, and the first fixed-harness loop results
+
+**Parity (`pa38_ref`, done).** The published MPRA-LegNet trained by the menu-library harness (the same `train_one` family the loop uses; patience off, fp16, flank input, 3 seeds) against the native bank trainer, same architecture and recipe, single-model genomic test r:
+
+| size | recipe | native bank | harness | gap |
+|---|---|---|---|---|
+| 10k | e100 | 0.6891 | 0.6690 | -0.020 |
+| 10k | tuned (e800, wd 0.4) | 0.7557 | 0.7337 | -0.022 |
+| 30k | e100 | 0.8502 | 0.8147 | -0.036 |
+| 30k | tuned (e500, wd 0.2) | 0.8748 | 0.8416 | -0.033 |
+| 100k | e100 | 0.9202 | 0.8793 | -0.041 |
+| 100k | tuned (e500) | 0.9269 | 0.8877 | -0.039 |
+
+So even with patience off and fp16 the harness trains a given LegNet 0.02 to 0.04 worse than the native trainer, and the gap grows with D. At 30k the harness LegNet with the tuned recipe (0.8416) is exactly where the loop's best single models sit (0.835 to 0.854 in nine runs), which says the loop is limited by the harness protocol, not by the architectures it finds. The protocol differences (audit F17): one shift per batch against one per sample; the average of the forward and reverse-complement losses (two forward passes) against flipping half of the samples (one pass); best epoch by RC-averaged validation MSE against forward-only Pearson. `pa39_{rc,sh,both}_30k` (3 seeds each, tuned recipe) test the first two separately and together.
+
+**First fixed-harness loop numbers (30k, runs still in progress, genomic stack, loop alone):** `rr39` 0.8661 / 0.8577 / 0.8571 (20 / 16 / 12 models so far) against 0.8501 / 0.8495 / 0.8617 for the finished `mgr38_ref` (30 models) and 0.8434 for `rr38`; `lv39` 0.8497 / 0.8478 / 0.8485 (6 / 8 / 16 models); OOD 0.35 to 0.38 against 0.32 for `mgr38_ref`; mean single model 0.78 to 0.81 against 0.77. The bank stack is 0.8907 / OOD 0.422. Best single models are 0.835 to 0.843, still not the 0.86 that the collaborator reports, and the loop plus the bank adds nothing to the bank (0.8913 to 0.8919). The patience fix moved the loop up by about 0.01 to 0.02; the rest of the distance to the bank is the harness gap above.
+
 ## 1. The 20-seed tuned LegNet ensemble against the loop's ensemble (every set)
 
 Positive-ElasticNet stacks fitted on V0c. "Loop" = all models of finished runs with every current feature (flank input, reference LegNet shown with the seed-bank bar, manager schedule 40% explore, coordinator): `mgr38_ref` (30 models, complete) and `rr38` (still running: 18-25 models at 30k, 13-16 at 100k, 30 at 10k).
