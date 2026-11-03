@@ -97,6 +97,8 @@ class AgentConfig:
     # "schedule_ens": additionally the coordinator sees the validation stack of everything trained so far (weight and correlation per model). Needs the coordinate stage.
     # "schedule_fb": schedule_ens plus a reference check in the exploit rounds: the best model so far is compared (validation r, measured) with the published MPRA-LegNet trained by the same harness; if nothing beats the reference by more than 0.005 the exploit slots go to small modifications of the reference instead of the explored winner.
     explore_frac: float = 0.4  # manager: the first round(explore_frac * rounds) rounds are explore rounds, the rest exploit
+    # manager "islands": explore rounds as in schedule_ens; every exploit round then refines ONE family's incumbent, alternating between the best model overall and the best model of another family (mechanism x trunk), so that the
+    # incumbent shown to the proposer and coordinator is not always the LegNet descendant that happens to lead (funnel analysis, docs/DIVERSITY_FUNNEL_NOV3.md)
     # manager "variants": every round is a refinement round restricted to small modifications of the tuned MPRA-LegNet (depth, width, kernels, wiring, recipe) and of the best variant so far; no new mechanisms. explore_frac is ignored.
     # manager "quota": every round trains one EXPLOIT model and (select_per_round - 1) EXPLORE models; the coordinator sees a coverage table of architectural features (and which are still untried) and the validation stack.
     recipe_source: str = "proposal"  # "proposal": the proposer writes a TRAIN line per idea (the default of every earlier run); "harness": the proposer writes architectures only and the harness assigns each model a recipe from a safe set (AL_RECIPE_MODE=harness)
@@ -148,9 +150,10 @@ class AgentConfig:
             "schedule_fb",
             "quota",
             "variants",
+            "islands",
         ):
             raise AgentConfigError(
-                f"manager must be 'none', 'schedule', 'schedule_ens', 'schedule_fb', 'quota' or 'variants', got {self.manager!r}"
+                f"manager must be 'none', 'schedule', 'schedule_ens', 'schedule_fb', 'quota', 'variants' or 'islands', got {self.manager!r}"
             )
         if self.recipe_source not in ("proposal", "harness"):
             raise AgentConfigError(
@@ -681,7 +684,7 @@ def register_stage(name: str):
     return deco
 
 
-def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
+def proposer_prompt(ctx: AgentCtx, n: int, rd: int, plan: dict | None = None) -> tuple[str, str]:
     args, h = ctx.args, ctx.h
     # Reuse the single loop's own history rendering (top-18 by score, discarded list with reasons)
     # so the proposer sees exactly what the baseline proposer sees about earlier models.
@@ -740,6 +743,10 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int) -> tuple[str, str]:
         system += "\n\n" + PROPOSER_MANAGER_QUOTA
     elif mode == "variants":
         system += "\n\n" + PROPOSER_MANAGER_VARIANTS.format(variant_status=variant_status_text(ctx))
+    elif mode == "island":
+        system += "\n\n" + PROPOSER_MANAGER_ISLAND.format(
+            island_status=island_status_text(ctx, island_for(ctx, plan, rd))
+        )
     if "coordinate" in ctx.cfg.stages:
         k = ctx.n_select()
         system += (
@@ -754,7 +761,7 @@ def stage_propose(ctx: AgentCtx, plan: dict) -> None:
     if plan["items"]:
         return  # resumed inside this round: the ideas are already paid for
     rd, n = plan["round"], ctx.n_ideas()
-    sys_p, user = proposer_prompt(ctx, n, rd)
+    sys_p, user = proposer_prompt(ctx, n, rd, plan)
     if not ctx.first_prompt_written:
         (ctx.out_p / "prompts").mkdir(exist_ok=True)
         _atomic_text(
@@ -855,6 +862,19 @@ MANAGER_VARIANTS = (
 )
 
 
+PROPOSER_MANAGER_ISLAND = (
+    "ISLAND ROUND: the exploration phase is over, and the final product is an ensemble of near-optimal models from DIFFERENT architecture families, so this round improves one family on its own terms. "
+    "{island_status} Every proposal must be a SMALL, well-motivated change to this island's incumbent (depth, width, kernel sizes, wiring, the head, regularisation) or to its training recipe, and must keep the "
+    "mechanism that defines the island. Check the incumbent's recipe first: the strongest models so far were trained with long one-cycle schedules (AdamW, batch 512 to 1024, 200 to 500 epochs), and a "
+    "family that has only been given a short recipe is usually under-trained rather than weak. Change one or two things per proposal and say which."
+)
+MANAGER_ISLAND = (
+    "MANAGER MODE: ISLAND (round {rd1} of {total}; exploration ended after round {n_explore}). {island_status} Pick the {k} candidates most likely to raise the validation r of THIS island's incumbent by "
+    "small changes to its architecture or recipe that keep its defining mechanism, and that differ from each other (for example one recipe change and one wiring change), not two near-duplicates. Reject a "
+    "candidate that turns the model into a different family, in particular into a plain LegNet variant when the island is not a LegNet-trunk one."
+)
+
+
 def variant_status_text(ctx: AgentCtx) -> str:
     """Name the incumbent for the variants manager: the best variant trained so far, with the quoted baseline beside it.
     The incumbent is the best variant even while it is below the quoted bar: the bar is the reference script's, and this harness trains every model for less time, so waiting to beat it would stall the search."""
@@ -938,7 +958,103 @@ def manager_mode(ctx: AgentCtx, rd: int) -> str | None:
         return "quota"
     if ctx.cfg.manager == "variants":
         return "variants"
+    if ctx.cfg.manager == "islands":
+        return "explore" if rd < round(ctx.args.rounds * ctx.cfg.explore_frac) else "island"
     return "explore" if rd < round(ctx.args.rounds * ctx.cfg.explore_frac) else "exploit"
+
+
+_ISLAND_ATTENTION = (
+    r"softmax",
+    r"einsum|bmm|torch\.matmul|\s@\s",
+)  # hand-written attention: the library pattern in _ARCH_CLASSES finds about a quarter of the models that contain attention
+
+
+def island_of(source: str, idea: str = "") -> str:
+    """Family of a trained model: its non-convolutional mechanism and whether it is built on the reference LegNet's blocks (`EffBlock`) or on another trunk.
+    A LegNet trunk with a BiGRU head and a ConvNeXt-style tower are different islands; so are a LegNet trunk with and without attention."""
+    if re.search(_ARCH_CLASSES["state-space"], source):
+        mech = "state-space"
+    elif re.search(_ARCH_CLASSES["recurrent"], source):
+        mech = "recurrent"
+    elif (
+        re.search(_ARCH_CLASSES["self-attention"], source)
+        or all(re.search(p, source) for p in _ISLAND_ATTENTION)
+        or re.search(_ARCH_CLASSES["attention pooling"], source)
+    ):
+        mech = "attention"
+    elif re.search(_ARCH_CLASSES["U-Net-like (up/down path)"], source):
+        mech = "U-Net"
+    else:
+        mech = "convolutional"
+    legnet = "EffBlock" in source or bool(re.search(r"legnet", idea, flags=re.I))
+    return f"{mech} / {'LegNet trunk' if legnet else 'other trunk'}"
+
+
+def island_for(ctx: AgentCtx, plan: dict | None, rd: int) -> dict | None:
+    """The island this exploit round refines, fixed in the plan the first time it is asked (a resumed round must not re-decide it after more models exist).
+
+    Even exploit rounds refine the island of the best model overall (what every earlier manager did); odd ones refine the best model of one of the three best OTHER islands, those on another trunk first, in turn.
+    Returns None when nothing has been trained yet."""
+    if plan is not None and plan.get("island"):
+        return plan["island"]
+    best: dict[str, ModelRecord] = {}
+    for m in ctx.records:
+        try:
+            meta = json.loads((ctx.out_p / f"{m.model_id}_meta.json").read_text())
+        except Exception:  # noqa: BLE001 - the family is advice, never a reason to stop
+            continue
+        label = island_of(meta.get("source") or "", m.idea)
+        if label not in best or m.val > best[label].val:
+            best[label] = m
+    if not best:
+        return None
+    ranked = sorted(best.items(), key=lambda kv: -kv[1].val)
+    main_label, main_rec = ranked[0]
+    j = rd - round(ctx.args.rounds * ctx.cfg.explore_frac)
+    others = [kv for kv in ranked[1:] if "other trunk" in kv[0]] + [
+        kv for kv in ranked[1:] if "other trunk" not in kv[0]
+    ]
+    label, rec = ranked[0]
+    if j % 2 == 1 and others:
+        label, rec = others[: min(3, len(others))][(j // 2) % min(3, len(others))]
+    choice = {
+        "island": label,
+        "incumbent": rec.model_id,
+        "incumbent_val": rec.val,
+        "main_island": main_label,
+        "main_val": main_rec.val,
+        "n_islands": len(best),
+    }
+    if plan is not None:
+        plan["island"] = choice
+        save_plan(ctx.out_p, plan)
+    return choice
+
+
+def island_status_text(ctx: AgentCtx, choice: dict | None) -> str:
+    """Name the island and its incumbent (design and recipe, validation numbers only)."""
+    if not choice:
+        return "ISLAND: none yet; start from the tuned MPRA-LegNet itself."
+    design, recipe = "", ""
+    try:
+        meta = json.loads((ctx.out_p / f"{choice['incumbent']}_meta.json").read_text())
+        design = ((meta.get("agent") or {}).get("design") or "")[:900].replace("\n", " ")
+        recipe = next((m.recipe for m in ctx.records if m.model_id == choice["incumbent"]), "")
+    except Exception:  # noqa: BLE001 - advice only
+        pass
+    gap = choice["incumbent_val"] - choice["main_val"]
+    text = (
+        f"ISLAND: {choice['island']} (one of {choice['n_islands']} families trained so far). Its incumbent reaches validation r {choice['incumbent_val']:.4f}"
+        + (
+            " and is the best model overall."
+            if choice["island"] == choice["main_island"]
+            else f", {-gap:.4f} below the best model overall ({choice['main_island']}, {choice['main_val']:.4f}); a gain here is worth taking even while it stays below that model, because the "
+            "final ensemble needs strong members that are not copies of the best one."
+        )
+    )
+    if design:
+        text += f" Its design: {design} Its recipe: {recipe}."
+    return text
 
 
 def coverage_text(ctx: AgentCtx) -> str:
@@ -1085,11 +1201,26 @@ def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
                 variant_status=variant_status_text(ctx),
             )
         )
+    elif mode == "island":
+        es = ensemble_status_text(ctx)
+        if es:
+            parts.append("\n" + es)
+        total = ctx.args.rounds
+        parts.append(
+            "\n"
+            + MANAGER_ISLAND.format(
+                rd1=plan["round"] + 1,
+                total=total,
+                n_explore=round(total * ctx.cfg.explore_frac),
+                k=k,
+                island_status=island_status_text(ctx, island_for(ctx, plan, plan["round"])),
+            )
+        )
     elif mode:
         total = ctx.args.rounds
         n_explore = round(total * ctx.cfg.explore_frac)
         parts.append("\n" + coverage_text(ctx))
-        if ctx.cfg.manager in ("schedule_ens", "schedule_fb"):
+        if ctx.cfg.manager in ("schedule_ens", "schedule_fb", "islands"):
             es = ensemble_status_text(ctx)
             if es:
                 parts.append("\n" + es)

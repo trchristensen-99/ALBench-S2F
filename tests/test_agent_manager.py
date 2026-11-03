@@ -138,3 +138,97 @@ def test_tuned_recipe_text_only_with_the_tuned_mode(monkeypatch):
     monkeypatch.setenv("AL_TUNED_RECIPE", "adamw,0.01,0.2,1024,300,onecycle")
     txt = al.tuned_recipe_text()
     assert "RECIPE:" in txt and "300 epochs" in txt and "batch size 1024" in txt
+
+
+def test_islands_manager_config_and_modes():
+    c = al.AgentConfig.from_arg(cfg("islands", 0.4))
+    assert c.manager == "islands"
+
+    class C:  # minimal ctx stand-in
+        pass
+
+    x = C()
+    x.cfg, x.args = c, make_args(Path("."), rounds=15)
+    assert [al.manager_mode(x, r) for r in range(15)] == ["explore"] * 6 + ["island"] * 9
+
+
+def test_island_of_separates_mechanism_and_trunk():
+    legnet = "class EffBlock(nn.Module): pass\nclass Net(nn.Module): pass"
+    gru = legnet + "\nself.rnn = nn.GRU(64, 64, bidirectional=True)"
+    hand_attn = "class Net(nn.Module):\n  def forward(self, x):\n    a = torch.softmax(q @ k.transpose(-1, -2), -1)"
+    unet = "class Net(nn.Module):\n  def __init__(self):\n    self.up = nn.ConvTranspose1d(8, 8, 2)"
+    assert al.island_of(legnet) == "convolutional / LegNet trunk"
+    assert al.island_of(gru) == "recurrent / LegNet trunk"
+    assert al.island_of(hand_attn) == "attention / other trunk"  # hand-written attention counts
+    assert al.island_of(unet) == "U-Net / other trunk"
+    assert al.island_of("class Net(nn.Module): pass", "A LegNet with a wider middle").endswith(
+        "LegNet trunk"
+    )  # named in the idea but written without EffBlock
+
+
+def test_island_for_alternates_the_main_island_and_other_families(tmp_path):
+    def rec(i, val, src, idea):
+        (tmp_path / f"r00_arch_{i:02d}_meta.json").write_text(
+            json.dumps({"source": src, "idea": idea, "agent": {"design": f"design {i}"}})
+        )
+        return al.ModelRecord(f"r00_arch_{i:02d}", 0, idea, val, 1000, 1.0, 10, "adamw")
+
+    class C:
+        pass
+
+    x = C()
+    x.out_p, x.cfg, x.args = (
+        tmp_path,
+        al.AgentConfig.from_arg(cfg("islands", 0.4)),
+        make_args(Path("."), rounds=15),
+    )
+    leg = "class EffBlock(nn.Module): pass"
+    x.records = [
+        rec(0, 0.910, leg, "LegNet wide"),
+        rec(1, 0.905, leg + "\nnn.GRU(8, 8)", "LegNet + BiGRU"),
+        rec(2, 0.860, "nn.ConvTranspose1d(8, 8, 2)", "U-Net"),
+        rec(3, 0.840, "class Net(nn.Module): pass", "ConvNeXt tower"),
+    ]
+    chosen = []
+    for rd in range(6, 15):
+        plan = {"round": rd, "items": []}
+        (tmp_path / "agent_logs").mkdir(exist_ok=True)
+        chosen.append(al.island_for(x, plan, rd)["island"])
+        assert al.island_for(x, plan, rd)["island"] == chosen[-1]  # fixed in the plan once decided
+    main = "convolutional / LegNet trunk"
+    assert chosen[0::2] == [main] * 5  # even exploit rounds: the best model overall
+    assert chosen[1::2] == [  # odd ones: the other-trunk islands first, best first, in turn
+        "U-Net / other trunk",
+        "convolutional / other trunk",
+        "recurrent / LegNet trunk",
+        "U-Net / other trunk",
+    ]
+    text = al.island_status_text(x, al.island_for(x, {"round": 7, "items": []}, 7))
+    assert "below the best model overall" in text and "U-Net / other trunk" in text
+    assert al.island_status_text(x, None).startswith("ISLAND: none yet")
+
+
+def test_islands_loop_gives_island_prompts_after_exploration(tmp_path):
+    h, args, llm = (
+        make_harness(tmp_path),
+        make_args(tmp_path, rounds=4, agent_cfg=cfg("islands", 0.5)),
+        CoordLLM(),
+    )
+    al.run_agent_loop(args, h, llm=llm)
+    out = Path(args.out_dir)
+    plans = [json.loads((out / "agent_logs" / f"plan_r{r:02d}.json").read_text()) for r in range(4)]
+    assert [p["coordinator"].get("manager_mode") for p in plans] == [
+        "explore",
+        "explore",
+        "island",
+        "island",
+    ]
+    assert (
+        "MANAGER MODE: EXPLORE" in llm.coord_prompts[0]
+        and "ENSEMBLE STATUS" in llm.coord_prompts[-1]
+    )
+    assert (
+        "MANAGER MODE: ISLAND" in llm.coord_prompts[-1]
+        and "ISLAND ROUND" in llm.proposer_systems[-1]
+    )
+    assert "island" in plans[2] and "island" not in plans[0]
