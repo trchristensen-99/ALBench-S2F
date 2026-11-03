@@ -99,6 +99,8 @@ class AgentConfig:
     explore_frac: float = 0.4  # manager: the first round(explore_frac * rounds) rounds are explore rounds, the rest exploit
     # manager "islands": explore rounds as in schedule_ens; every exploit round then refines ONE family's incumbent, alternating between the best model overall and the best model of another family (mechanism x trunk), so that the
     # incumbent shown to the proposer and coordinator is not always the LegNet descendant that happens to lead (funnel analysis, docs/DIVERSITY_FUNNEL_NOV3.md)
+    # manager "lanes": every round trains one model in lane A (built on the reference LegNet's blocks) and one in lane B (built WITHOUT them): the proposer writes half of its ideas for each lane, the coordinator must pick one per lane,
+    # explore rounds (the first explore_frac) look for new mechanisms in each lane and later rounds refine each lane's own incumbent; with AL_RECIPE_MODE=tuned both lanes train with the same long recipe
     # manager "variants": every round is a refinement round restricted to small modifications of the tuned MPRA-LegNet (depth, width, kernels, wiring, recipe) and of the best variant so far; no new mechanisms. explore_frac is ignored.
     # manager "quota": every round trains one EXPLOIT model and (select_per_round - 1) EXPLORE models; the coordinator sees a coverage table of architectural features (and which are still untried) and the validation stack.
     recipe_source: str = "proposal"  # "proposal": the proposer writes a TRAIN line per idea (the default of every earlier run); "harness": the proposer writes architectures only and the harness assigns each model a recipe from a safe set (AL_RECIPE_MODE=harness)
@@ -151,9 +153,10 @@ class AgentConfig:
             "quota",
             "variants",
             "islands",
+            "lanes",
         ):
             raise AgentConfigError(
-                f"manager must be 'none', 'schedule', 'schedule_ens', 'schedule_fb', 'quota', 'variants' or 'islands', got {self.manager!r}"
+                f"manager must be 'none', 'schedule', 'schedule_ens', 'schedule_fb', 'quota', 'variants', 'islands' or 'lanes', got {self.manager!r}"
             )
         if self.recipe_source not in ("proposal", "harness"):
             raise AgentConfigError(
@@ -743,6 +746,16 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int, plan: dict | None = None) ->
         system += "\n\n" + PROPOSER_MANAGER_QUOTA
     elif mode == "variants":
         system += "\n\n" + PROPOSER_MANAGER_VARIANTS.format(variant_status=variant_status_text(ctx))
+    elif mode == "lanes":
+        explore = rd < round(args.rounds * ctx.cfg.explore_frac)
+        n_a = (n + 1) // 2
+        system += "\n\n" + PROPOSER_MANAGER_LANES.format(
+            n=n,
+            n_a=n_a,
+            n_b=n - n_a,
+            phase=LANES_EXPLORE if explore else LANES_EXPLOIT,
+            lane_status=lanes_status_text(ctx, rd),
+        )
     elif mode == "island":
         system += "\n\n" + PROPOSER_MANAGER_ISLAND.format(
             island_status=island_status_text(ctx, island_for(ctx, plan, rd))
@@ -862,6 +875,94 @@ MANAGER_VARIANTS = (
 )
 
 
+_LANE_MARK = re.compile(r"\s*\[?([AB])\s*[:\])\-]")
+_REUSES_REFERENCE = re.compile(r"\b(EffBlock|SELayer)\b")
+
+
+def lane_of(item: dict, n_items: int) -> str:
+    """Lane of a proposal under the lanes manager: an 'A:' or 'B:' the proposer put in front of its idea title, else its position (the first half of the ideas is lane A)."""
+    m = _LANE_MARK.match(item.get("idea") or "")
+    if m:
+        return m.group(1)
+    return "A" if item["slot"] < (n_items + 1) // 2 else "B"
+
+
+def enforce_lanes(chosen: list[int], lanes: list[str], k: int) -> list[int]:
+    """One pick per lane, whatever the coordinator wrote: its first pick of each lane, else the first proposal of that lane; padded in order when a lane has no proposal."""
+    out: list[int] = []
+    for lane in "AB":
+        pick = next((i for i in chosen if lanes[i] == lane), None)
+        if pick is None:
+            pick = next((i for i, x in enumerate(lanes) if x == lane), None)
+        if pick is not None:
+            out.append(pick)
+    for i in list(chosen) + list(range(len(lanes))):
+        if len(out) >= k:
+            break
+        if i not in out:
+            out.append(i)
+    return out[:k]
+
+
+def lanes_status_text(ctx: AgentCtx, rd: int) -> str:
+    """What each lane has trained so far: in the explore rounds the mechanisms tried and the best validation r, afterwards the lane's incumbent (design and recipe)."""
+    explore = rd < round(ctx.args.rounds * ctx.cfg.explore_frac)
+    lanes: dict[str, list[tuple[ModelRecord, str]]] = {"A": [], "B": []}
+    for m in ctx.records:
+        try:
+            meta = json.loads((ctx.out_p / f"{m.model_id}_meta.json").read_text())
+        except Exception:  # noqa: BLE001 - advice only
+            continue
+        label = island_of(meta.get("source") or "", m.idea)
+        lanes["A" if label.endswith("LegNet trunk") else "B"].append((m, label.split(" / ")[0]))
+    names = {
+        "A": "LANE A (LegNet trunk)",
+        "B": "LANE B (independent trunk, no EffBlock or SELayer)",
+    }
+    lines = []
+    for lane in "AB":
+        recs = sorted(lanes[lane], key=lambda x: -x[0].val)
+        if not recs:
+            lines.append(f"{names[lane]}: nothing trained yet.")
+            continue
+        mech: dict[str, int] = {}
+        for _, mech_name in recs:
+            mech[mech_name] = mech.get(mech_name, 0) + 1
+        head = (
+            f"{names[lane]}: {len(recs)} trained, best validation r {recs[0][0].val:.4f}; "
+            "mechanisms tried: " + ", ".join(f"{k} ({v})" for k, v in sorted(mech.items()))
+        )
+        if not explore:
+            best = recs[0][0]
+            design = ""
+            try:
+                meta = json.loads((ctx.out_p / f"{best.model_id}_meta.json").read_text())
+                design = ((meta.get("agent") or {}).get("design") or "")[:700].replace("\n", " ")
+            except Exception:  # noqa: BLE001
+                pass
+            head += f". INCUMBENT: {best.idea[:100]}" + (f" | design: {design}" if design else "")
+            head += f" | recipe: {best.recipe}"
+        lines.append(head)
+    return "\n".join(lines)
+
+
+PROPOSER_MANAGER_LANES = (
+    "LANE ROUND: this round trains TWO models, one from each lane, so write your {n} ideas in two groups. The FIRST {n_a} are LANE A: networks built on the reference LegNet's blocks (EffBlock, SE). The LAST {n_b} are "
+    "LANE B: networks that do NOT reuse the reference's EffBlock or SELayer and are built from a different block family (for example ResNeXt or ConvNeXt-style towers, grouped or ShuffleNet-style convolutions, dilated "
+    "residual towers, multi-resolution or U-Net paths, transformers, BiGRUs, state-space layers, Volterra or second-order convolutions, or hybrids of these on such a trunk). Begin each idea title with 'A:' or 'B:'. "
+    "{phase} Both lanes train with the same long recipe, so judge a design by what it can reach when trained like the strongest models. {lane_status}"
+)
+LANES_EXPLORE = "EXPLORATION: in each lane propose mechanisms and block families that the lane has not tried yet (see below); do not repeat a family the lane already covers."
+LANES_EXPLOIT = (
+    "REFINEMENT: in each lane propose small, well-motivated changes to THAT lane's incumbent (depth, width, kernel sizes, wiring, head, regularisation, its recipe), keeping the lane's defining design; a lane B idea must stay "
+    "free of the reference's EffBlock and SELayer."
+)
+MANAGER_LANES = (
+    "MANAGER MODE: LANES (round {rd1} of {total}). Choose EXACTLY ONE candidate from lane A and EXACTLY ONE from lane B ({k} in total). {phase} For each lane pick the candidate most likely to reach a high validation r "
+    "AND to differ from what that lane already trained; do not pick a lane B candidate that reuses the reference's EffBlock or SELayer. {lane_status}"
+)
+LANE_CODER_NOTE = "\n\nINDEPENDENT-LANE RULE: this model must NOT use the reference LegNet's EffBlock or SELayer classes (by name or by copying their structure); write the blocks this design describes from scratch."
+
 PROPOSER_MANAGER_ISLAND = (
     "ISLAND ROUND: the exploration phase is over, and the final product is an ensemble of near-optimal models from DIFFERENT architecture families, so this round improves one family on its own terms. "
     "{island_status} Every proposal must be a SMALL, well-motivated change to this island's incumbent (depth, width, kernel sizes, wiring, the head, regularisation) or to its training recipe, and must keep the "
@@ -958,6 +1059,8 @@ def manager_mode(ctx: AgentCtx, rd: int) -> str | None:
         return "quota"
     if ctx.cfg.manager == "variants":
         return "variants"
+    if ctx.cfg.manager == "lanes":
+        return "lanes"
     if ctx.cfg.manager == "islands":
         return "explore" if rd < round(ctx.args.rounds * ctx.cfg.explore_frac) else "island"
     return "explore" if rd < round(ctx.args.rounds * ctx.cfg.explore_frac) else "exploit"
@@ -1201,6 +1304,23 @@ def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
                 variant_status=variant_status_text(ctx),
             )
         )
+    elif mode == "lanes":
+        es = ensemble_status_text(ctx)
+        if es:
+            parts.append("\n" + es)
+        rd_ = plan["round"]
+        parts.append(
+            "\n"
+            + MANAGER_LANES.format(
+                rd1=rd_ + 1,
+                total=ctx.args.rounds,
+                k=k,
+                phase=LANES_EXPLORE
+                if rd_ < round(ctx.args.rounds * ctx.cfg.explore_frac)
+                else LANES_EXPLOIT,
+                lane_status=lanes_status_text(ctx, rd_),
+            )
+        )
     elif mode == "island":
         es = ensemble_status_text(ctx)
         if es:
@@ -1241,8 +1361,9 @@ def coordinator_prompt(ctx: AgentCtx, plan: dict) -> tuple[str, str]:
             if ctx.cfg.recipe_source == "harness"
             else f"\n    TRAIN: {_fmt_recipe(it['train_spec'])}"
         )
+        lane_tag = f"(lane {lane_of(it, n)}) " if mode == "lanes" else ""
         parts.append(
-            f"[{i}] IDEA: {it['idea']}\n    WHY: {it['why']}\n    DESIGN: {it['design'][:900]}{recipe_line}"
+            f"[{i}] {lane_tag}IDEA: {it['idea']}\n    WHY: {it['why']}\n    DESIGN: {it['design'][:900]}{recipe_line}"
         )
     parts.append(f"\nChoose {k} of the {n} candidates now.")
     return COORDINATOR_SYSTEM.replace("{n}", str(n)).replace("{k}", str(k)), "\n".join(parts)
@@ -1254,6 +1375,9 @@ def stage_coordinate(ctx: AgentCtx, plan: dict) -> None:
         return  # resumed inside this round
     rd, k = plan["round"], ctx.n_select()
     items = plan["items"]
+    if ctx.cfg.manager == "lanes":
+        for it in items:
+            it["lane"] = lane_of(it, len(items))
     if len(items) <= k:
         plan["coordinated"] = True
         plan["coordinator"] = {
@@ -1276,6 +1400,8 @@ def stage_coordinate(ctx: AgentCtx, plan: dict) -> None:
             else list(range(k))
         )
         text = f"coordinator_mode={ctx.cfg.coordinator_mode}: picked without an LLM call"
+    if ctx.cfg.manager == "lanes":
+        chosen = enforce_lanes(chosen, [it["lane"] for it in items], k)
     for i, it in enumerate(items):
         if i not in chosen:
             it.update(
@@ -1307,6 +1433,8 @@ def coder_prompt(ctx: AgentCtx, item: dict) -> tuple[str, str]:
         if ctx.cfg.recipe_source == "harness"
         else _fmt_recipe(item["train_spec"]),
     )
+    if item.get("lane") == "B":
+        user += LANE_CODER_NOTE
     return CODER_SYSTEM, user
 
 
@@ -1355,6 +1483,13 @@ def code_item(ctx: AgentCtx, rd: int, item: dict) -> None:
         else:
             last_src = src
             model, verdict = build_and_check(src, seq_len=args.seq_len, max_params=args.max_params)
+            if model is not None and item.get("lane") == "B" and _REUSES_REFERENCE.search(src):
+                model, reason = (
+                    None,
+                    "lane B model reuses the reference LegNet's EffBlock or SELayer; write its own blocks from scratch",
+                )
+            else:
+                reason = "" if model is not None else verdict.reason
             if model is not None:
                 item.update(
                     status="coded",
@@ -1363,7 +1498,6 @@ def code_item(ctx: AgentCtx, rd: int, item: dict) -> None:
                     repairs=attempt,
                 )
                 return
-            reason = verdict.reason
         reasons.append(reason)
         item["attempt_reasons"] = reasons
         item["source"] = last_src
@@ -1425,6 +1559,18 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
     ):  # flank-context students: WideCrop around the checked architecture
         model = h.wrap_model(model)
     tc = h.sample_train({} if ctx.cfg.recipe_source == "harness" else item["train_spec"])
+    if (
+        os.environ.get("AL_RECIPE_MODE") == "tuned"
+    ):  # measured, not assumed: the Nov 3 ar40/ia40 arms silently trained Muon for 80 epochs because the mode was overwritten
+        want = os.environ["AL_TUNED_RECIPE"].split(",")
+        if (tc.get("optimizer"), int(tc.get("epochs", -1)), int(tc.get("batch_size", -1))) != (
+            want[0],
+            int(want[4]),
+            int(want[3]),
+        ):
+            raise RuntimeError(
+                f"AL_RECIPE_MODE=tuned asks for {want} but the harness assigned {tc}; refusing to train a model with the wrong recipe"
+            )
     torch.manual_seed(1000 + ctx.midx)
     t0 = time.time()
     try:
@@ -1739,7 +1885,12 @@ def run_agent_loop(args, h, llm: Callable | None = None) -> None:
     if getattr(args, "style", "none") not in ("none", None):
         raise AgentConfigError("--loop agent replaces --style; leave --style at 'none'")
     cfg = AgentConfig.from_arg(getattr(args, "agent_cfg", ""))
-    if cfg.recipe_source == "harness":
+    if os.environ.get("AL_RECIPE_MODE") == "tuned":
+        if cfg.recipe_source != "harness" or not os.environ.get("AL_TUNED_RECIPE"):
+            raise AgentConfigError(
+                "AL_RECIPE_MODE=tuned needs recipe_source 'harness' and AL_TUNED_RECIPE (optimizer,lr,wd,batch,epochs,schedule)"
+            )
+    elif cfg.recipe_source == "harness":
         os.environ["AL_RECIPE_MODE"] = (
             "harness"  # the launcher's sample_train draws from the safe set
         )

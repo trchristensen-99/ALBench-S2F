@@ -1,0 +1,563 @@
+<title>ALBench Search Evidence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a decision ledger. Left rail lists sections; each decision is one panel with its figure beside the claim it supports.
+   Colour: cool paper ground, graphite ink; blue = LegNet-based, amber = independent trunk, graphite = bank, teal = union/positive, rose = negative.
+   Type: Plex Sans for reading, Plex Sans Condensed for headings, Plex Mono for every number. */
+:root{
+  --bg:#F3F5F9; --panel:#FFFFFF; --ink:#1A2133; --muted:#566178; --faint:#8791A5; --line:#D6DCE6; --grid:#E7EBF2; --wash:#EEF1F7;
+  --loop:#2756C5; --indep:#CF650C; --bank:#3A4560; --union:#0B8F7D; --neg:#C23B59; --pos:#0B8F7D; --mute:#8791A5;
+  --gA:#D8F1EA; --gAt:#0A5E52; --gB:#FBE6CF; --gBt:#8A4308; --gC:#F6D9DF; --gCt:#8B2640; --note:#FFF4D6; --noteLine:#E8C766;
+  --font:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif; --head:'IBM Plex Sans Condensed','IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E131B; --panel:#161D29; --ink:#E6EAF2; --muted:#9BA6BA; --faint:#6F7B91; --line:#283243; --grid:#1F2837; --wash:#1B2331;
+  --loop:#6D98FF; --indep:#F29A4D; --bank:#AEB9CF; --union:#34CDB6; --neg:#FF7F9A; --pos:#34CDB6; --mute:#6F7B91;
+  --gA:#10382F; --gAt:#7FE3CF; --gB:#432A10; --gBt:#F5BD86; --gC:#41212B; --gCt:#FF9DB3; --note:#2E2812; --noteLine:#7A6A2A; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131B; --panel:#161D29; --ink:#E6EAF2; --muted:#9BA6BA; --faint:#6F7B91; --line:#283243; --grid:#1F2837; --wash:#1B2331;
+  --loop:#6D98FF; --indep:#F29A4D; --bank:#AEB9CF; --union:#34CDB6; --neg:#FF7F9A; --pos:#34CDB6; --mute:#6F7B91;
+  --gA:#10382F; --gAt:#7FE3CF; --gB:#432A10; --gBt:#F5BD86; --gC:#41212B; --gCt:#FF9DB3; --note:#2E2812; --noteLine:#7A6A2A; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--font);padding-inline:16px;padding-block:20px 80px}
+.wrap{max-width:1200px;margin:0 auto}
+h1,h2,h3,h4{font-family:var(--head);font-weight:600;letter-spacing:.005em;text-wrap:balance;margin:0}
+h1{font-size:clamp(1.7rem,4.2vw,2.5rem);line-height:1.1}
+h2{font-size:1.5rem;line-height:1.2;margin-top:3rem;padding-top:.2rem}
+h3{font-size:1.12rem;line-height:1.3}
+h4{font-size:.86rem;color:var(--muted);font-weight:600;margin:0 0 .4rem;font-family:var(--font)}
+p{margin:.5em 0}
+code,.mono{font-family:var(--mono);font-size:.84em}
+code{background:var(--wash);padding:.08em .35em;border-radius:3px;overflow-wrap:anywhere}
+a{color:var(--loop)}
+.layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:36px;align-items:start}
+.rail{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);max-height:calc(100vh - 40px);overflow:auto;font-size:.84rem;padding-right:6px}
+.rail ol{list-style:none;margin:0;padding:0}
+.rail a{display:block;color:var(--muted);text-decoration:none;padding:3px 0 3px 10px;border-left:2px solid var(--line)}
+.rail a:hover{color:var(--ink);border-left-color:var(--loop)}
+.rail a.sec{font-family:var(--head);font-weight:600;color:var(--ink);margin:14px 0 2px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;border-left:none;padding-left:0}
+@media (max-width:920px){.layout{grid-template-columns:minmax(0,1fr)}.rail{display:none}}
+.meta{color:var(--muted);font-size:.9rem;margin-top:.6rem;max-width:68ch}
+.banner{background:var(--note);border:1px solid var(--noteLine);border-radius:6px;padding:12px 16px;margin:20px 0;max-width:80ch}
+.banner b{font-family:var(--head)}
+/* pipeline */
+.pipe{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:18px 0}
+.pipe div{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;font-size:.86rem;min-width:0}
+.pipe b{display:block;font-family:var(--head);font-size:.95rem;margin-bottom:2px}
+.pipe .llm{border-color:var(--loop)}
+.pipe .nollm{border-color:var(--bank)}
+.pipe small{color:var(--muted);display:block;margin-top:4px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--head);font-weight:500;color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}
+td.n,th.n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.scroll{overflow-x:auto}
+/* decision cards */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px 20px 16px;margin:16px 0;min-width:0}
+.card>header{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.card .num{font-family:var(--mono);font-size:.82rem;color:var(--muted);min-width:2.2em}
+.card h3{flex:1 1 280px}
+.pill{font-family:var(--mono);font-size:.74rem;font-weight:500;padding:2px 8px;border-radius:10px;white-space:nowrap}
+.gA{background:var(--gA);color:var(--gAt)}.gB{background:var(--gB);color:var(--gBt)}.gC{background:var(--gC);color:var(--gCt)}
+.card .decision{color:var(--muted);margin:.5rem 0 .2rem;max-width:90ch}
+.figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px 26px;margin:14px 0 6px}
+figure{margin:0;min-width:0}
+figure h4{margin-bottom:6px}
+.plot{width:100%;min-height:40px}
+.plot svg{display:block;max-width:100%;overflow:visible}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.78rem;color:var(--muted);margin-bottom:4px;min-height:1em}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+figcaption{font-size:.8rem;color:var(--muted);margin-top:4px;max-width:70ch}
+.evidence{max-width:92ch;margin-top:.7rem}
+.limits{font-size:.86rem;color:var(--muted);max-width:92ch}
+.limits b,.src b{font-family:var(--head);font-weight:500;color:var(--ink)}
+.src{font-size:.78rem;color:var(--faint);margin:.5rem 0 0}
+.src code{color:var(--muted)}
+/* svg text and lines, all from tokens */
+svg text{font-family:var(--font);font-size:11.5px;fill:var(--muted)}
+svg text.v{font-family:var(--mono);font-size:11px;fill:var(--ink)}
+svg text.lab{fill:var(--ink);font-size:12px}
+svg text.hd{font-family:var(--head);font-weight:600;fill:var(--ink);font-size:12px}
+svg text.sm{font-size:10.5px;fill:var(--faint)}
+svg .grid{stroke:var(--grid);stroke-width:1}
+svg .axis{stroke:var(--line);stroke-width:1}
+svg .zero{stroke:var(--faint);stroke-width:1;stroke-dasharray:3 3}
+svg .band{fill:var(--wash)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px 22px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.chip{border:1px solid var(--line);background:var(--panel);border-radius:4px;padding:3px 9px;font-size:.82rem}
+.st{font-family:var(--mono);font-size:.74rem;padding:1px 7px;border-radius:10px;background:var(--wash);color:var(--muted);white-space:nowrap}
+.st.run{background:var(--gA);color:var(--gAt)}.st.wait{background:var(--gB);color:var(--gBt)}.st.stop{background:var(--gC);color:var(--gCt)}
+ol.gaps{padding-left:1.2em;max-width:92ch}
+ol.gaps li{margin:.5em 0}
+.toggle{position:fixed;right:max(12px,env(safe-area-inset-right,0px));bottom:max(12px,env(safe-area-inset-bottom,0px));background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:16px;padding:5px 12px;font:inherit;font-size:.8rem;cursor:pointer}
+.toggle:focus-visible,a:focus-visible{outline:2px solid var(--loop);outline-offset:2px}
+</style>
+
+<div class="wrap">
+<div class="layout">
+<nav class="rail" id="rail" aria-label="Sections"></nav>
+<main>
+
+<header>
+  <h4>ALBench-S2F · K562 MPRA · per-size student ensembles</h4>
+  <h1>The search procedure and the evidence for each choice</h1>
+  <p class="meta">What the study does to turn a labelled training set of D sequences into a student ensemble, with every decision followed by the measurements that support it, and everything tried and left out. Written Nov 3, 2026 from the stored results; sources are repository files named under each figure. Source write-up: <code>docs/SEARCH_PROCEDURE_AND_EVIDENCE.md</code>.</p>
+  <div class="banner" id="update">
+    <b>Updated Nov 3, afternoon.</b> The question was whether non-LegNet designs lose because they are weaker or because they were never trained for 200–300 epochs. The stored runs and a partial bake-off both point at the recipe: see <a href="#sec-epochs">Epochs and diversity</a>. It also records a bug in two of my arms (<code>ar40</code>, <code>ia40</code> trained 80 epochs, not 300), now fixed and relaunched as <code>ar41</code> and <code>ln41</code>.
+  </div>
+</header>
+
+<section id="sec-proc">
+<h2 data-nav="The procedure">The procedure at a glance</h2>
+<div class="pipe">
+  <div class="nollm"><b>0 · Data</b>Nested pools or independent replicate pools; oracle_v3 labels; V0c (chr19/21/X) for selection.</div>
+  <div class="nollm"><b>1 · Input standard</b>240 bp = insert + 20 real flank bases each side; shift ±10; reverse-complement augmentation; two-strand average at test.</div>
+  <div class="nollm"><b>2 · Bank (no LLM)</b>Published MPRA-LegNet, per-size recipe, 20 seeds, no early stopping.<small>10k e800 wd 0.4 · 30k e500 wd 0.2 · 100k e500 wd 0.1</small></div>
+  <div class="llm"><b>3 · Loop (LLM)</b>15 rounds × 2 models: propose 6 → coordinate 2 → code → train in harness H3.<small>Sonnet 5.5, V0c feedback, explore 40% then exploit</small></div>
+  <div class="nollm"><b>4 · Ensemble</b>Positive ElasticNetCV on z-scored validation predictions of everything trained.</div>
+</div>
+<div class="card">
+  <h4>Where each size stands (genomic test r, oracle labels, stack)</h4>
+  <div class="scroll"><table>
+    <tr><th>size</th><th class="n">bank</th><th class="n">loop alone</th><th class="n">loop + bank</th><th>what is measured</th></tr>
+    <tr><td>10k</td><td class="n">0.7801</td><td class="n">0.749*</td><td class="n">0.787*</td><td>bank + menu v2 reaches 0.7916 (0.7941 with the menu at 3× epochs). *old harness; H3 runs <span class="st run">running</span></td></tr>
+    <tr><td>30k</td><td class="n">0.8907</td><td class="n">0.8865</td><td class="n">0.8975</td><td>H3 loop, three pools. The menu adds nothing. Long-run and diversity arms <span class="st run">running</span></td></tr>
+    <tr><td>100k</td><td class="n">0.9381</td><td class="n">0.899*</td><td class="n">0.938*</td><td>*old harness. H3 runs <span class="st wait">waiting for H100</span></td></tr>
+  </table></div>
+  <p class="limits">One procedure is validated at all three sizes (the bank). One adds to it at 30k (the H3 loop). The loop's value at 10k and 100k under H3 is not measured yet.</p>
+</div>
+</section>
+
+<section id="sec-dec">
+<h2 data-nav="Decisions and evidence">Decisions and the evidence for each</h2>
+<p class="meta">Grades follow the Oct 30 audit: <span class="pill gA">A</span> paired, several pools or architectures, effect clear of noise · <span class="pill gB">B</span> one pool or size, or inside the noise · <span class="pill gC">C</span> assumed or never tested at that size. Seed noise: SE 0.0013 for one model; a loop run has SD 0.006–0.008 on the stack.</p>
+
+<article class="card" id="d1" data-nav="1 Labels">
+  <header><span class="num">1</span><h3>Train, select and score on oracle_v3 labels; report experimental labels as a second column</h3><span class="pill gA">A</span></header>
+  <p class="decision">Students distil the oracle, so their ordering and gaps are the same against experimental labels but shifted down by about 0.04.</p>
+  <div class="figs"><figure><h4>20-seed bank stack, genomic r</h4><div class="legend"></div><div class="plot" data-chart="labels"></div><figcaption>Oracle labels against measured labels, same students.</figcaption></figure></div>
+  <p class="evidence">Oracle against experiment r = 0.931 on held-out sequences. The gap between label sets is 0.038–0.043 at every size.</p>
+  <p class="limits"><b>Limit</b> Students distil the oracle, which flatters anything that resembles its backbone, so AlphaGenome-based students are baselines only.</p>
+  <p class="src"><b>Sources</b> <code>docs/TUNED_LEGNET.md</code>, <code>docs/per_d_procedure_audit_oct30.md</code></p>
+</article>
+
+<article class="card" id="d2" data-nav="2 Pools">
+  <header><span class="num">2</span><h3>Nested pools for size comparisons; independent replicate pools for every comparison between methods</h3><span class="pill gA">A</span></header>
+  <p class="decision">Three independent pools beat three seeds on one pool in 12 of 12 comparisons.</p>
+  <div class="figs"><figure><h4>Comparisons where independent pools gave the larger effect</h4><div class="plot" data-chart="pools12"></div></figure></div>
+  <p class="evidence">Search-trajectory luck and pool luck are both real: across three pools a loop stack varies by SD 0.0075 (<code>rr39</code>) and 0.0015 (<code>rr40</code>). The Oct 13–14 scaling cells used a separate pool per size, which made the genomic curve flat from 30k to 100k.</p>
+  <p class="src"><b>Sources</b> <code>docs/per_d_procedure_audit_oct30.md</code>, <code>scripts/analysis/compare_legnet_vs_loop.py</code></p>
+</article>
+
+<article class="card" id="d3" data-nav="3 Input standard">
+  <header><span class="num">3</span><h3>Input: 20 real flank bases per side, shift ±10, reverse-complement</h3><span class="pill gA">A</span></header>
+  <p class="decision">Real plasmid sequence around the insert is worth about +0.07 test r. More context adds nothing, and the oracle's own augmentation does not help the students.</p>
+  <div class="figs">
+    <figure><h4>Gain over the bare insert (x: flank bases per side)</h4><div class="plot" data-chart="ctx"></div><figcaption>Paired, 20 menu architectures, genomic 30k. All 18 sets and the SNV effect gain.</figcaption></figure>
+    <figure><h4>Change against the 20-base, ±10 standard</h4><div class="plot" data-chart="shift"></div><figcaption>Bars: ± 1 SE where the source gives one.</figcaption></figure>
+  </div>
+  <p class="evidence">Context saturates at 12–20 bases (+0.069 to +0.075). 200 bases is −0.007 against 20; no shift is −0.012; ±30 is −0.015. Reverse-complement averaging at test time adds +0.014. A sweep at 10k and 100k and a fairness check on ten reservoirs found the same plateau and a rank correlation of 0.86–0.99 with and without context.</p>
+  <p class="limits"><b>Not tested</b> The oracle-style variants were tested only on the menu members; the oracle trains on about 800k sequences and can afford weaker augmentation.</p>
+  <p class="src"><b>Sources</b> <code>docs/STUDY_LOG_OCT29_NOV2.md</code>, <code>docs/MENU.md</code>, <code>scripts/program_oct22/register_fx35b.py</code></p>
+</article>
+
+<article class="card" id="d4" data-nav="4 Bank recipe">
+  <header><span class="num">4</span><h3>The bank's recipe per size: long AdamW one-cycle schedule, no early stopping</h3><span class="pill gA">A</span></header>
+  <p class="decision">The published recipe (100 epochs) is under-trained at these sizes. Smaller data wants more epochs and more weight decay; stopping inside a one-cycle schedule is far worse than running it out.</p>
+  <div class="figs">
+    <figure><h4>Single-model genomic r against epochs</h4><div class="grid2" id="lines3"></div><figcaption>Filled point: the chosen recipe. 5 seeds per arm, the chosen arm 20 seeds. Axes differ by size.</figcaption></figure>
+    <figure><h4>Cost of early stopping with patience 16</h4><div class="legend"></div><div class="plot" data-chart="es"></div><figcaption>Tuned schedule with patience 16 on validation r against the same schedule run out. Five seeds.</figcaption></figure>
+    <figure><h4>20-seed stack: published recipe against tuned</h4><div class="legend"></div><div class="plot" data-chart="bankgain"></div></figure>
+  </div>
+  <p class="evidence">Tuned over published: +0.066 (10k, SE 0.005), +0.024 (30k, SE 0.001), +0.007 (100k). At 30k 200 epochs cost −0.006 and 300 epochs are within 0.002 of 500; weight decay 0.4 is too strong at 30k, and 0.2 hurts at 100k. A one-cycle schedule only anneals in its last third, so the best epoch is always near the end (473 of 500 on average at 30k).</p>
+  <p class="limits"><b>Limits</b> At 10k the gain was still rising at 800 epochs. 300k and larger sizes are not tuned. The chosen arm came from the same sweep it is reported on (margins are 5–10 SE).</p>
+  <p class="src"><b>Sources</b> <code>docs/TUNED_LEGNET.md</code>, <code>scripts/program_oct22/bench33_legnet.py</code>, <code>lr38_*</code> cells</p>
+</article>
+
+<article class="card" id="d5" data-nav="5 Harness H3">
+  <header><span class="num">5</span><h3>Loop harness H3: patience that never cuts a one-cycle schedule, fp16, single-pass reverse-complement augmentation</h3><span class="pill gA">A</span></header>
+  <p class="decision">The loop launcher stopped every model after 8 stagnant epochs, and its reverse-complement consistency loss cost the same LegNet 0.032. Fixing both took the loop from below the bank to within 0.004 of it.</p>
+  <div class="figs">
+    <figure><h4>Models stopped before 90% of their schedule</h4><div class="plot" data-chart="trunc"></div><figcaption>1,498 standard-input loop models, patience 8.</figcaption></figure>
+    <figure><h4>Same LegNet, 30k tuned recipe: single-model genomic r</h4><div class="plot" data-chart="pa39"></div><figcaption>Three seeds each. Harness variants against the native bank trainer.</figcaption></figure>
+    <figure><h4>Loop stack, genomic r, three pools (dots)</h4><div class="legend"></div><div class="plot" data-chart="ladder"></div><figcaption>Bars: mean of three pools. Axis starts at 0.84.</figcaption></figure>
+  </div>
+  <p class="evidence">The patience fix is +0.021 on the stack, the single-pass reverse-complement augmentation another +0.012; the best single model of every <code>rr40</code> and <code>lv40</code> run is 0.871–0.878 (bar 0.86, bank mean single 0.875). Loop plus bank beats the bank for the first time: 0.8975 against 0.8907.</p>
+  <p class="limits"><b>Limit</b> The cause of any remaining gap at 10k and 100k is unknown until those arms finish.</p>
+  <p class="src"><b>Sources</b> <code>docs/LEGNET_VS_LOOP_AND_NEXT_ARMS.md</code>, <code>scripts/program_oct22/register_pa39.py</code>, <code>compare_legnet_vs_loop.py</code></p>
+</article>
+
+<article class="card" id="d6" data-nav="6–10, 13 Loop roles">
+  <header><span class="num">6–10, 13</span><h3>Loop roles and prompt: reference shown from round 0, guidance block, separate coder, coordinator, explore-then-exploit manager, Sonnet 5.5</h3><span class="pill gB">B</span></header>
+  <p class="decision">Each row is one decision's effect on the ensemble's genomic r, paired where possible. Bars are ± 1 SE where the source gives one; ranges are drawn as a thin line.</p>
+  <div class="figs"><figure><div class="plot" data-chart="roles"></div></figure></div>
+  <p class="evidence"><b>6</b> Showing the reference LegNet and its bar from the start is the best prompt arm (the open prompt is −0.017, SE 0.007). <b>7</b> The guidance block is a clear lift (A); the knowledge-base handout was +0.027 in the June harness and +0.008 over five cells now. <b>8–9</b> A separate coder adds +0.005. The coordinator's pick beats a random pick of two by +0.004. <b>10</b> The manager is +0.0062 (SE 0.0032, 4 of 6 pairs) over the coordinator alone: inside the noise of other comparisons. <b>13</b> Opus is +0.0055 (not significant) and has not been tried under H3.</p>
+  <p class="limits"><b>Not tested</b> The reflector adds nothing beyond the coordinator (+0.005 either way). Minimal guidance and harness-assigned recipes (<code>st38</code>) are within noise.</p>
+  <p class="src"><b>Sources</b> <code>docs/per_d_procedure_audit_oct30.md</code>, <code>docs/STUDY_LOG_OCT29_NOV2.md</code>, <code>op38_*</code>, <code>mgr34_*</code></p>
+</article>
+
+<article class="card" id="d11" data-nav="11 Explore fraction">
+  <header><span class="num">11</span><h3>Explore fraction 0.4: the first 6 of 15 rounds explore, the rest exploit</h3><span class="pill gB">B</span></header>
+  <p class="decision">The three other fractions all came out below 0.4. The largest gap (0.2) is 2.6 standard errors, which with three pools (2 degrees of freedom) is p ≈ 0.12; the mixed validation set (<code>vc39</code>, shown on the same axis) is 2.9 SE, p ≈ 0.10.</p>
+  <div class="figs">
+    <figure><h4>Loop stack, genomic r, by pool</h4><div class="plot" data-chart="explore"></div><figcaption>Same three replicate pools in every row; the tick is the mean. Harness H2.</figcaption></figure>
+    <figure><h4>Difference from explore 0.4 (<code>rr39</code>), paired by pool</h4><div class="plot" data-chart="exploreDiff"></div><figcaption>Bars: ± 1 SE of the paired difference, 2 degrees of freedom.</figcaption></figure>
+  </div>
+  <p class="evidence">0.2: −0.016 (SE 0.006); 0.6: −0.010 (0.007); 1.0: −0.004 (0.005); mixed validation: −0.017 (0.006), negative in 3 of 3 pools. If the four fractions were equivalent, the arm picked earlier would come out best by luck 1 time in 4. The pure-exploration arm reaches the same best single models (top-5 mean 0.862 against 0.858). The mixed validation set (B1: 7 synthetic and genomic families) did better on OOD (+0.007) and worse on genomic-like sets, and its validation-to-test rank agreement is the same (0.95 against 0.96) while the winner's regret is larger (0.008 against 0.003).</p>
+  <p class="limits"><b>Not tested</b> Explore fractions under H3 and on further pools; the mechanism behind the mixed-validation loss.</p>
+  <p class="src"><b>Sources</b> <code>outputs/justification_nov3/data_legnet_vs_loop_30k.json</code>, <code>docs/LEGNET_VS_LOOP_AND_NEXT_ARMS.md</code></p>
+</article>
+
+<article class="card" id="d12" data-nav="12 Rounds and proposals">
+  <header><span class="num">12</span><h3>15 rounds × 2 models; 6 ideas per round</h3><span class="pill gA">A</span></header>
+  <p class="decision">Returns fall steeply after the first exploit rounds; more than about five ideas per call adds nothing.</p>
+  <div class="figs">
+    <figure><h4>Share of runs where the round sets a new best validation r</h4><div class="plot" data-chart="newbest"></div><figcaption>21 standard 30k runs. Exploration is rounds 0–5.</figcaption></figure>
+    <figure><h4>Proposal count and cadence</h4><div class="plot" data-chart="cadence"></div></figure>
+  </div>
+  <p class="evidence">The share of rounds with a new best falls from 67% (round 1) to under 30% after round 5 and to near 0–10% late. Rounds 10 to 15 add +0.002 on the stack; 50-round runs (203 models) are no better than 30-model runs. Ten rounds of six proposals beat 60 serial rounds by +0.016, and two proposals per round over 30 rounds was the best cadence.</p>
+  <p class="limits"><b>Running</b> <code>rl40</code>: 30 rounds under H3.</p>
+  <p class="src"><b>Sources</b> <code>docs/LOOP_DIVERSITY_AND_VALIDATION.md</code>, Phase-0 and cadence notes, <code>extract_diversity_funnel.py</code></p>
+</article>
+
+<article class="card" id="d14" data-nav="14 Validation set">
+  <header><span class="num">14</span><h3>V0c (genomic, chr19/21/X) for stopping, selection, proposer feedback and the stack</h3><span class="pill gA">A</span></header>
+  <p class="decision">Validation r ranks the models of a run almost as test r does for genomic-like sets; the selection signal for OOD and the GC sweep is weak.</p>
+  <div class="figs">
+    <figure><h4>Spearman: validation r against genomic test r</h4><div class="legend"></div><div class="plot" data-chart="spearman"></div><figcaption>Across the 30 models of a run, mean of three pools. Top 10 is where selection happens.</figcaption></figure>
+    <figure><h4>Rank agreement by evaluation set (among the best 10)</h4><div class="plot" data-chart="agreeSets"></div></figure>
+  </div>
+  <p class="evidence">The validation winners sit +0.0023 (SE 0.0006) above the line fitted on the other models: no winner's curse. Regret of taking the validation winner: 0.002 on genomic, 0.019 on OOD, 0.025 on the GC sweep. Mixed validation sets help the menu stack by +0.0005 to +0.0016 and OOD by +0.008 (V3, 6 of 6 pairs) when only the stack weights use them; inside the loop (<code>vc39</code>) they cost 0.012 on the mean of 18 sets.</p>
+  <p class="src"><b>Sources</b> <code>docs/LOOP_DIVERSITY_AND_VALIDATION.md</code>, <code>data_diversity_funnel_30k.json</code></p>
+</article>
+
+<article class="card" id="d15" data-nav="15 Stack">
+  <header><span class="num">15</span><h3>Positive ElasticNetCV stack over everything trained</h3><span class="pill gA">A</span></header>
+  <p class="decision">Weights fitted on validation predictions, members with weight zero unused. It ties greedy selection and beats the plain mean.</p>
+  <div class="figs"><figure><h4>Ensemble construction, change in genomic r</h4><div class="plot" data-chart="stack"></div></figure></div>
+  <p class="evidence">The stack beats the plain mean by 0.002–0.018 over 12 cells. Greedy K = 5 is 0.01 lower. Uncertainty weighting and diversity-aware (DPP) selection give 0.0000. Dropping the bottom members costs at most 0.0001 when chosen by retrained validation r, because the positive stack already zero-weights them.</p>
+  <p class="src"><b>Sources</b> Oct 15 ensemble-method study, <code>albench/ensemble/stack.py</code></p>
+</article>
+
+<article class="card" id="d16" data-nav="16 Bank + loop">
+  <header><span class="num">16</span><h3>Pool the bank and the loop's models in one stack</h3><span class="pill gB">B</span></header>
+  <p class="decision">Where the loop's models are good, they add to the bank. Where they are not (old harness, 100k), the stack ignores them.</p>
+  <div class="figs"><figure><h4>Genomic stack r by size</h4><div class="legend"></div><div class="plot" data-chart="union"></div><figcaption>Faded bars: old harness (patience 8); 30k is harness H3. The axis does not start at zero.</figcaption></figure></div>
+  <p class="evidence">30k under H3: loop + bank 0.8975 / OOD 0.420 / mean of 18 0.8615 against the bank's 0.8907 / 0.422 / 0.853. Per pool the union is 0.8986, 0.8970, 0.8969 (<code>rr40</code>) and 0.8973, 0.8980, 0.8971 (<code>lv40</code>), always above the bank. At 10k (old harness) the union adds +0.007; at 100k it adds nothing.</p>
+  <p class="limits"><b>Not tested</b> The 10k and 100k H3 loops (<span class="st run">running</span>).</p>
+  <p class="src"><b>Sources</b> <code>docs/LEGNET_VS_LOOP_AND_NEXT_ARMS.md</code>, <code>compare_legnet_vs_loop.py</code></p>
+</article>
+
+<article class="card" id="d17" data-nav="17 Frozen menu">
+  <header><span class="num">17</span><h3>The frozen menu is used only at 10k</h3><span class="pill gA">A</span></header>
+  <p class="decision">The menu beats bespoke per-strategy searches in 20 of 20 cells, but a 20-seed tuned LegNet matches or beats it from 30k up.</p>
+  <div class="figs">
+    <figure><h4>Genomic stack r by size</h4><div class="legend"></div><div class="plot" data-chart="menu"></div></figure>
+    <figure><h4>Scaling exponent b in (1 − r) ∼ D<sup>−b</sup>, 10k to 100k</h4><div class="plot" data-chart="expo"></div><figcaption>Single models. A flatter exponent means falling behind as data grows.</figcaption></figure>
+  </div>
+  <p class="evidence">Menu v2 starts ahead at 10k (0.7846 against 0.7801) and falls behind from 20–30k. Menu plus bank adds +0.012 to +0.014 at 10k and 0.0001 at 30k. The menu's members are not under-trained (3× epochs, patience off: +0.001 ± 0.004 at 10k, +0.001 ± 0.003 at 30k); capacity is not the cause (1.18M against 1.32M parameters).</p>
+  <p class="src"><b>Sources</b> <code>docs/TUNED_LEGNET.md</code>, <code>docs/MENU.md</code>, <code>docs/LEGNET_VS_LOOP_AND_NEXT_ARMS.md</code> §2</p>
+</article>
+
+<article class="card" id="d18" data-nav="18 Number of models">
+  <header><span class="num">18</span><h3>How many models: 20 bank seeds, 30 loop models, menu K = 20–30 at 10k</h3><span class="pill gB">B</span></header>
+  <p class="decision">At 30k and 100k about ten different architectures reach the full menu; 10k still gains at 20.</p>
+  <div class="figs"><figure><h4>Loss against the full menu (8-member mean), genomic r</h4><div class="legend"></div><div class="plot" data-chart="kcurve"></div></figure></div>
+  <p class="evidence">Extra seeds of the best three configurations add only +0.001 to +0.002, so distinct configurations are worth more than more seeds. The non-negative stack is a further 0.001–0.003 above the 8-member mean.</p>
+  <p class="src"><b>Sources</b> <code>docs/MENU.md</code> (K curve)</p>
+</article>
+</section>
+
+<section id="sec-epochs">
+<h2 data-nav="Epochs and diversity">Epochs and diversity: do non-LegNet designs lose because they train too briefly?</h2>
+<p class="meta">Measured on the finished standard 30k loop runs plus a recipe-matched bake-off that is still running. Stage counts (proposed, picked) use all 21 runs; figures of validation r use the 18 runs validated on V0c (540 models; the mixed-validation arm has a different validation set). Genomic test r is reported but never used to choose anything.</p>
+
+<article class="card" id="e1" data-nav="Which designs train how long">
+  <header><h3>The loop gave LegNet descendants the long schedules and everything else the short ones</h3></header>
+  <p class="decision">Only 1 of 113 independent designs ever trained for 200 epochs or more, against 209 of 427 LegNet-named designs. LegNet-named models trained under 100 epochs average 0.840 validation r, against 0.882 for those trained 200 or more.</p>
+  <div class="figs">
+    <figure style="grid-column:1/-1"><h4>Validation r against epochs trained, every model</h4><div class="legend"></div><div class="plot" data-chart="scatter" style="min-height:360px"></div><figcaption>Circles: models from the loop runs (explore and exploit phases together). Diamonds: the best independent designs retrained in the bake-off with an AdamW one-cycle recipe of 300 epochs (partial: one or two models per design so far). Horizontal axis is logarithmic.</figcaption></figure>
+  </div>
+  <p class="evidence">Independent designs trained a median of 58 epochs with AdamW batch 128 or Muon batch 256; LegNet-named ones a median of 150 with AdamW batch 512–1024. At equal short training (under 100 epochs) the gap is 0.045 (0.840 against 0.795); at 300 epochs in the bake-off most independent designs reach 0.89–0.90 validation r (partial; see the table below), against 0.905–0.909 for the plain LegNet variants.</p>
+  <p class="src"><b>Sources</b> <code>data_diversity_funnel_30k.json</code> (<code>extract_diversity_funnel.py</code>), <code>outputs/menu_retrain_v0/bake_*_30k</code></p>
+</article>
+
+<article class="card" id="e2" data-nav="Recipe-matched bake-off">
+  <header><h3>Recipe-matched bake-off: the same designs under three recipes</h3><span class="pill gB">partial</span></header>
+  <p class="decision">The 8 best independent designs, the 4 best LegNet hybrids and the 2 best plain LegNet variants from the earlier runs, retrained at 30k under harness H3 with their own recipe (full schedule), the tuned LegNet recipe (AdamW 0.01, wd 0.2, batch 1024, 300 epochs) and a gentler one (AdamW 0.003, wd 0.1, batch 512, 300 epochs).</p>
+  <div class="figs">
+    <figure><h4>Validation r</h4><div class="legend"></div><div class="plot" data-chart="slopeVal"></div></figure>
+    <figure><h4>Genomic test r (reporting only)</h4><div class="plot" data-chart="slopeTest"></div></figure>
+  </div>
+  <div class="scroll" id="bakeTable"></div>
+  <p class="evidence" id="bakeNote"></p>
+  <p class="limits"><b>Read with care</b> One or two models per cell so far; one design diverged at lr 0.01 and trained fine at the gentler recipe, so the best recipe for non-LegNet designs may not be the LegNet one. Full results follow when the 21 jobs finish.</p>
+  <p class="src"><b>Sources</b> <code>scripts/program_oct22/register_nov3c.py</code>, <code>outputs/justification_nov3/bake_partial.json</code></p>
+</article>
+
+<article class="card" id="e3" data-nav="Earlier epoch tests">
+  <header><h3>The earlier tests with longer schedules</h3></header>
+  <p class="decision">Three earlier experiments looked at training longer or with the LegNet recipe. They varied different things, which is why they disagree.</p>
+  <div class="figs"><figure><div class="plot" data-chart="epochTests"></div></figure></div>
+  <p class="evidence"><b>Menu members at 3× epochs, patience off</b> (their own Muon recipe, 60–80 → 180–240 epochs): no change, so the menu is not under-trained on its own recipe. <b>LegNet's 100-epoch recipe on menu and the collaborator's members:</b> −0.02 to −0.07, but 100 epochs is itself under-trained at 30k (+0.024 from the tuned recipe). <b>Bake-off, long AdamW one-cycle:</b> the first test that gives non-LegNet designs the combination LegNet needs. The step counts are similar (bs 256 × 70 epochs ≈ 8.2k steps; bs 1024 × 300 ≈ 8.8k), so the gain in the bake-off is not simply more updates: the large-batch AdamW recipe with weight decay and many augmented passes is what changes.</p>
+  <p class="src"><b>Sources</b> <code>ep38_*</code>, <code>tr38_*</code>, <code>docs/TUNED_LEGNET.md</code></p>
+</article>
+
+<article class="card" id="e4" data-nav="Where diversity is lost">
+  <header><h3>The funnel: proposed, picked, trained, weighted, refined</h3></header>
+  <p class="decision">Designs that do not name the LegNet trunk are proposed in the explore phase and picked at the same rate as the others. They are lost afterwards.</p>
+  <div class="figs">
+    <figure><h4>Share of proposals and of trained models that are independent (21 runs)</h4><div class="legend"></div><div class="plot" data-chart="funnel"></div></figure>
+    <figure><h4>Pick rate by the coordinator (21 runs)</h4><div class="legend"></div><div class="plot" data-chart="pick"></div><figcaption>Two of six are picked, so chance is 33%.</figcaption></figure>
+    <figure><h4>Best validation r so far, by round</h4><div class="legend"></div><div class="plot" data-chart="traj"></div><figcaption>Mean over 18 V0c-validated runs. Shaded: exploration.</figcaption></figure>
+    <figure><h4>Share of the final stack weight</h4><div class="plot" data-chart="weights"></div><figcaption>All 18 runs; mechanism from the model's source code.</figcaption></figure>
+  </div>
+  <p class="evidence">The coordinator is neutral: 35% against 32% in the explore rounds, 30% against 33% in the exploit rounds. The exploit incumbent is always the global best, which is a LegNet descendant, so 91% of exploit proposals build on it and the best independent design's best-so-far validation r is unchanged from round 5 to the end of the run in 19 of 21 runs. Diversity that reaches the stack is a BiGRU, attention or U-Net part on the LegNet trunk (16%, 9% and 3% of the weight); independent trunks hold 1%.</p>
+  <p class="limits"><b>Caveat</b> "Independent" is judged from the design text (no mention of LegNet or <code>EffBlock</code>); no such model contains <code>EffBlock</code> in its code, but token similarity to the reference is not informative (median 0.13), so a text flag is the best available.</p>
+  <p class="src"><b>Sources</b> <code>docs/DIVERSITY_FUNNEL_NOV3.md</code>, <code>data_diversity_funnel_30k.json</code></p>
+</article>
+
+<article class="card" id="e5" data-nav="What is running">
+  <header><h3>Arms testing it, and a correction</h3></header>
+  <div class="scroll"><table>
+    <tr><th>arm</th><th>change</th><th>question</th><th>status</th></tr>
+    <tr><td><code>bake_{own,tuned,mid}_30k</code></td><td>best independent and hybrid designs, retrained under three recipes</td><td>recipe or design?</td><td><span class="st run">partial</span></td></tr>
+    <tr><td><code>ar41_30k</code> ×3</td><td>standard schedule, every model on the tuned 300-epoch recipe</td><td>does the long recipe alone raise non-LegNet designs in the loop?</td><td><span class="st run">running</span> 2 of 3 pools started</td></tr>
+    <tr><td><code>ln41_30k</code> ×3</td><td><b>lanes</b>: each round trains one LegNet-trunk model and one independent-trunk model, both on the tuned recipe</td><td>does a guaranteed independent lane produce near-optimal, useful members?</td><td><span class="st run">running</span> 2 of 3 pools started</td></tr>
+    <tr><td><code>is40_30k</code> ×3</td><td>islands: exploit rounds alternate between the best model overall and the best of another family</td><td>does refining non-leaders help?</td><td><span class="st run">running</span></td></tr>
+    <tr><td><code>qt40_30k</code> ×3</td><td>quota: one explore model every round</td><td>does forced exploration add members?</td><td><span class="st run">running</span></td></tr>
+    <tr><td><code>ar40</code>, <code>ia40</code> ×3 each</td><td>meant to use the tuned recipe</td><td>—</td><td><span class="st stop">retired</span></td></tr>
+  </table></div>
+  <div class="banner"><b>Correction.</b> <code>ar40</code> and <code>ia40</code> were registered as "every model trains with the tuned 300-epoch recipe", but the loop overwrote that setting with the harness's own Muon recipe, so their models requested 80 epochs (below). I checked the plan files, which looked right, and never the epochs actually trained. Fixed in <code>agent_loop.py</code>: the mode is kept, and a guard now refuses to train any model whose recipe differs from the one asked for. The six cells were stopped and relaunched as <code>ar41</code> and <code>ln41</code>.</div>
+  <div class="figs"><figure><h4>Epochs requested per model, by arm</h4><div class="legend"></div><div class="plot" data-chart="incident"></div><figcaption>Mean over the models trained so far (rounds 0–7). <code>rr40</code> by GPU type.</figcaption></figure></div>
+</article>
+</section>
+
+<section id="sec-tried">
+<h2 data-nav="Tried and not included">Tried and not included</h2>
+<article class="card">
+  <p class="decision">Change in genomic test r (stack or paired model difference as the source reports it). Bars: ± 1 SE where available; thin lines are ranges.</p>
+  <div class="figs"><figure style="grid-column:1/-1"><div class="plot" data-chart="dropped"></div></figure></div>
+  <h4>Also tried, not quantified as a single number</h4>
+  <ul class="limits" style="max-width:96ch">
+    <li><b>AlphaGenome-FT students as members.</b> S2 stack 0.952 / 0.963 (10k / 30k) against oracle labels, 0.907 / 0.917 against measured labels, against 0.78 / 0.89 for the bank. Reported as baseline and ceiling only: the encoder carries outside knowledge and is close to the oracle's backbone.</li>
+    <li><b>EvoAug</b> as a student augmentation and in the proposable surface: removed (338 models lost to a regression, and confounded with the reservoir of the same name); never tested cleanly.</li>
+    <li><b>The collaborator's open-world architectures</b> re-implemented: 0.843 single at 30k (stated 0.852–0.855); below the tuned LegNet at every size, best at 10k.</li>
+    <li><b>Explore-style prompt, quota manager, harness-assigned recipes, minimal guidance:</b> within noise. <b>Fallback manager:</b> −0.005 (SE 0.012).</li>
+    <li><b>The June <code>diverse</code> proposer</b> (propose complementary members): +0.017 over three seeds in the older harness; not in the current loop, where only the coordinator sees the stack.</li>
+    <li><b>Per-size proposal schedules, knee-based stopping:</b> gaps against a uniform schedule were trajectory luck; knee stopping is off by default.</li>
+  </ul>
+  <p class="src"><b>Sources</b> <code>docs/STUDY_LOG_OCT29_NOV2.md</code>, <code>docs/per_d_procedure_audit_oct30.md</code>, <code>docs/LEGNET_VS_LOOP_AND_NEXT_ARMS.md</code></p>
+</article>
+</section>
+
+<section id="sec-next">
+<h2 data-nav="What would add evidence">What would add evidence, in order</h2>
+<ol class="gaps">
+  <li><b>Does an independent family reach rough optimality when trained like LegNet?</b> <span class="st run">running</span> bake-off, <code>ar41</code>, <code>ln41</code>, <code>is40</code>. Rule: within 0.01 validation r of the best LegNet-derived member under the matched recipe, and useful if adding it raises the stack by more than 0.003.</li>
+  <li><b>The loop at 10k and 100k under H3.</b> <span class="st run">running</span> / <span class="st wait">waiting for H100</span>.</li>
+  <li><b>Explore fraction and mixed validation under H3 on more pools.</b> Both current results are three pools under H2.</li>
+  <li><b>Loss function.</b> Everything is MSE although the score is Pearson r; Huber, correlation and rank losses were never compared. <span class="st">not started</span></li>
+  <li><b>Give the proposer the ensemble signal</b> (stack weights and member correlation; today only the coordinator sees them). <span class="st">not started</span></li>
+  <li><b>Several strong, different references in the prompt</b>, once the collaborator's best non-LegNet designs are retrained at their own best. <span class="st">not started</span></li>
+  <li><b>Equal-compute comparison</b> of "search per size and keep the best trained models" against a frozen menu. <span class="st">not started</span></li>
+  <li><b>Recipe sweeps for non-LegNet families at each size.</b> The bake-off is the first step at 30k.</li>
+  <li><b>A noise ceiling</b> from replicate-replicate r of the experimental data, and the SNV-effect encoder fix (indels are left-aligned in loop and menu encoders, centre-padded in the bank).</li>
+  <li><b>300k and larger sizes</b> are untuned for both the bank and the loop.</li>
+</ol>
+</section>
+
+<p class="src" style="margin-top:3rem">Generated from stored results by <code>scripts/analysis/evidence_page/build_evidence_page.py</code>.</p>
+</main>
+</div>
+</div>
+<button class="toggle" id="themeBtn" type="button" aria-label="Switch colour theme">theme</button>
+
+<script>
+const DATA = /*__DATA__*/{};
+(function(){
+'use strict';
+const NS='http://www.w3.org/2000/svg';
+const css=n=>'var(--'+n+')';
+function el(tag,attrs,kids){const n=document.createElementNS(NS,tag);if(attrs)for(const k in attrs){if(attrs[k]!=null)n.setAttribute(k,attrs[k]);}
+  [].concat(kids==null?[]:kids).forEach(c=>{if(c==null)return;n.appendChild(typeof c==='string'?document.createTextNode(c):c);});return n;}
+function tx(x,y,s,cls,anchor,extra){const lines=String(s).split('\n');const t=el('text',Object.assign({x,y,class:cls||'',}, anchor?{'text-anchor':anchor}:{}, extra||{}));
+  if(lines.length===1){t.textContent=lines[0];}else{lines.forEach((l,i)=>{const sp=el('tspan',{x,dy:i===0?0:14},l);t.appendChild(sp);});}return t;}
+const lin=(d0,d1,r0,r1)=>v=>r0+(v-d0)/(d1-d0)*(r1-r0);
+function niceTicks(lo,hi,n){const span=hi-lo,raw=span/(n||5),p=Math.pow(10,Math.floor(Math.log10(raw))),f=raw/p,step=(f<1.5?1:f<3?2:f<7?5:10)*p;const out=[];for(let v=Math.ceil(lo/step-1e-9)*step;v<=hi+1e-9;v+=step)out.push(+v.toFixed(10));return {ticks:out,step};}
+const decOf=step=>Math.max(0,-Math.floor(Math.log10(step)+1e-9));
+function frame(host,h,m){const W=Math.max(240,Math.floor(host.clientWidth||host.getBoundingClientRect().width||560));const svg=el('svg',{width:W,height:h,viewBox:'0 0 '+W+' '+h,role:'img'});host.replaceChildren(svg);
+  const g=el('g',{transform:'translate('+m.l+','+m.t+')'});svg.appendChild(g);return {svg,g,W,H:h,iw:W-m.l-m.r,ih:h-m.t-m.b};}
+const sign=v=>v>0?'+':v<0?'−':'';
+const r3=v=>v.toFixed(3).replace(/^0\./,'.'),r2=v=>v.toFixed(2).replace(/^0\./,'.'),r4=v=>v.toFixed(4).replace(/^0\./,'.');
+const fs=(v,d)=>sign(v)+Math.abs(v).toFixed(d);
+function setLegend(host,items){const lg=host.parentElement.querySelector('.legend');if(!lg||!items)return;lg.replaceChildren();items.forEach(it=>{const s=document.createElement('span');const i=document.createElement('i');i.style.background=css(it.c);s.appendChild(i);s.appendChild(document.createTextNode(it.n));lg.appendChild(s);});}
+function yGrid(g,y,lo,hi,iw,nt,fmt){const {ticks,step}=niceTicks(lo,hi,nt);const d=decOf(step);ticks.forEach(t=>{g.appendChild(el('line',{x1:0,x2:iw,y1:y(t),y2:y(t),class:'grid'}));g.appendChild(tx(-8,y(t)+4,fmt?fmt(t):t.toFixed(d),'',  'end'));});}
+function xGrid(g,x,lo,hi,ih,nt,fmt,ticksOverride){const nt2=ticksOverride?{ticks:ticksOverride,step:1}:niceTicks(lo,hi,nt);const d=decOf(nt2.step);nt2.ticks.forEach(t=>{g.appendChild(el('line',{x1:x(t),x2:x(t),y1:0,y2:ih,class:'grid'}));g.appendChild(tx(x(t),ih+16,fmt?fmt(t):t.toFixed(d),'sm','middle'));});}
+
+const charts={};
+/* grouped vertical bars. o: cats[], series[{n,c,v[],err[]}], lo,hi,base,fmt,vfmt,h,nt */
+charts.bars=function(host,o){const m={l:o.ml||46,r:10,t:16,b:o.bh||36};const F=frame(host,o.h||240,m);const {g,iw,ih}=F;const y=lin(o.lo,o.hi,ih,0);yGrid(g,y,o.lo,o.hi,iw,o.nt||5,o.yfmt);
+  const base=y(o.base==null?o.lo:o.base);const ns=o.series.length,gw=iw/o.cats.length,bw=Math.min(o.maxbw||44,gw*0.76/ns);
+  o.cats.forEach((c,i)=>{const x0=i*gw+(gw-bw*ns)/2;o.series.forEach((s,j)=>{const v=s.v[i];if(v==null)return;const x=x0+j*bw,yy=y(Math.max(Math.min(v,o.hi),o.lo));
+    const rect=el('rect',{x:x+1,width:Math.max(1,bw-2),y:Math.min(yy,base),height:Math.max(1,Math.abs(base-yy)),style:'fill:'+css(s.c),opacity:(s.alphas?s.alphas[i]:s.alpha)||1,rx:1.5},[el('title',null,s.n+' · '+c+': '+(o.vfmt?o.vfmt(v):v))]);g.appendChild(rect);
+    if(s.err&&s.err[i]!=null){g.appendChild(el('line',{x1:x+bw/2,x2:x+bw/2,y1:y(v-s.err[i]),y2:y(v+s.err[i]),style:'stroke:'+css('ink'),'stroke-width':1.2}));}
+    g.appendChild(tx(x+bw/2,(v>=(o.base||o.lo)?yy-5:yy+13),o.vfmt?o.vfmt(v):v,'v','middle'));});
+    g.appendChild(tx(i*gw+gw/2,ih+16,c,'lab','middle'));});
+  g.appendChild(el('line',{x1:0,x2:iw,y1:base,y2:base,class:'axis'}));setLegend(host,o.series.length>1?o.series.map(s=>({n:s.n,c:s.c})):null);};
+/* horizontal bars with optional dots per row. o: rows[{l,v,c,dots[],note}], lo,hi,fmt */
+charts.hbars=function(host,o){const rh=o.rh||30,lw=o.lw||Math.min(190,Math.max(110,host.clientWidth*0.36));const m={l:lw,r:62,t:6,b:26};const F=frame(host,m.t+m.b+rh*o.rows.length,m);const {g,iw,ih}=F;const x=lin(o.lo,o.hi,0,iw);
+  xGrid(g,x,o.lo,o.hi,ih,o.nt||4,o.xfmt);
+  o.rows.forEach((r,i)=>{const cy=i*rh+rh/2;g.appendChild(tx(-8,cy+4-(String(r.l).split('\n').length-1)*7,r.l,'lab','end'));
+    g.appendChild(el('rect',{x:0,y:cy-rh*0.3,width:Math.max(1,x(Math.min(r.v,o.hi))-0),height:rh*0.6,style:'fill:'+css(r.c||'loop'),rx:1.5},[el('title',null,r.l+': '+(o.fmt?o.fmt(r.v):r.v))]));
+    (r.dots||[]).forEach(d=>g.appendChild(el('circle',{cx:x(d),cy,r:3.2,style:'fill:'+css('panel')+';stroke:'+css('ink'),'stroke-width':1.2},[el('title',null,String(d))])));
+    g.appendChild(tx(iw+8,cy+4,o.fmt?o.fmt(r.v):r.v,'v','start'));});
+  g.appendChild(el('line',{x1:0,x2:0,y1:0,y2:ih,class:'axis'}));};
+/* forest. o: rows[{h|l,est,se,lo,hi,c,txt}], dom[a,b],d (decimals) */
+charts.forest=function(host,o){const rh=o.rh||28,W0=host.clientWidth||560,lw=o.lw||Math.min(230,Math.max(120,W0*0.36)),compact=W0<520,m={l:lw,r:compact?58:(W0>860?168:132),t:6,b:26};
+  const F=frame(host,m.t+m.b+rh*o.rows.length,m);const {g,iw,ih}=F;const x=lin(o.dom[0],o.dom[1],0,iw);const d=o.d==null?3:o.d;
+  xGrid(g,x,o.dom[0],o.dom[1],ih,o.nt||6,v=>fs(v,decOf(niceTicks(o.dom[0],o.dom[1],o.nt||6).step)));
+  g.appendChild(el('line',{x1:x(0),x2:x(0),y1:0,y2:ih,class:'zero'}));
+  o.rows.forEach((r,i)=>{const cy=i*rh+rh/2;if(r.h){g.appendChild(tx(-lw+4,cy+4,r.h,'hd','start'));return;}
+    g.appendChild(tx(-8,cy+4,r.l,'lab','end'));const col=r.c||(Math.abs(r.est)<0.0015?'mute':r.est>0?'pos':'neg');
+    if(r.se!=null)g.appendChild(el('line',{x1:x(r.est-r.se),x2:x(r.est+r.se),y1:cy,y2:cy,style:'stroke:'+css(col),'stroke-width':6,opacity:.4,'stroke-linecap':'round'}));
+    if(r.lo!=null){g.appendChild(el('line',{x1:x(r.lo),x2:x(r.hi),y1:cy,y2:cy,style:'stroke:'+css(col),'stroke-width':1.6}));[r.lo,r.hi].forEach(e=>g.appendChild(el('line',{x1:x(e),x2:x(e),y1:cy-4,y2:cy+4,style:'stroke:'+css(col),'stroke-width':1.6})));}
+    g.appendChild(el('circle',{cx:x(r.est),cy,r:4.2,style:'fill:'+css(col)},[el('title',null,r.l+': '+(r.txt||fs(r.est,d)))]));
+    const dd=r.d==null?d:r.d;g.appendChild(tx(iw+8,cy+4,compact?(r.txt&&r.txt.length<9?r.txt:fs(r.est,dd)):(r.txt||(fs(r.est,dd)+(r.se!=null?' ± '+r.se.toFixed(dd):''))),'v','start'));});};
+/* strip/dots. o: rows[{l,vals[],c,mean}], lo,hi,d */
+charts.dots=function(host,o){const rh=o.rh||34,lw=Math.min(170,Math.max(100,host.clientWidth*0.3)),m={l:lw,r:14,t:6,b:26};const F=frame(host,m.t+m.b+rh*o.rows.length,m);const {g,iw,ih}=F;const x=lin(o.lo,o.hi,0,iw);
+  xGrid(g,x,o.lo,o.hi,ih,o.nt||5);
+  o.rows.forEach((r,i)=>{const cy=i*rh+rh/2;g.appendChild(tx(-8,cy+4,r.l,'lab','end'));const mean=r.vals.reduce((a,b)=>a+b,0)/r.vals.length;
+    g.appendChild(el('line',{x1:Math.min(x(Math.min(...r.vals)),x(mean)),x2:Math.max(x(Math.max(...r.vals)),x(mean)),y1:cy,y2:cy,style:'stroke:'+css('line'),'stroke-width':2}));
+    r.vals.forEach((v,k)=>g.appendChild(el('circle',{cx:x(v),cy,r:4.4,style:'fill:'+css(r.c||'loop'),opacity:.75},[el('title',null,r.l+' pool '+(k+1)+': '+v.toFixed(4))])));
+    g.appendChild(el('line',{x1:x(mean),x2:x(mean),y1:cy-9,y2:cy+9,style:'stroke:'+css('ink'),'stroke-width':2.2},[el('title',null,'mean '+mean.toFixed(4))]));});};
+/* lines. o: series[{n,c,pts,dash,mark}],xlo,xhi,ylo,yhi,xticks,xfmt,yfmt,bands */
+charts.lines=function(host,o){const m={l:o.ml||46,r:o.mr||12,t:o.mt||14,b:30};const F=frame(host,o.h||220,m);const {g,iw,ih}=F;const x=o.xlog?(v=>lin(Math.log(o.xlo),Math.log(o.xhi),0,iw)(Math.log(v))):lin(o.xlo,o.xhi,0,iw),y=lin(o.ylo,o.yhi,ih,0);
+  (o.bands||[]).forEach(b=>{g.appendChild(el('rect',{x:x(b.x0),width:x(b.x1)-x(b.x0),y:0,height:ih,class:'band'}));if(b.l)g.appendChild(tx(x(b.x0)+4,11,b.l,'sm','start'));});
+  yGrid(g,y,o.ylo,o.yhi,iw,o.nt||4,o.yfmt);
+  (o.xticks||niceTicks(o.xlo,o.xhi,5).ticks).forEach(t=>{g.appendChild(el('line',{x1:x(t),x2:x(t),y1:ih,y2:ih+4,class:'axis'}));g.appendChild(tx(x(t),ih+17,o.xfmt?o.xfmt(t):t,'sm','middle'));});
+  g.appendChild(el('line',{x1:0,x2:iw,y1:ih,y2:ih,class:'axis'}));
+  o.series.forEach(s=>{const pts=s.pts.filter(p=>p[1]!=null);g.appendChild(el('polyline',{points:pts.map(p=>x(p[0])+','+y(p[1])).join(' '),fill:'none',style:'stroke:'+css(s.c),'stroke-width':s.w||2,'stroke-dasharray':s.dash||null,'stroke-linejoin':'round'}));
+    if(s.mark!==false)pts.forEach(p=>g.appendChild(el('circle',{cx:x(p[0]),cy:y(p[1]),r:s.hl&&s.hl.includes(p[0])?5:3,style:'fill:'+(s.hl&&s.hl.includes(p[0])?css(s.c):css('panel'))+';stroke:'+css(s.c),'stroke-width':1.6},[el('title',null,(o.xfmt?o.xfmt(p[0]):p[0])+': '+(o.yfmt?o.yfmt(p[1]):p[1].toFixed(4)))])));});
+  if(o.title)F.svg.appendChild(tx(m.l,10,o.title,'hd','start'));};
+/* scatter. o: groups[{n,c,pts,r,alpha,shape}] */
+charts.scatter=function(host,o){const m={l:46,r:14,t:12,b:36};const F=frame(host,o.h||340,m);const {g,iw,ih}=F;const x=lin(Math.log(o.xlo),Math.log(o.xhi),0,iw),X=v=>x(Math.log(v)),y=lin(o.ylo,o.yhi,ih,0);
+  yGrid(g,y,o.ylo,o.yhi,iw,5);[10,20,50,100,200,300,500].filter(t=>t>=o.xlo&&t<=o.xhi).forEach(t=>{g.appendChild(el('line',{x1:X(t),x2:X(t),y1:0,y2:ih,class:'grid'}));g.appendChild(tx(X(t),ih+16,t,'sm','middle'));});
+  g.appendChild(tx(iw/2,ih+31,'epochs trained (log scale)','sm','middle'));g.appendChild(el('line',{x1:0,x2:iw,y1:ih,y2:ih,class:'axis'}));
+  o.groups.forEach(gr=>gr.pts.forEach(p=>{const cx=X(Math.max(o.xlo,Math.min(o.xhi,p[0]))),cy=y(Math.max(o.ylo,Math.min(o.yhi,p[1])));
+    const node=gr.shape==='diamond'?el('path',{d:'M'+cx+' '+(cy-6)+' L'+(cx+6)+' '+cy+' L'+cx+' '+(cy+6)+' L'+(cx-6)+' '+cy+' Z',style:'fill:'+css(gr.c)+';stroke:'+css('panel'),'stroke-width':1.2},[el('title',null,(p[2]||gr.n)+': '+p[0]+' epochs, val '+p[1].toFixed(4))])
+      :el('circle',{cx,cy,r:gr.r||3,style:'fill:'+css(gr.c),opacity:gr.alpha||.55},[el('title',null,gr.n+': '+p[0]+' epochs, val '+p[1].toFixed(4))]);g.appendChild(node);}));
+  setLegend(host,o.groups.map(s=>({n:s.n,c:s.c})));};
+/* slope across columns. o: cols[], rows[{l,c,vals[]}], lo,hi */
+charts.slope=function(host,o){const m={l:44,r:14,t:16,b:44};const F=frame(host,o.h||300,m);const {g,iw,ih}=F;const y=lin(o.lo,o.hi,ih,0),x=i=>(i+.5)*iw/o.cols.length;yGrid(g,y,o.lo,o.hi,iw,5);
+  o.cols.forEach((c,i)=>g.appendChild(tx(x(i),ih+15,c,'sm','middle')));
+  o.rows.forEach(r=>{const pts=r.vals.map((v,i)=>v==null?null:[x(i),y(v),i,v]).filter(Boolean);
+    g.appendChild(el('polyline',{points:pts.map(p=>p[0]+','+p[1]).join(' '),fill:'none',style:'stroke:'+css(r.c),'stroke-width':1.5,opacity:.65}));
+    pts.forEach(p=>g.appendChild(el('circle',{cx:p[0],cy:p[1],r:3.6,style:'fill:'+css(r.c)},[el('title',null,r.l+' · '+o.cols[p[2]]+': '+p[3].toFixed(4))])));});};
+
+/* ---------------------------------------------------------------- chart definitions */
+const K={
+ labels:{oracle:[0.7801,0.8907,0.9381],measured:[0.7421,0.8487,0.8953]},
+ ctx:{cats:['4','8','12','20','60','100','200'],v:[0.049,0.065,0.069,0.075,0.071,0.073,0.063]},
+ epochs:{ // docs/TUNED_LEGNET.md epoch tables (single-model genomic r)
+  '10k':{ylo:0.68,yhi:0.77,pts:[[150,0.7191],[200,0.7374],[300,0.7460],[500,0.7508],[800,0.7557]],pub:[[100,0.6891]],hl:[800],note:'wd 0.4 (e100: wd 0.1)'},
+  '30k':{ylo:0.84,yhi:0.88,pts:[[150,0.8654],[200,0.8684],[300,0.8730],[500,0.8748],[800,0.8732]],pub:[[100,0.8502]],hl:[500],note:'wd 0.2 (e100: wd 0.1)'},
+  '100k':{ylo:0.915,yhi:0.93,pts:[[150,0.9245],[200,0.9254],[300,0.9261],[500,0.9269]],pub:[[100,0.9202]],hl:[500],note:'wd 0.1'}},
+ es:{full:[0.7557,0.8748,0.9269],stop:[0.5738,0.8100,0.8778]},
+ bankgain:{pub:[0.731,0.868,0.931],tuned:[0.7801,0.8907,0.9381]},
+ ladder:[{l:'mgr38_ref · patience 8,\nfp32',v:0.8538,dots:[0.8501,0.8495,0.8617],c:'mute'},{l:'rr39 · patience fix,\nfp16 (H2)',v:0.8744,dots:[0.8822,0.8672,0.8738],c:'loop'},{l:'rr40 · + single-pass\nRC aug (H3)',v:0.8865,dots:[0.8881,0.8861,0.8853],c:'loop'},{l:'20-seed tuned\nLegNet bank',v:0.8907,dots:[],c:'bank'},{l:'rr40 + bank',v:0.8975,dots:[0.8986,0.8970,0.8969],c:'union'}],
+ pa39:[{l:'native bank trainer',v:0.8748,c:'bank'},{l:'harness default\n(RC consistency loss)',v:0.8416,c:'mute'},{l:'+ per-sample shift',v:0.8389,c:'mute'},{l:'+ single-pass RC aug',v:0.8736,c:'loop'},{l:'both',v:0.8737,c:'loop'}],
+ trunc:[{l:'10k (550 models)',v:98,c:'neg'},{l:'30k (847)',v:91,c:'neg'},{l:'100k (101)',v:87,c:'neg'}],
+ roles:[{h:'6 · reference LegNet shown from round 0 (against hiding or delaying it)'},
+  {l:'open prompt, no hint',est:-0.017,se:0.007},{l:'late reveal',est:-0.010,txt:'−0.010'},{l:'stated target',est:-0.015,txt:'−0.015'},
+  {h:'7 · guidance block, knowledge-base handout'},{l:'guidance block',est:0.018,lo:0.016,hi:0.020,txt:'+0.016 to +0.020'},{l:'KB handout (Oct harness)',est:0.008,txt:'+0.008'},{l:'KB handout (June harness)',est:0.027,txt:'+0.027'},
+  {h:'8–9 · separate coder; coordinator'},{l:'separate coder',est:0.005,txt:'+0.005'},{l:'coordinator vs random pick',est:0.004,txt:'+0.004'},
+  {h:'10 · manager (explore then exploit) vs coordinator alone'},{l:'schedule manager',est:0.0062,se:0.0032,d:4},{l:'fallback manager (drop)',est:-0.005,se:0.012},
+  {h:'13 · model'},{l:'Opus vs Sonnet (10 rounds)',est:0.0055,se:0.003,d:4}],
+ explore:[{l:'explore 0.2',vals:[0.8547,0.8553,0.8662],c:'mute'},{l:'explore 0.4 (rr39)',vals:[0.8822,0.8672,0.8738],c:'loop'},{l:'explore 0.6',vals:[0.8657,0.8707,0.8578],c:'mute'},{l:'explore 1.0',vals:[0.8828,0.8675,0.8597],c:'mute'},{l:'mixed validation (B1)',vals:[0.8667,0.8597,0.8468],c:'bank'}],
+ exploreDiff:[{l:'explore 0.2',est:-0.0157,se:0.0060,d:4},{l:'explore 0.6',est:-0.0097,se:0.0066,d:4},{l:'explore 1.0',est:-0.0044,se:0.0049,d:4},{l:'mixed validation',est:-0.0167,se:0.0057,d:4}],
+ cadence:[{h:'ideas per call (ensemble oracle r, June harness)'},{l:'1 idea per call',est:-0.029,txt:'−0.029'},{l:'8 vs 5 ideas',est:0.004,txt:'+0.004'},{h:'cadence at 60 models (random reservoir)'},{l:'6 × 10 vs 1 × 60',est:0.016,txt:'+0.016'},{h:'rounds'},{l:'rounds 10 to 15',est:0.002,txt:'+0.002'}],
+ spearman:{cats:['rr39','rr40','ef 0.2','ef 0.6','ef 1.0','vc39','mgr38'],all:[0.96,0.98,0.95,0.94,0.98,0.95,0.97],top:[0.69,0.83,0.81,0.54,0.78,0.78,0.83]},
+ agree:[{l:'genomic',v:0.84,c:'loop'},{l:'random',v:0.75,c:'loop'},{l:'SNV effect',v:0.68,c:'loop'},{l:'OOD (designed)',v:0.49,c:'indep'},{l:'GC sweep',v:0.24,c:'indep'}],
+ stack:[{l:'stack vs plain mean (12 cells)',est:0.010,lo:0.002,hi:0.018,txt:'+0.002 to +0.018'},{l:'greedy K = 5 vs stack',est:-0.010,txt:'−0.010'},{l:'uncertainty weighting vs mean',est:0.0,txt:'0.0000'},{l:'DPP-diverse selection vs greedy',est:0.0,txt:'≈0'},{l:'drop bottom members (by val)',est:-0.0001,txt:'≤ −0.0001'}],
+ union:{cats:['10k','30k','100k'],bank:[0.7801,0.8907,0.9381],loop:[0.749,0.8865,0.899],both:[0.787,0.8975,0.938],old30:0.854},
+ menu:{bank:[0.7801,0.8907,0.9381],menu:[0.7846,0.8674,0.9205],both:[0.7916,0.8908,0.9380]},
+ expo:[{l:'published LegNet',v:0.59,c:'mute'},{l:'tuned LegNet',v:0.52,c:'bank'},{l:'loop models',v:0.40,c:'loop'},{l:'menu v2',v:0.36,c:'indep'}],
+ kcurve:{k12:[0.005,0.002,0.001],k20:[0.002,0.0003,0.0]},
+ funnel:{prop:[43,9],trained:[44,8]},
+ pick:{named:[32,33],indep:[35,30]},
+ weights:[{l:'LegNet trunk, plain convolution',v:71.1,c:'loop'},{l:'LegNet trunk + recurrent part',v:15.9,c:'loop'},{l:'LegNet trunk + attention',v:9.0,c:'loop'},{l:'LegNet trunk + U-Net path',v:2.9,c:'loop'},{l:'independent trunk (all)',v:1.1,c:'indep'}],
+ epochTests:[{h:'menu v2 at 3× epochs, patience off (own Muon recipe)'},{l:'10k',est:0.001,se:0.004},{l:'30k',est:0.001,se:0.003},
+  {h:'LegNet e100 recipe on menu / collaborator members'},{l:'member change (range)',est:-0.045,lo:-0.07,hi:-0.02,txt:'−0.07 to −0.02'},
+  {h:'bake-off: independent designs, AdamW one-cycle 300 epochs, validation r'},{l:'tuned recipe vs own recipe',est:null,txt:'see above'}],
+ incident:{cats:['rr40\nH100','rr40\nV100','is40\n(proposal)','ar40','ia40','intended\nar40/ia40'],v:[187,269,135,80,80,300]},
+ dropped:[{h:'training schedule and harness'},
+  {l:'menu at 3× epochs, 10k',est:0.001,se:0.004},{l:'menu at 3× epochs, 30k',est:0.001,se:0.003},{l:'patience 24 / 32, ensemble (range)',est:0.0,lo:-0.004,hi:0.003,txt:'−0.004 to +0.003'},
+  {l:'EMA + BN recal., single LegNet 10k / 100k',est:-0.002,lo:-0.016,hi:0.013,txt:'−0.016 / +0.013'},
+  {h:'augmentation and input'},{l:'per-sample shift',est:-0.0002,se:0.0022,d:4},{l:'oracle shift ±15 on half',est:-0.0046,se:0.0019,d:4},{l:'shift test-time average',est:0.0003,se:0.0020,d:4},{l:'200 flank bases vs 20',est:-0.007,se:0.003},
+  {l:'single-pass RC aug on menu: 10k / 30k / 100k',est:0.004,lo:-0.014,hi:0.023,txt:'−0.014 / +0.004 / +0.023'},
+  {h:'architecture and recipe of the menu'},{l:'LegNet e100 recipe on menu members',est:-0.045,lo:-0.07,hi:-0.02,txt:'−0.07 to −0.02'},{l:'AdamW lr 1e-3 on menu members',est:-0.023,txt:'−0.023'},
+  {l:'width ×2, 100k',est:-0.002,se:0.006},{l:'width ×3, 100k',est:-0.001,se:0.006},{l:'auxiliary HepG2 target',est:0.0015,lo:0.001,hi:0.002,txt:'+0.001 to +0.002'},
+  {h:'loop prompts, managers, validation'},{l:'open prompt without the LegNet hint',est:-0.017,se:0.007},{l:'fallback manager',est:-0.005,se:0.012},{l:'mixed validation B1 in the loop',est:-0.0167,se:0.0057,d:4},{l:'mixed validation V3, stack only (mean of 18)',est:0.0016,se:0.0013,d:4}]
+};
+const D=DATA;
+function barsFromSizes(host,a,b,c,lo,hi,names,cols){charts.bars(host,{cats:['10k','30k','100k'],series:[{n:names[0],c:cols[0],v:a},{n:names[1],c:cols[1],v:b}].concat(c?[{n:names[2],c:cols[2],v:c}]:[]),lo,hi,vfmt:v=>v.toFixed(4),yfmt:v=>v.toFixed(2),h:250,maxbw:36});}
+const draw={
+ labels:h=>charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'oracle labels',c:'bank',v:K.labels.oracle},{n:'measured labels',c:'mute',v:K.labels.measured}],lo:0.7,hi:0.96,vfmt:r3,yfmt:v=>v.toFixed(2),h:230}),
+ pools12:h=>{const f=frame(h,56,{l:0,r:0,t:10,b:10});const sq=Math.min(28,(f.iw-11*6)/12);for(let i=0;i<12;i++)f.g.appendChild(el('rect',{x:i*(sq+6),y:0,width:sq,height:26,rx:3,style:'fill:'+css('union')}));f.g.appendChild(tx(0,44,'12 of 12 comparisons','v','start'));},
+ ctx:h=>charts.bars(h,{cats:K.ctx.cats,series:[{n:'gain',c:'loop',v:K.ctx.v}],lo:0,hi:0.09,base:0,vfmt:v=>'+'+v.toFixed(3),yfmt:v=>v.toFixed(2),h:240,bh:30}),
+ shift:h=>charts.forest(h,{dom:[-0.025,0.012],d:4,nt:5,rows:[{l:'no shift',est:-0.012,txt:'−0.012'},{l:'shift ±30',est:-0.015,txt:'−0.015'},{l:'200 flank bases',est:-0.007,se:0.003,d:3},{l:'per-sample shift',est:-0.0002,se:0.0022,d:4},{l:'oracle ±15 on half',est:-0.0046,se:0.0019,d:4},{l:'shift test-time avg.',est:0.0003,se:0.0020,d:4}]}),
+ es:h=>charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'run to the end',c:'bank',v:K.es.full},{n:'patience 16',c:'neg',v:K.es.stop}],lo:0.5,hi:0.95,vfmt:r3,yfmt:v=>v.toFixed(2),h:240,maxbw:34}),
+ bankgain:h=>charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'published recipe (e100)',c:'mute',v:K.bankgain.pub},{n:'tuned per size',c:'bank',v:K.bankgain.tuned}],lo:0.7,hi:0.96,vfmt:r3,yfmt:v=>v.toFixed(2),h:240,maxbw:34}),
+ trunc:h=>charts.hbars(h,{rows:K.trunc,lo:0,hi:100,fmt:v=>v+'%',xfmt:v=>v+'%',rh:30,lw:120}),
+ pa39:h=>charts.hbars(h,{rows:K.pa39,lo:0.82,hi:0.88,fmt:v=>v.toFixed(4),xfmt:v=>v.toFixed(2),rh:34,nt:3}),
+ ladder:h=>{charts.hbars(h,{rows:K.ladder,lo:0.84,hi:0.90,fmt:v=>v.toFixed(4),xfmt:v=>v.toFixed(2),rh:38,nt:3});setLegend(h,[{n:'dot = one pool',c:'ink'}]);},
+ roles:h=>charts.forest(h,{rows:K.roles,dom:[-0.035,0.035],d:3,nt:7,rh:27}),
+ explore:h=>charts.dots(h,{rows:K.explore,lo:0.84,hi:0.89,nt:5}),
+ exploreDiff:h=>charts.forest(h,{rows:K.exploreDiff,dom:[-0.03,0.01],d:4,nt:4,rh:30}),
+ newbest:h=>charts.bars(h,{cats:D.newBest.map((_,i)=>String(i+1)),series:[{n:'share of runs',c:'loop',v:D.newBest.map(v=>v*100)}],lo:0,hi:80,vfmt:v=>Math.round(v)+'%',yfmt:v=>v+'%',h:230,bh:28,maxbw:20,ml:40}),
+ cadence:h=>charts.forest(h,{rows:K.cadence,dom:[-0.035,0.025],d:3,nt:5,rh:26}),
+ spearman:h=>charts.bars(h,{cats:K.spearman.cats,series:[{n:'all 30 models',c:'loop',v:K.spearman.all},{n:'top 10 by validation',c:'indep',v:K.spearman.top}],lo:0.4,hi:1.0,vfmt:r2,yfmt:v=>v.toFixed(1),h:240,maxbw:22}),
+ agreeSets:h=>charts.hbars(h,{rows:K.agree,lo:0,hi:1,fmt:v=>v.toFixed(2),xfmt:v=>v.toFixed(1),rh:32,nt:5,lw:110}),
+ stack:h=>charts.forest(h,{rows:K.stack,dom:[-0.015,0.02],d:4,nt:5}),
+ union:h=>{const u=K.union;charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'bank',c:'bank',v:u.bank},{n:'loop alone',c:'loop',v:u.loop,alphas:[.5,1,.5]},{n:'loop + bank',c:'union',v:u.both,alphas:[.5,1,.5]}],lo:0.74,hi:0.95,vfmt:r3,yfmt:v=>v.toFixed(2),h:260,maxbw:30});},
+ menu:h=>charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'tuned LegNet bank',c:'bank',v:K.menu.bank},{n:'menu v2',c:'indep',v:K.menu.menu},{n:'bank + menu v2',c:'union',v:K.menu.both}],lo:0.74,hi:0.95,vfmt:r3,yfmt:v=>v.toFixed(2),h:260,maxbw:30}),
+ expo:h=>charts.hbars(h,{rows:K.expo,lo:0,hi:0.7,fmt:v=>v.toFixed(2),xfmt:v=>v.toFixed(1),rh:34,nt:7,lw:120}),
+ kcurve:h=>charts.bars(h,{cats:['10k','30k','100k'],series:[{n:'K = 12',c:'indep',v:K.kcurve.k12},{n:'K = 20',c:'loop',v:K.kcurve.k20}],lo:0,hi:0.007,base:0,vfmt:r4,yfmt:v=>v.toFixed(3),h:230,maxbw:34}),
+ scatter:h=>{const bk=(D.bake||[]).filter(r=>r.kind==='independent');const pts=[];bk.forEach(r=>['tuned','mid'].forEach(k=>{if(r[k]&&r[k].n&&r[k].val!=null)pts.push([300,r[k].val,r.idea+' ('+k+')']);}));
+  charts.scatter(h,{xlo:8,xhi:600,ylo:0.6,yhi:0.93,groups:[{n:'LegNet-named, from the loop',c:'loop',pts:D.scatter.filter(p=>p[2]===0).map(p=>[p[0],p[1]]),r:2.8,alpha:.45},{n:'independent, from the loop',c:'indep',pts:D.scatter.filter(p=>p[2]===1).map(p=>[p[0],p[1]]),r:3.4,alpha:.75},{n:'independent, retrained at 300 epochs (bake-off)',c:'indep',pts:pts,shape:'diamond'}],h:360});},
+ slopeVal:h=>{charts.slope(h,{cols:['loop run','own recipe','tuned e300','mid e300'],rows:bakeRows('val'),lo:0.78,hi:0.92,h:300});setLegend(h,[{n:'independent',c:'indep'},{n:'LegNet hybrid',c:'loop'},{n:'plain LegNet',c:'bank'}]);},
+ slopeTest:h=>charts.slope(h,{cols:['own recipe','tuned e300','mid e300'],rows:bakeRows('test').map(r=>Object.assign({},r,{vals:r.vals.slice(1)})),lo:0.70,hi:0.89,h:300}),
+ epochTests:h=>{const B=(D.bake||[]).filter(r=>r.kind==='independent'&&r.own.n&&r.tuned.n).map(r=>r.tuned.val-r.own.val);const ok=B.filter(x=>x>-0.03);const rows=K.epochTests.slice(0,5);
+  if(ok.length)rows.push({h:'bake-off: independent designs, tuned AdamW one-cycle 300 epochs (validation r)'},{l:'tuned vs own recipe ('+ok.length+' designs)',est:ok.reduce((a,b)=>a+b,0)/ok.length,lo:Math.min(...ok),hi:Math.max(...ok),txt:fs(ok.reduce((a,b)=>a+b,0)/ok.length,3)+' (partial)',c:'pos'});
+  charts.forest(h,{rows,dom:[-0.08,0.06],d:3,nt:7,rh:30});},
+ funnel:h=>{charts.bars(h,{cats:['explore rounds','exploit rounds'],series:[{n:'of proposals',c:'indep',v:K.funnel.prop},{n:'of trained models',c:'loop',v:K.funnel.trained}],lo:0,hi:60,base:0,vfmt:v=>v+'%',yfmt:v=>v+'%',h:230,maxbw:40});},
+ pick:h=>charts.bars(h,{cats:['explore rounds','exploit rounds'],series:[{n:'LegNet-named proposals',c:'loop',v:K.pick.named},{n:'independent proposals',c:'indep',v:K.pick.indep}],lo:0,hi:50,base:0,vfmt:v=>v+'%',yfmt:v=>v+'%',h:230,maxbw:40}),
+ traj:h=>{const mk=a=>a.map((v,i)=>[i,v]);charts.lines(h,{series:[{n:'LegNet-named',c:'loop',pts:mk(D.bestByRound.named)},{n:'independent',c:'indep',pts:mk(D.bestByRound.indep)}],xlo:0,xhi:14,ylo:0.81,yhi:0.90,xticks:[0,2,4,6,8,10,12,14],bands:[{x0:0,x1:5.5,l:'explore'}],yfmt:v=>v.toFixed(2),h:240,nt:4});setLegend(h,[{n:'LegNet-named',c:'loop'},{n:'independent',c:'indep'}]);},
+ weights:h=>charts.hbars(h,{rows:K.weights,lo:0,hi:80,fmt:v=>v.toFixed(0)+'%',xfmt:v=>v+'%',rh:32,lw:150,nt:4}),
+ incident:h=>charts.bars(h,{cats:K.incident.cats,series:[{n:'epochs requested',c:'loop',v:K.incident.v}],lo:0,hi:340,base:0,vfmt:v=>String(Math.round(v)),yfmt:v=>v,h:250,bh:44,maxbw:34,nt:4}),
+ dropped:h=>charts.forest(h,{rows:K.dropped,dom:[-0.08,0.03],d:4,nt:6,rh:25,lw:Math.min(300,Math.max(150,h.clientWidth*0.38))})
+};
+function bakeRows(key){const col={independent:'indep',hybrid:'loop','plain LegNet':'bank'};return (D.bake||[]).map(r=>({l:r.idea+' ['+r.kind+']',c:col[r.kind]||'mute',vals:[key==='val'?r.loop_val:null,r.own&&r.own.n?r.own[key]:null,r.tuned&&r.tuned.n?r.tuned[key]:null,r.mid&&r.mid.n?r.mid[key]:null]}));}
+
+function bakeSummary(){const B=D.bake||[];const ind=B.filter(r=>r.kind==='independent');const pair=(a,b)=>ind.filter(r=>r[a].n&&r[b].n).map(r=>({d:r[b].val-r[a].val,idea:r.idea}));
+  const t=pair('own','tuned'),m=pair('own','mid');const mean=a=>a.reduce((s,x)=>s+x.d,0)/Math.max(a.length,1);
+  const tOk=t.filter(x=>x.d>-0.03);const nfin=B.reduce((s,r)=>s+r.own.n+r.tuned.n+r.mid.n,0);
+  const note=document.getElementById('bakeNote');
+  note.textContent='Independent designs, tuned recipe against their own recipe: '+t.length+' designs with both, mean '+fs(mean(t),3)+' validation r ('+fs(mean(tOk),3)+' without the one design that diverged); gentler recipe: '+m.length+' designs, mean '+fs(mean(m),3)+'. '+nfin+' models have finished so far; the plain LegNet variants change little ('+(B.filter(r=>r.kind==='plain LegNet').map(r=>r.tuned.n?fs(r.tuned.val-r.own.val,3):'n/a').join(', '))+').';
+  const rows=B.map(r=>{const c=x=>x.n?x.val.toFixed(4)+' / '+x.test.toFixed(4)+' ('+x.n+')':'—';return '<tr><td>'+r.idea+'</td><td>'+r.kind+'</td><td class="n">'+r.loop_val.toFixed(4)+'</td><td class="n">'+c(r.own)+'</td><td class="n">'+c(r.tuned)+'</td><td class="n">'+c(r.mid)+'</td></tr>';}).join('');
+  document.getElementById('bakeTable').innerHTML='<table><tr><th>design</th><th>kind</th><th class="n">loop val</th><th class="n">own: val / test (n)</th><th class="n">tuned e300</th><th class="n">mid e300</th></tr>'+rows+'</table>';}
+
+function lines3(){const host=document.getElementById('lines3');host.replaceChildren();['10k','30k','100k'].forEach(sz=>{const e=K.epochs[sz];const d=document.createElement('div');const t=document.createElement('h4');t.textContent=sz+' · '+e.note;d.appendChild(t);const p=document.createElement('div');p.className='plot';d.appendChild(p);host.appendChild(d);
+  charts.lines(p,{series:[{n:'tuned arms',c:'bank',pts:e.pts,hl:e.hl},{n:'published',c:'mute',pts:e.pub.concat([e.pts[0]]),dash:'4 3',w:1.5,hl:[100]}],xlo:80,xhi:900,xlog:true,xticks:[100,200,300,500,800],ylo:e.ylo,yhi:e.yhi,yfmt:v=>v.toFixed(sz==='100k'?3:2),h:190,nt:3,ml:50});});}
+
+function render(){document.querySelectorAll('.plot[data-chart]').forEach(p=>{const f=draw[p.dataset.chart];if(f){try{f(p);}catch(e){p.textContent='chart error: '+e.message;}}});lines3();}
+function buildRail(){const rail=document.getElementById('rail');const ol=document.createElement('ol');
+  document.querySelectorAll('main h2[data-nav], main .card[data-nav]').forEach((n,k)=>{if(!n.id)n.id='sec'+k;const a=document.createElement('a');a.href='#'+n.id;a.textContent=n.dataset.nav;if(n.tagName==='H2')a.className='sec';const li=document.createElement('li');li.appendChild(a);ol.appendChild(li);});rail.appendChild(ol);}
+bakeSummary();buildRail();render();
+let t;if('ResizeObserver' in window){new ResizeObserver(()=>{clearTimeout(t);t=setTimeout(render,120);}).observe(document.querySelector('main'));}else{addEventListener('resize',()=>{clearTimeout(t);t=setTimeout(render,120);});}
+const btn=document.getElementById('themeBtn');btn.addEventListener('click',()=>{const r=document.documentElement;const cur=r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');r.setAttribute('data-theme',cur==='dark'?'light':'dark');setTimeout(render,30);});
+})();
+</script>

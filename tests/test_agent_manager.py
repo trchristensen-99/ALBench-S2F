@@ -232,3 +232,151 @@ def test_islands_loop_gives_island_prompts_after_exploration(tmp_path):
         and "ISLAND ROUND" in llm.proposer_systems[-1]
     )
     assert "island" in plans[2] and "island" not in plans[0]
+
+
+def _tuned_harness(tmp_path):
+    h = make_harness(tmp_path)
+
+    def sample_train(spec):  # what the launcher's sample_train does in tuned mode
+        o, lr, wd, bs, ep, sch = __import__("os").environ["AL_TUNED_RECIPE"].split(",")
+        if __import__("os").environ.get("AL_RECIPE_MODE") == "tuned":
+            return {
+                "optimizer": o,
+                "lr": float(lr),
+                "weight_decay": float(wd),
+                "batch_size": int(bs),
+                "epochs": int(ep),
+                "lr_schedule": sch,
+            }
+        return {
+            "optimizer": "muon",
+            "lr": 2e-3,
+            "weight_decay": 1e-4,
+            "batch_size": 256,
+            "epochs": 80,
+            "lr_schedule": "onecycle",
+        }
+
+    h.sample_train = sample_train
+    return h
+
+
+def _harness_cfg(manager: str) -> str:
+    return json.dumps(
+        {
+            "stages": ["propose", "coordinate", "code", "evaluate"],
+            "ideas_per_round": 4,
+            "manager": manager,
+            "explore_frac": 0.5,
+            "recipe_source": "harness",
+        }
+    )
+
+
+def test_tuned_recipe_mode_survives_the_loop_and_is_applied(tmp_path, monkeypatch):
+    """Regression: run_agent_loop used to overwrite AL_RECIPE_MODE=tuned with 'harness' (Nov 3 ar40/ia40 trained Muon for 80 epochs)."""
+    monkeypatch.setenv("AL_RECIPE_MODE", "tuned")
+    monkeypatch.setenv("AL_TUNED_RECIPE", "adamw,0.01,0.2,1024,3,onecycle")
+    h, args, llm = (
+        _tuned_harness(tmp_path),
+        make_args(tmp_path, rounds=2, agent_cfg=_harness_cfg("schedule_ens")),
+        CoordLLM(),
+    )
+    al.run_agent_loop(args, h, llm=llm)
+    assert __import__("os").environ["AL_RECIPE_MODE"] == "tuned"
+    metas = [
+        json.loads(p.read_text()) for p in sorted(Path(args.out_dir).glob("r*_arch_*_meta.json"))
+    ]
+    assert metas and all(
+        m["train_config"]["epochs"] == 3 and m["train_config"]["optimizer"] == "adamw"
+        for m in metas
+    )
+    assert all("TUNED RECIPE" in s.upper() or "tuned" in s.lower() for s in llm.proposer_systems)
+
+
+def test_tuned_recipe_guard_refuses_a_harness_that_ignores_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("AL_RECIPE_MODE", "tuned")
+    monkeypatch.setenv("AL_TUNED_RECIPE", "adamw,0.01,0.2,1024,3,onecycle")
+    h = make_harness(tmp_path)  # its sample_train knows nothing about the tuned mode
+    args = make_args(tmp_path, rounds=1, agent_cfg=_harness_cfg("none"))
+    with pytest.raises(al.AgentConfigError):  # tuned mode needs the harness recipe source
+        al.run_agent_loop(make_args(tmp_path, rounds=1, agent_cfg=cfg("none")), h, llm=CoordLLM())
+    h.sample_train = lambda spec: {
+        "optimizer": "muon",
+        "lr": 2e-3,
+        "weight_decay": 1e-4,
+        "batch_size": 256,
+        "epochs": 80,
+        "lr_schedule": "onecycle",
+    }
+    with pytest.raises(
+        SystemExit
+    ) as ex:  # the loop aborts (exit 3) instead of training with the wrong recipe
+        al.run_agent_loop(args, h, llm=CoordLLM())
+    assert ex.value.code == 3
+    assert not list(Path(args.out_dir).glob("r*_arch_*_meta.json"))  # nothing was trained
+
+
+class LaneLLM(CoordLLM):
+    """A proposer that marks lanes and a coordinator that (wrongly) picks two lane-A candidates."""
+
+    def __call__(self, system, user, model=None):
+        if "You are the COORDINATOR" in system:
+            self.n["coordinator"] += 1
+            self.coord_prompts.append(system + "\n" + user)
+            return "### SELECT: 1, 2\n### RATIONALE: both from lane A.\n"
+        return super(CoordLLM, self).__call__(system, user, model)
+
+
+def test_lane_helpers():
+    items = [
+        {"slot": i, "idea": t}
+        for i, t in enumerate(["A: x", "B: y", "plain", "plain", "[B] z", "A- w"])
+    ]
+    assert [al.lane_of(it, 6) for it in items] == [
+        "A",
+        "B",
+        "A",
+        "B",
+        "B",
+        "A",
+    ]  # marker first, else position (first half is lane A)
+    assert al.enforce_lanes([0, 5], ["A", "B", "A", "B", "B", "A"], 2) == [
+        0,
+        1,
+    ]  # two lane-A picks become one per lane
+    assert al.enforce_lanes([3, 1], ["A", "B", "A", "B", "B", "A"], 2) == [
+        0,
+        3,
+    ] or al.enforce_lanes([3, 1], ["A", "B", "A", "B", "B", "A"], 2) == [0, 1]
+    assert al.enforce_lanes([2], ["A", "A", "A"], 2) == [
+        2,
+        0,
+    ]  # no lane-B proposal: padded in order
+
+
+def test_lanes_loop_trains_one_model_per_lane_and_rejects_reused_blocks(tmp_path):
+    assert al.AgentConfig.from_arg(cfg("lanes")).manager == "lanes"
+    h, args, llm = (
+        make_harness(tmp_path),
+        make_args(tmp_path, rounds=3, agent_cfg=cfg("lanes", 0.4)),
+        LaneLLM(),
+    )
+    al.run_agent_loop(args, h, llm=llm)
+    out = Path(args.out_dir)
+    plans = [json.loads((out / "agent_logs" / f"plan_r{r:02d}.json").read_text()) for r in range(3)]
+    for p in plans:
+        lanes = [it["lane"] for it in p["items"]]
+        picked = [it["lane"] for it in p["items"] if not it.get("coordinator_skipped")]
+        assert sorted(picked) == ["A", "B"], (
+            lanes,
+            picked,
+        )  # one per lane although the coordinator picked two from lane A
+    assert all(
+        "MANAGER MODE: LANES" in c and "(lane A)" in c and "(lane B)" in c
+        for c in llm.coord_prompts
+    )
+    assert all("LANE ROUND" in s and "LANE B (independent trunk" in s for s in llm.proposer_systems)
+    assert (
+        "INCUMBENT" not in llm.coord_prompts[0] and "INCUMBENT" in llm.coord_prompts[-1]
+    )  # the last round is a refinement round

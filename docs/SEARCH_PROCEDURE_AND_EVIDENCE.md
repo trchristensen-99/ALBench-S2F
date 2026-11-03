@@ -96,12 +96,11 @@ So there is **one procedure that is validated at all three sizes (the tuned-LegN
 
 Full numbers and mechanisms in [DIVERSITY_FUNNEL_NOV3.md](DIVERSITY_FUNNEL_NOV3.md) (21 standard 30k runs). In one paragraph: designs that do not name the LegNet trunk are 43% of explore proposals and are picked at the same rate as the others (35% vs 32%; the coordinator is neutral), but they are 9% of
 exploit proposals, they were all trained with short recipes (median 58 epochs, against 150), they end 0.054 validation r below the best LegNet-named design, they hold 1% of the final stack weight, and the exploit phase never improves them (best-so-far unchanged from round 5 in 19 of 21 runs).
-Diversity that reaches the stack is a BiGRU, attention or U-Net part on the LegNet trunk (13%, 11%, 6% of the weight). Running now (Nov 3): `ar40` (tuned recipe for every model), `qt40` (quota), `is40` / `ia40` (islands manager: exploit rounds alternate between the best model overall and the best of another family,
-without and with the tuned recipe), and a non-LLM recipe-matched bake-off of the best independent designs (`bake_*`).
+Diversity that reaches the stack is a BiGRU, attention or U-Net part on the LegNet trunk (16%, 9%, 3% of the weight). **The loop never gave the independent designs the long recipe**: 1 of 113 trained for 200 epochs or more (209 of 427 LegNet-named ones did), and in a partial recipe-matched bake-off the tuned recipe raises their validation r by +0.038 on average. Running (Nov 3): the bake-off (`bake_*`, no LLM), `ar41` (tuned recipe for every model), `ln41` (lanes: one LegNet-trunk and one independent-trunk model per round, both on the tuned recipe), `is40` (islands) and `qt40` (quota). `ar40`/`ia40` were retired after a bug trained them with the harness's 80-epoch Muon recipe (see the funnel note). Page with the figures: https://claude.ai/artifact/MAVM9LhXwRyr3NYk2mzyZb
 
 ## 5. What would still add evidence (ranked by value over cost)
 
-1. **Does an independent family reach rough optimality when trained like LegNet?** (running: `bake_*`, `ar40`, `is40`, `ia40`; decision rules in the funnel note.)
+1. **Does an independent family reach rough optimality when trained like LegNet?** (running: `bake_*`, `ar41`, `ln41`, `is40`; decision rules in the funnel note.)
 2. **The loop at 10k and 100k under H3** (running; the 30k result is the only one measured under the fixed harness). Also whether the bank + loop union keeps adding at 100k.
 3. **Explore fraction and mixed validation under H3 with more pools.** Both current results are 3 pools under H2; the fractions are paired-significant at 2 SE at best. Cheapest decisive version: rr40-style runs at 0.2 and 0.6 on three further replicate pools (`k562_reps` has r1-r3, so more pools need new labelled draws).
 4. **Loss function.** Everything is MSE although the score is Pearson r; Huber, correlation and rank losses were never compared (one harness flag; likely small).
