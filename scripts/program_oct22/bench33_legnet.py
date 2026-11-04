@@ -73,6 +73,8 @@ CFGS = {
     "e800_wd6": dict(batch=1024, epochs=800, max_lr=0.01, wd=0.6),
     "e1200_wd6": dict(batch=1024, epochs=1200, max_lr=0.01, wd=0.6),
     "e300_wd05": dict(batch=1024, epochs=300, max_lr=0.01, wd=0.05),
+    # Nov-4: the active-learning stops at 55k and 80k sit between the measured wd 0.2 (30k) and wd 0.1 (100k)
+    "e500_wd15": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.15),
 }
 ARCH = dict(
     in_ch=4,
