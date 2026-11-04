@@ -87,6 +87,24 @@ Per pool the `rr40` loop stack is 0.8078, 0.8061, 0.7948 (bank 0.7801) and the u
 
 `compare_legnet_vs_loop.py --size 100k` (two pools per arm, stacks fitted on V0c; genomic / OOD / mean of 18): bank 0.9381 / 0.584 / 0.9165; `rr40` loop 0.9331 / 0.559 / 0.9070 (6.1 effective members); `rr40` + bank 0.9400 / 0.594 / 0.9191; `lv40` loop 0.9349 / 0.563 / 0.9096 and + bank 0.9404 / 0.591 / 0.9195; old-harness `rr38` loop 0.9060 / 0.436 / 0.8726 and + bank 0.9381 (it added nothing). The harness fixes moved the 100k loop by +0.027. Across sizes the loop alone against the bank is +0.023 (10k), -0.004 (30k), -0.005 (100k), and the union adds +0.031, +0.007, +0.002: the loop's edge over a tuned LegNet bank shrinks as the training set grows, consistent with the bank's steeper scaling exponent (0.52 against 0.40 for loop models). As at 30k, the members that do not name LegNet are weaker alone (0.8946 at 100k) than the LegNet-derived ones (0.9331); the `lv40` variants arm is the exception (0.9306 for its non-named members, which are LegNet variants).
 
+## Correction Nov 4: the loop and the bank were trained on different pools
+
+Every loop run trains on a replicate pool (`k562_reps/genomic_r{1,2,3}_d<D>`, `register_lr35.cell`), and the bank trains on the canonical nested pool (`k562_nested/genomic_d<D>`). The replicate pools share only 3% (10k), 9-10% (30k)
+and 32% (100k) of their sequences with the canonical prefix (`scripts/analysis/pool_overlap.py`), which is what independent draws from a ~315k pool give. So:
+
+* "loop + bank" (+0.031 / +0.007 / +0.002 over the bank at 10k / 30k / 100k) stacks models trained on two different training sets, nearly twice the distinct sequences at 10k and 30k. Part of the gain may be data, not architecture. Same-pool
+  numbers that exist: the collaborator's architectures (`mrr_pi41*`, canonical pool) add +0.004 genomic / +0.006 mean of 18 to the bank at 30k (`analyze_pi_stack.py`); a second LegNet bank on the same pool adds +0.001 at 10k (control above).
+* "loop alone against the bank" compares pools as well as procedures; the bank's pool-to-pool spread is unmeasured.
+
+`register_nov4c.py` trains the tuned bank (20 seeds) on each replicate pool at 10k, 30k and 100k (`spb*` cells, about 37 GPU-hours), which gives both comparisons on one training set. Until it reports, read the union numbers in this file
+and in `SEARCH_PROCEDURE_AND_EVIDENCE.md` as upper bounds. (Comparisons between loop arms are unaffected: they use the same replicate pools.)
+
+## Nov 4: longer schedules help every evaluation set (`analyze_epochs_per_set.py`)
+
+Published LegNet, tuned schedule against the published 100 epochs (single-model means, 20 seeds each): better on 18 of 19 measures (18 sets + SNV effect) at every size, with the largest gains far from the training
+distribution (10k: genomic +0.067, OOD +0.098, random +0.087, structural sets +0.07 to +0.09; 30k: +0.025 / +0.052 / +0.034; 100k: +0.007 / -0.001 / +0.011). The one loss is the GC sweep at 10k (-0.018; it falls from
+0.897 at 300 epochs to 0.878 at 800). Overfitting first shows at 30k from 500 to 800 epochs, -0.002 and uniform across sets. Patience 16 inside the tuned schedule loses on 18-19 of 19 measures (OOD -0.23 / -0.08 / -0.11).
+
 ## Audit Nov 3 (evening): patience still truncates proposer-chosen cosine and plateau schedules
 
 `AL_ONECYCLE_FULL` stops patience from cutting a one-cycle schedule, but a proposer-chosen cosine or plateau schedule is still stopped by patience 16. Trained epochs against requested epochs over every current loop arm (a model counts as truncated below 97% of its requested epochs; none was stopped by the time cap): `10k_rr40` 27 of 90 models (cosine 25, plateau 2), `30k_rl40` 12 of 63, `30k_rr40` 13 of 90, `30k_qt40` 8 of 75, `30k_is40` 7 of 71, `100k_rr40` 3 of 36, `10k_lv40` 1 of 48, and none in `ar41`, `ln41`, `30k_lv40`, `100k_lv40` (tuned or variant recipes that are one-cycle). So the proposal-recipe results above (`rr40`, `rl40`, `qt40`, `is40`) are with up to 30% of models cut short, mostly designs that chose a cosine schedule. The fixed-epochs arms (`af42`, `ln42`) now run with patience off and the loop refuses to start otherwise; any new arm should use `AL_PATIENCE=9999` (the arms already running keep their setting).
