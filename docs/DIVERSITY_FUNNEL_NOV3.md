@@ -62,3 +62,23 @@ Script: `scripts/analysis/extract_diversity_funnel.py` (cpuq) writes `outputs/ju
 | `bake_{own,tuned,mid}_30k` (non-LLM, `register_nov3c.py`) | the 8 best independent, 4 best hybrid and 2 best plain LegNet designs from these runs, retrained (2 seeds, harness H3) with their own recipe, the tuned LegNet recipe (AdamW 0.01, wd 0.2, batch 1024, 300 epochs) and a gentler one (AdamW 0.003, wd 0.1, batch 512, 300 epochs) | recipe-matched bake-off: is the 0.05 validation gap the recipe or the design? Runs on idle V100 and MIG slices, no LLM |
 
 Decision rules written down before the results: an independent family counts as *rough-optimal* if its best member trained with the matched recipe is within 0.01 validation r of the best LegNet-derived member of the same pools; it counts as *useful diversity* if adding it to the LegNet-derived members (and the 20-seed bank) raises the genomic or OOD stack by more than the run-to-run SE (0.003). If the bake-off shows the independent designs stay >= 0.03 below even with the matched recipe, the diversity available at 30k is the within-LegNet kind and the per-size recommendation stays "bank + LegNet-trunk loop members".
+
+## Results of the diversity arms (Nov 4; 30k, harness H3, all finished; `extract_diversity_funnel.py`, `compare_legnet_vs_loop.py`)
+
+| arm | change | independent models | their validation r (mean / best) | stack weight on them | LegNet-named val r (mean) | stack alone | + bank |
+|---|---|---|---|---|---|---|---|
+| `rr40` | standard (proposer recipes) | 17 | 0.803 / 0.861 | 0.0% | 0.880 | 0.8865 | 0.8975 |
+| `qt40` | quota manager | 12 | 0.811 / 0.854 | 0.0% | 0.874 | 0.8845 | 0.8967 |
+| `rl40` (2 pools) | 30 rounds | 20 | 0.815 / 0.897 | 7.7% | 0.874 | 0.8868 | 0.8976 |
+| `is40` | islands (exploit rounds refine non-leaders) | 43 | 0.839 / 0.901 | 4.0% | 0.882 | 0.8874 | 0.8982 |
+| `ar41` | tuned 300-epoch recipe for every model | 22 | 0.856 / 0.895 | 6.2% | 0.889 | 0.8871 | 0.8976 |
+| `ln41` | lanes + tuned recipe | 45 (by design) | 0.866 / 0.896 | 8.0% | 0.897 | 0.8880 | 0.8981 |
+| `af42` | proposer's own recipe, epochs fixed at 300 | 17 | 0.827 / 0.888 | 0.0% | 0.886 | 0.8858 | 0.8971 |
+| `ln42` | lanes + proposer's own recipe, 300 epochs | 45 (by design) | 0.853 / 0.896 | 7.9% | 0.893 | 0.8865 | 0.8976 |
+
+Best independent validation r at the end of exploration (round 5) against the end of the run: `rr40` 0.844 -> 0.844, `ar41` 0.888 -> 0.888, `ln41` 0.882 -> 0.894, `af42` 0.863 -> 0.870, `ln42` 0.887 -> 0.891, `is40` 0.849 -> 0.891. Bank alone 0.8907 genomic, 0.422 OOD, mean of 18 0.8526.
+
+* **The long recipe fixes the quality of the independent designs** (`ar41`: mean 0.803 -> 0.856, best 0.861 -> 0.895) **and the lanes manager guarantees and improves them** (`ln41`: 45 independent models, best 0.882 -> 0.894 during exploitation). In both the stack gives them 6-8% of the weight (0% in `rr40`).
+* **The islands manager makes the exploit phase work on non-leaders** (`is40`: best independent 0.849 -> 0.891, the highest of any arm without the long recipe); the loop's own recipes are the limit there (mean 0.839).
+* **Letting the proposer choose the recipe at 300 epochs is worse than imposing the tuned one for the independent designs** (`af42` 0.827 against `ar41` 0.856; `ln42` 0.853 against `ln41` 0.866; `af42` gives them 0.0% of the weight), though the best single design is the same (0.896). Patience is no longer the difference: all four arms trained every model for 300 epochs. The proposer's recipes for the independent designs (small batches, lower learning rates, cosine) are the weak part.
+* **None of this moves the ensemble.** The loop stack alone is 0.8845-0.8880 and loop + bank 0.8967-0.8982 in every arm, a spread (0.0035 and 0.0015) at or below the run-to-run SD (0.0015-0.0075). As with the bake-off (+0.001), diversifying the members at 30k changes the stack's composition (6-8% of the weight on other trunks instead of 0-1%), not its accuracy.

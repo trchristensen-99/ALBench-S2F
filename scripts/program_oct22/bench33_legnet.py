@@ -65,6 +65,8 @@ CFGS = {
     "e500_wd2_es16": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.2, patience=16),
     "e800_wd4_es16": dict(batch=1024, epochs=800, max_lr=0.01, wd=0.4, patience=16),
     "e500_es16": dict(batch=1024, epochs=500, max_lr=0.01, patience=16),
+    # Nov-4: the recipe the loop converged on at 10k (the highest-weight models of rr40_10k: AdamW lr 0.006-0.01, batch 512, weight decay 0.3, 400 epochs): does the 20-seed bank, given it, close the +0.023 the loop has over it?
+    "e400_b512_wd3_lr8": dict(batch=512, epochs=400, max_lr=0.008, wd=0.3),
 }
 ARCH = dict(
     in_ch=4,
