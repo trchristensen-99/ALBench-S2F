@@ -61,8 +61,14 @@ class Fasta:
         return raw.replace(b"\n", b"").replace(b"\r", b"")[:n].decode().upper()
 
 
-def tiles_from_peaks(cell: str) -> list:
-    bed = f"{resolve('encode_peaks')}/{cell}_peaks_merged.bed"
+def tiles_from_peaks(which: str) -> list:
+    """`which` is a cell (its merged peaks) or one of the precomputed partitions, which are the interesting arms:
+    k562_only and shared_open_both are the K562 regulatory sequence, hepg2_only is open somewhere but not in the
+    assayed cell type, so it separates "open chromatin is informative" from "open in THIS cell type is informative"."""
+    root = resolve("encode_peaks")
+    bed = (
+        f"{root}/{which}_peaks_merged.bed" if which in ("K562", "HepG2") else f"{root}/{which}.bed"
+    )
     out = []
     for line in open(bed):
         if line.startswith(("#", "track")):
@@ -81,7 +87,12 @@ def tiles_from_peaks(cell: str) -> list:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--kind", required=True, choices=["accessible", "hg38_random"])
-    ap.add_argument("--cell", default="K562", choices=["K562", "HepG2"])
+    ap.add_argument(
+        "--cell",
+        default="K562",
+        choices=["K562", "HepG2", "k562_only", "hepg2_only", "shared_open_both"],
+        help="a cell's merged peaks, or one of the precomputed partitions",
+    )
     ap.add_argument("--n", type=int, required=True)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", required=True)
