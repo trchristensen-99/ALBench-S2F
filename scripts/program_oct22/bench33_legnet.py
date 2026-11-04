@@ -75,6 +75,20 @@ CFGS = {
     "e300_wd05": dict(batch=1024, epochs=300, max_lr=0.01, wd=0.05),
     # Nov-4: the active-learning stops at 55k and 80k sit between the measured wd 0.2 (30k) and wd 0.1 (100k)
     "e500_wd15": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.15),
+    # Nov-4, can the schedule be made cheaper? Epochs are the wrong unit: at 30k and batch 1024 an epoch is 29
+    # optimiser steps, so the tuned e500 is only 14.6k steps. These separate the two things e500/b1024 confounds,
+    # the number of steps and the samples seen, at the 30k tuned weight decay. Compute is proportional to
+    # epochs, steps to epochs/batch. Matched steps at a smaller batch costs proportionally less compute.
+    "e125_wd2": dict(
+        batch=1024, epochs=125, max_lr=0.01, wd=0.2
+    ),  # 1/4 compute, 1/4 steps: just train less
+    "e250_b512_wd2": dict(batch=512, epochs=250, max_lr=0.01, wd=0.2),  # 1/2 compute, matched steps
+    "e125_b256_wd2": dict(batch=256, epochs=125, max_lr=0.01, wd=0.2),  # 1/4 compute, matched steps
+    "e500_b256_wd2": dict(batch=256, epochs=500, max_lr=0.01, wd=0.2),  # same compute, 4x steps
+    # the same cheap points with a higher peak learning rate, which a smaller batch can usually take
+    "e250_b512_lr20_wd2": dict(batch=512, epochs=250, max_lr=0.02, wd=0.2),
+    "e125_b256_lr20_wd2": dict(batch=256, epochs=125, max_lr=0.02, wd=0.2),
+    "e125_b256_lr30_wd2": dict(batch=256, epochs=125, max_lr=0.03, wd=0.2),
 }
 ARCH = dict(
     in_ch=4,
