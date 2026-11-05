@@ -99,6 +99,18 @@ def main() -> None:
     a = ap.parse_args()
 
     fa = Fasta(resolve("hg38"))
+    # Excluding the holdout CHROMOSOMES is not enough: repeats and segmental duplications put the same
+    # 200-mer on several chromosomes, so one hg38_random window matched a chr7/13 test sequence exactly
+    # (holdout audit, Nov 5). Filter on the sequence itself as well.
+    banned = {str(x) for x in np.load(resolve("val_v0c"), allow_pickle=True)["sequences"]}
+    try:
+        sys.path.insert(0, os.path.join(os.getcwd(), "experiments"))
+        from scaling_hp_search import load_chr_test_genomic
+
+        banned |= {str(x) for x in load_chr_test_genomic()[0]}
+    except Exception as e:
+        raise SystemExit(f"cannot load the chr7/13 test set to exclude it: {e}")
+    print(f"excluding {len(banned):,} validation and test sequences by content")
     rng = np.random.default_rng(a.seed)
     seqs, seen = [], set()
     if a.kind == "accessible":
@@ -121,7 +133,7 @@ def main() -> None:
         if len(seqs) >= a.n:
             break
         seq = fa.fetch(c, s, LEN)
-        if len(seq) == LEN and set(seq) <= set("ACGT") and seq not in seen:
+        if len(seq) == LEN and set(seq) <= set("ACGT") and seq not in seen and seq not in banned:
             seen.add(seq)
             seqs.append(seq)
     print(
