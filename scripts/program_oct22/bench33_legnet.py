@@ -89,6 +89,18 @@ CFGS = {
     "e250_b512_lr20_wd2": dict(batch=512, epochs=250, max_lr=0.02, wd=0.2),
     "e125_b256_lr20_wd2": dict(batch=256, epochs=125, max_lr=0.02, wd=0.2),
     "e125_b256_lr30_wd2": dict(batch=256, epochs=125, max_lr=0.03, wd=0.2),
+    # Nov-5, 300k: e300_wd05 (0.9508) beat e300/e200/e100 and was still rising, and weight decay has fallen
+    # with every size step (0.4 / 0.2 / 0.1 / 0.05), so push both knobs one notch further.
+    "e500_wd05": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.05),
+    "e300_wd025": dict(batch=1024, epochs=300, max_lr=0.01, wd=0.025),
+    "e500_wd025": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.025),
+    # Nov-5, 10k: 1200 epochs wins but costs 1200 passes; at batch 1024 a 10k epoch is only ~10 optimiser
+    # steps, so a smaller batch reaches the same ~12k steps in far fewer epochs. The 30k sweep said small
+    # batches lose at matched steps, but 10k is the size where samples, not steps, are the binding constraint.
+    "e600_b512_wd4": dict(batch=512, epochs=600, max_lr=0.01, wd=0.4),
+    "e600_b256_wd4": dict(batch=256, epochs=600, max_lr=0.01, wd=0.4),
+    "e300_b256_wd4": dict(batch=256, epochs=300, max_lr=0.01, wd=0.4),
+    "e150_b128_wd4": dict(batch=128, epochs=150, max_lr=0.01, wd=0.4),
 }
 ARCH = dict(
     in_ch=4,
