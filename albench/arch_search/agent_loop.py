@@ -1597,7 +1597,10 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
 
     def fail(reason: str) -> None:
         item.update(status="failed", reason=reason)
-        ctx.history.append({"idea": item["idea"], "ok": False, "reason": reason})
+        # carry the source so the proposer can be shown the lines that failed, not just a one-line reason
+        ctx.history.append(
+            {"idea": item["idea"], "ok": False, "reason": reason, "source": item.get("source")}
+        )
         save_plan(ctx.out_p, plan)
 
     model, verdict = build_and_check(

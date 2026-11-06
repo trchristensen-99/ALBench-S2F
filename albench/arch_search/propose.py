@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import re
+import textwrap
 
 CONTRACT = """\
 CONTRACT (a proposal violating any of this is discarded unscored):
@@ -91,6 +92,13 @@ def build_arch_prompt(
         parts.append("\nPROPOSALS THAT WERE DISCARDED (do not repeat these mistakes):")
         for h in failed[:8]:
             parts.append(f"  {h.get('reason', '')[:88]}  <- {h.get('idea', '')[:50]}")
+            # A one-line reason does not stop the same broken construct coming back; the lines that failed do.
+            # Opt-in because it lengthens a prompt that is already long.
+            if os.environ.get("AL_SHOW_FAILED_CODE") and h.get("source"):
+                head = "\n".join(str(h["source"]).splitlines()[:14])
+                parts.append(
+                    "    the code that failed, first lines:\n" + textwrap.indent(head, "      ")
+                )
     if note:
         parts.append(f"\nNOTE: {note}")
     parts.append(f"\nPropose {n} architectures now.")
