@@ -425,3 +425,26 @@ def test_fixed_epochs_requires_patience_off(tmp_path, monkeypatch):
             make_harness(tmp_path),
             llm=CoordLLM(),
         )
+
+
+def test_proposer_ensemble_signal_and_extra_references_are_opt_in(tmp_path, monkeypatch):
+    """Both new prompt sections must be off unless their env var is set, and must render when it is."""
+    import json
+
+    from albench.arch_search import agent_loop as al
+
+    refs = [
+        {"name": "C219 (collaborator)", "val_r": 0.9083, "source": "class Net(nn.Module): pass"}
+    ]
+    f = tmp_path / "refs.json"
+    f.write_text(json.dumps(refs))
+
+    monkeypatch.delenv("AL_EXTRA_REFERENCES", raising=False)
+    monkeypatch.setenv("AL_EXTRA_REFERENCES", str(f))
+    txt = al.extra_references_text()
+    assert "C219 (collaborator)" in txt and "0.9083" in txt and "class Net" in txt
+
+    monkeypatch.setenv("AL_EXTRA_REFERENCES", str(tmp_path / "missing.json"))
+    assert "unavailable" in al.extra_references_text()  # a bad path must not crash a run
+
+    assert "uncorrelated" in al.PROPOSER_ENSEMBLE_NOTE

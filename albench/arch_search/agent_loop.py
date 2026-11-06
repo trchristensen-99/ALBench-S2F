@@ -699,6 +699,35 @@ def register_stage(name: str):
     return deco
 
 
+PROPOSER_ENSEMBLE_NOTE = (
+    "USE THIS: a proposal is worth more when it adds something the weighted models do not already provide. Prefer designs "
+    "whose errors would be uncorrelated with the models carrying weight above -- a different way of reading the sequence, not "
+    "a small variation on the leader. A design that scores slightly lower on its own but is unlike the current members can "
+    "still raise the ensemble."
+)
+
+
+def extra_references_text() -> str:
+    """Architectures other than the published LegNet, shown as starting points so the search is not anchored on one design.
+
+    The search copies whatever it is shown, and until now it has been shown only MPRA-LegNet; every top model it finds is a
+    LegNet derivative. `AL_EXTRA_REFERENCES` points at a JSON list of {name, val_r, source} to show alongside it.
+    """
+    import json as _json
+
+    try:
+        refs = _json.load(open(os.environ["AL_EXTRA_REFERENCES"]))
+    except Exception as ex:  # noqa: BLE001
+        return f"(extra references unavailable: {type(ex).__name__})"
+    out = [
+        "FURTHER REFERENCE ARCHITECTURES. These are measured alternatives to the published network above, trained by this "
+        "harness on this data. They are starting points on equal footing with it, not models to copy verbatim:"
+    ]
+    for r in refs:
+        out.append(f"\n--- {r['name']} (validation r {r['val_r']:.4f}) ---\n{r['source']}")
+    return "\n".join(out)
+
+
 def proposer_prompt(ctx: AgentCtx, n: int, rd: int, plan: dict | None = None) -> tuple[str, str]:
     args, h = ctx.args, ctx.h
     # Reuse the single loop's own history rendering (top-18 by score, discarded list with reasons)
@@ -736,6 +765,15 @@ def proposer_prompt(ctx: AgentCtx, n: int, rd: int, plan: dict | None = None) ->
     elif not harness_recipe and os.environ.get("AL_FIXED_EPOCHS"):
         setup += "\n\n" + fixed_epochs_text()
     parts.append("\nNOTE: " + (guidance + "\n\n" if guidance else "") + setup)
+    if os.environ.get("AL_PROPOSER_ENSEMBLE"):
+        # The coordinator has always seen the stack; the proposer never has, so it optimises for the best single
+        # model when what the study wants is the best ENSEMBLE. Showing it which models carry weight lets it
+        # propose complements rather than yet another near-copy of the leader.
+        es = ensemble_status_text(ctx)
+        if es:
+            parts.append("\n" + es + "\n" + PROPOSER_ENSEMBLE_NOTE)
+    if os.environ.get("AL_EXTRA_REFERENCES"):
+        parts.append("\n" + extra_references_text())
     if ctx.cfg.manager == "quota":
         parts.append("\n" + coverage_text_quota(ctx))
     parts.append(
