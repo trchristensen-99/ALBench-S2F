@@ -92,6 +92,7 @@ CFGS = {
     # Nov-5, 300k: e300_wd05 (0.9508) beat e300/e200/e100 and was still rising, and weight decay has fallen
     # with every size step (0.4 / 0.2 / 0.1 / 0.05), so push both knobs one notch further.
     "e500_wd05": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.05),
+    "e500_wd075": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.075),
     "e300_wd025": dict(batch=1024, epochs=300, max_lr=0.01, wd=0.025),
     "e500_wd025": dict(batch=1024, epochs=500, max_lr=0.01, wd=0.025),
     # Nov-5, 10k: 1200 epochs wins but costs 1200 passes; at batch 1024 a 10k epoch is only ~10 optimiser
@@ -142,6 +143,11 @@ def main() -> None:
     )
     ap.add_argument(
         "--shift", type=int, default=SHIFT, help="+-shift of the training window over real flank"
+    )
+    ap.add_argument(
+        "--save-weights",
+        action="store_true",
+        help="also write <model>.pt, needed when the bank is shipped rather than only scored here",
     )
     ap.add_argument("--smoke", action="store_true")
     a = ap.parse_args()
@@ -335,7 +341,7 @@ def main() -> None:
             },
             "pearson_note": "val/test_pred are reverse-complement averaged; fwd_* hold forward-only predictions",
         }
-        C.save_model(out, name, preds, meta)
+        C.save_model(out, name, preds, meta, state=best_state if a.save_weights else None)
         log.info(
             "%s %s D=%d seed=%d: best epoch %d val %.4f genomic %.4f ood %.4f random_32k %.4f (%.0fs, %s)",
             a.cfg,

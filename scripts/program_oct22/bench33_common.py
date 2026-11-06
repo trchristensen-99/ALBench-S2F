@@ -152,8 +152,14 @@ def save_labels(out_dir: Path, d: dict) -> None:
     atomic_savez(path, **lab)
 
 
-def save_model(out_dir: Path, name: str, preds: dict, meta: dict) -> None:
-    """`name` = r{seed_index:02d}_menu_{idx:03d}; the npz goes first so a meta file always has its arrays."""
+def save_model(
+    out_dir: Path, name: str, preds: dict, meta: dict, state: dict | None = None
+) -> None:
+    """`name` = r{seed_index:02d}_menu_{idx:03d}; the npz goes first so a meta file always has its arrays.
+
+    `state` is the trained weights. They are written only when a caller asks for them (`--save-weights`), because the study's own
+    analyses read predictions alone and 20 seeds x 4 sizes of checkpoints would be tens of gigabytes; a bank that is being handed
+    to someone else needs the weights, since predictions on our fixed test sets cannot be applied to their sequences."""
     bad = [
         k for k, v in preds.items() if (not np.isfinite(v).all()) or float(np.abs(v).max()) > 1e3
     ]
@@ -162,6 +168,10 @@ def save_model(out_dir: Path, name: str, preds: dict, meta: dict) -> None:
     atomic_savez(
         out_dir / f"{name}.npz", **{k: np.asarray(v, np.float32) for k, v in preds.items()}
     )
+    if state is not None:
+        import torch
+
+        torch.save({k: v.cpu() for k, v in state.items()}, out_dir / f"{name}.pt")
     meta = dict(meta, model_id=name, saved_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     atomic_write_text(out_dir / f"{name}_meta.json", json.dumps(meta, indent=2, default=str))
 
