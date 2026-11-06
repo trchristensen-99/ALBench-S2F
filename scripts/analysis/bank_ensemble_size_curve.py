@@ -65,10 +65,18 @@ def main() -> None:
                 idx = rng.choice(n, size=k, replace=False)
                 vals.append(score([c["ms"][i] for i in idx], c["yv"], c["y"]))
             rows[k] = {m: float(np.mean([v[m] for v in vals])) for m in METRICS}
+            # the spread across draws is what decides whether K is enough for a COMPARISON: a bias shared by
+            # every reservoir cancels, draw-to-draw noise does not
+            rows[k]["sd_genomic"] = float(np.std([v["genomic"] for v in vals]))
+            rows[k]["sd_ood"] = float(np.std([v["ood"] for v in vals]))
         lo, hi = rows[1]["genomic"], rows[max(rows)]["genomic"]
         for k, v in rows.items():
             frac = (v["genomic"] - lo) / (hi - lo) * 100 if hi > lo else float("nan")
-            print(f"{k:3d}  " + "  ".join(f"{v[m]:8.4f}" for m in METRICS) + f"   {frac:5.1f}%")
+            print(
+                f"{k:3d}  "
+                + "  ".join(f"{v[m]:8.4f}" for m in METRICS)
+                + f"   {frac:5.1f}%   sd {v['sd_genomic']:.4f} / {v['sd_ood']:.4f}"
+            )
         res[size] = {"n_seeds": n, "rows": rows}
     os.makedirs("outputs/justification_oct22", exist_ok=True)
     json.dump(res, open("outputs/justification_oct22/data_bank_size_curve.json", "w"), indent=1)
