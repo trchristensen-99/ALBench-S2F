@@ -103,7 +103,10 @@ def main() -> None:
     if not args.dry:
         OLD_RESULTS.mkdir(parents=True, exist_ok=True)
     for d in stale_result_dirs():
-        src, dest = REPO / d, OLD_RESULTS / Path(d).name
+        # mirror the whole relative path, not just the leaf: several of these directories are called
+        # "rep1", and flattening them would collide and silently drop all but the first
+        src = REPO / d
+        dest = OLD_RESULTS / Path(d).relative_to("outputs")
         n = len(list(src.glob("COMPLETE*")))
         print(
             f"    {'would move' if args.dry else 'moved'} {d} ({n} completed cells) -> {dest.relative_to(REPO)}"
@@ -112,6 +115,7 @@ def main() -> None:
             if dest.exists():
                 print("      destination exists, left in place")
                 continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
             src.replace(dest)
 
 
