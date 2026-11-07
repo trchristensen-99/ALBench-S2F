@@ -730,6 +730,11 @@ def _reg_sheet_additions() -> None:
                 "max_species_per_window": Param(
                     None, "cap species per window so a few loci cannot dominate"
                 ),
+                "dedupe": Param(
+                    True,
+                    "emit each distinct sequence once; a conserved window otherwise "
+                    "returns the same 200-mer from many species (~15% of a raw draw)",
+                ),
             },
         )
     )

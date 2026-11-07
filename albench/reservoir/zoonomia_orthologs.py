@@ -26,6 +26,14 @@ stops helping.
 
 CAVEAT to state in any result: these are real sequences but NOT human, so the arm
 tests cross-species generalisation as much as scale.
+
+WHY THE DEDUPE IS ON BY DEFAULT. One window contributes one sequence per callable
+species, and in a conserved window many species carry the IDENTICAL 200-mer. Measured
+Nov 6 2026: 15.2-15.8% of a draw was exact repeats, at every size from 30k to 300k,
+while every other reservoir in the study is at 0.0%. That silently shrank the arm's
+effective training set by a sixth at matched nominal size, and a real library would not
+pay to synthesise the same oligo twice. `dedupe` keeps the first occurrence of each
+sequence; set it False only to reproduce a pre-Nov-7 pool.
 """
 
 from __future__ import annotations
@@ -56,6 +64,7 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
         max_species_per_window: int | None = None,
         exclude_chroms: tuple[str, ...] = ("chr7", "chr13", "chr19", "chr21", "chrX"),
         n_rank_windows: int = 200,
+        dedupe: bool = True,
     ) -> None:
         """Initialize sampler.
 
@@ -72,6 +81,8 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
             exclude_chroms: Held-out chromosomes, never drawn from. Defaults to the test (chr7, chr13) AND validation (chr19, chr21, chrX)
                 chromosomes; until Oct 23 2026 only chr7/chr13 were excluded, so about 14% of windows came from the validation chromosomes.
             n_rank_windows: Windows sampled to rank species by identity to human.
+            dedupe: Emit each distinct sequence once. Conserved windows otherwise
+                return the same 200-mer from many species (~15% of a raw draw).
         """
         self._rng = np.random.default_rng(seed)
         self.h5_path = h5_path
@@ -80,6 +91,7 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
         self.max_species_per_window = max_species_per_window
         self.exclude_chroms = tuple(exclude_chroms)
         self.n_rank_windows = n_rank_windows
+        self.dedupe = bool(dedupe)
         self._identity: np.ndarray | None = None
         self._species: list[str] | None = None
 
@@ -141,8 +153,10 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
         ident[windows_ok < min_windows] = np.nan
         n_rankable = int(np.isfinite(ident[1:]).sum())
         logger.info(
-            "ranked %d of 240 non-human species on %d windows "
-            "(others callable in <%d windows)", n_rankable, seen, min_windows,
+            "ranked %d of 240 non-human species on %d windows (others callable in <%d windows)",
+            n_rankable,
+            seen,
+            min_windows,
         )
         if n_rankable < 10:
             raise RuntimeError(
@@ -154,12 +168,12 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
 
     def _tier_mask(self, identity: np.ndarray) -> np.ndarray:
         """Species indices in the requested evolutionary tier (human excluded)."""
-        idx = np.arange(1, len(identity))           # never row 0 (human)
-        idx = idx[np.isfinite(identity[idx])]       # drop unrankable species
+        idx = np.arange(1, len(identity))  # never row 0 (human)
+        idx = idx[np.isfinite(identity[idx])]  # drop unrankable species
         vals = identity[idx]
         if self.distance == "all":
             return idx
-        order = idx[np.argsort(-vals)]              # most human-like first
+        order = idx[np.argsort(-vals)]  # most human-like first
         third = max(1, len(order) // 3)
         return {"near": order[:third], "mid": order[third : 2 * third], "far": order[2 * third :]}[
             self.distance
@@ -198,11 +212,15 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
             identity = self._rank_species(f, chrom_lens, L)
             tier = self._tier_mask(identity)
             logger.info(
-                "zoonomia orthologs: tier=%s -> %d of %d species "
-                "(identity to human %.3f-%.3f)",
-                self.distance, len(tier), len(species),
-                float(identity[tier].min()), float(identity[tier].max()),
+                "zoonomia orthologs: tier=%s -> %d of %d species (identity to human %.3f-%.3f)",
+                self.distance,
+                len(tier),
+                len(species),
+                float(identity[tier].min()),
+                float(identity[tier].max()),
             )
+            seen: set[str] = set()
+            n_dup = 0
             attempts = 0
             max_attempts = 40 * n_sequences
             while len(seqs) < n_sequences and attempts < max_attempts:
@@ -220,6 +238,11 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
                     s = "".join(CODE_TO_BASE[row])
                     if "N" in s:
                         continue
+                    if self.dedupe:
+                        if s in seen:
+                            n_dup += 1
+                            continue
+                        seen.add(s)
                     seqs.append(s)
                     meta.append(
                         {
@@ -232,10 +255,20 @@ class ZoonomiaOrthologSampler(ReservoirSampler):
                     )
                     if len(seqs) >= n_sequences:
                         break
+        if self.dedupe:
+            logger.info(
+                "zoonomia orthologs: dropped %d repeats of an already-emitted sequence "
+                "(%.1f%% of what a raw draw would have returned)",
+                n_dup,
+                100 * n_dup / max(1, n_dup + len(seqs)),
+            )
         if len(seqs) < n_sequences:
             logger.warning(
                 "only %d of %d requested orthologs met the called-fraction threshold "
                 "(%.2f) after %d window draws",
-                len(seqs), n_sequences, self.min_called_frac, attempts,
+                len(seqs),
+                n_sequences,
+                self.min_called_frac,
+                attempts,
             )
         return seqs, pd.DataFrame(meta)
