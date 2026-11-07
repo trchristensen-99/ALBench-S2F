@@ -29,6 +29,7 @@ import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
 NEST = REPO / "outputs/grid_pools/k562_nested"
+REPS = REPO / "outputs/grid_pools/k562_reps"
 BATTERY = REPO / "data/k562/test_sets_ag_s2_chrsplit"
 SHARE = Path("/grid/koo/home/shared/albench")
 
@@ -141,6 +142,32 @@ def do_pools(dry: bool) -> dict:
     return man
 
 
+def do_replicates(dry: bool) -> dict:
+    """The three independent draws per reservoir, which is what error bars on a corpus comparison need.
+
+    One draw tells you how a reservoir scored; three tell you whether the difference between two reservoirs
+    is bigger than the difference between two draws of the same one. Published under `replicates/` rather
+    than beside the canonical pools so nobody mixes a replicate into a canonical result by accident.
+    """
+    out = SHARE / "reservoir_pools/replicates"
+    man = {}
+    for strat, (size, _doc) in {**CORE, **EXTRA}.items():
+        for rep in (1, 2, 3):
+            src = REPS / f"{strat}_r{rep}_d{size}.npz"
+            if not src.exists():  # fall back to the largest replicate size that was built
+                smaller = sorted(
+                    REPS.glob(f"{strat}_r{rep}_d*.npz"), key=lambda p: int(p.stem.split("_d")[1])
+                )
+                if not smaller:
+                    continue
+                src = smaller[-1]
+            info = publish(src, out / src.name, dry)
+            info.update(strategy=strat, replicate=rep)
+            info["prefix_sizes"] = [s for s in (10_000, 30_000, 100_000, 300_000) if s <= info["n"]]
+            man[src.name] = info
+    return man
+
+
 def do_eval(dry: bool) -> dict:
     out = SHARE / "data/eval_sets"
     man = {}
@@ -160,17 +187,24 @@ def do_eval(dry: bool) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true")
-    ap.add_argument("--only", choices=("reservoir_pools", "eval_sets"))
+    ap.add_argument("--only", choices=("reservoir_pools", "replicates", "eval_sets"))
     args = ap.parse_args()
     out = {"written_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
-    if args.only != "eval_sets":
+    if args.only in (None, "reservoir_pools"):
         print("reservoir pools ->", SHARE / "reservoir_pools")
         out["reservoir_pools"] = do_pools(args.dry)
-    if args.only != "reservoir_pools":
+    if args.only in (None, "replicates"):
+        print("replicate draws ->", SHARE / "reservoir_pools/replicates")
+        out["replicates"] = do_replicates(args.dry)
+    if args.only in (None, "eval_sets"):
         print("evaluation sets ->", SHARE / "data/eval_sets")
         out["eval_sets"] = do_eval(args.dry)
     if not args.dry:
-        for sub, key in (("reservoir_pools", "reservoir_pools"), ("data/eval_sets", "eval_sets")):
+        for sub, key in (
+            ("reservoir_pools", "reservoir_pools"),
+            ("reservoir_pools/replicates", "replicates"),
+            ("data/eval_sets", "eval_sets"),
+        ):
             if key in out:
                 p = SHARE / sub / "MANIFEST.json"
                 p.write_text(
