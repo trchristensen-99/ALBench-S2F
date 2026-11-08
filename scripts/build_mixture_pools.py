@@ -22,11 +22,12 @@ import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
 REPS = REPO / "outputs/grid_pools/k562_reps"
+NEST = REPO / "outputs/grid_pools/k562_nested"
 OUT = REPO / "outputs/grid_pools/k562_mixtures"
 SIZE = 300_000
 # the training script asserts the pool file is exactly D long, so each rung gets its own file; because the
 # sources are interleaved, the 100k file is the first 100k rows of the 300k one and holds the same mixture
-SIZES = (100_000, 300_000)
+SIZES = (10_000, 30_000, 100_000, 300_000)
 MIXES = {
     # name -> the reservoirs to draw from in equal parts
     "mix_ms_mc": ("motif_shared_core", "motif_ct_enriched"),
@@ -51,13 +52,29 @@ def interleave(parts: list[tuple[list[str], np.ndarray]], n: int):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument(
+        "--canonical",
+        action="store_true",
+        help="mix the canonical (generation seed 42) pools instead of the three replicate draws. "
+        "This is the ladder the from-scratch scaling curve is measured on, and it is the only way "
+        "to reach 1M: the replicate draws stop at 300k.",
+    )
+    ap.add_argument("--total", type=int, default=SIZE, help="largest mixture size to build")
+    ap.add_argument("--only", help="build just this mixture")
     args = ap.parse_args()
+    total = args.total
+    sizes = tuple(dict.fromkeys(s for s in (*SIZES, total) if s <= total))
     man = {}
     for name, sources in MIXES.items():
-        for rep in (1, 2, 3):
-            paths = [REPS / f"{s}_r{rep}_d{SIZE}.npz" for s in sources]
+        if args.only and name != args.only:
+            continue
+        for rep in (0,) if args.canonical else (1, 2, 3):
+            if args.canonical:
+                paths = [NEST / f"{s}_d{total}.npz" for s in sources]
+            else:
+                paths = [REPS / f"{s}_r{rep}_d{SIZE}.npz" for s in sources]
             if not all(p.exists() for p in paths):
-                print(f"  {name} r{rep}: missing {[p.name for p in paths if not p.exists()]}")
+                print(f"  {name} rep{rep}: missing {[p.name for p in paths if not p.exists()]}")
                 continue
             parts, oids = [], set()
             for p in paths:
@@ -67,16 +84,17 @@ def main() -> None:
                 )
                 oids.add(str(z["oracle_id"]))
             assert len(oids) == 1, f"mixing pools labelled by different oracles: {oids}"
-            per_source = SIZE // len(sources)
+            per_source = total // len(sources)
             assert all(len(p[0]) >= per_source for p in parts), (
                 "a source is too small for its share"
             )
-            seqs, y = interleave(parts, SIZE)
+            seqs, y = interleave(parts, total)
             oid = oids.pop()
-            for D in SIZES:
+            for D in sizes:
                 s_d, y_d = seqs[:D], y[:D]
                 n_uniq = len(set(s_d))
-                dest = OUT / f"{name}_r{rep}_d{D}.npz"
+                tag = "c" if args.canonical else f"r{rep}"
+                dest = OUT / f"{name}_{tag}_d{D}.npz"
                 print(
                     f"  {dest.name:34s} {len(s_d):,} rows, {n_uniq:,} distinct, "
                     f"{D // len(sources):,} per source, label {y_d.mean():+.3f}+-{y_d.std():.3f}"
@@ -102,11 +120,16 @@ def main() -> None:
                     oracle_labels=y_d,
                     oracle_id=oid,
                     strategy=name,
-                    seed=np.int64(rep),
+                    seed=np.int64(42 if args.canonical else rep),
                 )
                 tmp.replace(dest)
     if not args.dry and man:
-        (OUT / "MANIFEST.json").write_text(json.dumps(man, indent=1))
+        # merge rather than replace: a --only or --canonical run touches a few pools and must not
+        # erase the provenance of the ones it did not build
+        mpath = OUT / "MANIFEST.json"
+        old = json.loads(mpath.read_text()) if mpath.exists() else {}
+        old.update(man)
+        mpath.write_text(json.dumps(old, indent=1))
         print("wrote", OUT / "MANIFEST.json")
 
 

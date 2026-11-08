@@ -49,6 +49,11 @@ CORE = {
     "mutagenesis": (300_000, "point mutations of real CREs at the study's default rate"),
 }
 EXTRA = {
+    "zoonomia_orthologs": (
+        300_000,
+        "real orthologous CRE windows from the 241-mammal Zoonomia alignment "
+        "(rebuilt Nov 8 2026; every draw before that was 15.4% exact repeats)",
+    ),
     "gc_matched": (300_000, "random sequences matched to the GC distribution of the genomic pool"),
     "motif_syntax_core": (
         300_000,
@@ -61,15 +66,9 @@ EXTRA = {
     "mutagenesis_mr10": (100_000, "mutagenesis at a 10% per-base rate"),
     "random_gc_sweep": (100_000, "random sequences swept across GC content"),
 }
-# zoonomia_orthologs is published by this script only once the deduplicated rebuild (zoo7_*) has landed:
-# every draw before Nov 7 2026 was 15.4% exact repeats. `zoonomia` (the old conservation-RATE arm) is not
-# published at all -- the study dropped it in favour of the real alignment sequences.
-PENDING = {
-    "zoonomia_orthologs": (
-        300_000,
-        "real orthologous CRE windows from the 241-mammal Zoonomia alignment",
-    )
-}
+# `zoonomia` (the old conservation-RATE arm) is not published at all -- the study dropped it in favour of
+# the real alignment sequences, which are what `zoonomia_orthologs` now holds.
+PENDING: dict[str, tuple[int, str]] = {}
 SKIP_EVAL = ("snv_mono_chr7_13_intermediate",)  # a 70 MB intermediate, not an evaluation set
 
 

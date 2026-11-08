@@ -8,6 +8,7 @@ COST CONTROL: per-model training wall-clock cap (--model_max_min) + a per-cell t
 budget (--budget_hours) that stops starting new rounds; plus the proposal param/latency caps.
 Writes the same val_pred/test_pred_* npz + meta -> comparable to the HP-menu grid via enet_all_pos.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -147,7 +148,8 @@ FULL_NOTE = (
 
 
 def pear(a, b):
-    a = np.asarray(a, float) - np.mean(a); b = np.asarray(b, float) - np.mean(b)
+    a = np.asarray(a, float) - np.mean(a)
+    b = np.asarray(b, float) - np.mean(b)
     d = (a * a).sum() ** 0.5 * (b * b).sum() ** 0.5
     return float((a * b).sum() / d) if d > 0 else 0.0
 
@@ -160,6 +162,7 @@ def shift(x, m):  # padded random shift along length
     if m <= 0:
         return x
     import torch
+
     s = random.randint(-m, m)
     if s == 0:
         return x
@@ -173,15 +176,19 @@ def shift(x, m):  # padded random shift along length
 
 def build_opt(model, name, lr, wd):
     import torch
+
     name = (name or "adamw").lower()
     if name == "muon":
         try:
             from muon import SingleDeviceMuonWithAuxAdam
+
             p2 = [p for p in model.parameters() if p.ndim >= 2 and p.requires_grad]
             p1 = [p for p in model.parameters() if p.ndim < 2 and p.requires_grad]
             groups = [dict(params=p2, use_muon=True, lr=lr, weight_decay=wd, momentum=0.95)]
             if p1:
-                groups.append(dict(params=p1, use_muon=False, lr=lr, weight_decay=wd, betas=(0.9, 0.95)))
+                groups.append(
+                    dict(params=p1, use_muon=False, lr=lr, weight_decay=wd, betas=(0.9, 0.95))
+                )
             return SingleDeviceMuonWithAuxAdam(groups), "muon"
         except Exception as e:
             print(f"    [muon unavailable: {e}; falling back to adamw]", flush=True)
@@ -207,20 +214,32 @@ def sample_train(spec):
 def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=print):
     import torch
     from torch.utils.data import DataLoader, TensorDataset
+
     dev = torch.device(device if torch.cuda.is_available() else "cpu")
     model = model.to(dev)
     opt, used = build_opt(model, tc["optimizer"], tc["lr"], tc["weight_decay"])
     bs, epochs = tc["batch_size"], tc["epochs"]
-    dl = DataLoader(TensorDataset(torch.from_numpy(Xtr), torch.from_numpy(ytr)),
-                    batch_size=bs, shuffle=True, drop_last=True)
+    dl = DataLoader(
+        TensorDataset(torch.from_numpy(Xtr), torch.from_numpy(ytr)),
+        batch_size=bs,
+        shuffle=True,
+        drop_last=True,
+    )
     if tc["lr_schedule"] == "onecycle":
-        sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=tc["lr"], epochs=epochs,
-                                                    steps_per_epoch=max(1, len(dl)), cycle_momentum=False)
+        sched = torch.optim.lr_scheduler.OneCycleLR(
+            opt,
+            max_lr=tc["lr"],
+            epochs=epochs,
+            steps_per_epoch=max(1, len(dl)),
+            cycle_momentum=False,
+        )
         per_step = True
     elif tc["lr_schedule"] == "cosine":
-        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs); per_step = False
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
+        per_step = False
     else:
-        sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=3); per_step = False
+        sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=3)
+        per_step = False
     lossf = torch.nn.MSELoss()
     # Precision is set by the harness for every model alike (env AL_PRECISION); a proposal cannot opt in or out, so no model gets a private speed-up.
     prec = os.environ.get("AL_PRECISION", "fp32").lower()
@@ -230,13 +249,15 @@ def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=pri
     if prec == "tf32" and dev.type == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
-    Xva_t = torch.from_numpy(Xva).to(dev); yva_t = torch.from_numpy(yva).to(dev)
+    Xva_t = torch.from_numpy(Xva).to(dev)
+    yva_t = torch.from_numpy(yva).to(dev)
     best, best_state, bad = np.inf, None, 0
     t0 = time.time()
     for ep in range(epochs):
         model.train()
         for xb, yb in dl:
-            xb = shift(xb.to(dev), 10); yb = yb.to(dev)
+            xb = shift(xb.to(dev), 10)
+            yb = yb.to(dev)
             opt.zero_grad()
             with torch.autocast("cuda", dtype=amp_dt, enabled=amp_on):
                 out = model(xb).squeeze()
@@ -259,8 +280,13 @@ def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=pri
                 sched.step()
         model.eval()
         with torch.no_grad(), torch.autocast("cuda", dtype=amp_dt, enabled=amp_on):
-            vp = torch.cat([(model(Xva_t[i:i+512]).squeeze() + model(rc(Xva_t[i:i+512])).squeeze()) / 2
-                            for i in range(0, len(Xva_t), 512)]).float()
+            vp = torch.cat(
+                [
+                    (model(Xva_t[i : i + 512]).squeeze() + model(rc(Xva_t[i : i + 512])).squeeze())
+                    / 2
+                    for i in range(0, len(Xva_t), 512)
+                ]
+            ).float()
             vmse = float(((vp - yva_t) ** 2).mean())
         if not per_step:
             sched.step(vmse) if tc["lr_schedule"] == "plateau" else sched.step()
@@ -269,10 +295,13 @@ def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=pri
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
         else:
             bad += 1
-            if bad >= int(os.environ.get("AL_PATIENCE", "8")):  # override only for the patience study
+            if bad >= int(
+                os.environ.get("AL_PATIENCE", "8")
+            ):  # override only for the patience study
                 break
         if time.time() - t0 > max_sec:
-            log(f"    [time cap {max_sec}s hit at ep{ep}]"); break
+            log(f"    [time cap {max_sec}s hit at ep{ep}]")
+            break
     if best_state is not None:
         model.load_state_dict(best_state)
     return model, {"best_val_mse": best, "epochs_trained": ep + 1, "optimizer_used": used}, used
@@ -280,29 +309,37 @@ def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=pri
 
 def predict_rc(model, X):  # RC-averaged prediction
     import torch
+
     dev = next(model.parameters()).device
-    model.eval(); out = []
+    model.eval()
+    out = []
     with torch.no_grad():
         for i in range(0, len(X), 512):
-            xb = torch.from_numpy(X[i:i+512]).to(dev)
+            xb = torch.from_numpy(X[i : i + 512]).to(dev)
             p = (model(xb).squeeze() + model(rc(xb)).squeeze()) / 2
             out.append(p.cpu().numpy())
     return np.concatenate(out)
 
 
 import builtins as _bi
-_SAFE_BUILTINS = {k: getattr(_bi, k) for k in (
-    "range len enumerate zip min max sum abs int float bool str bytes list dict tuple set "
-    "frozenset sorted reversed map filter any all round pow print isinstance issubclass super "
-    "getattr setattr hasattr delattr type object Exception ValueError RuntimeError TypeError "
-    "KeyError IndexError StopIteration slice iter next repr format divmod complex callable id "
-    "True False None NotImplemented"
-).split() if hasattr(_bi, k)}
+
+_SAFE_BUILTINS = {
+    k: getattr(_bi, k)
+    for k in (
+        "range len enumerate zip min max sum abs int float bool str bytes list dict tuple set "
+        "frozenset sorted reversed map filter any all round pow print isinstance issubclass super "
+        "getattr setattr hasattr delattr type object Exception ValueError RuntimeError TypeError "
+        "KeyError IndexError StopIteration slice iter next repr format divmod complex callable id "
+        "True False None NotImplemented"
+    ).split()
+    if hasattr(_bi, k)
+}
 from albench.arch_search.validate import ALLOWED_IMPORTS as _ALLOWED
 
 
 def _gated_import(name, *a, **k):
     import importlib
+
     if name.split(".")[0] not in {i.split(".")[0] for i in _ALLOWED}:
         raise ImportError(f"import of {name!r} not permitted")
     return importlib.__import__(name, *a, **k)
@@ -310,15 +347,25 @@ def _gated_import(name, *a, **k):
 
 def extract_train(src):
     """Return the model-written train() if the source defines one and is AST-safe, else None."""
-    if static_check(src):   # non-None = unsafe
+    if static_check(src):  # non-None = unsafe
         return None
     import torch, numpy, math, random
     import torch.nn as nn, torch.nn.functional as F
-    sb = dict(_SAFE_BUILTINS); sb["__import__"] = _gated_import
-    ns = {"__builtins__": sb, "torch": torch, "nn": nn, "F": F,
-          "np": numpy, "numpy": numpy, "math": math, "random": random}
+
+    sb = dict(_SAFE_BUILTINS)
+    sb["__import__"] = _gated_import
+    ns = {
+        "__builtins__": sb,
+        "torch": torch,
+        "nn": nn,
+        "F": F,
+        "np": numpy,
+        "numpy": numpy,
+        "math": math,
+        "random": random,
+    }
     try:
-        exec(compile(src, "<gen-train>", "exec"), ns)   # noqa: S102 (AST-checked + sandboxed builtins)
+        exec(compile(src, "<gen-train>", "exec"), ns)  # noqa: S102 (AST-checked + sandboxed builtins)
     except Exception:
         return None
     t = ns.get("train")
@@ -334,26 +381,39 @@ def run_full_control(tfn, model, Xtr, ytr, Xva, yva, cap_s):
 
     def _h(sig, frm):
         raise _TO()
+
     old = signal.signal(signal.SIGALRM, _h)
     signal.alarm(int(cap_s * 1.3))
     try:
         m = tfn(model, Xtr, ytr, Xva, yva, "cuda", cap_s)
-        return (m if m is not None else model), {"best_val_mse": None, "epochs_trained": None}, "model_train"
+        return (
+            (m if m is not None else model),
+            {"best_val_mse": None, "epochs_trained": None},
+            "model_train",
+        )
     except _TO:
         return None, {"error": "full-control train() exceeded hard cap"}, "model_train"
     except Exception as e:
-        return None, {"error": f"model train() failed: {type(e).__name__}: {str(e)[:80]}"}, "model_train"
+        return (
+            None,
+            {"error": f"model train() failed: {type(e).__name__}: {str(e)[:80]}"},
+            "model_train",
+        )
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old)
 
 
-STYLE_EXPLORE = ("EXPLORATION STYLE: be bold. Spend most of your proposals on structurally different ideas that the history does not yet contain "
-                 "(different block types, receptive-field layouts, pooling, attention placement, heads, widths and depths), not small variations of the current best. "
-                 "Each proposal should differ from the others and from earlier ones in more than one design choice, while still being a model you expect to train well.")
-STYLE_REFLECT = ("REFLECTION STYLE: before the proposals, write one short paragraph that starts with the word REFLECTION: and states what the results so far show about which design "
-                 "choices raise or lower validation Pearson r (cite specific earlier ideas and their scores) and which hypotheses are still untested. Then give the proposals, "
-                 "chosen to test those hypotheses.")
+STYLE_EXPLORE = (
+    "EXPLORATION STYLE: be bold. Spend most of your proposals on structurally different ideas that the history does not yet contain "
+    "(different block types, receptive-field layouts, pooling, attention placement, heads, widths and depths), not small variations of the current best. "
+    "Each proposal should differ from the others and from earlier ones in more than one design choice, while still being a model you expect to train well."
+)
+STYLE_REFLECT = (
+    "REFLECTION STYLE: before the proposals, write one short paragraph that starts with the word REFLECTION: and states what the results so far show about which design "
+    "choices raise or lower validation Pearson r (cite specific earlier ideas and their scores) and which hypotheses are still untested. Then give the proposals, "
+    "chosen to test those hypotheses."
+)
 
 
 def _style_parts(args, lessons):
@@ -364,23 +424,33 @@ def _style_parts(args, lessons):
     if "reflect" in st:
         parts.append(STYLE_REFLECT)
         if lessons:
-            parts.append("YOUR EARLIER REFLECTIONS (oldest first):\n" + "\n".join(f"- {x}" for x in lessons[-5:]))
+            parts.append(
+                "YOUR EARLIER REFLECTIONS (oldest first):\n"
+                + "\n".join(f"- {x}" for x in lessons[-5:])
+            )
     return parts
 
 
 def _round_note(args, rd, cap_min, lessons=()):
     """Per-round prompt note. Default (no --guidance) is byte-identical to the old behaviour."""
-    base = (FULL_NOTE if args.full_control else TRAIN_NOTE).format(max_min=cap_min, max_params=args.max_params)
+    base = (FULL_NOTE if args.full_control else TRAIN_NOTE).format(
+        max_min=cap_min, max_params=args.max_params
+    )
     ctx = ""
     if getattr(args, "context_file", ""):
-        ctx = open(args.context_file).read().strip()  # pre-built cross-D hand-off (see scripts/analysis/make_ladder_context.py)
+        ctx = (
+            open(args.context_file).read().strip()
+        )  # pre-built cross-D hand-off (see scripts/analysis/make_ladder_context.py)
     sp = _style_parts(args, lessons)
     if args.guidance != "known_good":
         return "\n\n".join(([ctx] if ctx else []) + sp + [base])
     parts = [KNOWN_GOOD] + ([ctx] if ctx else [])
     if args.phase_split and rd < args.phase_split:
-        parts += [PHASE_EXPLOIT, "REFERENCE IMPLEMENTATION (a LegNet-style network that trains in this harness; copy or "
-                  "modify it):\n```python\n" + REFERENCE_SRC + "```"]
+        parts += [
+            PHASE_EXPLOIT,
+            "REFERENCE IMPLEMENTATION (a LegNet-style network that trains in this harness; copy or "
+            "modify it):\n```python\n" + REFERENCE_SRC + "```",
+        ]
     elif args.phase_split:
         parts.append(PHASE_EXPLORE)
     if args.ensemble_aware:
@@ -399,46 +469,92 @@ def main():
     ap.add_argument("--per_round", type=int, default=4)
     ap.add_argument("--seq_len", type=int, default=200)
     ap.add_argument("--max_params", type=int, default=40_000_000)
-    ap.add_argument("--base_cap_min", type=float, default=None)   # per-model cap, H100-equiv min (x2.5 on V100)
-    ap.add_argument("--model_max_min", type=float, default=None)  # back-compat: flat per-model cap (no GPU scale)
-    ap.add_argument("--full_control", action="store_true")        # model writes the whole training loop
-    ap.add_argument("--budget_hours", type=float, default=40.0)    # per-cell total train budget
-    ap.add_argument("--guidance", default="none", choices=["none", "known_good"])  # prior knowledge block in the prompt
-    ap.add_argument("--phase_split", type=int, default=0)  # rounds < split: build on known-good; after: explore wider (0 = off)
-    ap.add_argument("--ensemble_aware", action="store_true")  # tell the proposer the deploy metric is an ensemble
-    ap.add_argument("--context_file", default="")  # text block with results from a smaller dataset size (cross-D context)
-    ap.add_argument("--style", default="none", choices=["none", "explore", "reflect", "explore_reflect"])  # extra prompt persona; none = unchanged prompt
-    ap.add_argument("--resume", action="store_true")  # rebuild history from out_dir and continue (safe under requeue)
-    ap.add_argument("--loop", default="single", choices=["single", "agent"])  # agent = multi-agent proposer/coder/reflector loop (albench/arch_search/agent_loop.py)
-    ap.add_argument("--agent_cfg", default="")  # agent loop only: JSON object or path (stages, repairs, ...)
-    ap.add_argument("--val_cache", default="", help="npz (sequences, oracle_labels, oracle_id) replacing the chr19/21/X validation set for early stopping, val_pred, val_labels and proposer feedback; default empty = unchanged behaviour")
+    ap.add_argument(
+        "--base_cap_min", type=float, default=None
+    )  # per-model cap, H100-equiv min (x2.5 on V100)
+    ap.add_argument(
+        "--model_max_min", type=float, default=None
+    )  # back-compat: flat per-model cap (no GPU scale)
+    ap.add_argument("--full_control", action="store_true")  # model writes the whole training loop
+    ap.add_argument("--budget_hours", type=float, default=40.0)  # per-cell total train budget
+    ap.add_argument(
+        "--guidance", default="none", choices=["none", "known_good"]
+    )  # prior knowledge block in the prompt
+    ap.add_argument(
+        "--phase_split", type=int, default=0
+    )  # rounds < split: build on known-good; after: explore wider (0 = off)
+    ap.add_argument(
+        "--ensemble_aware", action="store_true"
+    )  # tell the proposer the deploy metric is an ensemble
+    ap.add_argument(
+        "--context_file", default=""
+    )  # text block with results from a smaller dataset size (cross-D context)
+    ap.add_argument(
+        "--style", default="none", choices=["none", "explore", "reflect", "explore_reflect"]
+    )  # extra prompt persona; none = unchanged prompt
+    ap.add_argument(
+        "--resume", action="store_true"
+    )  # rebuild history from out_dir and continue (safe under requeue)
+    ap.add_argument(
+        "--loop", default="single", choices=["single", "agent"]
+    )  # agent = multi-agent proposer/coder/reflector loop (albench/arch_search/agent_loop.py)
+    ap.add_argument(
+        "--agent_cfg", default=""
+    )  # agent loop only: JSON object or path (stages, repairs, ...)
+    ap.add_argument(
+        "--val_cache",
+        default="",
+        help="npz (sequences, oracle_labels, oracle_id) replacing the chr19/21/X validation set for early stopping, val_pred, val_labels and proposer feedback; default empty = unchanged behaviour",
+    )
     args = ap.parse_args()
 
     from scaling_hp_search import (
-        _atomic_savez, _atomic_write_text,
-        load_all_test_sets, load_chr_test_genomic, load_chr_train_pool,
+        _atomic_savez,
+        _atomic_write_text,
+        load_all_test_sets,
+        load_chr_test_genomic,
+        load_chr_train_pool,
     )
+
     os.makedirs(args.out_dir, exist_ok=True)
     import torch as _t
+
     gpu = _t.cuda.get_device_name(0) if _t.cuda.is_available() else "cpu"
-    gpu_factor = 5.0 if "V100" in gpu else 1.0  # V100 ~8x slower on compute (measured); 5x end-to-end
+    gpu_factor = (
+        5.0 if "V100" in gpu else 1.0
+    )  # V100 ~8x slower on compute (measured); 5x end-to-end
     if args.base_cap_min is not None:
         cap_min = args.base_cap_min * gpu_factor
     elif args.model_max_min is not None:
         cap_min = args.model_max_min
     else:
         cap_min = 20.0 * gpu_factor
-    print(f"  GPU={gpu} factor={gpu_factor} -> per-model cap={cap_min:.0f}min; full_control={args.full_control}", flush=True)
+    print(
+        f"  GPU={gpu} factor={gpu_factor} -> per-model cap={cap_min:.0f}min; full_control={args.full_control}",
+        flush=True,
+    )
     tr_s, tr_y, va_s, va_y = load_chr_train_pool(
-        args.D, ref_only=True, val_frac=0.1, seed=0, reservoir_cache=args.reservoir_cache, chr_val=True)
+        args.D,
+        ref_only=True,
+        val_frac=0.1,
+        seed=0,
+        reservoir_cache=args.reservoir_cache,
+        chr_val=True,
+    )
     if args.val_cache:  # alternative validation set (albench/arch_search/val_cache.py); the default chr19/21/X path above is untouched
         from albench.arch_search.val_cache import guard_out_dir, load_val_cache
+
         va_s, va_y, _vc = load_val_cache(args.val_cache, train_seqs=tr_s)
         guard_out_dir(args.out_dir, _vc)
-        print(f"  val_cache={_vc['path']} variant={_vc['variant']} n={_vc['n']:,} sha={_vc['sha1_16']} oracle={_vc['oracle_id']} "
-              f"test_overlap={_vc['n_test_overlap']} train_overlap={_vc['n_train_overlap']}", flush=True)
+        print(
+            f"  val_cache={_vc['path']} variant={_vc['variant']} n={_vc['n']:,} sha={_vc['sha1_16']} oracle={_vc['oracle_id']} "
+            f"test_overlap={_vc['n_test_overlap']} train_overlap={_vc['n_train_overlap']}",
+            flush=True,
+        )
     elif os.path.exists(os.path.join(args.out_dir, "val_cache.json")):
-        raise SystemExit(f"{args.out_dir} was started with --val_cache; pass the same --val_cache or use a fresh --out_dir")
+        raise SystemExit(
+            f"{args.out_dir} was started with --val_cache; pass the same --val_cache or use a fresh --out_dir"
+        )
     te_s, te_oracle, te_true = load_chr_test_genomic()
     tests = load_all_test_sets()
     Xtr, ytr = one_hot(tr_s, args.seq_len), np.asarray(tr_y, np.float32)
@@ -449,24 +565,47 @@ def main():
     for k, v in tests.items():
         labels[f"oracle_{k}"] = v[1]
     _atomic_savez(Path(args.out_dir) / "labels.npz", **labels)
-    print(f"  train={len(tr_s):,} val={len(va_s):,} test={len(te_s):,} evals={len(tests)}", flush=True)
+    print(
+        f"  train={len(tr_s):,} val={len(va_s):,} test={len(te_s):,} evals={len(tests)}", flush=True
+    )
 
     if args.loop == "agent":  # opt-in; everything below this branch (the default loop) is untouched
         from types import SimpleNamespace
 
         from albench.arch_search.agent_loop import run_agent_loop
 
-        return run_agent_loop(args, SimpleNamespace(
-            Xtr=Xtr, ytr=ytr, Xva=Xva, yva=yva, Xte=Xte, Xsets=Xsets, te_oracle=te_oracle, gpu=gpu,
-            cap_min=cap_min, train_one=train_one, sample_train=sample_train, predict_rc=predict_rc,
-            pear=pear, atomic_savez=_atomic_savez, atomic_write_text=_atomic_write_text,
-            guidance_note=lambda rd: _round_note(args, rd, cap_min),
-            train_note=(FULL_NOTE if args.full_control else TRAIN_NOTE).format(
-                max_min=cap_min, max_params=args.max_params)))
+        return run_agent_loop(
+            args,
+            SimpleNamespace(
+                Xtr=Xtr,
+                ytr=ytr,
+                Xva=Xva,
+                yva=yva,
+                Xte=Xte,
+                Xsets=Xsets,
+                te_oracle=te_oracle,
+                gpu=gpu,
+                cap_min=cap_min,
+                train_one=train_one,
+                sample_train=sample_train,
+                predict_rc=predict_rc,
+                pear=pear,
+                atomic_savez=_atomic_savez,
+                atomic_write_text=_atomic_write_text,
+                guidance_note=lambda rd: _round_note(args, rd, cap_min),
+                train_note=(FULL_NOTE if args.full_control else TRAIN_NOTE).format(
+                    max_min=cap_min, max_params=args.max_params
+                ),
+            ),
+        )
     history, midx, t_start = [], 0, time.time()
     lessons = []
     if args.resume and (Path(args.out_dir) / "reflections.jsonl").exists():
-        lessons = [json.loads(l)["text"] for l in open(Path(args.out_dir) / "reflections.jsonl") if l.strip()]
+        lessons = [
+            json.loads(l)["text"]
+            for l in open(Path(args.out_dir) / "reflections.jsonl")
+            if l.strip()
+        ]
     last_err, streak, start_rd, budget_hit = None, 0, 0, False
     out_p = Path(args.out_dir)
     (out_p / "prompts").mkdir(exist_ok=True)
@@ -481,30 +620,66 @@ def main():
                 rows.append(m)
         rows.sort(key=lambda m: (int(m["round"]), m["model_id"]))
         for m in rows:
-            history.append({"idea": m["idea"], "ok": True, "score": m.get("val_pearson"), "n_params": m.get("n_params"),
-                            "val": m.get("val_pearson"), "train_s": m.get("train_time_sec")})
+            history.append(
+                {
+                    "idea": m["idea"],
+                    "ok": True,
+                    "score": m.get("val_pearson"),
+                    "n_params": m.get("n_params"),
+                    "val": m.get("val_pearson"),
+                    "train_s": m.get("train_time_sec"),
+                }
+            )
         if rows:
             midx = 1 + max(int(m["model_id"].split("_")[-1]) for m in rows)
-            start_rd = len({int(m["round"]) for m in rows})  # productive rounds; failed/empty rounds are redone
-            print(f"  [resume] {len(rows)} models on disk; continuing at round {start_rd}, model index {midx}", flush=True)
-    _atomic_write_text(out_p / "config.json", json.dumps(
-        {"args": vars(args), "LLM_MODEL": os.environ.get("LLM_MODEL"), "argv": sys.argv, "resumed_from_round": start_rd},
-        indent=2, default=str))
-    target = args.rounds * args.per_round  # every cell ends with the same number of TRAINED models, not rounds
+            start_rd = len(
+                {int(m["round"]) for m in rows}
+            )  # productive rounds; failed/empty rounds are redone
+            print(
+                f"  [resume] {len(rows)} models on disk; continuing at round {start_rd}, model index {midx}",
+                flush=True,
+            )
+    _atomic_write_text(
+        out_p / "config.json",
+        json.dumps(
+            {
+                "args": vars(args),
+                "LLM_MODEL": os.environ.get("LLM_MODEL"),
+                "argv": sys.argv,
+                "resumed_from_round": start_rd,
+            },
+            indent=2,
+            default=str,
+        ),
+    )
+    target = (
+        args.rounds * args.per_round
+    )  # every cell ends with the same number of TRAINED models, not rounds
     max_rounds = args.rounds + max(6, args.rounds // 4)
     rd = start_rd - 1
     while midx < target and rd + 1 < max_rounds:
         rd += 1
         if time.time() - t_start > args.budget_hours * 3600:
-            print(f"  [budget {args.budget_hours}h reached at round {rd}] stopping", flush=True); budget_hit = True; break
+            print(f"  [budget {args.budget_hours}h reached at round {rd}] stopping", flush=True)
+            budget_hit = True
+            break
         try:
-            sys_p, user = build_arch_prompt(args.per_round, history, seq_len=args.seq_len,
-                                            D=args.D, max_params=args.max_params, note=_round_note(args, rd, cap_min, lessons))
+            sys_p, user = build_arch_prompt(
+                args.per_round,
+                history,
+                seq_len=args.seq_len,
+                D=args.D,
+                max_params=args.max_params,
+                note=_round_note(args, rd, cap_min, lessons),
+            )
             if rd in (start_rd, args.phase_split):
-                _atomic_write_text(out_p / "prompts" / f"prompt_r{rd:02d}.txt", sys_p + "\n\n=====\n\n" + user)
+                _atomic_write_text(
+                    out_p / "prompts" / f"prompt_r{rd:02d}.txt", sys_p + "\n\n=====\n\n" + user
+                )
             text = call_model(sys_p, user)
             if "reflect" in args.style:
                 import re as _re
+
                 _m = _re.search(r"REFLECTION:\s*(.+?)(?:\n\s*\n|\Z)", text, _re.S)
                 if _m:
                     lessons.append(_m.group(1).strip()[:900])
@@ -516,20 +691,29 @@ def main():
             msg = f"{type(e).__name__}: {e}"
             print(f"  [round {rd}] propose failed: {msg}", flush=True)
             if type(e).__name__ == "RateLimitExceeded":
-                print(f"RATE_LIMITED at round {rd} ({midx} models so far): exiting 75 so the dispatcher backs off; no rounds burned", flush=True)
+                print(
+                    f"RATE_LIMITED at round {rd} ({midx} models so far): exiting 75 so the dispatcher backs off; no rounds burned",
+                    flush=True,
+                )
                 raise SystemExit(75)
             streak = streak + 1 if msg == last_err else 1
             last_err = msg
             if midx == 0 and streak >= 4:
-                print(f"FAILED_ARCH: identical propose failure x{streak} with nothing trained; aborting", flush=True)
+                print(
+                    f"FAILED_ARCH: identical propose failure x{streak} with nothing trained; aborting",
+                    flush=True,
+                )
                 raise SystemExit(3)
             continue
         print(f"  [round {rd}] {len(props)} proposals", flush=True)
         for pi, p in enumerate(props):
-            model, verdict = build_and_check(p["source"], seq_len=args.seq_len, max_params=args.max_params)
+            model, verdict = build_and_check(
+                p["source"], seq_len=args.seq_len, max_params=args.max_params
+            )
             if model is None:
                 history.append({"idea": p["idea"], "ok": False, "reason": verdict.reason})
-                print(f"    discard: {verdict.reason[:75]}", flush=True); continue
+                print(f"    discard: {verdict.reason[:75]}", flush=True)
+                continue
             spec = {}
             try:
                 if pi < len(trains):
@@ -538,50 +722,110 @@ def main():
                 spec = {}
             tc = sample_train(spec)
             import torch
+
             torch.manual_seed(1000 + midx)
             t0 = time.time()
             try:
                 tfn = extract_train(p["source"]) if args.full_control else None
                 if tfn is not None:
-                    model, info, used = run_full_control(tfn, model, Xtr, ytr, Xva, yva, cap_min * 60)
+                    model, info, used = run_full_control(
+                        tfn, model, Xtr, ytr, Xva, yva, cap_min * 60
+                    )
                 else:
-                    model, info, used = train_one(model, Xtr, ytr, Xva, yva, tc, max_sec=cap_min * 60)
+                    model, info, used = train_one(
+                        model, Xtr, ytr, Xva, yva, tc, max_sec=cap_min * 60
+                    )
             except Exception as e:
-                history.append({"idea": p["idea"], "ok": False, "reason": f"train err {type(e).__name__}"})
-                print(f"    train-err: {type(e).__name__}: {str(e)[:60]}", flush=True); continue
+                history.append(
+                    {"idea": p["idea"], "ok": False, "reason": f"train err {type(e).__name__}"}
+                )
+                print(f"    train-err: {type(e).__name__}: {str(e)[:60]}", flush=True)
+                continue
             if model is None:
-                history.append({"idea": p["idea"], "ok": False, "reason": info.get("error", "fail")})
-                print(f"    train-fail: {info.get('error')}", flush=True); continue
+                history.append(
+                    {"idea": p["idea"], "ok": False, "reason": info.get("error", "fail")}
+                )
+                print(f"    train-fail: {info.get('error')}", flush=True)
+                continue
             res = {"val_pred": predict_rc(model, Xva), "test_pred": predict_rc(model, Xte)}
             _vp = res["val_pred"]
-            if (not np.isfinite(_vp).all()) or float(np.abs(_vp).max()) > 1e3:  # finite-but-absurd outputs (seen: ~1e20) wreck any ensemble
-                history.append({"idea": p["idea"], "ok": False, "reason": "exploded predictions (|pred|>1e3)"})
-                print("    train-fail: exploded predictions (|pred|>1e3)", flush=True); continue
+            if (not np.isfinite(_vp).all()) or float(
+                np.abs(_vp).max()
+            ) > 1e3:  # finite-but-absurd outputs (seen: ~1e20) wreck any ensemble
+                history.append(
+                    {"idea": p["idea"], "ok": False, "reason": "exploded predictions (|pred|>1e3)"}
+                )
+                print("    train-fail: exploded predictions (|pred|>1e3)", flush=True)
+                continue
             for k, Xk in Xsets.items():
                 res[f"test_pred_{k}"] = predict_rc(model, Xk)
-            _bad = [k for k, v in res.items() if (not np.isfinite(v).all()) or float(np.abs(v).max()) > 1e3]
+            _bad = [
+                k
+                for k, v in res.items()
+                if (not np.isfinite(v).all()) or float(np.abs(v).max()) > 1e3
+            ]
             if _bad:  # ~0.8% of models validate normally but explode on a shifted eval set; such a model poisons any ensemble that includes it
-                history.append({"idea": p["idea"], "ok": False, "reason": f"exploded predictions on {_bad[0]} (|pred|>1e3)"})
-                print(f"    train-fail: exploded predictions on {_bad[0]} (|pred|>1e3)", flush=True); continue
-            r = pear(res["test_pred"], te_oracle); vr = pear(res["val_pred"], yva)
+                history.append(
+                    {
+                        "idea": p["idea"],
+                        "ok": False,
+                        "reason": f"exploded predictions on {_bad[0]} (|pred|>1e3)",
+                    }
+                )
+                print(f"    train-fail: exploded predictions on {_bad[0]} (|pred|>1e3)", flush=True)
+                continue
+            r = pear(res["test_pred"], te_oracle)
+            vr = pear(res["val_pred"], yva)
             mid = f"r{rd:02d}_arch_{midx:02d}"
-            meta = {"model_id": mid, "strategy": "arch_search", "round": rd, "idea": p["idea"],
-                    "why": p.get("why", ""), "n_params": verdict.n_params, "train_config": tc,
-                    "optimizer_used": used, "val_pearson": vr, "best_val_pearson": vr,
-                    "test_oracle_pearson": r, "val_mse": info.get("best_val_mse"),
-                    "epochs_trained": info.get("epochs_trained"),
-                    "train_time_sec": time.time() - t0, "gpu": gpu, "source": p["source"]}
+            meta = {
+                "model_id": mid,
+                "strategy": "arch_search",
+                "round": rd,
+                "idea": p["idea"],
+                "why": p.get("why", ""),
+                "n_params": verdict.n_params,
+                "train_config": tc,
+                "optimizer_used": used,
+                "val_pearson": vr,
+                "best_val_pearson": vr,
+                "test_oracle_pearson": r,
+                "val_mse": info.get("best_val_mse"),
+                "epochs_trained": info.get("epochs_trained"),
+                "train_time_sec": time.time() - t0,
+                "gpu": gpu,
+                "source": p["source"],
+            }
             if args.val_cache:
-                meta["val_cache"] = {"path": _vc["path"], "sha1_16": _vc["sha1_16"], "variant": _vc["variant"], "n": _vc["n"]}
-            _atomic_savez(Path(args.out_dir) / f"{mid}.npz",
-                          **{k: np.asarray(x, np.float32) for k, x in res.items()})
-            _atomic_write_text(Path(args.out_dir) / f"{mid}_meta.json", json.dumps(meta, indent=2, default=str))
-            history.append({"idea": p["idea"], "ok": True, "score": vr, "n_params": verdict.n_params,
-                            "val": vr, "train_s": time.time() - t0})
+                meta["val_cache"] = {
+                    "path": _vc["path"],
+                    "sha1_16": _vc["sha1_16"],
+                    "variant": _vc["variant"],
+                    "n": _vc["n"],
+                }
+            _atomic_savez(
+                Path(args.out_dir) / f"{mid}.npz",
+                **{k: np.asarray(x, np.float32) for k, x in res.items()},
+            )
+            _atomic_write_text(
+                Path(args.out_dir) / f"{mid}_meta.json", json.dumps(meta, indent=2, default=str)
+            )
+            history.append(
+                {
+                    "idea": p["idea"],
+                    "ok": True,
+                    "score": vr,
+                    "n_params": verdict.n_params,
+                    "val": vr,
+                    "train_s": time.time() - t0,
+                }
+            )
             midx += 1
-            print(f"    {mid} r={r:.4f} val={vr:.4f} {verdict.n_params:,}p {used} "
-                  f"{info.get('epochs_trained')}ep {time.time()-t0:.0f}s  {p['idea'][:46]}", flush=True)
-    print(f"DONE_ARCH trained={midx} elapsed={(time.time()-t_start)/3600:.1f}h", flush=True)
+            print(
+                f"    {mid} r={r:.4f} val={vr:.4f} {verdict.n_params:,}p {used} "
+                f"{info.get('epochs_trained')}ep {time.time() - t0:.0f}s  {p['idea'][:46]}",
+                flush=True,
+            )
+    print(f"DONE_ARCH trained={midx} elapsed={(time.time() - t_start) / 3600:.1f}h", flush=True)
     if not budget_hit and midx > 0:
         (out_p / "COMPLETE").write_text(f"rounds_run={rd + 1} models={midx} target={target}\n")
     if midx == 0:

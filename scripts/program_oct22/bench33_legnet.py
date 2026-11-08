@@ -102,6 +102,13 @@ CFGS = {
     "e600_b256_wd4": dict(batch=256, epochs=600, max_lr=0.01, wd=0.4),
     "e300_b256_wd4": dict(batch=256, epochs=300, max_lr=0.01, wd=0.4),
     "e150_b128_wd4": dict(batch=128, epochs=150, max_lr=0.01, wd=0.4),
+    # Nov-8, the 1M extrapolation rung. Epochs have fallen as size rose (800 / 500 / 500 / 300 at
+    # 10k-300k) while total samples seen kept climbing, so 200 epochs at 1M is 200M samples -- more
+    # gradient than 300k ever got, which is why it is not an under-trained point. Weight decay stays at
+    # the 300k value rather than halving again: the halving ladder (0.4 / 0.2 / 0.1 / 0.05) already
+    # stopped at 300k, where wd 0.05 beat wd 0.025 by +0.0017 genomic.
+    "e200_wd05": dict(batch=1024, epochs=200, max_lr=0.01, wd=0.05),
+    "e100_wd05": dict(batch=1024, epochs=100, max_lr=0.01, wd=0.05),  # cheap bracket below e200
 }
 ARCH = dict(
     in_ch=4,

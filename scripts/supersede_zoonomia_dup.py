@@ -34,6 +34,16 @@ DEST = {
 }
 OLD_POOLS = GP / "superseded_zoonomia_dup"
 OLD_RESULTS = REPO / "outputs/superseded_zoonomia_dup"
+# The zoo7 cells that BUILT the replacement draws also name a zoonomia pool in their command, so the
+# stale-results matcher catches them; moving them would throw away the 4.5 GPU-h we just spent and make
+# the dispatcher rebuild what it has already built.
+KEEP = ("outputs/grid_pools/k562_zoo_dedupe_raw300k",)
+# AutoResearch loop runs are ~16 GPU-h each and ask "does the loop find good architectures", a question
+# in which the pool is a nuisance variable -- a 15%-duplicated pool is still a valid common training set
+# for comparing architectures WITHIN one run. Re-running six of them costs ~96 GPU-h and answers nothing,
+# so they stay where they are with a marker that says which pool they used.
+MARK_ONLY = ("outputs/archsearch_reps_oct22/",)
+MARKER = "POOL_WAS_15PCT_DUPLICATED"
 
 
 def slice_pools(dry: bool) -> list[Path]:
@@ -87,7 +97,7 @@ def stale_result_dirs() -> list[str]:
         blob = json.dumps(c.get("needs", [])) + c.get("cmd", "")
         if f"{STRAT}_" in blob and "grid_pools" in blob:
             dirs.add(c["out_dir"])
-    return sorted(d for d in dirs if (REPO / d).is_dir())
+    return sorted(d for d in dirs if (REPO / d).is_dir() and not any(d.startswith(k) for k in KEEP))
 
 
 def main() -> None:
@@ -108,6 +118,16 @@ def main() -> None:
         src = REPO / d
         dest = OLD_RESULTS / Path(d).relative_to("outputs")
         n = len(list(src.glob("COMPLETE*")))
+        if any(d.startswith(k) for k in MARK_ONLY):
+            print(f"    {'would mark' if args.dry else 'marked'} {d} ({n} completed cells)")
+            if not args.dry:
+                (src / MARKER).write_text(
+                    "This run trained on a zoonomia_orthologs pool drawn before Nov 7 2026, which was\n"
+                    "15.4% exact duplicate sequences. Left in place deliberately: it compares architectures\n"
+                    "against each other on one common training set, so the duplication is a nuisance\n"
+                    "variable rather than the thing measured. Do not compare it across reservoirs.\n"
+                )
+            continue
         print(
             f"    {'would move' if args.dry else 'moved'} {d} ({n} completed cells) -> {dest.relative_to(REPO)}"
         )

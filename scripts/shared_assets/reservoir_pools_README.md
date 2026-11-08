@@ -1,6 +1,6 @@
 # Reservoir pools (labelled candidate pools for acquisition experiments)
 
-Contact: Trevor (christen@cshl.edu). Written 2026-11-07.
+Contact: Trevor (christen@cshl.edu). Written 2026-11-07, zoonomia_orthologs added 2026-11-08.
 
 One `.npz` per reservoir strategy: the canonical draw (generation seed 42), oracle_v3-labelled, at the largest size
 the study uses. **Every smaller size is a prefix**, so `sequences[:30000]` is exactly the 30k pool our 30k numbers were
@@ -18,6 +18,7 @@ produced on. Do not shuffle before slicing — that turns a size comparison into
 | `motif_ct_enriched_d300000.npz` | 300,000 | 0.476 | +0.78 ± 1.23 | synthetic sequences planted with K562-enriched CIS-BP motifs |
 | `motif_shared_core_d300000.npz` | 300,000 | 0.464 | +1.21 ± 1.47 | synthetic sequences built from the motif core shared across cell types |
 | `mutagenesis_d300000.npz` | 300,000 | 0.462 | +0.45 ± 1.00 | point mutations of real CREs at the study's default rate |
+| `zoonomia_orthologs_d300000.npz` | 300,000 | 0.420 | +0.26 ± 0.78 | real orthologous CRE windows from the 241-mammal Zoonomia alignment |
 | `gc_matched_d300000.npz` | 300,000 | 0.449 | +0.50 ± 0.91 | random sequences matched to the genomic pool's GC distribution |
 | `motif_syntax_core_d300000.npz` | 300,000 | 0.450 | +0.56 ± 1.06 | shared-core motifs placed with learned spacing/orientation syntax |
 | `hg38_random_d100000.npz` | 100,000 | 0.408 | +0.29 ± 0.79 | random hg38 windows (not CRE-selected), holdouts removed by sequence |
@@ -26,12 +27,12 @@ produced on. Do not shuffle before slicing — that turns a size comparison into
 
 The first six are the core set the reservoir comparison reports; the rest are controls and variants.
 
-**Not here yet:** `zoonomia_orthologs` (real orthologous CRE windows from the 241-mammal Zoonomia alignment). Every
+**A note on `zoonomia_orthologs`** (real orthologous CRE windows from the 241-mammal Zoonomia alignment). Every
 draw of it before 2026-11-07 was **15.4% exact duplicate sequences** — one window emits one sequence per callable
-species, and in a conserved window many species carry the identical 200-mer. The sampler now deduplicates and the
-pools are being rebuilt; this file will appear here when they land. The older `zoonomia` arm (human sequence mutated
-under conservation-derived *rates*) is deliberately not published: the study dropped it in favour of the real
-alignment sequences.
+species, and in a conserved window many species carry the identical 200-mer. The sampler now deduplicates, and the
+pools here are the rebuilt ones: 300,000 rows, 300,000 distinct, published 2026-11-08. If you pulled this file
+before that date, replace it. The older `zoonomia` arm (human sequence mutated under conservation-derived *rates*)
+is deliberately not published: the study dropped it in favour of the real alignment sequences.
 
 **Independent replicate draws** (three per reservoir, used for our error bars) exist but are not published here —
 ask if you want them.
