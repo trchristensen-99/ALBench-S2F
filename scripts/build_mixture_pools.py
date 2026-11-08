@@ -29,23 +29,37 @@ SIZE = 300_000
 # sources are interleaved, the 100k file is the first 100k rows of the 300k one and holds the same mixture
 SIZES = (10_000, 30_000, 100_000, 300_000)
 MIXES = {
-    # name -> the reservoirs to draw from in equal parts
-    "mix_ms_mc": ("motif_shared_core", "motif_ct_enriched"),
-    "mix_ms_gen": ("motif_shared_core", "genomic"),
-    "mix_ms_mc_gen": ("motif_shared_core", "motif_ct_enriched", "genomic"),
+    # name -> (the reservoirs to draw from, their relative shares)
+    "mix_ms_mc": (("motif_shared_core", "motif_ct_enriched"), (1, 1)),
+    "mix_ms_gen": (("motif_shared_core", "genomic"), (1, 1)),
+    "mix_ms_mc_gen": (("motif_shared_core", "motif_ct_enriched", "genomic"), (1, 1, 1)),
+    # Nov-8: mx51 measured WHICH reservoirs to mix but never the ratio. Half-and-half ms:mc won held-out
+    # genomic and random, yet motif_shared_core alone still won the designed set by 0.010 -- larger than
+    # the replicate sd, so 50/50 may be trading the designed set for the other two axes rather than
+    # dominating them. These two bracket it, one step toward each parent.
+    "mix_ms2_mc1": (("motif_shared_core", "motif_ct_enriched"), (2, 1)),
+    "mix_ms1_mc2": (("motif_shared_core", "motif_ct_enriched"), (1, 2)),
 }
 
 
-def interleave(parts: list[tuple[list[str], np.ndarray]], n: int):
-    """Round-robin the sources so every prefix holds the same mixture."""
+def interleave(parts: list[tuple[list[str], np.ndarray]], n: int, weights: tuple[int, ...]):
+    """Round-robin the sources so every prefix holds the same mixture.
+
+    With unequal shares the cycle is a repeating pattern of length sum(weights) -- (2, 1) gives [0, 0, 1] --
+    which preserves the property that makes the size axis a size axis: a 100k prefix of a 300k pool has the
+    same composition as the whole. Equal weights reproduce the plain round robin position for position, so
+    the pools built before this argument existed are byte-identical if rebuilt.
+    """
+    pattern = [i for i, w in enumerate(weights) for _ in range(w)]
     seqs: list[str] = []
     labels: list[float] = []
-    k = len(parts)
+    cursor = [0] * len(parts)
     for i in range(n):
-        s, y = parts[i % k]
-        j = i // k
-        seqs.append(s[j])
-        labels.append(float(y[j]))
+        k = pattern[i % len(pattern)]
+        s, y = parts[k]
+        seqs.append(s[cursor[k]])
+        labels.append(float(y[cursor[k]]))
+        cursor[k] += 1
     return seqs, np.asarray(labels, np.float32)
 
 
@@ -65,9 +79,10 @@ def main() -> None:
     total = args.total
     sizes = tuple(dict.fromkeys(s for s in (*SIZES, total) if s <= total))
     man = {}
-    for name, sources in MIXES.items():
+    for name, (sources, weights) in MIXES.items():
         if args.only and name != args.only:
             continue
+        tot_w = sum(weights)
         for rep in (0,) if args.canonical else (1, 2, 3):
             if args.canonical:
                 paths = [NEST / f"{s}_d{total}.npz" for s in sources]
@@ -84,25 +99,28 @@ def main() -> None:
                 )
                 oids.add(str(z["oracle_id"]))
             assert len(oids) == 1, f"mixing pools labelled by different oracles: {oids}"
-            per_source = total // len(sources)
-            assert all(len(p[0]) >= per_source for p in parts), (
+            need = [total * w // tot_w for w in weights]
+            assert all(len(p[0]) >= nd for p, nd in zip(parts, need)), (
                 "a source is too small for its share"
             )
-            seqs, y = interleave(parts, total)
+            seqs, y = interleave(parts, total, weights)
             oid = oids.pop()
             for D in sizes:
                 s_d, y_d = seqs[:D], y[:D]
                 n_uniq = len(set(s_d))
                 tag = "c" if args.canonical else f"r{rep}"
                 dest = OUT / f"{name}_{tag}_d{D}.npz"
+                per_source = {s: D * w // tot_w for s, w in zip(sources, weights)}
                 print(
                     f"  {dest.name:34s} {len(s_d):,} rows, {n_uniq:,} distinct, "
-                    f"{D // len(sources):,} per source, label {y_d.mean():+.3f}+-{y_d.std():.3f}"
+                    + " ".join(f"{s.split('_')[-1]}={n:,}" for s, n in per_source.items())
+                    + f", label {y_d.mean():+.3f}+-{y_d.std():.3f}"
                     + ("  [DRY]" if args.dry else "")
                 )
                 man[dest.name] = {
                     "sources": list(sources),
-                    "per_source": D // len(sources),
+                    "weights": list(weights),
+                    "per_source": per_source,
                     "n": len(s_d),
                     "n_distinct": n_uniq,
                     "label_mean": round(float(y_d.mean()), 4),
