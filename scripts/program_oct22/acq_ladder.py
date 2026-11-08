@@ -354,8 +354,14 @@ def main() -> None:
             # `--schedule 0` trains the pilot ensemble and stops. Every arm of a replicate shares that
             # ensemble, so it is registered as its own cell and the arms wait on it instead of each
             # retraining it (and racing each other to write the same files).
-            log.info("schedule 0: pilot ensemble only")
-            break
+            log.info("schedule 0: pilot ensemble only -> %s", run_dir)
+            if a.done:  # return, do not fall through to the final train: that would write a SECOND
+                dp = (
+                    REPO / a.done
+                )  # ensemble under the arm's own tag, where no arm would look for it
+                dp.parent.mkdir(parents=True, exist_ok=True)
+                dp.write_text("")
+            return
 
         idx_avail = np.nonzero(available)[0]
         ens = None
