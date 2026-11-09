@@ -16,8 +16,13 @@ rather than seed noise a second time.
 30k is included because it is where all three curves start: the question "did selecting 75k more beat
 simply drawing 75k more?" is anchored on that point, and it is cheap.
 
-Four rungs x two replicates x five seeds, every cell V100-eligible -- which is the point, since the
-H100s are saturated and roughly two dozen V100s have been idle. About 27 GPU-hours there.
+Five rungs x two replicates x five seeds, every cell V100-eligible -- which is the point, since the
+H100s are saturated and roughly two dozen V100s have been idle. About 45 GPU-hours there.
+
+300k earns its place twice: it is a rung of the from-scratch ladder and it is also where al53's arms
+start, so it is the one size at which the 300k-start comparison can be given a from-scratch band from
+pools that already exist. Above it the replicate pools stop, so al53's 400k/500k/600k rungs still have
+no band -- that needs new draws built and oracle-labelled, which is a separate decision.
 
     python scripts/program_oct22/register_nov9a.py [--dry]
 """
@@ -38,8 +43,14 @@ REPS_DIR = "outputs/grid_pools/k562_reps"
 REPS = (1, 2)
 # acq_ladder.recipe_for() exactly, so a from-scratch rung and an acquisition rung of the same size are
 # trained identically and the curves differ only in how the corpus was chosen
-RUNGS = {30_000: "e500_wd2", 55_000: "e500_wd15", 80_000: "e500", 105_000: "e500"}
-SLICE = (55_000, 80_000, 105_000)  # 30k already exists as a replicate pool
+RUNGS = {
+    30_000: "e500_wd2",
+    55_000: "e500_wd15",
+    80_000: "e500",
+    105_000: "e500",
+    300_000: "e300_wd05",
+}
+SLICE = (55_000, 80_000, 105_000)  # 30k and 300k already exist as replicate pools
 SEEDS = (0, 1, 2, 3, 4)
 
 
