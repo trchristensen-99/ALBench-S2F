@@ -51,6 +51,7 @@ SIZES = {
     "from300k_msc": ((400, 500, 600), "it3_epi", "motif_shared_core"),
 }
 NAME = re.compile(r"^bench38_ln_(.+?)_(\d+)k_c20_(.+)$")
+SEEDS = 5  # every cell in all four curves trains five seeds; fewer means it is still filling
 
 
 def classify(res: str, dk: int) -> tuple[str, str] | None:
@@ -76,10 +77,19 @@ def classify(res: str, dk: int) -> tuple[str, str] | None:
 
 
 def band(runs: dict, s: str) -> str:
-    """Mean over independent draws, half-range as the band. `!` where there is only one draw."""
+    """Mean over independent draws, half-range as the band. `!` = one draw, `~` = a draw still filling.
+
+    The `~` is not cosmetic. A directory read while its seeds are still arriving stacks fewer members
+    and returns a different number: at 07:00 the 105k msc arm read 0.8245+-0.0000 off two draws that
+    were not yet five seeds each, and an hour later the same cells read 0.8331+-0.0043. The suspiciously
+    exact band was the only sign. Anything marked `~` is provisional and must not be quoted.
+    """
     v = [stack[s] for _single, stack, _n in runs.values()]
     spread = (max(v) - min(v)) / 2 if len(v) > 1 else 0.0
-    return f"{np.mean(v):.4f}+-{spread:.4f}" + ("" if len(v) > 1 else "!")
+    mark = "" if len(v) > 1 else "!"
+    if min(n for _s, _st, n in runs.values()) < SEEDS:
+        mark += "~"
+    return f"{np.mean(v):.4f}+-{spread:.4f}{mark}"
 
 
 def main() -> None:
@@ -128,9 +138,14 @@ def main() -> None:
                     vs = f"   vs it3 {band(it3, s)}" if it3 else ""
                     print(f"  {b:>24s}  {dk * 1000:>7,}  {band(runs, s)}{vs}")
     print("\n`!` = a single draw, so the number carries seed noise only and no band.")
-    print("Draws per cell:")
+    print(f"`~` = a draw with fewer than {SEEDS} seeds stacked: still filling, provisional.")
+    print("Draws per cell (seeds stacked in brackets):")
     for c in order + ends:
-        got = {dk: sorted(cells[(c, dk)]) for _c, dk in cells if _c == c}
+        got = {
+            dk: [f"{rep}({runs[rep][2]})" for rep in sorted(runs)]
+            for (_c, dk), runs in cells.items()
+            if _c == c
+        }
         if got:
             print(f"  {c:14s} " + "  ".join(f"{k}k:{','.join(v)}" for k, v in sorted(got.items())))
 
