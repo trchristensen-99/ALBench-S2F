@@ -11,6 +11,12 @@ Every stamp on the source is carried over and `sliced_from` records which file t
 pool's provenance stays readable from the pool itself.
 
     python scripts/slice_nested_prefix.py --strategy motif_shared_core --sizes 55000,80000,105000 [--dry]
+    python scripts/slice_nested_prefix.py --dir outputs/grid_pools/k562_reps --strategy motif_shared_core_r1 ...
+
+`--dir` reaches the independent replicate draws in `k562_reps`, which are nested the same way (verified:
+each `_r{n}_d100000` is an exact prefix of its `_r{n}_d300000`, and a replicate shares no sequence at all
+with the canonical seed-42 pool). A replicate's strategy name carries its `_r{n}`, which is what keeps
+its trained models out of the canonical pool's output directory downstream.
 """
 
 from __future__ import annotations
@@ -24,11 +30,11 @@ REPO = Path(__file__).resolve().parents[1]
 NEST = REPO / "outputs/grid_pools/k562_nested"
 
 
-def source_for(strategy: str, d: int) -> Path:
+def source_for(strategy: str, d: int, where: Path = NEST) -> Path:
     """The smallest existing pool that still contains d rows: the least truncation, and the same draw."""
     have = sorted(
         (int(p.stem.split("_d")[-1]), p)
-        for p in NEST.glob(f"{strategy}_d*.npz")
+        for p in where.glob(f"{strategy}_d*.npz")
         if p.stem.split("_d")[-1].isdigit()
     )
     for n, p in have:
@@ -45,15 +51,19 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--strategy", required=True)
     ap.add_argument("--sizes", required=True, help="comma-separated")
+    ap.add_argument(
+        "--dir", default=str(NEST.relative_to(REPO)), help="pool directory, repo-relative"
+    )
     ap.add_argument("--dry", action="store_true")
     a = ap.parse_args()
+    where = REPO / a.dir
 
     for d in (int(x) for x in a.sizes.split(",")):
-        dest = NEST / f"{a.strategy}_d{d}.npz"
+        dest = where / f"{a.strategy}_d{d}.npz"
         if dest.exists():
             print(f"  {dest.name}: exists, left alone")
             continue
-        src = source_for(a.strategy, d)
+        src = source_for(a.strategy, d, where)
         z = np.load(src, allow_pickle=True)
         n = len(z["sequences"])
         out = {}
