@@ -25,10 +25,11 @@ The dispatcher ignores any other key. The validator flags such keys, since they 
 ## Validating
 
 ```bash
+# on bamdev4, /usr/bin/python3 is 3.6 and too old; use the dispatcher's: PY=/grid/it/data/elzar/easybuild/software/Anaconda3/2024.02-1/bin/python3
 # anywhere (stdlib only; checks the schema, then routing on every cell):
 python3 orchestration/validate_registry.py path/to/dispatch_registry.json
 # on the cluster, from the repo root (routing on pending cells only; invoked scripts must exist):
-python3 orchestration/validate_registry.py scratchpad/dispatch_registry.json --root .
+$PY orchestration/validate_registry.py scratchpad/dispatch_registry.json --root .
 ```
 
 Exit status 1 means schema errors. Warnings exit 0, because some are deliberate:

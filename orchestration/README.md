@@ -11,6 +11,12 @@ scratchpad/menu_retrain.py       -> ../orchestration/menu_retrain.py
 scratchpad/arch_autoresearch.py  -> ../orchestration/arch_autoresearch.py
 ```
 
+**The cluster is not a place to author code.** Edit here, commit, push, and `git pull` on the cluster.
+Every file written only on the cluster has become a fork: the hand-patched `scratchpad/` copies, the
+`albench/` working-tree edits that blocked `git pull`, and 336 untracked files sitting at paths that main
+also tracks (archived 2026-11-10 in `../ALBench-S2F_archive_2026-11-10/`). `scratchpad/harness_ab.py` is
+the one launcher still in that state.
+
 **Never move or rename these files, and never replace a symlink with a copy.** A copy is exactly how the
 three-way fork of `arch_autoresearch.py` happened. An edit made on the cluster through
 `scratchpad/<file>.py` is an edit to the tracked file: commit it, or the next `git pull` aborts.
@@ -100,7 +106,7 @@ LLM_SMALL   = ("g30_", "rnd30_", "u_", "mot30_", ..., "xd10_")                  
 > MIG slice. The second is how DREAM-Attn cells ran out of memory until `archinvar_` and `refattn32_` were
 > added to `MIG_NO` on 2026-11-10. This has bitten twice. When you register a new family, decide its row
 > in each tuple, then run
-> `python3 orchestration/validate_registry.py scratchpad/dispatch_registry.json --root .`, which lists
+> `$PY orchestration/validate_registry.py scratchpad/dispatch_registry.json --root .`, which lists
 > every pending family that falls through to a default. It uses the dispatcher's own `wall_and_budget()`
 > and `mig_ok()`, so it cannot disagree with them.
 
@@ -109,6 +115,9 @@ LLM_SMALL   = ("g30_", "rnd30_", "u_", "mot30_", ..., "xd10_")                  
 shards listed in `MIG_BAD`, and cells whose `failed.jsonl` records an out-of-memory error.
 
 ## Other operations facts
+
+* **`python3` on the login node is 3.6** (`/usr/bin/python3`) and cannot even parse this folder. The
+  dispatcher and the validator use the Anaconda 3.11 that cron uses: `PY=/grid/it/data/elzar/easybuild/software/Anaconda3/2024.02-1/bin/python3`.
 
 * LLM cells need `LLM_MODEL` in their `env` and the token in `~/.config/albench/llm.env` (not in git).
   The probe call uses `claude -p` with `~/.local/bin` prepended to `PATH`, because cron's `PATH` lacks it.
