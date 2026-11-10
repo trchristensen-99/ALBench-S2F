@@ -283,7 +283,11 @@ def main() -> None:
     ap.add_argument("--seed_pool", required=True)
     ap.add_argument("--candidates", required=True)
     ap.add_argument("--schedule", required=True, help="comma list of how many to add per round")
-    ap.add_argument("--acq", required=True, choices=("random", "epistemic", "badge", "oracle_top"))
+    ap.add_argument(
+        "--acq",
+        required=True,
+        choices=("random", "epistemic", "badge", "badge_kmeanspp_only", "oracle_top"),
+    )
     ap.add_argument("--tag", required=True, help="names the pools and output directories")
     ap.add_argument(
         "--seed_tag",

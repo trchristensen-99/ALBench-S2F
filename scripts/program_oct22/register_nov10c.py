@@ -77,6 +77,12 @@ def main():
     assert 'want_emb=method in ("badge", "badge_kmeanspp_only")' in src, (
         "the control needs embeddings; select() must request them for it too"
     )
+    # ...and the CLI has to accept it. Checking only select() passed a first registration whose
+    # jobs then died at argparse: "invalid choice: 'badge_kmeanspp_only'". A dispatchable method
+    # that no command line can reach is not a runnable arm.
+    cli = inspect.getsource(al.main)
+    for method, _ in ARMS.values():
+        assert f'"{method}"' in cli, f"--acq does not accept {method!r}"
     # it has to sit beside the arms it explains, so geometry and recipe must match al52's
     assert al.recipe_for(D0 + BUDGET) == al.recipe_for(105_000), "not al52's rung"
     print(
