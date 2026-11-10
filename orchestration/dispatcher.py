@@ -36,11 +36,12 @@ DEFAULT_SUBMIT_CAP = 15                    # QOS default: 16 submitted per user 
 STALL_S = {"h100": 3 * 3600, "v100": 6 * 3600}   # a RUNNING job with no new result file for this long is flagged (never auto-killed)
 H100_RESERVE = 0                           # slow_nice H100 slots that V100-eligible cells may not take
 SLOW_CAP = {"h100": 20, "v100": 20}        # QOS slow_nice: 20 + 20 GPUs per user (counts include pending)
+SLOW_JOBS_PU = 40                          # QOS slow_nice: MaxJobsPU, and MIG slices spend a slot each (sacctmgr, 2026-11-08)
 WALL = {"fast": "04:00:00", "default": "12:00:00", "slow_nice": "2-00:00:00", "mig": "1-12:00:00"}
-MIGQ_CAP = 14                              # QOS mig (partition migq): 14 slices per user, outside the slow_nice total of 40, 12 h walls, preempts slow_nice
+MIGQ_CAP = 0                               # the mig QOS is NOT permitted on the migq partition (probed 2026-11-08: "migq allows default,fast,bio_ai,slow_nice,cryo not mig"), so a mig-QOS job can only sit PENDING for ever; slices run on slow_nice and spend one of its 40 job slots each
 _MIGQ = {"free": 0, "n": 0}                # free MIG slices and our mig-QOS jobs, refreshed at the start of every cycle
 MIG_CAP = 28                               # MIG slices (H100 NVL 1g.12gb, 10.8 GB; measured 3 to 6 times slower than a full H100) on the otherwise idle migq partition; the partition accepts QOS default / fast / slow_nice only (the mig QOS is not allowed there); small retrain cells only
-MIG_NO = ("ind30z_", "a600_", "a1m_", "mrr_", "pool", "fx35_c100", "fx35_c60", "fx35_c200", "sw38_100k")  # cells that must not run on a slice: the collaborator ensembles (urgent), large-D anchors, pool builds
+MIG_NO = ("ind30z_", "a600_", "a1m_", "mrr_", "pool", "fx35_c100", "fx35_c60", "fx35_c200", "sw38_100k", "archinvar_", "refattn32_")  # cells that must not run on a slice: the collaborator ensembles (urgent), large-D anchors, pool builds
 # wall-clock budget (hours) handed to arch cells per job. A round (2 models) must finish before the wall limit; V100 rounds
 # can take hours (per-model cap x5), so fast/V100 only starts a new round during the first 0.6 h.
 BUDGET = {("fast", "h100"): 3.0, ("fast", "v100"): 0.6, ("default", "h100"): 10.5, ("default", "v100"): 6.0,
@@ -251,10 +252,11 @@ def _bad_shard(c: dict) -> bool:
 
 def mig_ok(c: dict) -> bool:
     """Menu-retrain cells up to 100k sequences run acceptably on a MIG slice (about 1/7 of an H100: the per-model time cap is scaled x8 in menu_retrain.py); LLM cells and big or urgent cells do not."""
-    if "LLM_MODEL" in c.get("env", {}) or c["name"].startswith(MIG_NO) or "menu_retrain.py" not in c["cmd"]:
+    bank = "bench33_legnet.py" in c["cmd"]  # the 1.3M-parameter LegNet bank trainer: a 10k or 30k seed takes about an hour on a slice (Nov 4)
+    if "LLM_MODEL" in c.get("env", {}) or c["name"].startswith(MIG_NO) or not ("menu_retrain.py" in c["cmd"] or bank):
         return False
     m = re.search(r"--D (\d+)", c["cmd"])
-    if not (bool(m) and int(m.group(1)) <= 100000):
+    if not (bool(m) and int(m.group(1)) <= (30000 if bank else 100000)):
         return False
     if _bad_shard(c):  # the shard that holds a menu entry known to need more than a 10.8 GB slice
         return False
@@ -279,9 +281,22 @@ def choose(c: dict, mine: list[dict], free: dict, exclude_id: str | None = None)
     for g in order:  # fast: priority 4000; it preempts default/slow_nice by design
         if (not _gpu_only or (g == "h100" and "LLM_MODEL" not in c.get("env", {}) and not c["name"].startswith("a1m_"))) and g in allowed and cnt("fast", g) < FAST_CAP[g]:
             return "fast", g
+    # The two fast V100 slots are unused whenever the LLM is up: the test above hands fast/v100 to LLM cells
+    # only, and those want H100s. An idle V100 is worth nothing, so small retrain cells may take them. Only
+    # small ones: fast carries a 4 h wall, which is why the long sw38_100k cells are excluded. The free-V100
+    # guard means this never preempts one of our own slow_nice jobs, which fast would otherwise be entitled to.
+    if ("v100" in allowed and free.get("v100", 0) > 0 and cnt("fast", "v100") < FAST_CAP["v100"]
+            and "LLM_MODEL" not in c.get("env", {})
+            and c["name"].startswith(RETRAIN_PFX) and not c["name"].startswith("sw38_100k")):
+        return "fast", "v100"
     n_def = sum(1 for j in js if j["qos"] == "default")
     n_def_run = sum(1 for j in js if j["qos"] == "default" and j["st"] == "R")
-    if not _gpu_only_def and n_def < DEFAULT_SUBMIT_CAP and n_def_run < 8:  # default starts at once only while fewer than 8 of ours run (QOS per-user cap); otherwise slow_nice below
+    # al53's arms run ~22 h (it3: four five-seed ensembles ending at 600k, plus a selection pass
+    # over a million candidates between rounds). default's wall is 12 h, so the job would be killed
+    # mid-run and resubmitted every cycle. Only slow_nice is long enough -- walltime() gives these
+    # 48 h there. The pilots are ~4.5 h and stay eligible for the faster queue.
+    _long_arm = c["name"].startswith("a1m_acq53_") and "pilot" not in c["name"]
+    if not _gpu_only_def and not _long_arm and n_def < DEFAULT_SUBMIT_CAP and n_def_run < 8:  # default starts at once only while fewer than 8 of ours run (QOS per-user cap); otherwise slow_nice below
         for g in order:
             if g == "h100" and g in allowed and (free[g] > 0 or not any(j["qos"] == "default" and j["st"] == "PD" for j in js)):  # default is kept for H100 starts (priority over slow_nice); V100 work uses slow_nice and fast
                 return "default", g
@@ -289,12 +304,22 @@ def choose(c: dict, mine: list[dict], free: dict, exclude_id: str | None = None)
         return "default", "v100"
     if c["name"].startswith(("ind30q_", "ind30n1_", "ind30h_")) and "v100" in allowed and n_def < DEFAULT_SUBMIT_CAP and n_def_run < 8 and free["v100"] > 0:
         return "default", "v100"  # quick-turnaround cells use spare default slots on V100 while H100 starts are blocked (LLM cells hold the slow_nice V100 slots)
-    if mig_ok(c) and sum(1 for j in js if j["gpu"] == "mig") < _mig_cap():  # an idle lane nobody contests: before queueing behind other users on slow_nice
-        return "mig", "mig"
     _cap = lambda g: SLOW_CAP[g] - (H100_RESERVE if (g == "h100" and len(allowed) > 1) else 0)  # noqa: E731  keep slow_nice H100 slots for H100-only cells (large-D anchors, 300k searches)
     for g in order:
         if g in allowed and free[g] > 0 and cnt("slow_nice", g) < _cap(g):
             return "slow_nice", g
+    # A MIG slice runs on the slow_nice QOS, so it spends one of that QOS's 40 per-user JOB slots -- the same
+    # slot a full GPU would have taken. Measured 2026-11-08: 25 of the 40 were slices (~0.2 of an H100 each)
+    # while seven V100s (~0.42 each) sat idle and 26 jobs were pending on QOSMaxJobsPerUserLimit rather than
+    # on a GPU. So a slice now comes AFTER a free full GPU, and is refused while a full GPU is free that our
+    # own GRES sub-caps would still let us claim -- the slot is worth more spent there.
+    # running only: cnt() counts pending jobs against the GRES cap as a throttle, which here would read
+    # "no room" at exactly the moment eight V100s are free and eight of our own jobs are queued for them
+    _cntR = lambda q, g: sum(1 for j in js if j["qos"] == q and j["gpu"] == g and j["st"] == "R")  # noqa: E731
+    _room = max(0, min(free.get("h100", 0), SLOW_CAP["h100"] - _cntR("slow_nice", "h100"))) + max(0, min(free.get("v100", 0), SLOW_CAP["v100"] - _cntR("slow_nice", "v100")))
+    if (mig_ok(c) and sum(1 for j in js if j["gpu"] == "mig") < _mig_cap()
+            and sum(1 for j in js if j["qos"] == "slow_nice" and j["st"] == "R") + _room < SLOW_JOBS_PU):
+        return "mig", "mig"
     for g in order:
         if g in allowed and cnt("slow_nice", g) < _cap(g):
             return "slow_nice", g
@@ -316,6 +341,13 @@ def wall_and_budget(c: dict, qos: str, gpu: str) -> tuple[str, float]:
         return "03:30:00", BUDGET[(qos, gpu)]
     if qos == "slow_nice" and n.startswith(LLM_SMALL):
         return "08:00:00", 7.0
+    if qos == "slow_nice" and n.startswith("a1m_acq53_"):
+        # 300k -> 600k: the iterative arm trains four five-seed ensembles, the last at 600k, and then
+        # scores a million candidates between rounds. 14 h (the generic a1m_ rule) kills it mid-run.
+        return "48:00:00", 47.0
+    if qos == "slow_nice" and n.startswith("a1m_acq5"):
+        # the whole al5x family rather than one literal prefix, so the next arm does not fall through
+        return "20:00:00", 19.0  # an iterative acquisition arm trains four ensembles in one job
     if qos == "slow_nice" and n.startswith(("g100x_", "u100_", "g300s_", "a600_", "a1m_")):
         return "14:00:00", 12.5
     return WALL[qos], BUDGET[(qos, gpu)]
@@ -395,10 +427,39 @@ def check_finished(c: dict, st: dict, mine_ids: set) -> None:
         st["short_fails"] = 0
 
 
+def retire_slice(mine: list[dict], free: dict, state: dict, dry: bool) -> None:
+    """Cancel one running MIG slice when its slow_nice job slot would be better spent on an idle full GPU.
+
+    QOS slow_nice allows 40 RUNNING jobs per user and a slice spends one of them, the same slot a full GPU
+    would take. Measured 2026-11-08: 25 slices held the budget while seven V100s idled and 26 of our jobs
+    were pending on QOSMaxJobsPerUserLimit -- blocked by our own accounting, not by the cluster. One per
+    cycle, oldest-but-recently-started last, and never one younger than 10 minutes (check_finished would
+    read a sub-5-minute end as a failure). menu_retrain.py skips a model whose _meta.json exists, so the
+    only work lost is the model in flight.
+    """
+    run = lambda g: sum(1 for j in mine if j["qos"] == "slow_nice" and j["gpu"] == g and j["st"] == "R")  # noqa: E731
+    if sum(1 for j in mine if j["qos"] == "slow_nice" and j["st"] == "R") < SLOW_JOBS_PU:
+        return  # the cap is not the thing stopping us; a slice costs nothing right now
+    room = sum(max(0, min(free.get(g, 0), SLOW_CAP[g] - run(g))) for g in ("h100", "v100"))
+    want = [j for j in mine if j["qos"] == "slow_nice" and j["st"] == "PD" and j["gpu"] in ("h100", "v100")]
+    if not (room > 0 and want):
+        return
+    cand = [j for j in mine if j["gpu"] == "mig" and j["st"] == "R" and j["el"] > 600]
+    if not cand:
+        return
+    j = min(cand, key=lambda x: x["el"])
+    log(f"  {j['name']}: cancelling a slice ({j['el'] // 60} min in) - {room} full GPU(s) free and "
+        f"{len(want)} of our jobs queued for them, with slow_nice at its {SLOW_JOBS_PU}-job cap")
+    if not dry:
+        state.setdefault(j["name"][2:], {})["expected_cancel"] = j["id"]
+        sh(f"{SB}/scancel {j['id']}")
+
+
 def cycle(reg: list[dict], dry: bool) -> None:
     mine, free = my_jobs(), free_gpus()
     _MIGQ["free"], _MIGQ["n"] = free.get("mig", 0), sum(1 for j in mine if j["qos"] == "mig" and j["gpu"] == "mig")
     state = json.loads(STATE_F.read_text()) if STATE_F.exists() else {}
+    retire_slice(mine, free, state, dry)
     subs, ids = 0, {j["id"] for j in mine}
     g = state.setdefault('_global', {})
     if g.get('probe_needed') and time.time() >= g.get('llm_cooldown_until', 0) and not dry:
