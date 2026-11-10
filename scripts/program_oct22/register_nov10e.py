@@ -63,8 +63,11 @@ def main():
 
     env = dict(ref.get("env", {}))
     assert env.get("AL_RECIPE_MODE") == "tuned", "lane B must get the long recipe, as ar41 does"
-    # a dead knob whose comment claims it protects against fp16 non-finite losses; it does not
-    env.pop("AL_NONFINITE_SKIP", None)
+    # AL_NONFINITE_SKIP is NOT a dead knob: scratchpad/arch_autoresearch.py:344 reads it, and that
+    # is the file the loop runs. An earlier audit checked albench/arch_search/arch_autoresearch.py,
+    # a stale copy with zero occurrences, and wrongly concluded it was dead. It must be carried over
+    # unchanged, or the arm differs from its baseline in fp16 non-finite handling as well.
+    assert env.get("AL_NONFINITE_SKIP") == "1", "the baseline sets it; carry it over"
 
     cell = dict(
         name=f"{TAG}_r1",

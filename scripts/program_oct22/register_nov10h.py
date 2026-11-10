@@ -140,7 +140,11 @@ def ablations(reg):
         # exactly ONE element may differ, or the ablation attributes nothing
         diffs = sum([bool(how.get("env")), bool(how.get("drop_flag")), "explore" in how])
         assert diffs == 1, f"{tag} changes {diffs} things"
-        env.pop("AL_NONFINITE_SKIP", None)
+        # AL_NONFINITE_SKIP is NOT a dead knob: scratchpad/arch_autoresearch.py:344 reads it, and that
+        # is the file the loop runs. An earlier audit checked albench/arch_search/arch_autoresearch.py,
+        # a stale copy with zero occurrences, and wrongly concluded it was dead. It must be carried over
+        # unchanged, or the arm differs from its baseline in fp16 non-finite handling as well.
+        assert env.get("AL_NONFINITE_SKIP") == "1", "the baseline sets it; carry it over"
         out.append(
             dict(
                 name=f"{tag}_30k_r1",

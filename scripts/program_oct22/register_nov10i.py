@@ -92,7 +92,11 @@ def main():
     assert '"manager": "schedule_ens"' in cmd, "must stay ar41's manager"
 
     env = dict(src.get("env", {}))
-    env.pop("AL_NONFINITE_SKIP", None)  # read by no code
+    # AL_NONFINITE_SKIP is NOT a dead knob: scratchpad/arch_autoresearch.py:344 reads it, and that
+    # is the file the loop runs. An earlier audit checked albench/arch_search/arch_autoresearch.py,
+    # a stale copy with zero occurrences, and wrongly concluded it was dead. It must be carried over
+    # unchanged, or the arm differs from its baseline in fp16 non-finite handling as well.
+    assert env.get("AL_NONFINITE_SKIP") == "1", "the baseline sets it; carry it over"
     assert env.get("AL_RECIPE_MODE") == "tuned", "keep the enforced recipe, as ar41 has"
 
     text = baseline_text()
