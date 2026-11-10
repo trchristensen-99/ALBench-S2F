@@ -53,36 +53,47 @@ def read_run(d: Path):
 
 
 def main() -> None:
+    # Keyed by DIRECTORY, not by tag. al52, al55 and al56 reuse arm tags ("os_epi_s1") at
+    # different endpoints, so a tag-keyed dict silently kept one arm per tag and printed, say,
+    # al56's 60k numbers under al52's 105k header.
     traces = {}
     for p in sorted(MR.glob("*/acq_trace.json")):
         t = json.loads(p.read_text())
-        traces[t["tag"]] = (t, p.parent)
+        traces[p.parent] = (t, p.parent)
     if not traces:
         print("no finished arms yet")
         return
 
-    print("=== 30k pilot + 75k, every arm at 105,000 labelled sequences ===")
+    print("=== every acquisition arm, grouped by the endpoint it actually trains at ===")
     print(
         f"{'arm':14s} {'rep':>3s} {'n':>2s} {'genomic single/stack':>26s} "
         f"{'designed single/stack':>26s} {'random single/stack':>26s}"
     )
     rows: dict[str, list] = {}
-    for tag, (t, d) in sorted(traces.items(), key=lambda kv: kv[0]):
+    for _, (t, d) in sorted(traces.items(), key=lambda kv: str(kv[0])):
         if t["schedule"] == [0]:
             continue
         got = read_run(d)
         if not got:
             continue
         single, stack, n = got
-        arm = tag.rsplit("_s", 1)[0]
+        tag = t["tag"]
+        # What distinguishes two same-named arms is the budget they acquire: al56 buys 30k on a
+        # 30k pilot (60k endpoint), al52/al54 buy 75k on 30k (105k), al55 buys 100k on 100k
+        # (200k), al53 buys 300k on 300k (600k). The trace does not record the pilot size, so
+        # this labels the acquired budget and does not silently assert an endpoint.
+        arm = f"+{sum(t['schedule']) // 1000}k {tag.rsplit('_s', 1)[0]}"
         rep = tag.rsplit("_s", 1)[1]
         rows.setdefault(arm, []).append((single, stack))
         cols = " ".join(f"{single[s]:.4f}/{stack[s]:.4f}" for s in SETS)
-        print(f"{arm:14s} {rep:>3s} {n:>2d}   {cols}")
+        print(f"{arm:20s} {rep:>3s} {n:>2d}   {cols}")
 
     print()
-    print(f"{'arm':14s} {'reps':>4s} " + " ".join(f"{s + ' stack':>16s}" for s in SETS))
-    for arm in [a for a in ORDER if a in rows] + [a for a in rows if a not in ORDER]:
+    print(f"{'arm':20s} {'reps':>4s} " + " ".join(f"{s + ' stack':>16s}" for s in SETS))
+    order = [a for a in rows if a.split(" ", 1)[1] in ORDER] + [
+        a for a in rows if a.split(" ", 1)[1] not in ORDER
+    ]
+    for arm in sorted(order, key=lambda a: (int(a.split("k ", 1)[0].lstrip("+")), a)):
         rs = rows[arm]
         cols = []
         for s in SETS:
@@ -90,7 +101,7 @@ def main() -> None:
             cols.append(
                 f"{v.mean():.4f}+-{v.std():.4f}" if len(v) > 1 else f"{v.mean():.4f}        "
             )
-        print(f"{arm:14s} {len(rs):>4d} " + " ".join(f"{c:>16s}" for c in cols))
+        print(f"{arm:20s} {len(rs):>4d} " + " ".join(f"{c:>16s}" for c in cols))
 
     print()
     print("=== what each arm bought, by reservoir (share of its 75,000) ===")
