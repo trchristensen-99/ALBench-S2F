@@ -129,13 +129,17 @@ def all_cells():
 
 
 def main():
-    # the architectures must BUILD before any of this is registered: a reference that cannot be
-    # constructed would otherwise surface as 18 identical failed.jsonl lines an hour from now
+    # the architectures must pass the HARNESS's own gate before any of this is registered, not merely
+    # import: the first run of this script used a plain exec, which accepted a Malinois that the
+    # harness then refused for 18 models in a row with "build: banned name: getattr"
     import torch
 
     from albench.arch_search.harness_standard import INPUT_LEN
+    from albench.arch_search.validate import static_check
 
     for tag, mod, n_params in ARCHS:
+        bad = static_check(mod.SOURCE)
+        assert bad is None, f"{tag}: the harness validator rejects this source -- {bad}"
         ns = {}
         exec(compile(mod.SOURCE, f"<{tag}>", "exec"), ns)
         net = ns["Net"]()

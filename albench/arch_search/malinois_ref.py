@@ -11,6 +11,8 @@ baseline next to the AlphaGenome students, whereas re-implemented and trained fr
 Deviations from the published model, all forced by our harness:
   * ``n_outputs=1``. Malinois predicts three cell types; we predict one K562 value.
   * Regression head only. The published class carries a ``CrossEntropyLoss`` default and a Lightning training loop; the harness owns the loss, so neither is reproduced.
+  * The ``activation`` string argument is gone and ``nn.ReLU()`` is named directly. The published ``Basset`` resolves it with ``getattr(nn, activation)``, which the harness's source validator rejects
+    (``albench/arch_search/validate.py``, ``BANNED_NAMES``). ReLU is the published default and the only value Malinois uses, so this removes a knob rather than changing the model.
   * **The dense width is derived from the input length rather than hard-coded.** ``Basset.linear1`` takes ``conv3_channels * 13``, where 13 is what 600 bp becomes after pools of 3, 4 and 4. Our fixed standard is
     240 bp, which becomes 5, so this model at our input is ~3.0M parameters against the published ~4.5M. The alternative -- padding 240 bp out to 600 -- would break comparability with every other student in the
     study, so the width moves instead. A reader comparing our Malinois numbers with the paper's should know the dense stack is the part that shrank.
@@ -64,7 +66,7 @@ class Basset(nn.Module):
 
     def __init__(self, input_len=240, conv1_channels=300, conv1_kernel_size=19,
                  conv2_channels=200, conv2_kernel_size=11, conv3_channels=200, conv3_kernel_size=7,
-                 linear1_channels=1000, linear2_channels=1000, n_outputs=1, activation='ReLU',
+                 linear1_channels=1000, linear2_channels=1000, n_outputs=1,
                  dropout_p=0.3, use_batch_norm=True, use_weight_norm=False):
         super().__init__()
         self.pad1 = nn.ConstantPad1d(get_padding(conv1_kernel_size), 0.0)
@@ -80,7 +82,9 @@ class Basset(nn.Module):
         self.maxpool_3 = nn.MaxPool1d(3, padding=0)
         self.maxpool_4 = nn.MaxPool1d(4, padding=0)
 
-        self.nonlin = getattr(nn, activation)()
+        # published code takes an ``activation`` string and resolves it with getattr; the harness's
+        # source validator bans getattr, so the default ReLU -- the only value Malinois uses -- is named
+        self.nonlin = nn.ReLU()
         self.dropout = nn.Dropout(p=dropout_p)
 
         # published code hard-codes conv3_channels * 13, which is 600 bp after pools of 3, 4 and 4;
