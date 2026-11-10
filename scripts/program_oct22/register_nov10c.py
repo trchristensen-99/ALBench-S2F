@@ -83,6 +83,12 @@ def main():
     cli = inspect.getsource(al.main)
     for method, _ in ARMS.values():
         assert f'"{method}"' in cli, f"--acq does not accept {method!r}"
+        # ...and main() has to build the pilot ensemble for it. `needs_model` was a list of the
+        # methods that DO consult the model, so this one was omitted and `ens` stayed None until
+        # select() dereferenced it. Asserting the inverse spelling keeps that from recurring.
+        assert 'needs_model = a.acq not in ("random", "oracle_top")' in cli, (
+            "needs_model must list the methods that do NOT consult the model"
+        )
     # it has to sit beside the arms it explains, so geometry and recipe must match al52's
     assert al.recipe_for(D0 + BUDGET) == al.recipe_for(105_000), "not al52's rung"
     print(

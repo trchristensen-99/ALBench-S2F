@@ -356,7 +356,10 @@ def main() -> None:
         # An acquisition that never consults the model gains nothing from an intermediate retrain, so
         # skip it: an iterative random arm would otherwise pay three ensembles to reproduce, exactly,
         # what one random draw of the same size gives.
-        needs_model = a.acq in ("epistemic", "badge")
+        # Listed by what does NOT consult the model, so a new acquisition is covered by default.
+        # The inverse spelling silently left `ens` as None for any method missing from the list,
+        # and select() then died on `ens.score` the first time an arm ran against a cached pilot.
+        needs_model = a.acq not in ("random", "oracle_top")
         run_dir = (
             train(pool_path, d, a.n_seeds, a.ctx, train_seeds, out_root, a.smoke)
             if (needs_model or r == 0)
