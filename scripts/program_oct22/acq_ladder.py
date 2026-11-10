@@ -211,7 +211,7 @@ def select(method: str, ens, cand_seqs, cand_y, n_add: int, seed: int) -> np.nda
         return rng.choice(len(cand_seqs), size=n_add, replace=False)
     if method == "oracle_top":
         return np.argsort(-cand_y)[:n_add]  # the bound: selects on the label the others never see
-    mean, sd, emb = ens.score(cand_seqs, want_emb=(method == "badge"))
+    mean, sd, emb = ens.score(cand_seqs, want_emb=method in ("badge", "badge_kmeanspp_only"))
     log.info(
         "candidate scores: mean %+.3f+-%.3f, epistemic sd %.4f+-%.4f",
         mean.mean(),
@@ -227,6 +227,15 @@ def select(method: str, ens, cand_seqs, cand_y, n_add: int, seed: int) -> np.nda
             raise RuntimeError("BADGE embeddings have no spread; selection would be random")
         log.info("badge embedding: dim %d, weighted-norm spread %.4f", emb.shape[1], spread)
         return kmeanspp_torch(emb * sd[:, None], n_add, seed)
+    if method == "badge_kmeanspp_only":
+        # BADGE's diversity half with the epistemic weighting removed, which is the control
+        # AGENTS.md requires: it says whether a BADGE or epistemic gain is uncertainty at all,
+        # or only coverage of the embedding space. `epistemic` above is the other half.
+        spread = float(np.linalg.norm(emb, axis=1).std())
+        if spread < 1e-12:
+            raise RuntimeError("embeddings have no spread; selection would be random")
+        log.info("kmeans++ only: dim %d, unweighted-norm spread %.4f", emb.shape[1], spread)
+        return kmeanspp_torch(emb, n_add, seed)
     raise ValueError(f"unknown acquisition {method!r}")
 
 
