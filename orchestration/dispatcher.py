@@ -64,7 +64,12 @@ MIG_NO = (
     "sw38_100k",
     "archinvar_",
     "refattn32_",
-)  # cells that must not run on a slice: the collaborator ensembles (urgent), large-D anchors, pool builds
+    "refattnlong_",
+)  # cells that must not run on a slice: the collaborator ensembles (urgent), large-D anchors, pool
+# builds, and every family carrying a DREAM-Attn entry -- it needs more than a 10.8 GB slice, and
+# menu_retrain writes COMPLETE on shard exit regardless, so a slice placement loses it SILENTLY.
+# For a MIXED menu (archinvar_ is 4 architectures) MIG_BAD/_bad_shard is the better tool: it blocks
+# only the shard holding the hungry entry and leaves the others on slices.
 # wall-clock budget (hours) handed to arch cells per job. A round (2 models) must finish before the wall limit; V100 rounds
 # can take hours (per-model cap x5), so fast/V100 only starts a new round during the first 0.6 h.
 BUDGET = {
