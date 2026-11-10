@@ -296,6 +296,20 @@ def is_done(c: dict) -> bool:
     return False
 
 
+def is_degraded(c: dict) -> bool:
+    """A done menu shard that lost models: menu_retrain.py writes DEGRADED_{k}of{n}.json next to
+    COMPLETE_{k}of{n}. Done is unchanged (terminal, so no resubmit loop); this only makes the loss visible
+    in the cycle line and status.txt. Shards marked before 2026-11-10 have no such file and are not counted
+    (scripts/analysis/audit_silent_loss.py covers them)."""
+    d = c["done"]
+    m = (
+        re.fullmatch(r"COMPLETE_(\d+of\d+)", Path(d.get("path", "")).name)
+        if d["type"] == "file"
+        else None
+    )
+    return bool(m) and (R / d["path"]).with_name(f"DEGRADED_{m.group(1)}.json").exists()
+
+
 def _mig_cap() -> int:
     """MIG slices to use; scratchpad/mig_cap.txt overrides the default without restarting the dispatcher (the migq partition has 28 slices)."""
     try:
@@ -701,11 +715,14 @@ def cycle(reg: list[dict], dry: bool) -> None:
     global LLM_DOWN
     _gl = state.get("_global", {})
     LLM_DOWN = bool(time.time() < _gl.get("llm_cooldown_until", 0) or _gl.get("probe_needed"))
-    summary = {"done": 0, "active": 0, "submitted": 0, "paused": 0}
+    summary = {"done": 0, "degraded": 0, "active": 0, "submitted": 0, "paused": 0}
     for c in reg:
         st = state.setdefault(c["name"], {})
         if is_done(c):
             summary["done"] += 1
+            summary["degraded"] += is_degraded(
+                c
+            )  # done, but some models were lost (DEGRADED_*.json)
             continue
         if c["name"].startswith(_defer_prefixes()):
             continue
@@ -864,7 +881,7 @@ def cycle(reg: list[dict], dry: bool) -> None:
             where = f"{j['qos']}/{j['gpu']}/{j['st']}" if j else "-"
             ago = f"{int((time.time() - newest) / 60)}m ago" if newest else "never"
             flag = (
-                "DONE"
+                ("DEGRADED" if is_degraded(c) else "DONE")
                 if is_done(c)
                 else ("PAUSED" if state.get(c["name"], {}).get("paused") else "")
             )
