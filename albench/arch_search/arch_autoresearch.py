@@ -22,13 +22,15 @@ from pathlib import Path
 
 import numpy as np
 
-REPO = "/grid/wsbs/home_norepl/christen/ALBench-S2F"
+from albench.core.paths import REPO_ROOT  # noqa: E402
+
+REPO = str(REPO_ROOT)  # was the cluster checkout, hard-coded
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "experiments"))
 
-from albench.arch_search.propose import build_arch_prompt, call_model, parse_proposals
-from albench.arch_search.train_generated import one_hot, predict
-from albench.arch_search.validate import build_and_check, static_check
+from albench.arch_search.propose import build_arch_prompt, call_model, parse_proposals  # noqa: E402  (after the sys.path setup)
+from albench.arch_search.train_generated import one_hot, predict  # noqa: E402  (after the sys.path setup)
+from albench.arch_search.validate import build_and_check, static_check  # noqa: E402  (after the sys.path setup)
 
 TRAIN_NOTE = (
     "SETUP: you write ONLY the architecture (the Net class, always required and complete). A fixed "
@@ -167,11 +169,89 @@ def shift(x, m):  # padded random shift along length
     if s == 0:
         return x
     y = torch.zeros_like(x)
+    flank = (
+        os.environ.get("AL_FLANK_SHIFT") == "1"
+    )  # real plasmid bases instead of zeros where the window moves past the insert
     if s > 0:
         y[:, :, s:] = x[:, :, :-s]
+        if flank:
+            y[:, :, :s] = _flank(x.device, x.dtype)[0][:, -s:]
     else:
         y[:, :, :s] = x[:, :, -s:]
+        if flank:
+            y[:, :, s:] = _flank(x.device, x.dtype)[1][:, :-s]
     return y
+
+
+_FLANK_CACHE: dict = {}
+
+
+def _flank(device, dtype):
+    """(upstream tail, downstream head) one-hot (4, N) tensors in ACGT order."""
+    key = (str(device), dtype)
+    if key not in _FLANK_CACHE:
+        import torch
+
+        from albench.arch_search.plasmid_flank import DOWNSTREAM_HEAD, UPSTREAM_TAIL
+
+        def oh(seq):
+            t = torch.zeros(4, len(seq), device=device, dtype=dtype)
+            for i, c in enumerate(seq):
+                t["ACGT".index(c), i] = 1.0
+            return t
+
+        _FLANK_CACHE[key] = (oh(UPSTREAM_TAIL), oh(DOWNSTREAM_HEAD))
+    return _FLANK_CACHE[key]
+
+
+class _EMA:
+    """Exponential moving average of a model's weights and BN statistics; ``.model`` is the shadow copy that validation and the final model are taken from."""
+
+    def __init__(self, model, decay):
+        import copy
+
+        self.decay = float(decay)
+        self.model = copy.deepcopy(model).eval()
+        for p in self.model.parameters():
+            p.requires_grad_(False)
+        ms, es = model.state_dict(), self.model.state_dict()
+        self._fl = [(ms[k], es[k]) for k in ms if ms[k].dtype.is_floating_point]
+        self._int = [(ms[k], es[k]) for k in ms if not ms[k].dtype.is_floating_point]
+
+    def update(self, n):
+        import torch
+
+        d = min(self.decay, (1.0 + n) / (10.0 + n))
+        with torch.no_grad():
+            torch._foreach_lerp_(
+                [e for _, e in self._fl], [m.detach() for m, _ in self._fl], 1.0 - d
+            )
+            for m, e in self._int:
+                e.copy_(m)
+
+
+def _bn_recalc(model, X, dev, amp_on, amp_dt, n=16384, bs=256):
+    """Recompute BatchNorm running statistics (cumulative average) of ``model`` on up to n training sequences, both strands, no shift augmentation."""
+    import torch
+
+    bns = [m for m in model.modules() if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)]
+    if not bns:
+        return 0
+    moms = [m.momentum for m in bns]
+    for m in bns:
+        m.reset_running_stats()
+        m.momentum = None
+    idx = np.random.default_rng(0).permutation(len(X))[: min(n, len(X))]
+    model.train()
+    with torch.no_grad(), torch.autocast("cuda", dtype=amp_dt, enabled=amp_on):
+        for i in range(0, len(idx), bs):
+            xb = torch.from_numpy(X[np.sort(idx[i : i + bs])]).to(dev)
+            model(xb)
+            model(rc(xb))
+    for m, mo in zip(bns, moms):
+        m.momentum = mo
+    model.eval()
+    return len(bns)
 
 
 def build_opt(model, name, lr, wd):
@@ -199,6 +279,30 @@ def build_opt(model, name, lr, wd):
 
 def sample_train(spec):
     """Fill missing training HPs with randomly-varied defaults."""
+    if (
+        os.environ.get("AL_RECIPE_MODE") == "tuned"
+    ):  # every model trains with the same, size-specific recipe (AL_TUNED_RECIPE), the one that makes the reference LegNet strong
+        _o, _lr, _wd, _bs, _ep, _sch = os.environ["AL_TUNED_RECIPE"].split(",")
+        return {
+            "optimizer": _o,
+            "lr": float(_lr),
+            "weight_decay": float(_wd),
+            "batch_size": int(_bs),
+            "epochs": int(_ep),
+            "lr_schedule": _sch,
+        }
+    if (
+        os.environ.get("AL_RECIPE_MODE") == "harness"
+    ):  # the harness assigns the recipe: Muon with a small spread around the settings that every recipe study found equivalent
+        r = random.Random()
+        return {
+            "optimizer": "muon",
+            "lr": r.choice([1e-3, 2e-3, 2e-3, 4e-3]),
+            "weight_decay": r.choice([1e-4, 1e-4, 3e-4, 1e-3]),
+            "batch_size": r.choice([128, 256, 256, 512]),
+            "epochs": 80,
+            "lr_schedule": r.choice(["onecycle", "onecycle", "cosine"]),
+        }
     r = random.Random()
     out = {
         "optimizer": spec.get("optimizer", r.choice(["muon", "muon", "adamw"])),
@@ -252,20 +356,43 @@ def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=pri
     Xva_t = torch.from_numpy(Xva).to(dev)
     yva_t = torch.from_numpy(yva).to(dev)
     best, best_state, bad = np.inf, None, 0
+    _nf_run = _nf_total = 0
+    ema_decay = float(os.environ.get("AL_EMA", "0") or 0)
+    ema = _EMA(model, ema_decay) if ema_decay > 0 else None
+    ema_n = 0
     t0 = time.time()
     for ep in range(epochs):
         model.train()
         for xb, yb in dl:
-            xb = shift(xb.to(dev), 10)
+            xb = shift(xb.to(dev), int(os.environ.get("AL_SHIFT_MAX", "10")))
             yb = yb.to(dev)
             opt.zero_grad()
             with torch.autocast("cuda", dtype=amp_dt, enabled=amp_on):
-                out = model(xb).squeeze()
-                # RC consistency: average fwd + reverse-complement prediction in the loss
-                out_rc = model(rc(xb)).squeeze()
+                if os.environ.get("AL_RC_MODE", "consistency") == "aug":
+                    # oracle-style augmentation: flip half of the samples, one forward pass
+                    _flip = torch.rand(xb.shape[0], device=xb.device) < 0.5
+                    out = model(torch.where(_flip[:, None, None], rc(xb), xb)).squeeze()
+                    out_rc = out
+                else:
+                    out = model(xb).squeeze()
+                    # RC consistency: average fwd + reverse-complement prediction in the loss
+                    out_rc = model(rc(xb)).squeeze()
             loss = 0.5 * (lossf(out.float(), yb) + lossf(out_rc.float(), yb))
             if not torch.isfinite(loss):
+                if (
+                    scaler is not None and os.environ.get("AL_NONFINITE_SKIP") == "1"
+                ):  # fp16: skip the batch, give up after 20 in a row
+                    _nf_run += 1
+                    _nf_total += 1
+                    if _nf_run > 20:
+                        return (
+                            None,
+                            {"error": f"non-finite loss ep{ep} (20 batches in a row)"},
+                            used,
+                        )
+                    continue
                 return None, {"error": f"non-finite loss ep{ep}"}, used
+            _nf_run = 0
             if scaler is not None:
                 scaler.scale(loss).backward()
                 scaler.unscale_(opt)
@@ -276,14 +403,17 @@ def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=pri
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 opt.step()
+            if ema is not None:
+                ema_n += 1
+                ema.update(ema_n)
             if per_step:
                 sched.step()
         model.eval()
+        evm = ema.model if ema is not None else model
         with torch.no_grad(), torch.autocast("cuda", dtype=amp_dt, enabled=amp_on):
             vp = torch.cat(
                 [
-                    (model(Xva_t[i : i + 512]).squeeze() + model(rc(Xva_t[i : i + 512])).squeeze())
-                    / 2
+                    (evm(Xva_t[i : i + 512]).squeeze() + evm(rc(Xva_t[i : i + 512])).squeeze()) / 2
                     for i in range(0, len(Xva_t), 512)
                 ]
             ).float()
@@ -292,19 +422,41 @@ def train_one(model, Xtr, ytr, Xva, yva, tc, device="cuda", max_sec=900, log=pri
             sched.step(vmse) if tc["lr_schedule"] == "plateau" else sched.step()
         if vmse < best - 1e-4:
             best, bad = vmse, 0
-            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            best_state = {k: v.detach().clone() for k, v in evm.state_dict().items()}
         else:
             bad += 1
-            if bad >= int(
-                os.environ.get("AL_PATIENCE", "8")
-            ):  # override only for the patience study
+            # AL_PATIENCE (default 8 as before); AL_ONECYCLE_FULL=1: a one-cycle schedule only anneals at its end, so patience never stops it (the time cap below still does)
+            if bad >= int(os.environ.get("AL_PATIENCE", "8")) and not (
+                os.environ.get("AL_ONECYCLE_FULL") == "1" and tc["lr_schedule"] == "onecycle"
+            ):
                 break
         if time.time() - t0 > max_sec:
             log(f"    [time cap {max_sec}s hit at ep{ep}]")
             break
     if best_state is not None:
         model.load_state_dict(best_state)
-    return model, {"best_val_mse": best, "epochs_trained": ep + 1, "optimizer_used": used}, used
+    extra = {}
+    if best_state is not None and os.environ.get("AL_BN_RECALC") == "1":
+        extra["val_mse_before_bn_recalc"] = best
+        extra["bn_layers_recalculated"] = _bn_recalc(model, Xtr, dev, amp_on, amp_dt)
+        with torch.no_grad(), torch.autocast("cuda", dtype=amp_dt, enabled=amp_on):
+            vp = torch.cat(
+                [
+                    (model(Xva_t[i : i + 512]).squeeze() + model(rc(Xva_t[i : i + 512])).squeeze())
+                    / 2
+                    for i in range(0, len(Xva_t), 512)
+                ]
+            ).float()
+        best = float(((vp - yva_t) ** 2).mean())
+    if ema is not None:
+        extra["ema_decay"] = ema_decay
+    if _nf_total:
+        extra["nonfinite_skipped"] = _nf_total
+    return (
+        model,
+        {"best_val_mse": best, "epochs_trained": ep + 1, "optimizer_used": used, **extra},
+        used,
+    )
 
 
 def predict_rc(model, X):  # RC-averaged prediction
@@ -321,7 +473,7 @@ def predict_rc(model, X):  # RC-averaged prediction
     return np.concatenate(out)
 
 
-import builtins as _bi
+import builtins as _bi  # noqa: E402  (after the sys.path setup)
 
 _SAFE_BUILTINS = {
     k: getattr(_bi, k)
@@ -334,7 +486,7 @@ _SAFE_BUILTINS = {
     ).split()
     if hasattr(_bi, k)
 }
-from albench.arch_search.validate import ALLOWED_IMPORTS as _ALLOWED
+from albench.arch_search.validate import ALLOWED_IMPORTS as _ALLOWED  # noqa: E402  (after the sys.path setup)
 
 
 def _gated_import(name, *a, **k):
@@ -349,8 +501,13 @@ def extract_train(src):
     """Return the model-written train() if the source defines one and is AST-safe, else None."""
     if static_check(src):  # non-None = unsafe
         return None
-    import torch, numpy, math, random
-    import torch.nn as nn, torch.nn.functional as F
+    import math
+    import random
+
+    import numpy
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
 
     sb = dict(_SAFE_BUILTINS)
     sb["__import__"] = _gated_import
@@ -431,20 +588,97 @@ def _style_parts(args, lessons):
     return parts
 
 
+FLANK_NOTE = (
+    "INPUT CONTEXT: x has length L = {L}: the 200-bp variable insert in the centre plus {F} real bases of the constant plasmid sequence on EACH side. "
+    "The assay and the oracle that labels the sequences see the insert inside this plasmid, so a motif that spans the insert boundary is part of the label; the flank bases are identical for every "
+    "sequence. During training the window is shifted by up to +-{S} bases over real sequence; evaluation uses the centred window. Write the architecture for any L divisible by 8: do not hard-code 200 "
+    "or {L} (use global or adaptive pooling and operations that do not depend on the length). A model that cannot run at L = {L} is discarded."
+)
+
+
+FLANK_NOTE_FIXED = (
+    "INPUT CONTEXT: x has length L = {L} for every model in this study, fixed by the harness and never changed: the 200-bp variable insert in the centre plus {F} real bases of the constant plasmid sequence on EACH side. "
+    "The assay and the oracle that labels the sequences see the insert inside this plasmid, so a motif that spans the insert boundary is part of the label; the flank bases are identical for every sequence. "
+    "During training the window is shifted by up to +-{S} bases over real sequence; evaluation uses the centred window. Because L is fixed you may use position-specific designs sized for L "
+    "(position-resolved readouts, fixed windows, learned positional parameters); you are free to explore any architecture."
+)
+
+REFERENCE_LEGNET_NOTE = (
+    "REFERENCE: THE PUBLISHED MPRA-LegNet (the standard baseline for this task), written to this contract. A model of this kind trained by this harness on this training set reaches the validation r given with it. "
+    "It has about 1.3 million parameters; whether a larger or a smaller model is better can depend on the training-set size (in a first test, doubling the channel widths of our earlier configurations at 100k sequences changed the genomic-test r by -0.002 to +0.004, within noise), so capacity is worth testing, not assuming. It is a starting point and a bar, not a template: the goal is a set of strong architectures that differ from each other and from it, so propose different designs as well as improvements of it.\n```python\n"
+)
+
+
+MINIMAL_GUIDANCE = (
+    "WHAT EARLIER SEARCHES ON THIS TASK SHOWED (facts, not instructions):\n"
+    "- The ensemble of your models is what is scored, so a model whose predictions are decorrelated from the best ones is worth more than a slightly better copy of a design that is already trained "
+    "(a 0.002 gain on a near-duplicate adds nothing to the ensemble).\n"
+    "- Convolutional models, most often with squeeze-excitation blocks, have been the strongest family: validation Pearson 0.77 to 0.82 at this size. Pure transformer, MLP-mixer, spectral or wavelet "
+    "and hand-built motif-grammar models have scored clearly lower (0.43 to 0.74), as have models that discard position entirely.\n"
+    "- Reverse-complement and shift augmentation are applied for you and the input includes real plasmid context (see below); do not re-implement them.\n"
+    "- Retraining the same design with another seed moves its validation Pearson by about 0.005 to 0.01: do not read a smaller gap between two designs as real."
+)
+
+
+OPEN_GUIDANCE = (
+    "WHAT EARLIER SEARCHES ON THIS TASK SHOWED (facts, not instructions):\n"
+    "- The ensemble of your models is what is scored, so a model whose predictions are decorrelated from the best ones is worth more than a slightly better copy of a design that is already trained "
+    "(a 0.002 gain on a near-duplicate adds nothing to the ensemble).\n"
+    "- No architecture family is known to be best on this task; unusual mechanisms have not been ruled out, so look widely before refining.\n"
+    "- Reverse-complement and shift augmentation are applied for you and the input includes real plasmid context (see below); do not re-implement them.\n"
+    "- Retraining the same design with another seed moves its validation Pearson by about 0.005 to 0.01: do not read a smaller gap between two designs as real."
+)
+
+
 def _round_note(args, rd, cap_min, lessons=()):
     """Per-round prompt note. Default (no --guidance) is byte-identical to the old behaviour."""
     base = (FULL_NOTE if args.full_control else TRAIN_NOTE).format(
         max_min=cap_min, max_params=args.max_params
     )
+    if getattr(args, "wide", False):
+        base += "\n\n" + (
+            FLANK_NOTE_FIXED if getattr(args, "fixed_length", False) else FLANK_NOTE
+        ).format(L=200 + 2 * args.ctx_F, F=args.ctx_F, S=args.ctx_S)
     ctx = ""
     if getattr(args, "context_file", ""):
         ctx = (
             open(args.context_file).read().strip()
         )  # pre-built cross-D hand-off (see scripts/analysis/make_ladder_context.py)
     sp = _style_parts(args, lessons)
-    if args.guidance != "known_good":
+    if args.guidance not in ("known_good", "minimal", "open"):
         return "\n\n".join(([ctx] if ctx else []) + sp + [base])
-    parts = [KNOWN_GOOD] + ([ctx] if ctx else [])
+    parts = [
+        {"minimal": MINIMAL_GUIDANCE, "open": OPEN_GUIDANCE}.get(args.guidance, KNOWN_GOOD)
+    ] + ([ctx] if ctx else [])
+    if getattr(args, "target_val", 0):
+        parts.append(
+            f"TARGET: models with validation Pearson r of about {args.target_val:.3f} have been trained on this task at this training-set size."
+        )
+    elif getattr(args, "target_delta", 0) and getattr(args, "baseline_file", ""):
+        import re as _re
+
+        try:
+            _b = float(
+                _re.search(
+                    r"validation Pearson r = ([0-9]+[.][0-9]+)", open(args.baseline_file).read()
+                ).group(1)
+            )
+            parts.append(
+                f"TARGET: models with validation Pearson r of about {_b + args.target_delta:.3f} (a little above a well-tuned convolutional baseline) have been trained on this task at this training-set size."
+            )
+        except Exception:
+            pass
+    if getattr(args, "reference_legnet", False) and rd >= getattr(args, "reference_from_round", 0):
+        from albench.arch_search.mpra_legnet_ref import SOURCE as LEGNET_SRC
+
+        bl = (
+            open(args.baseline_file).read().strip() + "\n\n"
+            if getattr(args, "baseline_file", "")
+            else ""
+        )
+        parts.append(bl + REFERENCE_LEGNET_NOTE + LEGNET_SRC + "```")
+    elif getattr(args, "baseline_file", "") and not getattr(args, "reference_legnet", False):
+        parts.append(open(args.baseline_file).read().strip())
     if args.phase_split and rd < args.phase_split:
         parts += [
             PHASE_EXPLOIT,
@@ -478,7 +712,7 @@ def main():
     ap.add_argument("--full_control", action="store_true")  # model writes the whole training loop
     ap.add_argument("--budget_hours", type=float, default=40.0)  # per-cell total train budget
     ap.add_argument(
-        "--guidance", default="none", choices=["none", "known_good"]
+        "--guidance", default="none", choices=["none", "known_good", "minimal", "open"]
     )  # prior knowledge block in the prompt
     ap.add_argument(
         "--phase_split", type=int, default=0
@@ -505,6 +739,61 @@ def main():
         "--val_cache",
         default="",
         help="npz (sequences, oracle_labels, oracle_id) replacing the chr19/21/X validation set for early stopping, val_pred, val_labels and proposer feedback; default empty = unchanged behaviour",
+    )
+    ap.add_argument(
+        "--flank_ctx",
+        type=int,
+        default=-1,
+        help="F real plasmid bases of input context on each side of the 200-bp insert (shift over real bases); -1 = off",
+    )
+    ap.add_argument(
+        "--reference_from_round",
+        type=int,
+        default=0,
+        help="show the reference LegNet code and baseline only from this round on (0 = every round)",
+    )
+    ap.add_argument(
+        "--target_val",
+        type=float,
+        default=0.0,
+        help="optional known-achievable validation r stated in the prompt (0 = off)",
+    )
+    ap.add_argument(
+        "--target_delta",
+        type=float,
+        default=0.0,
+        help="state a target = the in-run baseline validation r + this delta (needs the baseline, i.e. --reference_legnet; 0 = off)",
+    )
+    ap.add_argument(
+        "--reference_legnet",
+        action="store_true",
+        help="show the proposer the published MPRA-LegNet (as a bar and a starting point)",
+    )
+    ap.add_argument(
+        "--baseline_file",
+        default="",
+        help="text file appended to the guidance block (e.g. the baseline's validation r on this training set)",
+    )
+    ap.add_argument(
+        "--fixed_length",
+        action="store_true",
+        help="with --flank_ctx: the input length is fixed by the harness, position-specific designs are allowed",
+    )
+    ap.add_argument(
+        "--no_context",
+        action="store_true",
+        help="train on the bare 200-bp insert (an experiment that deliberately differs from the standard: 20 real flank bases each side, shift +-10)",
+    )
+    ap.add_argument(
+        "--length_agnostic",
+        action="store_true",
+        help="with context: ask for length-agnostic architectures instead of telling the proposer the length is fixed",
+    )
+    ap.add_argument(
+        "--shift_max",
+        type=int,
+        default=-1,
+        help="+-shift of the training window with --flank_ctx (default 10); -1 = off",
     )
     args = ap.parse_args()
 
@@ -557,10 +846,80 @@ def main():
         )
     te_s, te_oracle, te_true = load_chr_test_genomic()
     tests = load_all_test_sets()
-    Xtr, ytr = one_hot(tr_s, args.seq_len), np.asarray(tr_y, np.float32)
-    Xva, yva = one_hot(va_s, args.seq_len), np.asarray(va_y, np.float32)
-    Xte = one_hot(te_s, args.seq_len)
-    Xsets = {k: one_hot(v[0], args.seq_len) for k, v in tests.items()}
+    from albench.arch_search.harness_standard import FLANK_CTX as STD_F
+    from albench.arch_search.harness_standard import SHIFT_MAX as STD_S
+
+    if args.no_context:
+        args.flank_ctx = args.shift_max = -1
+    elif (
+        args.flank_ctx < 0 and args.shift_max < 0
+    ):  # the standard, unless this directory already holds models trained without context
+        _legacy = (
+            bool(list(Path(args.out_dir).glob("r*_arch_*_meta.json")))
+            and not (Path(args.out_dir) / "flank_ctx.json").exists()
+        )
+        if not _legacy:
+            args.flank_ctx, args.shift_max = STD_F, STD_S
+    args.wide = args.flank_ctx >= 0 or args.shift_max >= 0
+    if args.wide and not args.length_agnostic:
+        args.fixed_length = True
+    args.ctx_F, args.ctx_S = max(args.flank_ctx, 0), (args.shift_max if args.shift_max >= 0 else 10)
+    _cp = Path(args.out_dir) / "flank_ctx.json"
+    if args.wide:
+        from albench.arch_search.flank_context import wide_onehot
+        from albench.arch_search.flank_context import wrap as wrap_ctx
+
+        if os.environ.get("AL_FLANK_SHIFT") == "1":
+            raise SystemExit("--flank_ctx/--shift_max replace AL_FLANK_SHIFT; unset it")
+        if not _cp.exists() and list(Path(args.out_dir).glob("r*_arch_*_meta.json")):
+            raise SystemExit(
+                f"{args.out_dir} already holds models trained without flank context; use a fresh --out_dir"
+            )
+        if _cp.exists() and json.load(open(_cp)) != {"F": args.ctx_F, "S": args.ctx_S}:
+            raise SystemExit(
+                f"{args.out_dir} was started with {open(_cp).read()}; pass the same flags"
+            )
+        _cp.write_text(json.dumps({"F": args.ctx_F, "S": args.ctx_S}))
+        os.environ["AL_SHIFT_MAX"] = "0"  # WideCrop shifts over real bases
+        args.seq_len = 200 + 2 * args.ctx_F  # the contract the proposer and the coder see
+    elif _cp.exists():
+        raise SystemExit(
+            f"{args.out_dir} was started with flank context; pass the same flags or use a fresh --out_dir"
+        )
+
+    def _enc(seqs):
+        return (
+            wide_onehot(seqs, args.ctx_F + args.ctx_S) if args.wide else one_hot(seqs, args.seq_len)
+        )
+
+    def _wrap(m):
+        return wrap_ctx(m, args.ctx_F, args.ctx_S) if args.wide else m
+
+    args.harness = {
+        k: os.environ[k]
+        for k in (
+            "AL_EMA",
+            "AL_BN_RECALC",
+            "AL_FLANK_SHIFT",
+            "AL_SHIFT_MAX",
+            "AL_PATIENCE",
+            "AL_PRECISION",
+            "AL_ONECYCLE_FULL",
+            "AL_NONFINITE_SKIP",
+            "AL_RC_MODE",
+            "AL_RECIPE_MODE",
+            "AL_TUNED_RECIPE",
+            "AL_FIXED_EPOCHS",
+        )
+        if os.environ.get(k)
+    }
+    if args.wide:
+        args.harness.update({"flank_ctx": args.ctx_F, "shift_max": args.ctx_S})
+
+    Xtr, ytr = _enc(tr_s), np.asarray(tr_y, np.float32)
+    Xva, yva = _enc(va_s), np.asarray(va_y, np.float32)
+    Xte = _enc(te_s)
+    Xsets = {k: _enc(v[0]) for k, v in tests.items()}
     labels = {"val_labels": yva, "test_oracle": te_oracle, "test_true": te_true}
     for k, v in tests.items():
         labels[f"oracle_{k}"] = v[1]
@@ -568,6 +927,24 @@ def main():
     print(
         f"  train={len(tr_s):,} val={len(va_s):,} test={len(te_s):,} evals={len(tests)}", flush=True
     )
+
+    if (
+        args.reference_legnet and not args.baseline_file
+    ):  # bank-derived reference bar (docs/TUNED_LEGNET.md)
+        _bl = Path(args.out_dir) / "baseline_legnet.txt"
+        _bank = {  # D: (tuned recipe description, tuned bank mean val r, out-of-the-box bank mean val r); 20 seeds each, V0c
+            10000: ("weight decay 0.4, 800 epochs", 0.809, 0.756),
+            30000: ("weight decay 0.2, 500 epochs", 0.905, 0.882),
+            100000: ("weight decay 0.1, 500 epochs", 0.945, 0.940),
+        }.get(int(args.D))
+        if not _bl.exists() and _bank is not None:
+            _bl.write_text(
+                f"BASELINE: the MPRA-LegNet (shown below), trained 20 times with its reference script on {len(tr_s):,} sequences of this kind, reaches validation Pearson r = {_bank[1]:.3f} (mean over seeds; tuned recipe: "
+                f"AdamW, learning rate 0.01, {_bank[0]}, batch 1024, one-cycle). Its out-of-the-box recipe (weight decay 0.1, 100 epochs) reaches {_bank[2]:.3f}. Networks trained by this harness can score lower than the reference "
+                f"script does for the same architecture, so treat the first value as the level a single model should approach; what is scored is the ensemble of everything you train."
+            )
+        if _bl.exists():
+            args.baseline_file = str(_bl)
 
     if args.loop == "agent":  # opt-in; everything below this branch (the default loop) is untouched
         from types import SimpleNamespace
@@ -589,6 +966,8 @@ def main():
                 train_one=train_one,
                 sample_train=sample_train,
                 predict_rc=predict_rc,
+                wrap_model=_wrap,
+                harness=args.harness,
                 pear=pear,
                 atomic_savez=_atomic_savez,
                 atomic_write_text=_atomic_write_text,
@@ -602,9 +981,9 @@ def main():
     lessons = []
     if args.resume and (Path(args.out_dir) / "reflections.jsonl").exists():
         lessons = [
-            json.loads(l)["text"]
-            for l in open(Path(args.out_dir) / "reflections.jsonl")
-            if l.strip()
+            json.loads(ln)["text"]
+            for ln in open(Path(args.out_dir) / "reflections.jsonl")
+            if ln.strip()
         ]
     last_err, streak, start_rd, budget_hit = None, 0, 0, False
     out_p = Path(args.out_dir)
@@ -733,7 +1112,7 @@ def main():
                     )
                 else:
                     model, info, used = train_one(
-                        model, Xtr, ytr, Xva, yva, tc, max_sec=cap_min * 60
+                        _wrap(model), Xtr, ytr, Xva, yva, tc, max_sec=cap_min * 60
                     )
             except Exception as e:
                 history.append(
@@ -794,6 +1173,7 @@ def main():
                 "train_time_sec": time.time() - t0,
                 "gpu": gpu,
                 "source": p["source"],
+                "harness": args.harness,
             }
             if args.val_cache:
                 meta["val_cache"] = {
