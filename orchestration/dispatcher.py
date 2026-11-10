@@ -10,6 +10,7 @@ Safety: <= MAX_SUBS submissions per cycle, per-queue caps, exponential give-up (
 that cell), a kill switch file, and a full action log. It never touches jobs it did not submit unless the registry lists
 their name under `ext` (then it only waits for them).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,29 +31,61 @@ OUT = R / "outputs/dispatch"
 STATE_F, LOG_F = OUT / "state.json", OUT / "dispatch.log"
 JOBS_DIR = R / "scratchpad/dispatch_jobs"
 USER = "christen"
-FAST_CAP = {"h100": 2, "v100": 2}          # QOS fast: gres/gpu:h100=2, gres/gpu:v100=2 per user
-LLM_DOWN = False                           # set each cycle: LLM submissions paused (session limit); retrain cells may then use default (not fast: that would only preempt our own slow_nice jobs)
-DEFAULT_SUBMIT_CAP = 15                    # QOS default: 16 submitted per user (dependency-held jobs count); keep 1 spare
-STALL_S = {"h100": 3 * 3600, "v100": 6 * 3600}   # a RUNNING job with no new result file for this long is flagged (never auto-killed)
-H100_RESERVE = 0                           # slow_nice H100 slots that V100-eligible cells may not take
-SLOW_CAP = {"h100": 20, "v100": 20}        # QOS slow_nice: 20 + 20 GPUs per user (counts include pending)
-SLOW_JOBS_PU = 40                          # QOS slow_nice: MaxJobsPU, and MIG slices spend a slot each (sacctmgr, 2026-11-08)
+FAST_CAP = {"h100": 2, "v100": 2}  # QOS fast: gres/gpu:h100=2, gres/gpu:v100=2 per user
+LLM_DOWN = False  # set each cycle: LLM submissions paused (session limit); retrain cells may then use default (not fast: that would only preempt our own slow_nice jobs)
+DEFAULT_SUBMIT_CAP = (
+    15  # QOS default: 16 submitted per user (dependency-held jobs count); keep 1 spare
+)
+STALL_S = {
+    "h100": 3 * 3600,
+    "v100": 6 * 3600,
+}  # a RUNNING job with no new result file for this long is flagged (never auto-killed)
+H100_RESERVE = 0  # slow_nice H100 slots that V100-eligible cells may not take
+SLOW_CAP = {"h100": 20, "v100": 20}  # QOS slow_nice: 20 + 20 GPUs per user (counts include pending)
+SLOW_JOBS_PU = (
+    40  # QOS slow_nice: MaxJobsPU, and MIG slices spend a slot each (sacctmgr, 2026-11-08)
+)
 WALL = {"fast": "04:00:00", "default": "12:00:00", "slow_nice": "2-00:00:00", "mig": "1-12:00:00"}
-MIGQ_CAP = 0                               # the mig QOS is NOT permitted on the migq partition (probed 2026-11-08: "migq allows default,fast,bio_ai,slow_nice,cryo not mig"), so a mig-QOS job can only sit PENDING for ever; slices run on slow_nice and spend one of its 40 job slots each
-_MIGQ = {"free": 0, "n": 0}                # free MIG slices and our mig-QOS jobs, refreshed at the start of every cycle
-MIG_CAP = 28                               # MIG slices (H100 NVL 1g.12gb, 10.8 GB; measured 3 to 6 times slower than a full H100) on the otherwise idle migq partition; the partition accepts QOS default / fast / slow_nice only (the mig QOS is not allowed there); small retrain cells only
-MIG_NO = ("ind30z_", "a600_", "a1m_", "mrr_", "pool", "fx35_c100", "fx35_c60", "fx35_c200", "sw38_100k", "archinvar_", "refattn32_")  # cells that must not run on a slice: the collaborator ensembles (urgent), large-D anchors, pool builds
+MIGQ_CAP = 0  # the mig QOS is NOT permitted on the migq partition (probed 2026-11-08: "migq allows default,fast,bio_ai,slow_nice,cryo not mig"), so a mig-QOS job can only sit PENDING for ever; slices run on slow_nice and spend one of its 40 job slots each
+_MIGQ = {
+    "free": 0,
+    "n": 0,
+}  # free MIG slices and our mig-QOS jobs, refreshed at the start of every cycle
+MIG_CAP = 28  # MIG slices (H100 NVL 1g.12gb, 10.8 GB; measured 3 to 6 times slower than a full H100) on the otherwise idle migq partition; the partition accepts QOS default / fast / slow_nice only (the mig QOS is not allowed there); small retrain cells only
+MIG_NO = (
+    "ind30z_",
+    "a600_",
+    "a1m_",
+    "mrr_",
+    "pool",
+    "fx35_c100",
+    "fx35_c60",
+    "fx35_c200",
+    "sw38_100k",
+    "archinvar_",
+    "refattn32_",
+)  # cells that must not run on a slice: the collaborator ensembles (urgent), large-D anchors, pool builds
 # wall-clock budget (hours) handed to arch cells per job. A round (2 models) must finish before the wall limit; V100 rounds
 # can take hours (per-model cap x5), so fast/V100 only starts a new round during the first 0.6 h.
-BUDGET = {("fast", "h100"): 3.0, ("fast", "v100"): 0.6, ("default", "h100"): 10.5, ("default", "v100"): 6.0,
-          ("slow_nice", "h100"): 20, ("slow_nice", "v100"): 12, ("mig", "mig"): 6.0}
+BUDGET = {
+    ("fast", "h100"): 3.0,
+    ("fast", "v100"): 0.6,
+    ("default", "h100"): 10.5,
+    ("default", "v100"): 6.0,
+    ("slow_nice", "h100"): 20,
+    ("slow_nice", "v100"): 12,
+    ("mig", "mig"): 6.0,
+}
 MAX_SUBS, PD_MIGRATE_S, CYCLE_S = 24, 1200, 180
-MAX_LLM_ACTIVE = 40           # overnight: laptop idle, V100 LLM cells draw few tokens per GPU-hour; LLM cells share ONE account session limit (hit at ~20:10 with 16 cells + laptop)
-LLM_COOLDOWN_S = 1800         # after any cell exits 75 (rate limited) pause ALL LLM submissions this long
+MAX_LLM_ACTIVE = 40  # overnight: laptop idle, V100 LLM cells draw few tokens per GPU-hour; LLM cells share ONE account session limit (hit at ~20:10 with 16 cells + laptop)
+LLM_COOLDOWN_S = 1800  # after any cell exits 75 (rate limited) pause ALL LLM submissions this long
 
 
 # the CLI writes its session logs under the home the job sees: the old home until the Oct 31 move, /grid/koo/home/christen since (the status line undercounted by 3x after the move)
-CLAUDE_LOGS_DIRS = [Path("/grid/koo/home/christen/.claude/projects"), Path("/grid/wsbs/home_norepl/christen/.claude/projects")]
+CLAUDE_LOGS_DIRS = [
+    Path("/grid/koo/home/christen/.claude/projects"),
+    Path("/grid/wsbs/home_norepl/christen/.claude/projects"),
+]
 LIMIT_RE = re.compile(r"hit your .{0,30}limit|usage limit|rate limit|limit reached", re.I)
 WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -71,11 +104,23 @@ def parse_reset(text: str) -> float | None:
     if not tm:
         return None
     now = dt.datetime.now(tz)
-    cand = now.replace(hour=int(tm.group(1)) % 12 + (12 if tm.group(3).lower() == "pm" else 0), minute=int(tm.group(2) or 0), second=0, microsecond=0)
-    md, wd = re.search(r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})", when), re.search(r"\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)", when)
+    cand = now.replace(
+        hour=int(tm.group(1)) % 12 + (12 if tm.group(3).lower() == "pm" else 0),
+        minute=int(tm.group(2) or 0),
+        second=0,
+        microsecond=0,
+    )
+    md, wd = (
+        re.search(
+            r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})", when
+        ),
+        re.search(r"\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)", when),
+    )
     if md:
         try:
-            cand = cand.replace(month=dt.datetime.strptime(md.group(1), "%b").month, day=int(md.group(2)))
+            cand = cand.replace(
+                month=dt.datetime.strptime(md.group(1), "%b").month, day=int(md.group(2))
+            )
         except Exception:
             pass
     elif wd:
@@ -84,7 +129,11 @@ def parse_reset(text: str) -> float | None:
             cand += dt.timedelta(days=7)
     elif cand <= now:
         # a reset time that passed minutes ago means the limit is lifting now (the CLI rounds it): wait 5 min, not 24 h
-        cand = now + dt.timedelta(minutes=5) if (now - cand) < dt.timedelta(hours=2) else cand + dt.timedelta(days=1)
+        cand = (
+            now + dt.timedelta(minutes=5)
+            if (now - cand) < dt.timedelta(hours=2)
+            else cand + dt.timedelta(days=1)
+        )
     return cand.timestamp()
 
 
@@ -92,12 +141,19 @@ def llm_probe() -> tuple[bool, str]:
     """One tiny CLI call through the same token path the cells use. True when the account accepts calls again."""
     try:
         # PATH: started from cron the dispatcher has no ~/.local/bin, so `claude` was "not found" (rc 127) and every probe looked like a usage limit (Nov 2: LLM cells paused for 1 h 15 min on a lifted limit)
-        r = subprocess.run("bash -c 'export PATH=$HOME/.local/bin:$PATH; set +u; . ~/.config/albench/llm.env 2>/dev/null; set -u; echo Reply with the word OK. | claude -p --model claude-sonnet-5-5'",
-                           shell=True, capture_output=True, text=True, timeout=150)
+        r = subprocess.run(
+            "bash -c 'export PATH=$HOME/.local/bin:$PATH; set +u; . ~/.config/albench/llm.env 2>/dev/null; set -u; echo Reply with the word OK. | claude -p --model claude-sonnet-5-5'",
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=150,
+        )
         out = (r.stdout or "") + "\n" + (r.stderr or "")
         if r.returncode != 0:
             log(f"LLM probe rc={r.returncode}: {out.strip()[:200]!r}")
-        return (r.returncode == 0 and "OK" in (r.stdout or "") and not LIMIT_RE.search(r.stdout or "")), out
+        return (
+            r.returncode == 0 and "OK" in (r.stdout or "") and not LIMIT_RE.search(r.stdout or "")
+        ), out
     except Exception as e:  # noqa: BLE001
         return False, f"probe error {type(e).__name__}: {e}"
 
@@ -122,10 +178,17 @@ def llm_tokens_last_hour() -> tuple[int, int, int]:
                 if k in seen:
                     continue
                 seen.add(k)
-                if datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).timestamp() < now - 3600:
+                if (
+                    datetime.fromisoformat(o["timestamp"].replace("Z", "+00:00")).timestamp()
+                    < now - 3600
+                ):
                     continue
                 calls += 1
-                tot += (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+                tot += (
+                    (u.get("input_tokens") or 0)
+                    + (u.get("output_tokens") or 0)
+                    + (u.get("cache_creation_input_tokens") or 0)
+                )
                 out += u.get("output_tokens") or 0
         except Exception:
             continue
@@ -151,8 +214,21 @@ def my_jobs() -> list[dict]:
         except ValueError:
             continue
         m = re.match(r"(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$", el.strip())
-        el_s = (int(m.group(1) or 0) * 86400 + int(m.group(2) or 0) * 3600 + int(m.group(3)) * 60 + int(m.group(4))) if m else 0
-        g = "mig" if "1g.12gb" in gres else ("h100" if "h100" in gres else ("v100" if "v100" in gres else "other"))  # MIG slices of an H100 NVL (partition migq, QOS mig) also contain "h100"
+        el_s = (
+            (
+                int(m.group(1) or 0) * 86400
+                + int(m.group(2) or 0) * 3600
+                + int(m.group(3)) * 60
+                + int(m.group(4))
+            )
+            if m
+            else 0
+        )
+        g = (
+            "mig"
+            if "1g.12gb" in gres
+            else ("h100" if "h100" in gres else ("v100" if "v100" in gres else "other"))
+        )  # MIG slices of an H100 NVL (partition migq, QOS mig) also contain "h100"
         try:
             age = time.time() - datetime.strptime(sub, "%Y-%m-%dT%H:%M:%S").timestamp()
         except Exception:
@@ -177,7 +253,9 @@ def progress(c: dict) -> tuple[int, float]:
             have.add((r["cfg"] if "cfg" in r else f"F{r.get('arch')}", r["seed"], r["arm"]))
         need = {(d["cfg"], s, a) for s in d["seeds"] for a in d["arms"]}
         return len(need & have), p.stat().st_mtime
-    metas = [f for f in (R / c["out_dir"]).glob("r*_meta.json") if not f.name.endswith("_screen.json")]
+    metas = [
+        f for f in (R / c["out_dir"]).glob("r*_meta.json") if not f.name.endswith("_screen.json")
+    ]
     return len(metas), max((f.stat().st_mtime for f in metas), default=0.0)
 
 
@@ -224,7 +302,11 @@ def _mig_cap() -> int:
 def _defer_prefixes() -> tuple:
     """Cell-name prefixes the dispatcher should not submit right now (one per line in scratchpad/defer_prefixes.txt; edit without a restart)."""
     try:
-        return tuple(x.strip() for x in (R / "scratchpad/defer_prefixes.txt").read_text().splitlines() if x.strip())
+        return tuple(
+            x.strip()
+            for x in (R / "scratchpad/defer_prefixes.txt").read_text().splitlines()
+            if x.strip()
+        )
     except Exception:
         return ()
 
@@ -242,18 +324,28 @@ def _bad_shard(c: dict) -> bool:
         return False
     try:
         if mm.group(1) not in _MENU_IDS:
-            _MENU_IDS[mm.group(1)] = [e.get("id") or e.get("name") for e in json.load(open(mm.group(1)))]
+            _MENU_IDS[mm.group(1)] = [
+                e.get("id") or e.get("name") for e in json.load(open(mm.group(1)))
+            ]
         ids = _MENU_IDS[mm.group(1)]
         k, n = int(ms.group(1)), int(ms.group(2))
-        return any(i in ids and ids.index(i) % n == k for i in MIG_BAD[mm.group(1).rsplit("/", 1)[-1]])
+        return any(
+            i in ids and ids.index(i) % n == k for i in MIG_BAD[mm.group(1).rsplit("/", 1)[-1]]
+        )
     except Exception:
         return False
 
 
 def mig_ok(c: dict) -> bool:
     """Menu-retrain cells up to 100k sequences run acceptably on a MIG slice (about 1/7 of an H100: the per-model time cap is scaled x8 in menu_retrain.py); LLM cells and big or urgent cells do not."""
-    bank = "bench33_legnet.py" in c["cmd"]  # the 1.3M-parameter LegNet bank trainer: a 10k or 30k seed takes about an hour on a slice (Nov 4)
-    if "LLM_MODEL" in c.get("env", {}) or c["name"].startswith(MIG_NO) or not ("menu_retrain.py" in c["cmd"] or bank):
+    bank = (
+        "bench33_legnet.py" in c["cmd"]
+    )  # the 1.3M-parameter LegNet bank trainer: a 10k or 30k seed takes about an hour on a slice (Nov 4)
+    if (
+        "LLM_MODEL" in c.get("env", {})
+        or c["name"].startswith(MIG_NO)
+        or not ("menu_retrain.py" in c["cmd"] or bank)
+    ):
         return False
     m = re.search(r"--D (\d+)", c["cmd"])
     if not (bool(m) and int(m.group(1)) <= (30000 if bank else 100000)):
@@ -271,23 +363,48 @@ def mig_ok(c: dict) -> bool:
 
 def choose(c: dict, mine: list[dict], free: dict, exclude_id: str | None = None) -> tuple[str, str]:
     allowed = c["gpus"]
-    _gpu_only = ("LLM_MODEL" not in c.get("env", {}) and not c["name"].startswith(("pool30_", "pool100_")) and not LLM_DOWN) or c["name"].startswith("a1m_")  # while the LLM is paused the idle fast slots take retrain cells; 1M anchors (3 h models) never use the 4 h fast wall  # keep the faster fast/default queues for the LLM runs (the long pole)
+    _gpu_only = (
+        (
+            "LLM_MODEL" not in c.get("env", {})
+            and not c["name"].startswith(("pool30_", "pool100_"))
+            and not LLM_DOWN
+        )
+        or c["name"].startswith("a1m_")
+    )  # while the LLM is paused the idle fast slots take retrain cells; 1M anchors (3 h models) never use the 4 h fast wall  # keep the faster fast/default queues for the LLM runs (the long pole)
     _gpu_only_def = False  # everything may use the default queue now that no big retrain backlog competes for it (H100-first order below)
     # H100s are the scarce queue: once three of our H100 jobs are already waiting, V100-eligible cells go to V100s first (30k models train fine there)
-    _pd_h100 = sum(1 for j in mine if j["gpu"] == "h100" and j["st"] == "PD" and j["id"] != exclude_id)
+    _pd_h100 = sum(
+        1 for j in mine if j["gpu"] == "h100" and j["st"] == "PD" and j["id"] != exclude_id
+    )
     order = ("v100", "h100") if ("v100" in allowed and _pd_h100 >= 3) else ("h100", "v100")
     js = [j for j in mine if j["id"] != exclude_id]
     cnt = lambda q, g: sum(1 for j in js if j["qos"] == q and j["gpu"] == g)  # noqa: E731
     for g in order:  # fast: priority 4000; it preempts default/slow_nice by design
-        if (not _gpu_only or (g == "h100" and "LLM_MODEL" not in c.get("env", {}) and not c["name"].startswith("a1m_"))) and g in allowed and cnt("fast", g) < FAST_CAP[g]:
+        if (
+            (
+                not _gpu_only
+                or (
+                    g == "h100"
+                    and "LLM_MODEL" not in c.get("env", {})
+                    and not c["name"].startswith("a1m_")
+                )
+            )
+            and g in allowed
+            and cnt("fast", g) < FAST_CAP[g]
+        ):
             return "fast", g
     # The two fast V100 slots are unused whenever the LLM is up: the test above hands fast/v100 to LLM cells
     # only, and those want H100s. An idle V100 is worth nothing, so small retrain cells may take them. Only
     # small ones: fast carries a 4 h wall, which is why the long sw38_100k cells are excluded. The free-V100
     # guard means this never preempts one of our own slow_nice jobs, which fast would otherwise be entitled to.
-    if ("v100" in allowed and free.get("v100", 0) > 0 and cnt("fast", "v100") < FAST_CAP["v100"]
-            and "LLM_MODEL" not in c.get("env", {})
-            and c["name"].startswith(RETRAIN_PFX) and not c["name"].startswith("sw38_100k")):
+    if (
+        "v100" in allowed
+        and free.get("v100", 0) > 0
+        and cnt("fast", "v100") < FAST_CAP["v100"]
+        and "LLM_MODEL" not in c.get("env", {})
+        and c["name"].startswith(RETRAIN_PFX)
+        and not c["name"].startswith("sw38_100k")
+    ):
         return "fast", "v100"
     n_def = sum(1 for j in js if j["qos"] == "default")
     n_def_run = sum(1 for j in js if j["qos"] == "default" and j["st"] == "R")
@@ -296,14 +413,35 @@ def choose(c: dict, mine: list[dict], free: dict, exclude_id: str | None = None)
     # mid-run and resubmitted every cycle. Only slow_nice is long enough -- walltime() gives these
     # 48 h there. The pilots are ~4.5 h and stay eligible for the faster queue.
     _long_arm = c["name"].startswith("a1m_acq53_") and "pilot" not in c["name"]
-    if not _gpu_only_def and not _long_arm and n_def < DEFAULT_SUBMIT_CAP and n_def_run < 8:  # default starts at once only while fewer than 8 of ours run (QOS per-user cap); otherwise slow_nice below
+    if (
+        not _gpu_only_def and not _long_arm and n_def < DEFAULT_SUBMIT_CAP and n_def_run < 8
+    ):  # default starts at once only while fewer than 8 of ours run (QOS per-user cap); otherwise slow_nice below
         for g in order:
-            if g == "h100" and g in allowed and (free[g] > 0 or not any(j["qos"] == "default" and j["st"] == "PD" for j in js)):  # default is kept for H100 starts (priority over slow_nice); V100 work uses slow_nice and fast
+            if (
+                g == "h100"
+                and g in allowed
+                and (free[g] > 0 or not any(j["qos"] == "default" and j["st"] == "PD" for j in js))
+            ):  # default is kept for H100 starts (priority over slow_nice); V100 work uses slow_nice and fast
                 return "default", g
-    if "v100" in allowed and n_def < DEFAULT_SUBMIT_CAP and cnt("default", "v100") < 4 and free["v100"] > 0 and _pd_h100 >= 3:  # H100 queues are stuffed: the 4 default V100 slots of our QOS take V100-eligible cells too
+    if (
+        "v100" in allowed
+        and n_def < DEFAULT_SUBMIT_CAP
+        and cnt("default", "v100") < 4
+        and free["v100"] > 0
+        and _pd_h100 >= 3
+    ):  # H100 queues are stuffed: the 4 default V100 slots of our QOS take V100-eligible cells too
         return "default", "v100"
-    if c["name"].startswith(("ind30q_", "ind30n1_", "ind30h_")) and "v100" in allowed and n_def < DEFAULT_SUBMIT_CAP and n_def_run < 8 and free["v100"] > 0:
-        return "default", "v100"  # quick-turnaround cells use spare default slots on V100 while H100 starts are blocked (LLM cells hold the slow_nice V100 slots)
+    if (
+        c["name"].startswith(("ind30q_", "ind30n1_", "ind30h_"))
+        and "v100" in allowed
+        and n_def < DEFAULT_SUBMIT_CAP
+        and n_def_run < 8
+        and free["v100"] > 0
+    ):
+        return (
+            "default",
+            "v100",
+        )  # quick-turnaround cells use spare default slots on V100 while H100 starts are blocked (LLM cells hold the slow_nice V100 slots)
     _cap = lambda g: SLOW_CAP[g] - (H100_RESERVE if (g == "h100" and len(allowed) > 1) else 0)  # noqa: E731  keep slow_nice H100 slots for H100-only cells (large-D anchors, 300k searches)
     for g in order:
         if g in allowed and free[g] > 0 and cnt("slow_nice", g) < _cap(g):
@@ -316,20 +454,67 @@ def choose(c: dict, mine: list[dict], free: dict, exclude_id: str | None = None)
     # running only: cnt() counts pending jobs against the GRES cap as a throttle, which here would read
     # "no room" at exactly the moment eight V100s are free and eight of our own jobs are queued for them
     _cntR = lambda q, g: sum(1 for j in js if j["qos"] == q and j["gpu"] == g and j["st"] == "R")  # noqa: E731
-    _room = max(0, min(free.get("h100", 0), SLOW_CAP["h100"] - _cntR("slow_nice", "h100"))) + max(0, min(free.get("v100", 0), SLOW_CAP["v100"] - _cntR("slow_nice", "v100")))
-    if (mig_ok(c) and sum(1 for j in js if j["gpu"] == "mig") < _mig_cap()
-            and sum(1 for j in js if j["qos"] == "slow_nice" and j["st"] == "R") + _room < SLOW_JOBS_PU):
+    _room = max(0, min(free.get("h100", 0), SLOW_CAP["h100"] - _cntR("slow_nice", "h100"))) + max(
+        0, min(free.get("v100", 0), SLOW_CAP["v100"] - _cntR("slow_nice", "v100"))
+    )
+    if (
+        mig_ok(c)
+        and sum(1 for j in js if j["gpu"] == "mig") < _mig_cap()
+        and sum(1 for j in js if j["qos"] == "slow_nice" and j["st"] == "R") + _room < SLOW_JOBS_PU
+    ):
         return "mig", "mig"
     for g in order:
         if g in allowed and cnt("slow_nice", g) < _cap(g):
             return "slow_nice", g
-    if not _gpu_only_def and n_def < DEFAULT_SUBMIT_CAP:  # slow_nice full too: queue behind the default cap rather than overfilling slow_nice
+    if (
+        not _gpu_only_def and n_def < DEFAULT_SUBMIT_CAP
+    ):  # slow_nice full too: queue behind the default cap rather than overfilling slow_nice
         return "default", allowed[0]
     return "wait", ""
 
 
-RETRAIN_PFX = ("mix_", "un30_", "un10_", "un100_", "as_", "ind30", "nest_", "mrf", "mr2_", "mrr_", "fx35_", "fx36_", "fe35_", "fr35_", "lg35", "pk35_", "sw38_", "bench38_", "mt38_", "mv1c_")
-LLM_SMALL = ("g30_", "rnd30_", "u_", "mot30_", "g10_", "u10_", "mx30_", "ex30_", "rf30_", "xr30_", "ag30_", "ac30_", "an30_", "ae30_", "xe30_", "xd30_", "xe10_", "xd10_")
+RETRAIN_PFX = (
+    "mix_",
+    "un30_",
+    "un10_",
+    "un100_",
+    "as_",
+    "ind30",
+    "nest_",
+    "mrf",
+    "mr2_",
+    "mrr_",
+    "fx35_",
+    "fx36_",
+    "fe35_",
+    "fr35_",
+    "lg35",
+    "pk35_",
+    "sw38_",
+    "bench38_",
+    "mt38_",
+    "mv1c_",
+)
+LLM_SMALL = (
+    "g30_",
+    "rnd30_",
+    "u_",
+    "mot30_",
+    "g10_",
+    "u10_",
+    "mx30_",
+    "ex30_",
+    "rf30_",
+    "xr30_",
+    "ag30_",
+    "ac30_",
+    "an30_",
+    "ae30_",
+    "xe30_",
+    "xd30_",
+    "xe10_",
+    "xd10_",
+)
 
 
 def wall_and_budget(c: dict, qos: str, gpu: str) -> tuple[str, float]:
@@ -361,20 +546,24 @@ def sbatch_text(c: dict, qos: str, gpu: str, migq: bool = False) -> str:
         _hdr = f"#SBATCH --partition=migq --qos={'mig' if migq else 'slow_nice'} --gres=gpu:nvidia_h100_nvl_1g.12gb:1\n#SBATCH --cpus-per-task=4 --mem=40G --time={'12:00:00' if migq else _wall} --requeue"
     else:
         # 4 CPUs and 48 GB fit the many nodes that have a free GPU but only 4 free CPUs; AlphaGenome jobs keep 8 and 90 GB
-        _cm = "--cpus-per-task=8 --mem=90G" if "bench33_ag.py" in c["cmd"] else "--cpus-per-task=4 --mem=48G"
+        _cm = (
+            "--cpus-per-task=8 --mem=90G"
+            if "bench33_ag.py" in c["cmd"]
+            else "--cpus-per-task=4 --mem=48G"
+        )
         _hdr = f"#SBATCH --partition=gpuq --qos={qos} --gres=gpu:{gpu}:1\n#SBATCH {_cm} --time={_wall} --requeue"
     return f"""#!/bin/bash
-#SBATCH --job-name=d_{c['name']}
+#SBATCH --job-name=d_{c["name"]}
 {_hdr}
-#SBATCH --output={OUT}/logs/d_{c['name']}_%A.log
+#SBATCH --output={OUT}/logs/d_{c["name"]}_%A.log
 cd {R}
 set +u; source /etc/profile.d/modules.sh; [ -f ~/.bash_profile ] && source ~/.bash_profile; set -u
 [ -r ~/.config/albench/llm.env ] && . ~/.config/albench/llm.env
 source .venv/bin/activate
 export PYTHONPATH="$PWD:$PWD/experiments" PYTHONUNBUFFERED=1 TQDM_DISABLE=1
-{('export ' + env) if env else ''}
-{('export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MENU_MAX_FWD_MS=1000000000') if qos == 'mig' else ''}
-mkdir -p {R / c['out_dir']}
+{("export " + env) if env else ""}
+{("export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MENU_MAX_FWD_MS=1000000000") if qos == "mig" else ""}
+mkdir -p {R / c["out_dir"]}
 {cmd}
 """
 
@@ -382,7 +571,9 @@ mkdir -p {R / c['out_dir']}
 def submit(c: dict, qos: str, gpu: str, dry: bool) -> str:
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     f = JOBS_DIR / f"d_{c['name']}_{qos}_{gpu}.sbatch"
-    migq = qos == "mig" and _MIGQ["free"] > 0 and _MIGQ["n"] < MIGQ_CAP  # a free slice is required: a mig-QOS job would otherwise preempt our own slow_nice slices
+    migq = (
+        qos == "mig" and _MIGQ["free"] > 0 and _MIGQ["n"] < MIGQ_CAP
+    )  # a free slice is required: a mig-QOS job would otherwise preempt our own slow_nice slices
     f.write_text(sbatch_text(c, qos, gpu, migq))
     if dry:
         return "DRY"
@@ -405,24 +596,40 @@ def check_finished(c: dict, st: dict, mine_ids: set) -> None:
     if not row:
         return
     state, el, ec = (row[0].split("|") + ["", "", ""])[:3]
-    if ec.startswith("75:"):  # rate limited (usage/session limit): not a failure; back off all LLM cells
+    if ec.startswith(
+        "75:"
+    ):  # rate limited (usage/session limit): not a failure; back off all LLM cells
         st["rate_limited"] = True
         try:
-            tail = "\n".join(open(OUT / "logs" / f"d_{c['name']}_{jid}.log", errors="replace").read().splitlines()[-80:])
+            tail = "\n".join(
+                open(OUT / "logs" / f"d_{c['name']}_{jid}.log", errors="replace")
+                .read()
+                .splitlines()[-80:]
+            )
         except Exception:
             tail = ""
         st["reset_epoch"] = parse_reset(tail)
-        when = datetime.fromtimestamp(st["reset_epoch"]).strftime("%m-%d %H:%M") if st["reset_epoch"] else "unknown"
-        log(f"  {c['name']}: job {jid} exited 75 (LLM limit) after {el}; reset time parsed from CLI: {when}")
+        when = (
+            datetime.fromtimestamp(st["reset_epoch"]).strftime("%m-%d %H:%M")
+            if st["reset_epoch"]
+            else "unknown"
+        )
+        log(
+            f"  {c['name']}: job {jid} exited 75 (LLM limit) after {el}; reset time parsed from CLI: {when}"
+        )
         return
     h, m, s = (el.split(":") + ["0", "0"])[-3:] if el.count(":") == 2 else ("0", "0", "0")
     secs = int(h) * 3600 + int(m) * 60 + int(s)
     if secs < 300 and not state.startswith("COMPLETED"):
         st["short_fails"] = st.get("short_fails", 0) + 1
-        log(f"  {c['name']}: job {jid} ended in {secs}s ({state}); consecutive short failures = {st['short_fails']}")
+        log(
+            f"  {c['name']}: job {jid} ended in {secs}s ({state}); consecutive short failures = {st['short_fails']}"
+        )
         if st["short_fails"] >= 3:
             st["paused"] = True
-            log(f"  {c['name']}: PAUSED after 3 consecutive short failures - inspect {OUT}/logs/d_{c['name']}_*.log")
+            log(
+                f"  {c['name']}: PAUSED after 3 consecutive short failures - inspect {OUT}/logs/d_{c['name']}_*.log"
+            )
     else:
         st["short_fails"] = 0
 
@@ -437,19 +644,27 @@ def retire_slice(mine: list[dict], free: dict, state: dict, dry: bool) -> None:
     read a sub-5-minute end as a failure). menu_retrain.py skips a model whose _meta.json exists, so the
     only work lost is the model in flight.
     """
-    run = lambda g: sum(1 for j in mine if j["qos"] == "slow_nice" and j["gpu"] == g and j["st"] == "R")  # noqa: E731
+    run = lambda g: sum(  # noqa: E731
+        1 for j in mine if j["qos"] == "slow_nice" and j["gpu"] == g and j["st"] == "R"
+    )
     if sum(1 for j in mine if j["qos"] == "slow_nice" and j["st"] == "R") < SLOW_JOBS_PU:
         return  # the cap is not the thing stopping us; a slice costs nothing right now
     room = sum(max(0, min(free.get(g, 0), SLOW_CAP[g] - run(g))) for g in ("h100", "v100"))
-    want = [j for j in mine if j["qos"] == "slow_nice" and j["st"] == "PD" and j["gpu"] in ("h100", "v100")]
+    want = [
+        j
+        for j in mine
+        if j["qos"] == "slow_nice" and j["st"] == "PD" and j["gpu"] in ("h100", "v100")
+    ]
     if not (room > 0 and want):
         return
     cand = [j for j in mine if j["gpu"] == "mig" and j["st"] == "R" and j["el"] > 600]
     if not cand:
         return
     j = min(cand, key=lambda x: x["el"])
-    log(f"  {j['name']}: cancelling a slice ({j['el'] // 60} min in) - {room} full GPU(s) free and "
-        f"{len(want)} of our jobs queued for them, with slow_nice at its {SLOW_JOBS_PU}-job cap")
+    log(
+        f"  {j['name']}: cancelling a slice ({j['el'] // 60} min in) - {room} full GPU(s) free and "
+        f"{len(want)} of our jobs queued for them, with slow_nice at its {SLOW_JOBS_PU}-job cap"
+    )
     if not dry:
         state.setdefault(j["name"][2:], {})["expected_cancel"] = j["id"]
         sh(f"{SB}/scancel {j['id']}")
@@ -457,20 +672,27 @@ def retire_slice(mine: list[dict], free: dict, state: dict, dry: bool) -> None:
 
 def cycle(reg: list[dict], dry: bool) -> None:
     mine, free = my_jobs(), free_gpus()
-    _MIGQ["free"], _MIGQ["n"] = free.get("mig", 0), sum(1 for j in mine if j["qos"] == "mig" and j["gpu"] == "mig")
+    _MIGQ["free"], _MIGQ["n"] = (
+        free.get("mig", 0),
+        sum(1 for j in mine if j["qos"] == "mig" and j["gpu"] == "mig"),
+    )
     state = json.loads(STATE_F.read_text()) if STATE_F.exists() else {}
     retire_slice(mine, free, state, dry)
     subs, ids = 0, {j["id"] for j in mine}
-    g = state.setdefault('_global', {})
-    if g.get('probe_needed') and time.time() >= g.get('llm_cooldown_until', 0) and not dry:
+    g = state.setdefault("_global", {})
+    if g.get("probe_needed") and time.time() >= g.get("llm_cooldown_until", 0) and not dry:
         ok, out = llm_probe()
         if ok:
-            g['probe_needed'] = False
-            log('LLM probe OK: limit has reset; LLM cells may be resubmitted')
+            g["probe_needed"] = False
+            log("LLM probe OK: limit has reset; LLM cells may be resubmitted")
         else:
             nxt = parse_reset(out) or time.time() + 1200
-            g['llm_cooldown_until'] = max(nxt, time.time() + 240) + 30  # retry soon: the CLI reset time is only approximate
-            log(f"LLM probe still limited; waiting until {datetime.fromtimestamp(g['llm_cooldown_until']):%m-%d %H:%M}")
+            g["llm_cooldown_until"] = (
+                max(nxt, time.time() + 240) + 30
+            )  # retry soon: the CLI reset time is only approximate
+            log(
+                f"LLM probe still limited; waiting until {datetime.fromtimestamp(g['llm_cooldown_until']):%m-%d %H:%M}"
+            )
     global LLM_DOWN
     _gl = state.get("_global", {})
     LLM_DOWN = bool(time.time() < _gl.get("llm_cooldown_until", 0) or _gl.get("probe_needed"))
@@ -485,34 +707,59 @@ def cycle(reg: list[dict], dry: bool) -> None:
         if st.get("paused"):
             summary["paused"] += 1
             continue
-        st.pop('rate_limited', None)
+        st.pop("rate_limited", None)
         check_finished(c, st, ids)
-        if st.pop('rate_limited', False):
-            g = state.setdefault('_global', {})
-            until = (st.pop('reset_epoch', None) or time.time() + LLM_COOLDOWN_S) + 120  # wait for the reset, +2 min
-            g['llm_cooldown_until'] = max(g.get('llm_cooldown_until', 0), until)
-            g['probe_needed'] = True
-            log(f"  LLM submissions paused until {datetime.fromtimestamp(g['llm_cooldown_until']):%m-%d %H:%M} (then a probe call must succeed)")
-        is_llm = 'LLM_MODEL' in c.get('env', {})
+        if st.pop("rate_limited", False):
+            g = state.setdefault("_global", {})
+            until = (
+                st.pop("reset_epoch", None) or time.time() + LLM_COOLDOWN_S
+            ) + 120  # wait for the reset, +2 min
+            g["llm_cooldown_until"] = max(g.get("llm_cooldown_until", 0), until)
+            g["probe_needed"] = True
+            log(
+                f"  LLM submissions paused until {datetime.fromtimestamp(g['llm_cooldown_until']):%m-%d %H:%M} (then a probe call must succeed)"
+            )
+        is_llm = "LLM_MODEL" in c.get("env", {})
         jn = "d_" + c["name"]
         active = [j for j in mine if j["name"] in [jn] + c.get("ext", [])]
         if active:
             summary["active"] += 1
             j = active[0]
-            if j["st"] == "R" and j["gpu"] in STALL_S:  # flag (never kill) a running job that stopped producing results
+            if (
+                j["st"] == "R" and j["gpu"] in STALL_S
+            ):  # flag (never kill) a running job that stopped producing results
                 n_done, newest = progress(c)
                 idle = time.time() - max(newest, time.time() - j["el"])
                 if idle > STALL_S[j["gpu"]] and time.time() - st.get("stall_logged", 0) > 3600:
                     st["stall_logged"] = time.time()
-                    log(f"  STALL? {c['name']}: running {j['el'] // 60} min on {j['qos']}/{j['gpu']} but no new result for {int(idle // 60)} min "
-                        f"({n_done} done)")
-            if j["name"] == jn and j["st"] == "PD" and j["qos"] == "default" and j["age"] > PD_MIGRATE_S:  # default is group-limited (waits for hours with "Priority"); a free fast slot is better
+                    log(
+                        f"  STALL? {c['name']}: running {j['el'] // 60} min on {j['qos']}/{j['gpu']} but no new result for {int(idle // 60)} min "
+                        f"({n_done} done)"
+                    )
+            if (
+                j["name"] == jn
+                and j["st"] == "PD"
+                and j["qos"] == "default"
+                and j["age"] > PD_MIGRATE_S
+            ):  # default is group-limited (waits for hours with "Priority"); a free fast slot is better
                 q, g = choose(c, mine, free, exclude_id=j["id"])
-                if q == "default" and j["age"] > 1200 and "h100" in c["gpus"] and free["h100"] > 0 and sum(1 for x in mine if x["qos"] == "slow_nice" and x["gpu"] == "h100") < SLOW_CAP["h100"]:
-                    q, g = "slow_nice", "h100"  # default has starved this job for over an hour while H100s are free: stay on slow_nice for 6 h (the slow_nice branch below must not move it back)
+                if (
+                    q == "default"
+                    and j["age"] > 1200
+                    and "h100" in c["gpus"]
+                    and free["h100"] > 0
+                    and sum(1 for x in mine if x["qos"] == "slow_nice" and x["gpu"] == "h100")
+                    < SLOW_CAP["h100"]
+                ):
+                    q, g = (
+                        "slow_nice",
+                        "h100",
+                    )  # default has starved this job for over an hour while H100s are free: stay on slow_nice for 6 h (the slow_nice branch below must not move it back)
                     st["stay_slow_until"] = time.time() + 6 * 3600
                 if q in ("fast", "slow_nice"):
-                    log(f"  {c['name']}: pending {int(j['age'] / 60)} min on default/{j['gpu']}; migrating to {q}/{g}")
+                    log(
+                        f"  {c['name']}: pending {int(j['age'] / 60)} min on default/{j['gpu']}; migrating to {q}/{g}"
+                    )
                     if not dry:
                         st["expected_cancel"] = j["id"]
                         sh(f"{SB}/scancel {j['id']}")
@@ -520,12 +767,31 @@ def cycle(reg: list[dict], dry: bool) -> None:
                     jid = submit(c, q, g, dry)
                     st["last_job"] = jid
                     mine.append(dict(id=jid, name=jn, qos=q, st="PD", gpu=g, age=0))
-            if j["name"] == jn and j["st"] == "PD" and j["qos"] == "slow_nice" and j["age"] > PD_MIGRATE_S:
+            if (
+                j["name"] == jn
+                and j["st"] == "PD"
+                and j["qos"] == "slow_nice"
+                and j["age"] > PD_MIGRATE_S
+            ):
                 _pinned = time.time() < st.get("stay_slow_until", 0)
-                _mine_c = mine + [dict(id=f"_pin{i}", name="_pin", qos="default", st="PD", gpu="h100", age=0) for i in range(DEFAULT_SUBMIT_CAP)] if _pinned else mine  # pinned: pretend the default queue is full so choose() offers fast / MIG / slow_nice only
+                _mine_c = (
+                    mine
+                    + [
+                        dict(id=f"_pin{i}", name="_pin", qos="default", st="PD", gpu="h100", age=0)
+                        for i in range(DEFAULT_SUBMIT_CAP)
+                    ]
+                    if _pinned
+                    else mine
+                )  # pinned: pretend the default queue is full so choose() offers fast / MIG / slow_nice only
                 q, g = choose(c, _mine_c, free, exclude_id=j["id"])
-                if q != "wait" and (q != "slow_nice" or (g != j["gpu"] and free[g] > 0)) and not (q == "default" and time.time() < st.get("stay_slow_until", 0)):  # pinned cells may still hop between H100 and V100 on slow_nice, but never back to default
-                    log(f"  {c['name']}: pending {int(j['age'] / 60)} min on slow_nice/{j['gpu']}; migrating to {q}/{g}")
+                if (
+                    q != "wait"
+                    and (q != "slow_nice" or (g != j["gpu"] and free[g] > 0))
+                    and not (q == "default" and time.time() < st.get("stay_slow_until", 0))
+                ):  # pinned cells may still hop between H100 and V100 on slow_nice, but never back to default
+                    log(
+                        f"  {c['name']}: pending {int(j['age'] / 60)} min on slow_nice/{j['gpu']}; migrating to {q}/{g}"
+                    )
                     if not dry:
                         st["expected_cancel"] = j["id"]
                         sh(f"{SB}/scancel {j['id']}")
@@ -536,12 +802,22 @@ def cycle(reg: list[dict], dry: bool) -> None:
             continue
         if subs >= MAX_SUBS:
             continue
-        if any(not (R / p_).exists() for p_ in c.get("needs", [])):  # dependency gate: wait until the pool/run files this cell reads exist
+        if any(
+            not (R / p_).exists() for p_ in c.get("needs", [])
+        ):  # dependency gate: wait until the pool/run files this cell reads exist
             continue
         if is_llm:
-            if time.time() < state.get('_global', {}).get('llm_cooldown_until', 0) or state.get('_global', {}).get('probe_needed'):
+            if time.time() < state.get("_global", {}).get("llm_cooldown_until", 0) or state.get(
+                "_global", {}
+            ).get("probe_needed"):
                 continue
-            llm_active = sum(1 for cc in reg if 'LLM_MODEL' in cc.get('env', {}) for j in mine if j['name'] in ['d_' + cc['name']] + cc.get('ext', []))
+            llm_active = sum(
+                1
+                for cc in reg
+                if "LLM_MODEL" in cc.get("env", {})
+                for j in mine
+                if j["name"] in ["d_" + cc["name"]] + cc.get("ext", [])
+            )
             if llm_active >= MAX_LLM_ACTIVE:
                 continue
         q, g = choose(c, mine, free)
@@ -552,7 +828,9 @@ def cycle(reg: list[dict], dry: bool) -> None:
             log(f"  {c['name']}: sbatch FAILED for {q}/{g}")
             continue
         st["last_job"], st["last_target"] = jid, f"{q}/{g}"
-        log(f"  {c['name']}: submitted job {jid} on {q}/{g} (free h100={free['h100']} v100={free['v100']})")
+        log(
+            f"  {c['name']}: submitted job {jid} on {q}/{g} (free h100={free['h100']} v100={free['v100']})"
+        )
         mine.append(dict(id=jid, name=jn, qos=q, st="PD", gpu=g, age=0))
         free[g] = max(0, free.get(g, 0) - 1)
         subs += 1
@@ -562,17 +840,32 @@ def cycle(reg: list[dict], dry: bool) -> None:
         STATE_F.write_text(json.dumps(state, indent=1))
         calls_h, tok_h, out_h = llm_tokens_last_hour()
         gl = state.get("_global", {})
-        paused = ("PAUSED until " + datetime.fromtimestamp(gl["llm_cooldown_until"]).strftime("%m-%d %H:%M")) if time.time() < gl.get("llm_cooldown_until", 0) or gl.get("probe_needed") else "ok"
-        lines = [f"dispatcher status {datetime.now():%Y-%m-%d %H:%M:%S}  free GPUs {free}  summary {summary}",
-                 f"LLM last 60 min (HPC CLI logs): {calls_h} calls, {tok_h:,} tokens (in+out+cache-write), {out_h:,} output | LLM submissions: {paused}"]
+        paused = (
+            (
+                "PAUSED until "
+                + datetime.fromtimestamp(gl["llm_cooldown_until"]).strftime("%m-%d %H:%M")
+            )
+            if time.time() < gl.get("llm_cooldown_until", 0) or gl.get("probe_needed")
+            else "ok"
+        )
+        lines = [
+            f"dispatcher status {datetime.now():%Y-%m-%d %H:%M:%S}  free GPUs {free}  summary {summary}",
+            f"LLM last 60 min (HPC CLI logs): {calls_h} calls, {tok_h:,} tokens (in+out+cache-write), {out_h:,} output | LLM submissions: {paused}",
+        ]
         for c in reg:
             n_done, newest = progress(c)
             jn = "d_" + c["name"]
             j = next((x for x in mine if x["name"] in [jn] + c.get("ext", [])), None)
             where = f"{j['qos']}/{j['gpu']}/{j['st']}" if j else "-"
             ago = f"{int((time.time() - newest) / 60)}m ago" if newest else "never"
-            flag = "DONE" if is_done(c) else ("PAUSED" if state.get(c["name"], {}).get("paused") else "")
-            lines.append(f"  {c['name']:<22} {flag:<7} {where:<22} results={n_done:<4} newest={ago}")
+            flag = (
+                "DONE"
+                if is_done(c)
+                else ("PAUSED" if state.get(c["name"], {}).get("paused") else "")
+            )
+            lines.append(
+                f"  {c['name']:<22} {flag:<7} {where:<22} results={n_done:<4} newest={ago}"
+            )
         (OUT / "status.txt").write_text("\n".join(lines) + "\n")
     mq = {}
     for j in mine:

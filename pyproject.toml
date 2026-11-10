@@ -46,7 +46,7 @@ packages = ["albench", "data", "models", "evaluation", "experiments", "scripts"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["scripts/colab/*.ipynb", "orchestration"]  # temporary: unformatted live copies, formatted in the next commit
+extend-exclude = ["scripts/colab/*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

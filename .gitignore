@@ -58,3 +58,8 @@ scripts/cluster/site.env
 
 # Generated deck figures (regenerate from scripts/analysis)
 figures_schematics/
+
+# Cluster orchestration (see orchestration/README.md). The live registry is ~4 MB and rewritten many
+# times a day; orchestration/registry_schema.md documents it and validate_registry.py checks it.
+scratchpad/dispatch_registry.json
+scratchpad/*.bak*

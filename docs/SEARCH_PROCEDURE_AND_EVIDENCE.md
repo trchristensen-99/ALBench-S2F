@@ -24,7 +24,7 @@ two-strand average at evaluation, single-pass reverse-complement augmentation (h
 
 To extend to a new size: sweep epochs (150-800) and weight decay (0.1-0.4) with lr and batch fixed (halving lr or doubling batch was worse at every size), 5 seeds per arm against the published recipe, select on V0c, then 20 seeds (`lr38_*`, 49 cells). 300k and up are not tuned.
 
-**Step 3, the AutoResearch loop** (LLM architecture and recipe search; `albench/arch_search/agent_loop.py`, launcher `cluster_live/arch_autoresearch.py`). One run = 15 rounds x 2 trained models = 30 models, three independent pools per condition:
+**Step 3, the AutoResearch loop** (LLM architecture and recipe search; `albench/arch_search/agent_loop.py`, launcher `albench/arch_search/arch_autoresearch.py`, run on the cluster as `scratchpad/arch_autoresearch.py` via `orchestration/`). One run = 15 rounds x 2 trained models = 30 models, three independent pools per condition:
 
 1. *Propose*: Sonnet 5.5 writes 6 ideas (IDEA / WHY / DESIGN / TRAIN). The prompt holds the guidance block (conv/SE/Muon/U-Net/attention facts from our data), the published LegNet source and the per-size bank bar (validation r of the tuned bank), the training facts (a one-cycle schedule always runs to the end) and the history of what was tried (top 18 by validation r, failures with reasons).
 2. *Coordinate*: a second call picks 2 of the 6. Manager `schedule_ens`: rounds 0-5 (explore, `explore_frac` 0.4) show a coverage table of mechanism classes and recipes and ask for under-represented classes and new recipes; rounds 6-14 (exploit) show the validation stack (which models carry weight) and ask for refinements of the models that carry weight.
