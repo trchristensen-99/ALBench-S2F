@@ -354,6 +354,11 @@ MIG_BAD = {
         "dream_attn_e800_wd04_lr0003",
     ],
     "ARCHINVAR_30k.json": ["dream_attn_e500_wd02_lr0003"],
+    "REFBANK100K.json": [
+        "dream_attn_e500_wd01_lr0003",
+        "dream_attn_e800_wd01_lr0003",
+        "dream_attn_e800_wd02_lr0003",
+    ],
     # batch 2048 is mine, not inherited: it OOMs on a slice where the other three batches fit
     "REFRNNRECIPE_30K.json": ["dream_rnn_e1600_bs2048_adamw"],
 }  # menu entries that run out of memory on a MIG slice (menu file name -> entry ids)
