@@ -361,6 +361,16 @@ MIG_BAD = {
     ],
     # batch 2048 is mine, not inherited: it OOMs on a slice where the other three batches fit
     "REFRNNRECIPE_30K.json": ["dream_rnn_e1600_bs2048_adamw"],
+    # every DREAM-Attn recipe measured so far has lost a slice, so block the family outright here
+    # rather than wait to learn it a fourth time; Malinois fits, and batch 2048 is the one point
+    # that OOMed for DREAM-RNN, so it is the one to doubt for a 2.97M-parameter net too.
+    "REFDREAMATTNRECIPE_30K.json": [
+        "dream_attn_e500_bs256_adamw",
+        "dream_attn_e500_bs512_adamw",
+        "dream_attn_e500_bs2048_adamw",
+        "dream_attn_e500_bs1024_muon",
+    ],
+    "REFMALINOISRECIPE_30K.json": ["malinois_e800_bs2048_adamw"],
 }  # menu entries that run out of memory on a MIG slice (menu file name -> entry ids)
 _MENU_IDS: dict = {}
 
