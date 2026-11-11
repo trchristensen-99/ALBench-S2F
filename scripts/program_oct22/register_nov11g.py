@@ -123,6 +123,10 @@ def main():
         assert os.path.exists(os.path.join(R, seed_pool)), f"missing {seed_pool}"
         assert sum(tranches) == D0, f"{D0}: tranches must sum to the start size, al53/al56 geometry"
     for c in cells:
+        # the candidate builders take `--seed-pool` and no `--acq`; only the ladder cells do
+        if c["name"].startswith("a1m_acqc58_"):
+            assert "--seed-pool " in c["cmd"] and "build_acq_candidates" in c["cmd"], c["name"]
+            continue
         assert "--acq " in c["cmd"] and "--seed_pool " in c["cmd"], c["name"]
         # a 600k ensemble on a V100 is past what the wall will grant; it would be killed, not slow
         if "g300_" in c["name"]:
