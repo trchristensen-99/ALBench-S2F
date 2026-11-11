@@ -82,8 +82,12 @@ def main() -> None:
         # 30k pilot (60k endpoint), al52/al54 buy 75k on 30k (105k), al55 buys 100k on 100k
         # (200k), al53 buys 300k on 300k (600k). The trace does not record the pilot size, so
         # this labels the acquired budget and does not silently assert an endpoint.
-        arm = f"+{sum(t['schedule']) // 1000}k {tag.rsplit('_s', 1)[0]}"
-        rep = tag.rsplit("_s", 1)[1]
+        # not every family suffixes the replicate: a tag without `_s` is a single-replicate arm,
+        # and splitting it unconditionally took the whole readout down rather than that one row
+        base, sep, rep = tag.rpartition("_s")
+        if not sep:
+            base, rep = tag, "1"
+        arm = f"+{sum(t['schedule']) // 1000}k {base}"
         rows.setdefault(arm, []).append((single, stack))
         cols = " ".join(f"{single[s]:.4f}/{stack[s]:.4f}" for s in SETS)
         print(f"{arm:20s} {rep:>3s} {n:>2d}   {cols}")
