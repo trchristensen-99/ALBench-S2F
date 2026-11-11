@@ -342,6 +342,20 @@ def _defer_prefixes() -> tuple:
 MIG_BAD = {
     "V1.json": ["evoaug_paper2023_rep3_r04_arch_09"],
     "MM.json": ["motif_ct_enriched_30k_rep4_r10_arch_19"],
+    # DREAM-Attn does not fit a 10.8 GB slice at any of the bracket's recipes; three families have
+    # now lost it this way. Listing the entries rather than the family lets the shards that hold
+    # only LegNet/DREAM-RNN/Malinois keep using slices.
+    "REFBANK_10k.json": [
+        "dream_attn_e800_wd04_lr001",
+        "dream_attn_e500_wd04_lr001",
+        "dream_attn_e1600_wd04_lr001",
+        "dream_attn_e800_wd02_lr001",
+        "dream_attn_e800_wd06_lr001",
+        "dream_attn_e800_wd04_lr0003",
+    ],
+    "ARCHINVAR_30k.json": ["dream_attn_e500_wd02_lr0003"],
+    # batch 2048 is mine, not inherited: it OOMs on a slice where the other three batches fit
+    "REFRNNRECIPE_30K.json": ["dream_rnn_e1600_bs2048_adamw"],
 }  # menu entries that run out of memory on a MIG slice (menu file name -> entry ids)
 _MENU_IDS: dict = {}
 
