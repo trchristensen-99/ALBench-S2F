@@ -175,6 +175,7 @@ def test_persistent_failure_is_bounded_and_recorded(monkeypatch, tmp_path):
 
 def test_deterministic_failure_closes_at_once_and_filter_is_not_a_loss(monkeypatch, tmp_path):
     calls = _install_stubs(monkeypatch, tmp_path, {"a": ["build"], "b": ["slow"], "c": ["ok"]})
+    _job(monkeypatch, tmp_path)  # b (timing gate) gets one more job; a (build) is final at once
     out = _job(monkeypatch, tmp_path)
     assert _state(out) == (True, True)
     deg = json.loads((out / "DEGRADED_0of1.json").read_text())
@@ -187,7 +188,18 @@ def test_deterministic_failure_closes_at_once_and_filter_is_not_a_loss(monkeypat
 
 def test_only_filtered_is_complete_not_degraded(monkeypatch, tmp_path):
     _install_stubs(monkeypatch, tmp_path, {"a": ["slow"], "b": ["ok"]})
-    assert _state(_job(monkeypatch, tmp_path)) == (True, False)
+    assert _state(_job(monkeypatch, tmp_path)) == (
+        False,
+        False,
+    )  # the timing gate gets a second job
+    assert _state(_job(monkeypatch, tmp_path)) == (True, False)  # still slow: filtered, not a loss
+
+
+def test_forward_gate_storm_recovers(monkeypatch, tmp_path):
+    calls = _install_stubs(monkeypatch, tmp_path, {"a": ["slow", "ok"], "b": ["ok"]})
+    _job(monkeypatch, tmp_path)  # a loaded node: the timing gate rejects a, which is fine
+    out = _job(monkeypatch, tmp_path)
+    assert _state(out) == (True, False) and calls["a"] == 2
 
 
 def test_retry_failed_reruns_once_per_tag(monkeypatch, tmp_path):
