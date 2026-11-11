@@ -34,8 +34,9 @@ $PY orchestration/validate_registry.py scratchpad/dispatch_registry.json --root 
 
 Exit status 1 means schema errors. Warnings exit 0, because some are deliberate:
 
-* **default slow_nice wall**: a retrain cell whose name matches no rule in `wall_and_budget()` gets
-  2 days. That is not wrong, but the scheduler can rarely backfill a 2-day request, so the cell waits.
+* **does not fit the 2-day maximum**: a menu cell's `slow_nice` wall comes from its per-model cap
+  (`menu_wall()`), so the only misfit left is a cap too large for even 2 days on a V100. Such a model
+  is killed at the wall and restarts at every `slow_nice` job.
 * **MIG-eligible**: `mig_ok()` would put the cell on a 10.8 GB slice. That is right for small retrains
   and wrong for anything that out-of-memories there (DREAM-Attn did, which is why `archinvar_` and
   `refattn32_` are in `MIG_NO`).

@@ -522,11 +522,41 @@ LLM_SMALL = (
 )
 
 
+# A menu_retrain job must fit at least one whole model, or the model in progress is killed at the wall and
+# restarts from scratch on the next job. menu_retrain.py caps each model at --base_cap_min minutes (x5 on a
+# V100). Measured 2026-11-10 over 17,800 models: training plus evaluation exceeds that cap by at most 23 min
+# (V100; 6 min H100), and job start-up is a median 0.6 min, p95 1.7 min. Before this the wall came from the
+# cell's name: 12 RETRAIN_PFX families had models longer than their 3:30 wall (they only finished on
+# default/fast), and 42 families matching no prefix waited for a 2-day wall.
+MENU_WALL_MARGIN_MIN = 45
+MENU_WALL_FLOOR_MIN = (
+    210  # 3:30, the previous RETRAIN_PFX wall: several models per job, still backfillable
+)
+
+
+def menu_wall(c: dict, gpu: str) -> str:
+    """slow_nice wall for a menu_retrain cell, from its per-model cap on this GPU class, rounded up to 30 min."""
+    m = re.search(r"--base_cap_min (\S+)", c["cmd"])
+    cap = float(m.group(1)) if m else 25.0  # menu_retrain.py's default
+    cap *= 5.0 if gpu == "v100" else 1.0
+    mins = -(-(cap + MENU_WALL_MARGIN_MIN) // 30) * 30
+    mins = int(min(48 * 60, max(MENU_WALL_FLOOR_MIN, mins)))  # slow_nice allows at most 2 days
+    return f"{mins // 60:02d}:{mins % 60:02d}:00"
+
+
 def wall_and_budget(c: dict, qos: str, gpu: str) -> tuple[str, float]:
     """slow_nice jobs get a short wall time so the scheduler can backfill them (a 2-day request never fits a gap); cells are resumable."""
     n = c["name"]
     if qos == "slow_nice" and n.startswith("sw38_100k"):  # a 100k model can take 5 h on a V100
         return "10:00:00", BUDGET[(qos, gpu)]
+    if (
+        qos == "slow_nice"
+        and "menu_retrain.py" in c["cmd"]
+        and not n.startswith(
+            ("a1m_", "a600_", "g100x_", "u100_", "g300s_")
+        )  # deliberate rules below
+    ):
+        return menu_wall(c, gpu), BUDGET[(qos, gpu)]
     if qos == "slow_nice" and n.startswith(RETRAIN_PFX):
         return "03:30:00", BUDGET[(qos, gpu)]
     if qos == "slow_nice" and n.startswith(LLM_SMALL):

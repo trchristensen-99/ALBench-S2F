@@ -119,11 +119,17 @@ def routing_warnings(cells: list[dict], disp) -> list[str]:
     default_wall = disp.WALL["slow_nice"]
     for c in cells:
         f, retrain = family(c["name"]), "menu_retrain.py" in c["cmd"]
-        gpu = "h100" if "h100" in c["gpus"] else c["gpus"][0]
+        gpu = (
+            "v100" if "v100" in c["gpus"] else c["gpus"][0]
+        )  # the slowest class it may use on slow_nice
         wall, _ = disp.wall_and_budget(c, "slow_nice", gpu)
         if retrain and wall == default_wall:
+            fam[f][f"retrain cell gets the default slow_nice wall {default_wall}"] += 1
+        m = re.search(r"--base_cap_min (\S+)", c["cmd"])
+        cap = float(m.group(1) if m else 25) * (5 if gpu == "v100" else 1)
+        if retrain and cap + disp.MENU_WALL_MARGIN_MIN > 48 * 60:
             fam[f][
-                f"retrain cell gets the default slow_nice wall {default_wall} (no RETRAIN_PFX match)"
+                f"per-model cap {cap:.0f} min on {gpu} does not fit slow_nice's 2-day maximum"
             ] += 1
         if disp.mig_ok(c):
             fam[f][
