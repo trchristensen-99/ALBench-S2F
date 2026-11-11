@@ -100,6 +100,15 @@ RETRAIN_PFX = ("mix_", "un30_", "un10_", "un100_", "as_", "ind30", ..., "mv1c_")
 LLM_SMALL   = ("g30_", "rnd30_", "u_", "mot30_", ..., "xd10_")                            # slow_nice wall 8:00, budget 7 h
 ```
 
+> **Menu-retrain walls no longer depend on these names.** Since 2026-11-10 a `menu_retrain` cell on
+> `slow_nice` gets `max(3:30, per-model cap on that GPU + 45 min)`, rounded up to 30 min and capped at
+> 2 days (`menu_wall()`). The per-model cap is `--base_cap_min` × 5 on a V100 and × 1 on an H100. The
+> 45 min is measured: over 17,800 models, training plus evaluation overran the cap by at most 23 min,
+> and job start-up has a p95 of 1.7 min. Under the name-based rule, 22 (cell, GPU) pairs had a model
+> longer than their wall (it restarted at every `slow_nice` job); under the new rule there are none.
+> MIG jobs (`WALL["mig"]`) and LLM cells are unchanged. `RETRAIN_PFX` still decides fast-V100
+> eligibility, and `MIG_NO` still decides slices.
+>
 > **Warning: they match on literal cell-name prefixes (`str.startswith`).** A new arm family whose name
 > appears in none of them gets the defaults, and nothing complains: a 2-day `slow_nice` wall instead of
 > 3.5 h (it rarely backfills, so it waits), or, for a `menu_retrain` cell with `--D` <= 100k, a 10.8 GB

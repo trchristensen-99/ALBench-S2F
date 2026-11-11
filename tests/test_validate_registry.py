@@ -59,11 +59,13 @@ def test_schema_errors_are_specific():
 
 def test_routing_uses_the_dispatcher_rules():
     disp = vr.load_dispatcher()
-    covered = cell(name="un30_x_s0")
-    uncovered = cell(name="zz99_x_s0")
-    w = vr.routing_warnings([covered, uncovered], disp)
-    assert any(x.startswith("zz99_") and "default slow_nice wall" in x for x in w)
-    assert not any(x.startswith("un30_") and "default slow_nice wall" in x for x in w)
+    fits = cell(name="zz98_x_s0")
+    too_long = cell(
+        name="zz99_x_s0", cmd="python scratchpad/menu_retrain.py --D 30000 --base_cap_min 900"
+    )
+    w = vr.routing_warnings([fits, too_long], disp)
+    assert any(x.startswith("zz99_") and "2-day maximum" in x for x in w)
+    assert not any(x.startswith("zz98_") and ("2-day" in x or "default" in x) for x in w)
     blocked = cell(name=disp.MIG_NO[0] + "x_s0")
     assert not any("MIG" in x for x in vr.routing_warnings([blocked], disp))
 
@@ -83,3 +85,22 @@ def test_pending_only_with_root(tmp_path):
     reg = tmp_path / "r.json"
     reg.write_text(json.dumps([done, todo]))
     assert vr.schema_errors(json.loads(reg.read_text())) == []
+
+
+def test_menu_wall_follows_the_per_model_cap():
+    disp = vr.load_dispatcher()
+
+    def wall(name, cap, gpu, qos="slow_nice"):
+        c = cell(name=name, cmd=f"python scratchpad/menu_retrain.py --D 30000 --base_cap_min {cap}")
+        return disp.wall_and_budget(c, qos, gpu)[0]
+
+    assert wall("zz_x", 25, "h100") == "03:30:00"  # floor
+    assert wall("zz_x", 25, "v100") == "03:30:00"  # 125 + 45 min fits the floor
+    assert wall("zz_x", 60, "v100") == "06:00:00"  # 300 + 45, rounded up to 30 min
+    assert wall("un30_x", 60, "v100") == "06:00:00"  # a RETRAIN_PFX name no longer means 3:30
+    assert wall("zz_x", 900, "v100") == "48:00:00"  # slow_nice maximum
+    assert wall("a1m_x", 25, "v100") == "14:00:00"  # deliberate family rule kept
+    assert wall("sw38_100k_x", 25, "v100") == "10:00:00"
+    assert wall("zz_x", 60, "h100", qos="default") == disp.WALL["default"]  # other queues unchanged
+    llm = cell(name="g30_x", cmd="python scratchpad/arch_autoresearch.py --D 30000")
+    assert disp.wall_and_budget(llm, "slow_nice", "h100")[0] == "08:00:00"
