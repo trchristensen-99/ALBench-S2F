@@ -46,6 +46,75 @@ def _gosai_se() -> np.ndarray:
     return se
 
 
+# Why a shard is only "complete" when nothing is left to try. Until 2026-11-10 COMPLETE_{k}of{n} was
+# written whenever the shard exited, so a shard whose models all died (DREAM-Attn OOM on a MIG slice,
+# a Malinois build failure) read as done and its column silently went missing from comparisons.
+# Every failure is now one of three kinds:
+#   filtered  a deliberate gate (MENU_MAX_FWD_MS, --max_params): designed, never retried, not a loss
+#   final     deterministic (the source does not build; seeded predictions exploded): a loss at once
+#   retry     may succeed on another job or GPU class (OOM, non-finite loss, other training errors)
+# A "retry" failure leaves the shard without a marker, so the dispatcher resubmits it; the attempt count
+# comes from failed.jsonl, so this is bounded by --max_attempts and cannot loop. A finished shard with
+# losses still writes COMPLETE (terminal, as the dispatcher's done check expects) plus DEGRADED_{k}of{n}.json.
+FILTERED = ("forward too slow", "too many parameters")
+
+
+def failure_kind(why: str) -> str:
+    """'filtered', 'final' or 'retry' for a failed.jsonl ``why`` string."""
+    w = why.lower()
+    if any(f in w for f in FILTERED):
+        return "filtered"
+    if (
+        "out of memory" in w
+    ):  # depends on the GPU (a 10.8 GB slice vs a full card), so worth another job
+        return "retry"
+    if w.startswith(
+        ("build:", "aux:", "exploded")
+    ):  # exploded: seen after a full seeded training; a rerun repeats it at full cost
+        return "final"
+    return "retry"
+
+
+def failure_history(path: Path, retry_tag: str = "") -> tuple[dict[str, list[str]], set[str]]:
+    """Per model id, the failure reasons since its last reset, and the ids already reset under ``retry_tag``.
+
+    A reset is a {"id": mid, "reset": tag} line; ``--retry_failed TAG`` writes one per failed model, once
+    per tag, so a resubmitted retry job continues the count instead of resetting it again."""
+    hist: dict[str, list[str]] = {}
+    reset_under_tag: set[str] = set()
+    if not path.exists():
+        return hist, reset_under_tag
+    for line in path.read_text().splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        mid = r.get("id")
+        if not mid:
+            continue
+        if "reset" in r:
+            hist[mid] = []
+            if retry_tag and r["reset"] == retry_tag:
+                reset_under_tag.add(mid)
+        else:
+            hist.setdefault(mid, []).append(str(r.get("why", "")))
+    return hist, reset_under_tag
+
+
+def shard_verdict(failures: dict[str, dict], max_attempts: int) -> tuple[list, list, list]:
+    """Split this shard's failed models into (pending retry, lost, filtered) from kind and attempt count."""
+    pending, lost, filtered = [], [], []
+    for mid, f in sorted(failures.items()):
+        kind = failure_kind(f["why"])
+        if kind == "filtered":
+            filtered.append(mid)
+        elif kind == "retry" and f["attempts"] < max_attempts:
+            pending.append(mid)
+        else:
+            lost.append(mid)
+    return pending, lost, filtered
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--menu", required=True, help="menu.json from build_menu.py")
@@ -68,6 +137,20 @@ def main() -> None:
     ap.add_argument("--max_params", type=int, default=40_000_000)
     ap.add_argument("--seq_len", type=int, default=200)
     ap.add_argument("--smoke", action="store_true")
+    ap.add_argument(
+        "--max_attempts",
+        type=int,
+        default=2,
+        help="jobs that may try a model whose failure could be transient (OOM, non-finite) before the "
+        "shard is closed with it recorded as lost in DEGRADED_{k}of{n}.json",
+    )
+    ap.add_argument(
+        "--retry_failed",
+        default="",
+        metavar="TAG",
+        help="re-run models recorded as failed (attempt counts reset once per TAG); writes "
+        "RETRY_{TAG}_{k}of{n} on completion, which a re-run cell uses as its done marker",
+    )
     ap.add_argument(
         "--val_cache",
         default="",
@@ -201,10 +284,13 @@ def main() -> None:
         args.flank_ctx < 0 and args.shift_max < 0
     ):  # the standard, unless this directory already holds models trained without context
         _od = Path(args.out_dir)
-        _legacy = (
-            any(_od.glob("r*_menu_*_meta.json"))
-            or (_od / "train_override.json").exists()
-            and "flank_ctx" not in (_od / "train_override.json").read_text()
+        # legacy = models or an override record exist, and nothing records that they used context.
+        # Was `A or B and C`, i.e. `A or (B and C)`: once any model existed, a resumed job of a
+        # standard-context cell took the no-context path and died on the override guard below
+        # (893 job logs on 2026-11-08, 10 cells).
+        _ovf = _od / "train_override.json"
+        _legacy = (any(_od.glob("r*_menu_*_meta.json")) or _ovf.exists()) and not (
+            _ovf.exists() and "flank_ctx" in _ovf.read_text()
         )
         if not _legacy:
             args.flank_ctx, args.shift_max = STD_F, STD_S
@@ -397,6 +483,17 @@ def main() -> None:
         Xpool = _enc(_ps)
         print(f"  score_pool={args.score_pool} n={len(_ps):,}", flush=True)
     todo, done, failed = 0, 0, 0
+    fail_log = out / "failed.jsonl"
+    hist, reset_done = failure_history(fail_log, args.retry_failed)
+    failures: dict[str, dict] = {}  # this shard's failed models: why, attempts so far, entry id
+
+    def _fail(mid: str, e: dict, why: str) -> None:
+        nonlocal failed
+        failed += 1
+        with open(fail_log, "a") as fh:
+            fh.write(json.dumps({"id": mid, "entry": e["id"], "why": why}) + "\n")
+        failures[mid] = {"why": why, "attempts": len(hist.get(mid, [])) + 1, "entry": e["id"]}
+
     for s in range(args.seeds):
         for idx, e in enumerate(menu):
             if (
@@ -408,6 +505,17 @@ def main() -> None:
             if (out / f"{mid}_meta.json").exists():
                 done += 1
                 continue
+            h = hist.get(mid, [])
+            if h and args.retry_failed and mid not in reset_done:
+                with open(fail_log, "a") as fh:
+                    fh.write(json.dumps({"id": mid, "reset": args.retry_failed}) + "\n")
+                hist[mid], h = [], []
+                reset_done.add(mid)
+            if h and (failure_kind(h[-1]) != "retry" or len(h) >= args.max_attempts):
+                failed += 1  # exhausted in an earlier job: record it, do not try again
+                failures[mid] = {"why": h[-1], "attempts": len(h), "entry": e["id"]}
+                print(f"    {mid} not retried ({len(h)} attempts): {h[-1][:80]}", flush=True)
+                continue
             torch.manual_seed(1000 + 100 * (s + args.seed_offset) + idx)
             np.random.seed(1000 + 100 * (s + args.seed_offset) + idx)
             net, verdict = build_and_check(
@@ -417,15 +525,8 @@ def main() -> None:
                 max_fwd_ms=float(os.environ.get("MENU_MAX_FWD_MS", "8000")),
             )
             if net is None:
-                failed += 1
                 print(f"    {mid} BUILD-FAIL {verdict.reason[:80]}", flush=True)
-                with open(out / "failed.jsonl", "a") as fh:
-                    fh.write(
-                        json.dumps(
-                            {"id": mid, "entry": e["id"], "why": f"build: {verdict.reason[:120]}"}
-                        )
-                        + "\n"
-                    )
+                _fail(mid, e, f"build: {verdict.reason[:120]}")
                 continue
             if args.aux_labels:
                 from albench.arch_search.multitask import wrap as mt_wrap
@@ -433,8 +534,8 @@ def main() -> None:
                 try:
                     net = mt_wrap(net, 1, args.aux_weight)
                 except ValueError as ex:
-                    failed += 1
                     print(f"    {mid} AUX-FAIL {ex}", flush=True)
+                    _fail(mid, e, f"aux: {str(ex)[:120]}")
                     continue
             if wide:
                 net = wrap_ctx(
@@ -466,27 +567,15 @@ def main() -> None:
             except Exception as ex:  # noqa: BLE001 - one bad entry must not stop the shard
                 model, info, used = None, {"error": f"{type(ex).__name__}: {str(ex)[:100]}"}, None
             if model is None:
-                failed += 1
                 print(f"    {mid} TRAIN-FAIL {info.get('error')}", flush=True)
-                with open(out / "failed.jsonl", "a") as fh:
-                    fh.write(
-                        json.dumps(
-                            {"id": mid, "entry": e["id"], "why": f"train: {info.get('error')}"}
-                        )
-                        + "\n"
-                    )
+                _fail(mid, e, f"train: {info.get('error')}")
                 continue
             res = {"val_pred": predict_rc(model, Xva), "test_pred": predict_rc(model, Xte)}
             if (not np.isfinite(res["val_pred"]).all()) or float(
                 np.abs(res["val_pred"]).max()
             ) > 1e3:
-                failed += 1
                 print(f"    {mid} EXPLODED predictions (|pred|>1e3); not saved", flush=True)
-                with open(out / "failed.jsonl", "a") as fh:
-                    fh.write(
-                        json.dumps({"id": mid, "entry": e["id"], "why": "exploded predictions"})
-                        + "\n"
-                    )
+                _fail(mid, e, "exploded predictions")
                 continue
             for kk, Xk in Xsets.items():
                 res[f"test_pred_{kk}"] = predict_rc(model, Xk)
@@ -502,22 +591,11 @@ def main() -> None:
             if (
                 _bad
             ):  # validates normally but explodes on a shifted eval set: unusable in an ensemble
-                failed += 1
                 print(
                     f"    {mid} EXPLODED predictions on {_bad[0]} (|pred|>1e3); not saved",
                     flush=True,
                 )
-                with open(out / "failed.jsonl", "a") as fh:
-                    fh.write(
-                        json.dumps(
-                            {
-                                "id": mid,
-                                "entry": e["id"],
-                                "why": f"exploded predictions on {_bad[0]}",
-                            }
-                        )
-                        + "\n"
-                    )
+                _fail(mid, e, f"exploded predictions on {_bad[0]}")
                 continue
             vr, tr_ = pear(res["val_pred"], yva), pear(res["test_pred"], te_oracle)
             meta = {
@@ -599,8 +677,39 @@ def main() -> None:
                 flush=True,
             )
     print(f"DONE_MENU shard {k}/{n}: {done}/{todo} trained, {failed} failed", flush=True)
-    if done + failed >= todo:
-        (out / f"COMPLETE_{k}of{n}").write_text(f"done={done} failed={failed}\n")
+    if done + failed < todo:
+        return  # an uncaught path skipped a model: no marker, the dispatcher resubmits (as before)
+    pending, lost, filtered = shard_verdict(failures, args.max_attempts)
+    if pending:
+        print(
+            f"NOT_COMPLETE shard {k}/{n}: {len(pending)} model(s) failed in a way another job may fix "
+            f"(attempt < {args.max_attempts}); no marker, so the dispatcher resubmits: {pending[:6]}",
+            flush=True,
+        )
+        return
+    deg = out / f"DEGRADED_{k}of{n}.json"
+    if lost:  # written before COMPLETE, so a shard that reads as done already has its loss record
+        _atomic_write_text(
+            deg,
+            json.dumps(
+                {
+                    "shard": f"{k}/{n}",
+                    "trained": done,
+                    "todo": todo,
+                    "lost": [{"id": m, **failures[m]} for m in lost],
+                    "filtered": [{"id": m, **failures[m]} for m in filtered],
+                },
+                indent=1,
+            ),
+        )
+        print(f"DEGRADED shard {k}/{n}: {len(lost)} model(s) lost, see {deg.name}", flush=True)
+    elif deg.exists():
+        deg.unlink()  # a retry recovered every lost model
+    (out / f"COMPLETE_{k}of{n}").write_text(
+        f"done={done} failed={failed} lost={len(lost)} filtered={len(filtered)}\n"
+    )
+    if args.retry_failed:
+        (out / f"RETRY_{args.retry_failed}_{k}of{n}").write_text(f"done={done} lost={len(lost)}\n")
 
 
 if __name__ == "__main__":

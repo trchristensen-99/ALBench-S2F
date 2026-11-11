@@ -1,0 +1,5724 @@
+[
+ {
+  "dir": "outputs/menu_retrain_v0/refbank_30k_genomic_can",
+  "cells": [
+   "refbank_30k_genomic_can_s0",
+   "refbank_30k_genomic_can_s1",
+   "refbank_30k_genomic_can_s2",
+   "refbank_30k_genomic_can_s3",
+   "refbank_30k_genomic_can_s4",
+   "refbank_30k_genomic_can_s5"
+  ],
+  "trained": 33,
+  "missing": 21,
+  "kinds": {
+   "build": 18,
+   "train": 3
+  },
+  "examples": {
+   "build": [
+    "build: banned name: getattr"
+   ],
+   "train": [
+    "train: non-finite loss epN"
+   ]
+  },
+  "entries_lost": [
+   "dream_attn_e300_wd02_lr001",
+   "dream_attn_e500_wd005_lr001",
+   "dream_attn_e500_wd02_lr001",
+   "malinois_e300_wd02_lr001",
+   "malinois_e500_wd005_lr001",
+   "malinois_e500_wd02_lr0003",
+   "malinois_e500_wd02_lr001",
+   "malinois_e500_wd04_lr001",
+   "malinois_e800_wd02_lr001"
+  ],
+  "current": true,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/refattn32_30k_genomic_can",
+  "cells": [
+   "refattn32_30k_genomic_can_s0",
+   "refattn32_30k_genomic_can_s1",
+   "refattn32_30k_genomic_can_s2"
+  ],
+  "trained": 0,
+  "missing": 18,
+  "kinds": {
+   "oom": 18
+  },
+  "examples": {
+   "oom": [
+    "train: OutOfMemoryError: CUDA out of memory. Tried to allocate N.N MiB. GPU N has a total "
+   ]
+  },
+  "entries_lost": [
+   "dream_attn_e300_wd02_lr001",
+   "dream_attn_e500_wd005_lr001",
+   "dream_attn_e500_wd02_lr0003",
+   "dream_attn_e500_wd02_lr001",
+   "dream_attn_e500_wd04_lr001",
+   "dream_attn_e800_wd02_lr001"
+  ],
+  "current": true,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_zoonomia_orthologs_r2",
+  "cells": [
+   "un30_zoonomia_orthologs_r2_s0",
+   "un30_zoonomia_orthologs_r2_s1",
+   "un30_zoonomia_orthologs_r2_s2"
+  ],
+  "trained": 22,
+  "missing": 11,
+  "kinds": {
+   "filtered": 2,
+   "shape": 9
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ],
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_zoonomia_v2_r3",
+  "cells": [
+   "un30_zoov2_r3_s0",
+   "un30_zoov2_r3_s1",
+   "un30_zoov2_r3_s2"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_zoonomia_v2_r2",
+  "cells": [
+   "un30_zoov2_r2_s0",
+   "un30_zoov2_r2_s1",
+   "un30_zoov2_r2_s2"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_zoonomia_v2_r1",
+  "cells": [
+   "un10_zoov2_r1_s0"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_zoonomia_v2_r2",
+  "cells": [
+   "un10_zoov2_r2_s0"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_zoonomia_v2_r3",
+  "cells": [
+   "un10_zoov2_r3_s0"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_zoonomia_v2_r1",
+  "cells": [
+   "un30_zoov2_r1_s0",
+   "un30_zoov2_r1_s1",
+   "un30_zoov2_r1_s2"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_zoonomia_orthologs_r2",
+  "cells": [
+   "un10_zoonomia_orthologs_r2_s0",
+   "un10_zoonomia_orthologs_r2_s1",
+   "un10_zoonomia_orthologs_r2_s2"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_zoonomia_orthologs_r1",
+  "cells": [
+   "un10_zoonomia_orthologs_r1_s0",
+   "un10_zoonomia_orthologs_r1_s1",
+   "un10_zoonomia_orthologs_r1_s2"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_zoonomia_orthologs_r3",
+  "cells": [
+   "un30_zoonomia_orthologs_r3_s0",
+   "un30_zoonomia_orthologs_r3_s1",
+   "un30_zoonomia_orthologs_r3_s2"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_zoonomia_orthologs_r1",
+  "cells": [
+   "un30_zoonomia_orthologs_r1_s0",
+   "un30_zoonomia_orthologs_r1_s1",
+   "un30_zoonomia_orthologs_r1_s2"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_zoonomia_orthologs_r3",
+  "cells": [
+   "un10_zoonomia_orthologs_r3_s0",
+   "un10_zoonomia_orthologs_r3_s1",
+   "un10_zoonomia_orthologs_r3_s2"
+  ],
+  "trained": 24,
+  "missing": 9,
+  "kinds": {
+   "shape": 9
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep1_r15_arch_30",
+   "son55_rep1_r16_arch_31",
+   "son55_rep2_r01_arch_02",
+   "son55_rep2_r15_arch_31",
+   "son55_rep3_r00_arch_00",
+   "son55_rep3_r05_arch_11",
+   "son55_rep3_r10_arch_21",
+   "son55_rep3_r16_arch_32",
+   "son55_rep3_r17_arch_34"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx35_c200s10_30k",
+  "cells": [
+   "fx35_c200s10_30k_s0",
+   "fx35_c200s10_30k_s1",
+   "fx35_c200s10_30k_s2",
+   "fx35_c200s10_30k_s3"
+  ],
+  "trained": 14,
+  "missing": 6,
+  "kinds": {
+   "shape": 4,
+   "oom": 1,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "oom": [
+    "train: OutOfMemoryError: CUDA out of memory. Tried to allocate N.N MiB. GPU N has a total "
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "evoaug_paper2023_rep3_r04_arch_09",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx36_c20_tta8_30k",
+  "cells": [
+   "fx36_c20_tta8_30k_s0",
+   "fx36_c20_tta8_30k_s1",
+   "fx36_c20_tta8_30k_s2",
+   "fx36_c20_tta8_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mt38_k562only_r1_30k",
+  "cells": [
+   "mt38_k562only_r1_30k_s0",
+   "mt38_k562only_r1_30k_s1",
+   "mt38_k562only_r1_30k_s2",
+   "mt38_k562only_r1_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_zoonomia_orthologs_c20_30k",
+  "cells": [
+   "fr35_zoonomia_orthologs_c20_30k_s0",
+   "fr35_zoonomia_orthologs_c20_30k_s1",
+   "fr35_zoonomia_orthologs_c20_30k_s2",
+   "fr35_zoonomia_orthologs_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "build": 1,
+   "shape": 4
+  },
+  "examples": {
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ],
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_evoaug_paper2023_c20_30k",
+  "cells": [
+   "fr35_evoaug_paper2023_c20_30k_s0",
+   "fr35_evoaug_paper2023_c20_30k_s1",
+   "fr35_evoaug_paper2023_c20_30k_s2",
+   "fr35_evoaug_paper2023_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_d3_steps256_c20_30k",
+  "cells": [
+   "fr35_d3_steps256_c20_30k_s0",
+   "fr35_d3_steps256_c20_30k_s1",
+   "fr35_d3_steps256_c20_30k_s2",
+   "fr35_d3_steps256_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_motif_shared_core_c20_30k",
+  "cells": [
+   "fr35_motif_shared_core_c20_30k_s0",
+   "fr35_motif_shared_core_c20_30k_s1",
+   "fr35_motif_shared_core_c20_30k_s2",
+   "fr35_motif_shared_core_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_evo2_c20_30k",
+  "cells": [
+   "fr35_evo2_c20_30k_s0",
+   "fr35_evo2_c20_30k_s1",
+   "fr35_evo2_c20_30k_s2",
+   "fr35_evo2_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mt38_aux10_r1_30k",
+  "cells": [
+   "mt38_aux10_r1_30k_s0",
+   "mt38_aux10_r1_30k_s1",
+   "mt38_aux10_r1_30k_s2",
+   "mt38_aux10_r1_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx35_c20s10_30k",
+  "cells": [
+   "fx35_c20s10_30k_s0",
+   "fx35_c20s10_30k_s1",
+   "fx35_c20s10_30k_s2",
+   "fx35_c20s10_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sc31_10k_zoonomia_orthologs",
+  "cells": [
+   "sc31_zoonomia_orthologs_10k_s0",
+   "sc31_zoonomia_orthologs_10k_s1"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mt38_aux05_r1_30k",
+  "cells": [
+   "mt38_aux05_r1_30k_s0",
+   "mt38_aux05_r1_30k_s1",
+   "mt38_aux05_r1_30k_s2",
+   "mt38_aux05_r1_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sc31_30k_zoonomia_orthologs",
+  "cells": [
+   "sc31_zoonomia_orthologs_30k_s0",
+   "sc31_zoonomia_orthologs_30k_s1",
+   "sc31_zoonomia_orthologs_30k_s2",
+   "sc31_zoonomia_orthologs_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx36_c20_ps10_30k",
+  "cells": [
+   "fx36_c20_ps10_30k_s0",
+   "fx36_c20_ps10_30k_s1",
+   "fx36_c20_ps10_30k_s2",
+   "fx36_c20_ps10_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fe35_c20s10_emabn_30k",
+  "cells": [
+   "fe35_c20s10_emabn_30k_s0",
+   "fe35_c20s10_emabn_30k_s1",
+   "fe35_c20s10_emabn_30k_s2",
+   "fe35_c20s10_emabn_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_motif_ct_enriched_c20_30k",
+  "cells": [
+   "fr35_motif_ct_enriched_c20_30k_s0",
+   "fr35_motif_ct_enriched_c20_30k_s1",
+   "fr35_motif_ct_enriched_c20_30k_s2",
+   "fr35_motif_ct_enriched_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx35_c60s10_30k",
+  "cells": [
+   "fx35_c60s10_30k_s0",
+   "fx35_c60s10_30k_s1",
+   "fx35_c60s10_30k_s2",
+   "fx35_c60s10_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx35_c100s10_30k",
+  "cells": [
+   "fx35_c100s10_30k_s0",
+   "fx35_c100s10_30k_s1",
+   "fx35_c100s10_30k_s2",
+   "fx35_c100s10_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "build": 1,
+   "shape": 4
+  },
+  "examples": {
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ],
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/ind30k_motif_ct_enriched_r1_seeds3to8",
+  "cells": [
+   "ind30s_motif_ct_enriched_s0",
+   "ind30s_motif_ct_enriched_s1",
+   "ind30s_motif_ct_enriched_s10",
+   "ind30s_motif_ct_enriched_s11",
+   "ind30s_motif_ct_enriched_s2",
+   "ind30s_motif_ct_enriched_s3",
+   "ind30s_motif_ct_enriched_s4",
+   "ind30s_motif_ct_enriched_s5",
+   "ind30s_motif_ct_enriched_s6",
+   "ind30s_motif_ct_enriched_s7",
+   "ind30s_motif_ct_enriched_s8",
+   "ind30s_motif_ct_enriched_s9"
+  ],
+  "trained": 193,
+  "missing": 5,
+  "kinds": {
+   "filtered": 4,
+   "exploded": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ],
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_random_gc_sweep_c20_30k",
+  "cells": [
+   "fr35_random_gc_sweep_c20_30k_s0",
+   "fr35_random_gc_sweep_c20_30k_s1",
+   "fr35_random_gc_sweep_c20_30k_s2",
+   "fr35_random_gc_sweep_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_d3_steps64_c20_30k",
+  "cells": [
+   "fr35_d3_steps64_c20_30k_s0",
+   "fr35_d3_steps64_c20_30k_s1",
+   "fr35_d3_steps64_c20_30k_s2",
+   "fr35_d3_steps64_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_mutagenesis_mr10_c20_30k",
+  "cells": [
+   "fr35_mutagenesis_mr10_c20_30k_s0",
+   "fr35_mutagenesis_mr10_c20_30k_s1",
+   "fr35_mutagenesis_mr10_c20_30k_s2",
+   "fr35_mutagenesis_mr10_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fr35_random_c20_30k",
+  "cells": [
+   "fr35_random_c20_30k_s0",
+   "fr35_random_c20_30k_s1",
+   "fr35_random_c20_30k_s2",
+   "fr35_random_c20_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/ind30k_random_r1_seeds3to8",
+  "cells": [
+   "ind30s_random_s0",
+   "ind30s_random_s1",
+   "ind30s_random_s10",
+   "ind30s_random_s11",
+   "ind30s_random_s2",
+   "ind30s_random_s3",
+   "ind30s_random_s4",
+   "ind30s_random_s5",
+   "ind30s_random_s6",
+   "ind30s_random_s7",
+   "ind30s_random_s8",
+   "ind30s_random_s9"
+  ],
+  "trained": 193,
+  "missing": 5,
+  "kinds": {
+   "filtered": 2,
+   "exploded": 3
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ],
+   "exploded": [
+    "exploded predictions on test_pred",
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx35_c20s0_30k",
+  "cells": [
+   "fx35_c20s0_30k_s0",
+   "fx35_c20s0_30k_s1",
+   "fx35_c20s0_30k_s2",
+   "fx35_c20s0_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx35_c20s30_30k",
+  "cells": [
+   "fx35_c20s30_30k_s0",
+   "fx35_c20s30_30k_s1",
+   "fx35_c20s30_30k_s2",
+   "fx35_c20s30_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx36_c20_oracle_30k",
+  "cells": [
+   "fx36_c20_oracle_30k_s0",
+   "fx36_c20_oracle_30k_s1",
+   "fx36_c20_oracle_30k_s2",
+   "fx36_c20_oracle_30k_s3"
+  ],
+  "trained": 15,
+  "missing": 5,
+  "kinds": {
+   "shape": 4,
+   "build": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ],
+   "build": [
+    "build: forward failed: RuntimeError: shape '[N, N, N]' is invalid for input of size N"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10",
+   "random_rep3_r03_arch_06"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx35_c8s10_30k",
+  "cells": [
+   "fx35_c8s10_30k_s0",
+   "fx35_c8s10_30k_s1",
+   "fx35_c8s10_30k_s2",
+   "fx35_c8s10_30k_s3"
+  ],
+  "trained": 16,
+  "missing": 4,
+  "kinds": {
+   "shape": 4
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mrr_pi41_mid_30k",
+  "cells": [
+   "mrr_pi41_mid_30k_s0",
+   "mrr_pi41_mid_30k_s1",
+   "pi41_mid_30k_s2",
+   "pi41_mid_30k_s3",
+   "pi41_mid_30k_s4"
+  ],
+  "trained": 6,
+  "missing": 4,
+  "kinds": {
+   "train": 4
+  },
+  "examples": {
+   "train": [
+    "train: non-finite loss epN"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_mid",
+   "pi_c218_mid"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mrr_pi41_ownmuon_30k",
+  "cells": [
+   "mrr_pi41_ownmuon_30k_s2",
+   "pi41_ownmuon_30k_s0",
+   "pi41_ownmuon_30k_s1",
+   "pi41_ownmuon_30k_s3",
+   "pi41_ownmuon_30k_s4"
+  ],
+  "trained": 6,
+  "missing": 4,
+  "kinds": {
+   "train": 4
+  },
+  "examples": {
+   "train": [
+    "train: non-finite loss epN"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_ownmuon",
+   "pi_c218_ownmuon"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx35_c12s10_30k",
+  "cells": [
+   "fx35_c12s10_30k_s0",
+   "fx35_c12s10_30k_s1",
+   "fx35_c12s10_30k_s2",
+   "fx35_c12s10_30k_s3"
+  ],
+  "trained": 16,
+  "missing": 4,
+  "kinds": {
+   "shape": 4
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V0x_motif_ct_enriched_r1",
+  "cells": [
+   "ind30v_V0x_motif_ct_enriched_r1_o1_s0",
+   "ind30v_V0x_motif_ct_enriched_r1_o1_s1",
+   "ind30v_V0x_motif_ct_enriched_r1_o1_s2",
+   "ind30v_V0x_motif_ct_enriched_r1_o1_s3",
+   "ind30v_V0x_motif_ct_enriched_r1_s0",
+   "ind30v_V0x_motif_ct_enriched_r1_s1",
+   "ind30v_V0x_motif_ct_enriched_r1_s2"
+  ],
+  "trained": 62,
+  "missing": 4,
+  "kinds": {
+   "filtered": 3,
+   "exploded": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ],
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/ind30k_random_r1",
+  "cells": [
+   "ind30_random_r1_s0",
+   "ind30_random_r1_s1",
+   "ind30_random_r1_s2",
+   "ind30x_random_r1_s0",
+   "ind30x_random_r1_s1",
+   "ind30x_random_r1_s2",
+   "ind30x_random_r1_s3"
+  ],
+  "trained": 95,
+  "missing": 4,
+  "kinds": {
+   "exploded": 3,
+   "filtered": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep",
+    "exploded predictions on test_pred_snv_ref"
+   ],
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mrr_pi41_tuned_30k",
+  "cells": [
+   "mrr_pi41_tuned_30k_s3",
+   "pi41_tuned_30k_s0",
+   "pi41_tuned_30k_s1",
+   "pi41_tuned_30k_s2",
+   "pi41_tuned_30k_s4"
+  ],
+  "trained": 6,
+  "missing": 4,
+  "kinds": {
+   "train": 4
+  },
+  "examples": {
+   "train": [
+    "train: non-finite loss epN"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_tuned",
+   "pi_c218_tuned"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/pi38_x05_genomic_30k",
+  "cells": [
+   "pi38_x05_genomic_30k_s0",
+   "pi38_x05_genomic_30k_s1",
+   "pi38_x05_genomic_30k_s2",
+   "pi38_x05_genomic_30k_s3",
+   "pi38_x05_genomic_30k_s4"
+  ],
+  "trained": 16,
+  "missing": 4,
+  "kinds": {
+   "exploded": 4
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred",
+    "exploded predictions on test_pred_ood"
+   ]
+  },
+  "entries_lost": [
+   "pih_c209_adamw",
+   "pih_c209_muon",
+   "pih_c218_adamw",
+   "pih_c218_muon"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/fx35_c4s10_30k",
+  "cells": [
+   "fx35_c4s10_30k_s0",
+   "fx35_c4s10_30k_s1",
+   "fx35_c4s10_30k_s2",
+   "fx35_c4s10_30k_s3"
+  ],
+  "trained": 16,
+  "missing": 4,
+  "kinds": {
+   "shape": 4
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso",
+    "build: forward failed: RuntimeError: matN and matN shapes cannot be multiplied (NxN and Nx"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "evo2_rep1_r06_arch_12",
+   "evoaug_paper2023_rep2_r07_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mrr_pi41_ownadamw_30k",
+  "cells": [
+   "pi41_ownadamw_30k_s0",
+   "pi41_ownadamw_30k_s1",
+   "pi41_ownadamw_30k_s2",
+   "pi41_ownadamw_30k_s3",
+   "pi41_ownadamw_30k_s4"
+  ],
+  "trained": 6,
+  "missing": 4,
+  "kinds": {
+   "train": 4
+  },
+  "examples": {
+   "train": [
+    "train: non-finite loss epN"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_ownadamw",
+   "pi_c218_ownadamw"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/anchor_motif_ct_enriched_r1_d600k",
+  "cells": [
+   "a600_motif_ct_enriched_s0",
+   "a600_motif_ct_enriched_s1",
+   "a600_motif_ct_enriched_s10",
+   "a600_motif_ct_enriched_s11",
+   "a600_motif_ct_enriched_s12",
+   "a600_motif_ct_enriched_s13",
+   "a600_motif_ct_enriched_s14",
+   "a600_motif_ct_enriched_s15",
+   "a600_motif_ct_enriched_s16",
+   "a600_motif_ct_enriched_s2",
+   "a600_motif_ct_enriched_s3",
+   "a600_motif_ct_enriched_s4",
+   "a600_motif_ct_enriched_s5",
+   "a600_motif_ct_enriched_s6",
+   "a600_motif_ct_enriched_s7",
+   "a600_motif_ct_enriched_s8",
+   "a600_motif_ct_enriched_s9"
+  ],
+  "trained": 30,
+  "missing": 3,
+  "kinds": {
+   "filtered": 2,
+   "exploded": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ],
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/g300k",
+  "cells": [
+   "mr2_g300k_s0",
+   "mr2_g300k_s10",
+   "mr2_g300k_s11",
+   "mr2_g300k_s8",
+   "mr2_g300k_s9",
+   "mr2_g300k_t1a",
+   "mr2_g300k_t1b",
+   "mr2_g300k_t2a",
+   "mr2_g300k_t2b",
+   "mr2_g300k_t3a",
+   "mr2_g300k_t3b",
+   "mr2_g300k_t4a",
+   "mr2_g300k_t4b",
+   "mr2_g300k_t5a",
+   "mr2_g300k_t5b",
+   "mr2_g300k_t6a",
+   "mr2_g300k_t6b",
+   "mr2_g300k_t7a",
+   "mr2_g300k_t7b",
+   "mr_g300k_s0",
+   "mr_g300k_s1",
+   "mr_g300k_s2",
+   "mr_g300k_s3",
+   "mr_g300k_s4",
+   "mr_g300k_s5"
+  ],
+  "trained": 96,
+  "missing": 3,
+  "kinds": {
+   "filtered": 3
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V1_motif_ct_enriched_r1",
+  "cells": [
+   "ind30v_V1_motif_ct_enriched_r1_o1_s0",
+   "ind30v_V1_motif_ct_enriched_r1_o1_s1",
+   "ind30v_V1_motif_ct_enriched_r1_o1_s2",
+   "ind30v_V1_motif_ct_enriched_r1_o1_s3",
+   "ind30v_V1_motif_ct_enriched_r1_s0",
+   "ind30v_V1_motif_ct_enriched_r1_s1",
+   "ind30v_V1_motif_ct_enriched_r1_s2"
+  ],
+  "trained": 63,
+  "missing": 3,
+  "kinds": {
+   "filtered": 2,
+   "exploded": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ],
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/archinvar_30k_motif_shared_core",
+  "cells": [
+   "archinvar_30k_motif_shared_core_s0",
+   "archinvar_30k_motif_shared_core_s1",
+   "archinvar_30k_motif_shared_core_s2",
+   "archinvar_30k_motif_shared_core_s3"
+  ],
+  "trained": 6,
+  "missing": 3,
+  "kinds": {
+   "oom": 3
+  },
+  "examples": {
+   "oom": [
+    "train: OutOfMemoryError: CUDA out of memory. Tried to allocate N.N MiB. GPU N has a total "
+   ]
+  },
+  "entries_lost": [
+   "dream_attn_e500_wd02_lr0003"
+  ],
+  "current": true,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mix30k_G25M75",
+  "cells": [
+   "mix_G25M75_s0",
+   "mix_G25M75_s1",
+   "mix_G25M75_s2"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "filtered": 2
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V0c_motif_ct_enriched_r1",
+  "cells": [
+   "ind30v_V0c_motif_ct_enriched_r1_o1_s0",
+   "ind30v_V0c_motif_ct_enriched_r1_o1_s1",
+   "ind30v_V0c_motif_ct_enriched_r1_o1_s2",
+   "ind30v_V0c_motif_ct_enriched_r1_o1_s3",
+   "ind30v_V0c_motif_ct_enriched_r1_s0",
+   "ind30v_V0c_motif_ct_enriched_r1_s1",
+   "ind30v_V0c_motif_ct_enriched_r1_s2"
+  ],
+  "trained": 64,
+  "missing": 2,
+  "kinds": {
+   "filtered": 2
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/anchor_random_r1_d1000k",
+  "cells": [
+   "a1m_random_s0",
+   "a1m_random_s1",
+   "a1m_random_s10",
+   "a1m_random_s11",
+   "a1m_random_s12",
+   "a1m_random_s13",
+   "a1m_random_s14",
+   "a1m_random_s15",
+   "a1m_random_s16",
+   "a1m_random_s2",
+   "a1m_random_s3",
+   "a1m_random_s4",
+   "a1m_random_s5",
+   "a1m_random_s6",
+   "a1m_random_s7",
+   "a1m_random_s8",
+   "a1m_random_s9"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "exploded": 1,
+   "filtered": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ],
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V1_random_r1",
+  "cells": [
+   "ind30v_V1_random_r1_o1_s0",
+   "ind30v_V1_random_r1_o1_s1",
+   "ind30v_V1_random_r1_o1_s2",
+   "ind30v_V1_random_r1_o1_s3",
+   "ind30v_V1_random_r1_s0",
+   "ind30v_V1_random_r1_s1",
+   "ind30v_V1_random_r1_s2"
+  ],
+  "trained": 64,
+  "missing": 2,
+  "kinds": {
+   "exploded": 2
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred",
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_motif_shared_core_r2",
+  "cells": [
+   "un30_motif_shared_core_r2_s0",
+   "un30_motif_shared_core_r2_s1",
+   "un30_motif_shared_core_r2_s2"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "filtered": 1,
+   "exploded": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ],
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/ind30k_genomic_r1_seeds3to8",
+  "cells": [
+   "ind30s_genomic_s0",
+   "ind30s_genomic_s1",
+   "ind30s_genomic_s10",
+   "ind30s_genomic_s11",
+   "ind30s_genomic_s2",
+   "ind30s_genomic_s3",
+   "ind30s_genomic_s4",
+   "ind30s_genomic_s5",
+   "ind30s_genomic_s6",
+   "ind30s_genomic_s7",
+   "ind30s_genomic_s8",
+   "ind30s_genomic_s9"
+  ],
+  "trained": 196,
+  "missing": 2,
+  "kinds": {
+   "filtered": 1,
+   "exploded": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ],
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V0x_random_r1",
+  "cells": [
+   "ind30v_V0x_random_r1_o1_s0",
+   "ind30v_V0x_random_r1_o1_s1",
+   "ind30v_V0x_random_r1_o1_s2",
+   "ind30v_V0x_random_r1_o1_s3",
+   "ind30v_V0x_random_r1_s0",
+   "ind30v_V0x_random_r1_s1",
+   "ind30v_V0x_random_r1_s2"
+  ],
+  "trained": 64,
+  "missing": 2,
+  "kinds": {
+   "exploded": 2
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep",
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/lad_random_r1_d100k",
+  "cells": [
+   "ind30l_random_100k_s0",
+   "ind30l_random_100k_s1",
+   "ind30l_random_100k_s2",
+   "ind30l_random_100k_s3",
+   "ind30l_random_100k_s4",
+   "ind30l_random_100k_s5"
+  ],
+  "trained": 97,
+  "missing": 2,
+  "kinds": {
+   "exploded": 2
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_motif_shared_core_r1",
+  "cells": [
+   "un30_motif_shared_core_r1_s0",
+   "un30_motif_shared_core_r1_s1",
+   "un30_motif_shared_core_r1_s2"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "exploded": 1,
+   "filtered": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ],
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_motif_syntax_core_r2",
+  "cells": [
+   "un30_motif_syntax_core_r2_s0",
+   "un30_motif_syntax_core_r2_s1",
+   "un30_motif_syntax_core_r2_s2"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "filtered": 2
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/nz2_motif_ct_enriched_r1_d30k",
+  "cells": [
+   "ind30n2_motif_ct_enriched_30k_s0",
+   "ind30n2_motif_ct_enriched_30k_s1",
+   "ind30n2_motif_ct_enriched_30k_s2"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "filtered": 2
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V2_motif_ct_enriched_r1",
+  "cells": [
+   "ind30v_V2_motif_ct_enriched_r1_o1_s0",
+   "ind30v_V2_motif_ct_enriched_r1_o1_s1",
+   "ind30v_V2_motif_ct_enriched_r1_o1_s2",
+   "ind30v_V2_motif_ct_enriched_r1_o1_s3",
+   "ind30v_V2_motif_ct_enriched_r1_s0",
+   "ind30v_V2_motif_ct_enriched_r1_s1",
+   "ind30v_V2_motif_ct_enriched_r1_s2"
+  ],
+  "trained": 64,
+  "missing": 2,
+  "kinds": {
+   "filtered": 2
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_motif_syntax_core_r1",
+  "cells": [
+   "un30_motif_syntax_core_r1_s0",
+   "un30_motif_syntax_core_r1_s1",
+   "un30_motif_syntax_core_r1_s2"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "exploded": 1,
+   "filtered": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ],
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/f100k_random",
+  "cells": [
+   "mrf2_random_100k_s0",
+   "mrf2_random_100k_s1",
+   "mrf2_random_100k_s2",
+   "mrf2_random_100k_s3",
+   "mrf2_random_100k_s4",
+   "mrf2_random_100k_s5",
+   "mrf2_random_100k_s6",
+   "mrf2_random_100k_s7",
+   "mrf_random_100k_s0",
+   "mrf_random_100k_s1",
+   "mrf_random_100k_s2",
+   "mrf_random_100k_s3",
+   "mrf_random_100k_s4",
+   "mrf_random_100k_s5"
+  ],
+  "trained": 97,
+  "missing": 2,
+  "kinds": {
+   "exploded": 1,
+   "filtered": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ],
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/anchor_random_r1_d600k",
+  "cells": [
+   "a600_random_s0",
+   "a600_random_s1",
+   "a600_random_s10",
+   "a600_random_s11",
+   "a600_random_s12",
+   "a600_random_s13",
+   "a600_random_s14",
+   "a600_random_s15",
+   "a600_random_s16",
+   "a600_random_s2",
+   "a600_random_s3",
+   "a600_random_s4",
+   "a600_random_s5",
+   "a600_random_s6",
+   "a600_random_s7",
+   "a600_random_s8",
+   "a600_random_s9"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "filtered": 1,
+   "exploded": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ],
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/archinvar_30k_accessible_tiles_k562",
+  "cells": [
+   "archinvar_30k_accessible_tiles_k562_s0",
+   "archinvar_30k_accessible_tiles_k562_s1",
+   "archinvar_30k_accessible_tiles_k562_s2",
+   "archinvar_30k_accessible_tiles_k562_s3"
+  ],
+  "trained": 7,
+  "missing": 2,
+  "kinds": {
+   "oom": 2
+  },
+  "examples": {
+   "oom": [
+    "train: OutOfMemoryError: CUDA out of memory. Tried to allocate N.N MiB. GPU N has a total "
+   ]
+  },
+  "entries_lost": [
+   "dream_attn_e500_wd02_lr0003"
+  ],
+  "current": true,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/pi38_lrx05_genomic_30k",
+  "cells": [
+   "pi38_lrx05_genomic_30k_s0",
+   "pi38_lrx05_genomic_30k_s1",
+   "pi38_lrx05_genomic_30k_s2",
+   "pi38_lrx05_genomic_30k_s3",
+   "pi38_lrx05_genomic_30k_s4"
+  ],
+  "trained": 18,
+  "missing": 2,
+  "kinds": {
+   "exploded": 2
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_adamw",
+   "pi_c218_adamw"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr38_v2e100_genomic_30k",
+  "cells": [
+   "tr38_v2e100_genomic_30k_s0",
+   "tr38_v2e100_genomic_30k_s1",
+   "tr38_v2e100_genomic_30k_s2",
+   "tr38_v2e100_genomic_30k_s3",
+   "tr38_v2e100_genomic_30k_s4"
+  ],
+  "trained": 18,
+  "missing": 2,
+  "kinds": {
+   "oom": 2
+  },
+  "examples": {
+   "oom": [
+    "train: OutOfMemoryError: CUDA out of memory. Tried to allocate N.N MiB. GPU N has a total "
+   ]
+  },
+  "entries_lost": [
+   "genomic_30k_mgr35_e15_rep1_r08_arch_16_e100",
+   "genomic_30k_mgr35_e15_rep1_r09_arch_18_e100"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/anchor_motif_ct_enriched_r1_d1000k",
+  "cells": [
+   "a1m_motif_ct_enriched_s0",
+   "a1m_motif_ct_enriched_s1",
+   "a1m_motif_ct_enriched_s10",
+   "a1m_motif_ct_enriched_s11",
+   "a1m_motif_ct_enriched_s12",
+   "a1m_motif_ct_enriched_s13",
+   "a1m_motif_ct_enriched_s14",
+   "a1m_motif_ct_enriched_s15",
+   "a1m_motif_ct_enriched_s16",
+   "a1m_motif_ct_enriched_s2",
+   "a1m_motif_ct_enriched_s3",
+   "a1m_motif_ct_enriched_s4",
+   "a1m_motif_ct_enriched_s5",
+   "a1m_motif_ct_enriched_s6",
+   "a1m_motif_ct_enriched_s7",
+   "a1m_motif_ct_enriched_s8",
+   "a1m_motif_ct_enriched_s9"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "exploded": 1,
+   "filtered": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ],
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V3_motif_ct_enriched_r1",
+  "cells": [
+   "ind30v_V3_motif_ct_enriched_r1_o1_s0",
+   "ind30v_V3_motif_ct_enriched_r1_o1_s1",
+   "ind30v_V3_motif_ct_enriched_r1_o1_s2",
+   "ind30v_V3_motif_ct_enriched_r1_o1_s3",
+   "ind30v_V3_motif_ct_enriched_r1_s0",
+   "ind30v_V3_motif_ct_enriched_r1_s1",
+   "ind30v_V3_motif_ct_enriched_r1_s2"
+  ],
+  "trained": 64,
+  "missing": 2,
+  "kinds": {
+   "filtered": 2
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/pi38_base_genomic_10k",
+  "cells": [
+   "pi38_base_genomic_10k_s0",
+   "pi38_base_genomic_10k_s1",
+   "pi38_base_genomic_10k_s2",
+   "pi38_base_genomic_10k_s3",
+   "pi38_base_genomic_10k_s4"
+  ],
+  "trained": 28,
+  "missing": 2,
+  "kinds": {
+   "exploded": 2
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred",
+    "exploded predictions on test_pred_ins_low"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_adamw",
+   "pi_c218_adamw"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/pi38_bs128_genomic_30k",
+  "cells": [
+   "pi38_bs128_genomic_30k_s0",
+   "pi38_bs128_genomic_30k_s1",
+   "pi38_bs128_genomic_30k_s2",
+   "pi38_bs128_genomic_30k_s3",
+   "pi38_bs128_genomic_30k_s4"
+  ],
+  "trained": 18,
+  "missing": 2,
+  "kinds": {
+   "exploded": 2
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep",
+    "exploded predictions on test_pred_ood"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_muon",
+   "pi_c218_adamw"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V3_random_r1",
+  "cells": [
+   "ind30v_V3_random_r1_o1_s0",
+   "ind30v_V3_random_r1_o1_s1",
+   "ind30v_V3_random_r1_o1_s2",
+   "ind30v_V3_random_r1_o1_s3",
+   "ind30v_V3_random_r1_s0",
+   "ind30v_V3_random_r1_s1",
+   "ind30v_V3_random_r1_s2"
+  ],
+  "trained": 64,
+  "missing": 2,
+  "kinds": {
+   "filtered": 2
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V0c_genomic_r1",
+  "cells": [
+   "ind30v_V0c_genomic_r1_o1_s0",
+   "ind30v_V0c_genomic_r1_o1_s1",
+   "ind30v_V0c_genomic_r1_o1_s2",
+   "ind30v_V0c_genomic_r1_o1_s3",
+   "ind30v_V0c_genomic_r1_s0",
+   "ind30v_V0c_genomic_r1_s1",
+   "ind30v_V0c_genomic_r1_s2"
+  ],
+  "trained": 64,
+  "missing": 2,
+  "kinds": {
+   "filtered": 2
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/nest_random_r1_d300k",
+  "cells": [
+   "mrr_nest_random_300k_s0",
+   "mrr_nest_random_300k_s1",
+   "mrr_nest_random_300k_s10",
+   "mrr_nest_random_300k_s11",
+   "mrr_nest_random_300k_s2",
+   "mrr_nest_random_300k_s3",
+   "mrr_nest_random_300k_s4",
+   "mrr_nest_random_300k_s5",
+   "mrr_nest_random_300k_s6",
+   "mrr_nest_random_300k_s7",
+   "mrr_nest_random_300k_s8",
+   "mrr_nest_random_300k_s9"
+  ],
+  "trained": 31,
+  "missing": 2,
+  "kinds": {
+   "exploded": 1,
+   "filtered": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ],
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/al31_res_zoonomia_orthologs",
+  "cells": [
+   "al31_res_zoonomia_orthologs_s0",
+   "al31_res_zoonomia_orthologs_s1",
+   "al31_res_zoonomia_orthologs_s2",
+   "al31_res_zoonomia_orthologs_s3",
+   "al31_res_zoonomia_orthologs_s4",
+   "al31_res_zoonomia_orthologs_s5"
+  ],
+  "trained": 5,
+  "missing": 2,
+  "kinds": {
+   "shape": 2
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex",
+    "build: forward failed: RuntimeError: The size of tensor a (N) must match the size of tenso"
+   ]
+  },
+  "entries_lost": [
+   "GRM_30k_rep1_r06_arch_13",
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/pi38_base_genomic_30k",
+  "cells": [
+   "pi38_base_genomic_30k_s0",
+   "pi38_base_genomic_30k_s1",
+   "pi38_base_genomic_30k_s2",
+   "pi38_base_genomic_30k_s3",
+   "pi38_base_genomic_30k_s4"
+  ],
+  "trained": 29,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_ood"
+   ]
+  },
+  "entries_lost": [
+   "pi_c218_adamw"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_dinuc_shuffle_r2",
+  "cells": [
+   "un10_dinuc_shuffle_r2_s0",
+   "un10_dinuc_shuffle_r2_s1",
+   "un10_dinuc_shuffle_r2_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr30k_pat32_genomic_r1",
+  "cells": [
+   "ind30e_pat32_genomic_30k_s0",
+   "ind30e_pat32_genomic_30k_s1",
+   "ind30e_pat32_genomic_30k_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_c16",
+  "cells": [
+   "sw38_100k_genomic_c16_s0",
+   "sw38_100k_genomic_c16_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un100k_random_r2",
+  "cells": [
+   "un100_random_r2_s0",
+   "un100_random_r2_s1",
+   "un100_random_r2_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/ind30k_motif_ct_enriched_r3",
+  "cells": [
+   "ind30_motif_ct_enriched_r3_s0",
+   "ind30_motif_ct_enriched_r3_s1",
+   "ind30_motif_ct_enriched_r3_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un100k_motif_shared_core_r3",
+  "cells": [
+   "un100_motif_shared_core_r3_s0",
+   "un100_motif_shared_core_r3_s1",
+   "un100_motif_shared_core_r3_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/lad_random_r1_d10k",
+  "cells": [
+   "ind30l_random_10k_s0",
+   "ind30l_random_10k_s1",
+   "ind30l_random_10k_s2",
+   "ind30l_random_10k_s3"
+  ],
+  "trained": 98,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_s0",
+  "cells": [
+   "sw38_30k_random_s0_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_c60",
+  "cells": [
+   "sw38_10k_genomic_c60_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_c32",
+  "cells": [
+   "sw38_10k_genomic_c32_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_c32",
+  "cells": [
+   "sw38_30k_genomic_c32_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_c40",
+  "cells": [
+   "sw38_100k_genomic_c40_s0",
+   "sw38_100k_genomic_c40_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr10k_pat32_genomic_r1",
+  "cells": [
+   "ind30e_pat32_genomic_10k_s0"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_c40",
+  "cells": [
+   "sw38_10k_genomic_c40_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_c16",
+  "cells": [
+   "sw38_30k_genomic_c16_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mrr_pi41f_tuned_30k",
+  "cells": [
+   "mrr_pi41f_tuned_30k_s0",
+   "mrr_pi41f_tuned_30k_s1"
+  ],
+  "trained": 3,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred"
+   ]
+  },
+  "entries_lost": [
+   "pi_c218_tuned"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr10k_pat16_random_r3",
+  "cells": [
+   "ind30e_pat16_random_10k_r3_s0"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_s15",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_s15_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un100k_genomic_r1",
+  "cells": [
+   "un100_genomic_r1_s0",
+   "un100_genomic_r1_s1",
+   "un100_genomic_r1_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_c12",
+  "cells": [
+   "sw38_30k_genomic_c12_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr100k_ep05_genomic_r1",
+  "cells": [
+   "ind30e_ep05_genomic_100k_s0",
+   "ind30e_ep05_genomic_100k_s1",
+   "ind30e_ep05_genomic_100k_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V2_random_r1",
+  "cells": [
+   "ind30v_V2_random_r1_o1_s0",
+   "ind30v_V2_random_r1_o1_s1",
+   "ind30v_V2_random_r1_o1_s2",
+   "ind30v_V2_random_r1_o1_s3",
+   "ind30v_V2_random_r1_s0",
+   "ind30v_V2_random_r1_s1",
+   "ind30v_V2_random_r1_s2"
+  ],
+  "trained": 65,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V0x_genomic_r1",
+  "cells": [
+   "ind30v_V0x_genomic_r1_o1_s0",
+   "ind30v_V0x_genomic_r1_o1_s1",
+   "ind30v_V0x_genomic_r1_o1_s2",
+   "ind30v_V0x_genomic_r1_o1_s3",
+   "ind30v_V0x_genomic_r1_s0",
+   "ind30v_V0x_genomic_r1_s1",
+   "ind30v_V0x_genomic_r1_s2"
+  ],
+  "trained": 65,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_s30",
+  "cells": [
+   "sw38_100k_genomic_s30_s0",
+   "sw38_100k_genomic_s30_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_random_r1",
+  "cells": [
+   "un10_random_r1_s0",
+   "un10_random_r1_s1",
+   "un10_random_r1_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_s5",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_s5_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sc31_100k_zoonomia_orthologs",
+  "cells": [
+   "sc31_zoonomia_orthologs_100k_s0",
+   "sc31_zoonomia_orthologs_100k_s1",
+   "sc31_zoonomia_orthologs_100k_s2",
+   "sc31_zoonomia_orthologs_100k_s3",
+   "sc31_zoonomia_orthologs_100k_s4",
+   "sc31_zoonomia_orthologs_100k_s5"
+  ],
+  "trained": 5,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/m3_30k_motif_ct_enriched_r1",
+  "cells": [
+   "m3_30k_motif_ct_enriched_r1_s0",
+   "m3_30k_motif_ct_enriched_r1_s1",
+   "m3_30k_motif_ct_enriched_r1_s2",
+   "m3_30k_motif_ct_enriched_r1_s3",
+   "m3_30k_motif_ct_enriched_r1_s4",
+   "m3_30k_motif_ct_enriched_r1_s5"
+  ],
+  "trained": 11,
+  "missing": 1,
+  "kinds": {
+   "train": 1
+  },
+  "examples": {
+   "train": [
+    "train: non-finite loss epN"
+   ]
+  },
+  "entries_lost": [
+   "v3_ln42_rep3_r14_arch_28"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_c24",
+  "cells": [
+   "sw38_30k_genomic_c24_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mix30k_RME",
+  "cells": [
+   "mix_RME_s0",
+   "mix_RME_s1",
+   "mix_RME_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_s5",
+  "cells": [
+   "sw38_10k_genomic_s5_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr38_v2e100_genomic_10k",
+  "cells": [
+   "tr38_v2e100_genomic_10k_s0",
+   "tr38_v2e100_genomic_10k_s1",
+   "tr38_v2e100_genomic_10k_s2",
+   "tr38_v2e100_genomic_10k_s3"
+  ],
+  "trained": 19,
+  "missing": 1,
+  "kinds": {
+   "oom": 1
+  },
+  "examples": {
+   "oom": [
+    "train: OutOfMemoryError: CUDA out of memory. Tried to allocate N.N MiB. GPU N has a total "
+   ]
+  },
+  "entries_lost": [
+   "genomic_30k_mgr35_e15_rep1_r08_arch_16_e100"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_c20",
+  "cells": [
+   "sw38_30k_random_c20_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/prec30k_fp16_genomic_r1",
+  "cells": [
+   "ind30_prec_fp16_s0",
+   "ind30_prec_fp16_s1",
+   "ind30_prec_fp16_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "train": 1
+  },
+  "examples": {
+   "train": [
+    "train: non-finite loss epN"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r00_arch_01"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_rca",
+  "cells": [
+   "sw38_30k_genomic_rca_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_c28",
+  "cells": [
+   "sw38_10k_genomic_c28_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_c48",
+  "cells": [
+   "sw38_30k_genomic_c48_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_s5",
+  "cells": [
+   "sw38_100k_genomic_s5_s0",
+   "sw38_100k_genomic_s5_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un100k_genomic_r2",
+  "cells": [
+   "un100_genomic_r2_s0",
+   "un100_genomic_r2_s1",
+   "un100_genomic_r2_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr30k_ep2_random_r1",
+  "cells": [
+   "ind30e_ep2_random_30k_s0",
+   "ind30e_ep2_random_30k_s1",
+   "ind30e_ep2_random_30k_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_s0",
+  "cells": [
+   "sw38_30k_genomic_s0_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un100k_genomic_r3",
+  "cells": [
+   "un100_genomic_r3_s0",
+   "un100_genomic_r3_s1",
+   "un100_genomic_r3_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/ens30k_genomic_p8",
+  "cells": [
+   "ind30z_ens_genomic_30k_p8_s0",
+   "ind30z_ens_genomic_30k_p8_s1",
+   "ind30z_ens_genomic_30k_p8_s2"
+  ],
+  "trained": 93,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_c40",
+  "cells": [
+   "sw38_30k_random_c40_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/hg30k_k562_random_r2",
+  "cells": [
+   "ind30h_k562_random_r2_s0",
+   "ind30h_k562_random_r2_s1",
+   "ind30h_k562_random_r2_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_orc",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_orc_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_c20",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_c20_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_gc_matched_r2",
+  "cells": [
+   "un10_gc_matched_r2_s0",
+   "un10_gc_matched_r2_s1",
+   "un10_gc_matched_r2_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_s20",
+  "cells": [
+   "sw38_10k_genomic_s20_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr30k_pat16_motif_ct_enriched_r2",
+  "cells": [
+   "ind30e_pat16_motif_ct_enriched_30k_r2_s0",
+   "ind30e_pat16_motif_ct_enriched_30k_r2_s1",
+   "ind30e_pat16_motif_ct_enriched_30k_r2_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_c12",
+  "cells": [
+   "sw38_100k_genomic_c12_s0",
+   "sw38_100k_genomic_c12_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_c32",
+  "cells": [
+   "sw38_100k_genomic_c32_s0",
+   "sw38_100k_genomic_c32_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_s15",
+  "cells": [
+   "sw38_30k_genomic_s15_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/as30k_MX_genomic",
+  "cells": [
+   "as_MX_genomic_s0",
+   "as_MX_genomic_s1",
+   "as_MX_genomic_s2"
+  ],
+  "trained": 44,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_c40",
+  "cells": [
+   "sw38_30k_genomic_c40_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_s20",
+  "cells": [
+   "sw38_30k_genomic_s20_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un100k_random_r1",
+  "cells": [
+   "un100_random_r1_s0",
+   "un100_random_r1_s1",
+   "un100_random_r1_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_s15",
+  "cells": [
+   "sw38_10k_genomic_s15_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_s20",
+  "cells": [
+   "sw38_30k_random_s20_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr30k_ep05_genomic_r1",
+  "cells": [
+   "ind30e_ep05_genomic_30k_s0",
+   "ind30e_ep05_genomic_30k_s1",
+   "ind30e_ep05_genomic_30k_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_c24",
+  "cells": [
+   "sw38_100k_genomic_c24_s0",
+   "sw38_100k_genomic_c24_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_c28",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_c28_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/mix30k_MZ",
+  "cells": [
+   "mix_MZ_s0",
+   "mix_MZ_s1",
+   "mix_MZ_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/pi38_ep15_genomic_30k",
+  "cells": [
+   "pi38_ep15_genomic_30k_s0",
+   "pi38_ep15_genomic_30k_s1",
+   "pi38_ep15_genomic_30k_s2",
+   "pi38_ep15_genomic_30k_s3",
+   "pi38_ep15_genomic_30k_s4"
+  ],
+  "trained": 19,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_ins_low"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_muon"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr30k_ep05_random_r1",
+  "cells": [
+   "ind30e_ep05_random_30k_s0",
+   "ind30e_ep05_random_30k_s1",
+   "ind30e_ep05_random_30k_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/ind30k_random_r2",
+  "cells": [
+   "ind30_random_r2_s0",
+   "ind30_random_r2_s1",
+   "ind30_random_r2_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_s30",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_s30_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_c60",
+  "cells": [
+   "sw38_30k_random_c60_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_s0",
+  "cells": [
+   "sw38_100k_genomic_s0_s0",
+   "sw38_100k_genomic_s0_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_c48",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_c48_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_s20",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_s20_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_c12",
+  "cells": [
+   "sw38_30k_random_c12_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/lad_genomic_r1_d100k_seeds12",
+  "cells": [
+   "ind30l_genomic_100k_s0",
+   "ind30l_genomic_100k_s1",
+   "ind30l_genomic_100k_s2",
+   "ind30l_genomic_100k_s3",
+   "ind30l_genomic_100k_s4",
+   "ind30l_genomic_100k_s5"
+  ],
+  "trained": 65,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V3_genomic_r1",
+  "cells": [
+   "ind30v_V3_genomic_r1_o1_s0",
+   "ind30v_V3_genomic_r1_o1_s1",
+   "ind30v_V3_genomic_r1_o1_s2",
+   "ind30v_V3_genomic_r1_o1_s3",
+   "ind30v_V3_genomic_r1_s0",
+   "ind30v_V3_genomic_r1_s1",
+   "ind30v_V3_genomic_r1_s2"
+  ],
+  "trained": 65,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/as30k_MM_genomic",
+  "cells": [
+   "as_MM_genomic_s0",
+   "as_MM_genomic_s1",
+   "as_MM_genomic_s2"
+  ],
+  "trained": 44,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_c48",
+  "cells": [
+   "sw38_30k_random_c48_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/lad_motif_ct_enriched_r1_d10k",
+  "cells": [
+   "ind30l_motif_ct_enriched_10k_s0",
+   "ind30l_motif_ct_enriched_10k_s1",
+   "ind30l_motif_ct_enriched_10k_s2",
+   "ind30l_motif_ct_enriched_10k_s3"
+  ],
+  "trained": 98,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv30k_V1_genomic_r1",
+  "cells": [
+   "ind30v_V1_genomic_r1_o1_s0",
+   "ind30v_V1_genomic_r1_o1_s1",
+   "ind30v_V1_genomic_r1_o1_s2",
+   "ind30v_V1_genomic_r1_o1_s3",
+   "ind30v_V1_genomic_r1_s0",
+   "ind30v_V1_genomic_r1_s1",
+   "ind30v_V1_genomic_r1_s2"
+  ],
+  "trained": 65,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_s30",
+  "cells": [
+   "sw38_10k_genomic_s30_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un100k_mutagenesis_r1",
+  "cells": [
+   "un100_mutagenesis_r1_s0",
+   "un100_mutagenesis_r1_s1",
+   "un100_mutagenesis_r1_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_c12",
+  "cells": [
+   "sw38_10k_genomic_c12_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_rca",
+  "cells": [
+   "sw38_100k_genomic_rca_s0",
+   "sw38_100k_genomic_rca_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/f100k_motif_ct_enriched",
+  "cells": [
+   "mrf2_motif_ct_enriched_100k_s0",
+   "mrf2_motif_ct_enriched_100k_s1",
+   "mrf2_motif_ct_enriched_100k_s2",
+   "mrf2_motif_ct_enriched_100k_s3",
+   "mrf2_motif_ct_enriched_100k_s4",
+   "mrf2_motif_ct_enriched_100k_s5",
+   "mrf2_motif_ct_enriched_100k_s6",
+   "mrf2_motif_ct_enriched_100k_s7",
+   "mrf_motif_ct_enriched_100k_s0",
+   "mrf_motif_ct_enriched_100k_s1",
+   "mrf_motif_ct_enriched_100k_s2",
+   "mrf_motif_ct_enriched_100k_s3",
+   "mrf_motif_ct_enriched_100k_s4",
+   "mrf_motif_ct_enriched_100k_s5"
+  ],
+  "trained": 98,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_c40",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_c40_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_s20",
+  "cells": [
+   "sw38_100k_genomic_s20_s0",
+   "sw38_100k_genomic_s20_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/hg30k_hepg2_motif_ct_enriched_r1",
+  "cells": [
+   "ind30h_hepg2_motif_ct_enriched_s0",
+   "ind30h_hepg2_motif_ct_enriched_s1",
+   "ind30h_hepg2_motif_ct_enriched_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_c48",
+  "cells": [
+   "sw38_100k_genomic_c48_s0",
+   "sw38_100k_genomic_c48_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_rca",
+  "cells": [
+   "sw38_10k_genomic_rca_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_c24",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_c24_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr10k_ep2_genomic_r1",
+  "cells": [
+   "ind30e_ep2_genomic_10k_s0"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_s15",
+  "cells": [
+   "sw38_100k_genomic_s15_s0",
+   "sw38_100k_genomic_s15_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/m3_30k_genomic_r2",
+  "cells": [
+   "m3_30k_genomic_r2_s0",
+   "m3_30k_genomic_r2_s1",
+   "m3_30k_genomic_r2_s2",
+   "m3_30k_genomic_r2_s3",
+   "m3_30k_genomic_r2_s4",
+   "m3_30k_genomic_r2_s5"
+  ],
+  "trained": 11,
+  "missing": 1,
+  "kinds": {
+   "train": 1
+  },
+  "examples": {
+   "train": [
+    "train: non-finite loss epN"
+   ]
+  },
+  "entries_lost": [
+   "v3_ln42_rep3_r14_arch_28"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/hg30k_k562_random_r3",
+  "cells": [
+   "ind30h_k562_random_r3_s0",
+   "ind30h_k562_random_r3_s1",
+   "ind30h_k562_random_r3_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_s30",
+  "cells": [
+   "sw38_30k_genomic_s30_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/f100k_evo2",
+  "cells": [
+   "mrf2_evo2_100k_s0",
+   "mrf2_evo2_100k_s1",
+   "mrf2_evo2_100k_s2",
+   "mrf2_evo2_100k_s3",
+   "mrf2_evo2_100k_s4",
+   "mrf2_evo2_100k_s5",
+   "mrf2_evo2_100k_s6",
+   "mrf2_evo2_100k_s7",
+   "mrf_evo2_100k_s0",
+   "mrf_evo2_100k_s1",
+   "mrf_evo2_100k_s2",
+   "mrf_evo2_100k_s3",
+   "mrf_evo2_100k_s4",
+   "mrf_evo2_100k_s5"
+  ],
+  "trained": 98,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_c24",
+  "cells": [
+   "sw38_10k_genomic_c24_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_orc",
+  "cells": [
+   "sw38_30k_random_orc_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_c28",
+  "cells": [
+   "sw38_100k_genomic_c28_s0",
+   "sw38_100k_genomic_c28_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_c32",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_c32_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/pi38_base_genomic_100k",
+  "cells": [
+   "pi38_base_genomic_100k_s0",
+   "pi38_base_genomic_100k_s1",
+   "pi38_base_genomic_100k_s2",
+   "pi38_base_genomic_100k_s3",
+   "pi38_base_genomic_100k_s4",
+   "pi38_base_genomic_100k_s5",
+   "pi38_base_genomic_100k_s6",
+   "pi38_base_genomic_100k_s7",
+   "pi38_base_genomic_100k_s8",
+   "pi38_base_genomic_100k_s9"
+  ],
+  "trained": 19,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_ood"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_adamw"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/pi38_wd1e3_genomic_30k",
+  "cells": [
+   "pi38_wd1e3_genomic_30k_s0",
+   "pi38_wd1e3_genomic_30k_s1",
+   "pi38_wd1e3_genomic_30k_s2",
+   "pi38_wd1e3_genomic_30k_s3",
+   "pi38_wd1e3_genomic_30k_s4"
+  ],
+  "trained": 19,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred"
+   ]
+  },
+  "entries_lost": [
+   "pi_c209_adamw"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_c20",
+  "cells": [
+   "sw38_10k_genomic_c20_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_s15",
+  "cells": [
+   "sw38_30k_random_s15_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_s0",
+  "cells": [
+   "sw38_10k_genomic_s0_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_motif_shared_core_r3",
+  "cells": [
+   "un10_motif_shared_core_r3_s0",
+   "un10_motif_shared_core_r3_s1",
+   "un10_motif_shared_core_r3_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_c20",
+  "cells": [
+   "sw38_30k_genomic_c20_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un100k_motif_shared_core_r1",
+  "cells": [
+   "un100_motif_shared_core_r1_s0",
+   "un100_motif_shared_core_r1_s1",
+   "un100_motif_shared_core_r1_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_s0",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_s0_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_s5",
+  "cells": [
+   "sw38_30k_genomic_s5_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr10k_pat16_random_r2",
+  "cells": [
+   "ind30e_pat16_random_10k_r2_s0"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_c60",
+  "cells": [
+   "sw38_30k_genomic_c60_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un100k_random_r3",
+  "cells": [
+   "un100_random_r3_s0",
+   "un100_random_r3_s1",
+   "un100_random_r3_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr30k_pat24_random_r1",
+  "cells": [
+   "ind30e_pat24_random_30k_s0",
+   "ind30e_pat24_random_30k_s1",
+   "ind30e_pat24_random_30k_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un30k_motif_shared_core_r3",
+  "cells": [
+   "un30_motif_shared_core_r3_s0",
+   "un30_motif_shared_core_r3_s1",
+   "un30_motif_shared_core_r3_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/nz1_random_r1_d10k",
+  "cells": [
+   "ind30n1_random_10k_s0"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/hg100k_hepg2_random_r1",
+  "cells": [
+   "ind30h_hepg2_random_d100k_s0",
+   "ind30h_hepg2_random_d100k_s1",
+   "ind30h_hepg2_random_d100k_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_c32",
+  "cells": [
+   "sw38_30k_random_c32_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_rca",
+  "cells": [
+   "sw38_30k_random_rca_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_c20",
+  "cells": [
+   "sw38_100k_genomic_c20_s0",
+   "sw38_100k_genomic_c20_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr10k_pat24_genomic_r1",
+  "cells": [
+   "ind30e_pat24_genomic_10k_s0"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_rca",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_rca_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_c60",
+  "cells": [
+   "sw38_100k_genomic_c60_s0",
+   "sw38_100k_genomic_c60_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_c16",
+  "cells": [
+   "sw38_10k_genomic_c16_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_c60",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_c60_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/vv100k_V0c_random_r1",
+  "cells": [
+   "ind30w_random_100k_s0",
+   "ind30w_random_100k_s1",
+   "ind30w_random_100k_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_orc",
+  "cells": [
+   "sw38_10k_genomic_orc_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_100k_genomic_orc",
+  "cells": [
+   "sw38_100k_genomic_orc_s0",
+   "sw38_100k_genomic_orc_s1"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_c28",
+  "cells": [
+   "sw38_30k_random_c28_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/as30k_MG_grm",
+  "cells": [
+   "as_MG_grm_s0",
+   "as_MG_grm_s1",
+   "as_MG_grm_s2"
+  ],
+  "trained": 44,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_c16",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_c16_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/hg30k_diff_motif_ct_enriched_r2",
+  "cells": [
+   "ind30h_diff_motif_ct_enriched_r2_s0",
+   "ind30h_diff_motif_ct_enriched_r2_s1",
+   "ind30h_diff_motif_ct_enriched_r2_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_c24",
+  "cells": [
+   "sw38_30k_random_c24_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_s30",
+  "cells": [
+   "sw38_30k_random_s30_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_10k_genomic_c48",
+  "cells": [
+   "sw38_10k_genomic_c48_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/ind30k_genomic_r3",
+  "cells": [
+   "ind30_genomic_r3_s0",
+   "ind30_genomic_r3_s1",
+   "ind30_genomic_r3_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/un10k_motif_ct_enriched_r3",
+  "cells": [
+   "un10_motif_ct_enriched_r3_s0",
+   "un10_motif_ct_enriched_r3_s1",
+   "un10_motif_ct_enriched_r3_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "filtered": 1
+  },
+  "examples": {
+   "filtered": [
+    "build: forward too slow: Nms > Nms"
+   ]
+  },
+  "entries_lost": [],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_c16",
+  "cells": [
+   "sw38_30k_random_c16_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr10k_pat16_motif_ct_enriched_r1",
+  "cells": [
+   "ind30e_pat16_motif_ct_enriched_10k_r1_s0"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_gc_sweep"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/tr30k_pat16_random_r1",
+  "cells": [
+   "ind30e_pat16_random_30k_s0",
+   "ind30e_pat16_random_30k_s1",
+   "ind30e_pat16_random_30k_s2"
+  ],
+  "trained": 32,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred_snv_ref"
+   ]
+  },
+  "entries_lost": [
+   "son55_rep2_r15_arch_31"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_c28",
+  "cells": [
+   "sw38_30k_genomic_c28_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_random_s5",
+  "cells": [
+   "sw38_30k_random_s5_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/as30k_MF_motif",
+  "cells": [
+   "as_MF_motif_s0",
+   "as_MF_motif_s1",
+   "as_MF_motif_s2"
+  ],
+  "trained": 44,
+  "missing": 1,
+  "kinds": {
+   "exploded": 1
+  },
+  "examples": {
+   "exploded": [
+    "exploded predictions on test_pred"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep2_r01_arch_02"
+  ],
+  "current": false,
+  "designed_filter_only": true
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_motif_ct_enriched_c12",
+  "cells": [
+   "sw38_30k_motif_ct_enriched_c12_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ },
+ {
+  "dir": "outputs/menu_retrain_v0/sw38_30k_genomic_orc",
+  "cells": [
+   "sw38_30k_genomic_orc_s0"
+  ],
+  "trained": 6,
+  "missing": 1,
+  "kinds": {
+   "shape": 1
+  },
+  "examples": {
+   "shape": [
+    "build: forward failed: RuntimeError: Sizes of tensors must match except in dimension N. Ex"
+   ]
+  },
+  "entries_lost": [
+   "motif_ct_enriched_rep3_r05_arch_10"
+  ],
+  "current": false,
+  "designed_filter_only": false
+ }
+]
