@@ -57,6 +57,15 @@ def _gosai_se() -> np.ndarray:
 # comes from failed.jsonl, so this is bounded by --max_attempts and cannot loop. A finished shard with
 # losses still writes COMPLETE (terminal, as the dispatcher's done check expects) plus DEGRADED_{k}of{n}.json.
 FILTERED = ("forward too slow", "too many parameters")
+# The forward-time gate is a timing measurement: on a loaded node it rejects models that are fine (the
+# "CPU-gate storms" scripts/program_oct22/watchdog.py used to repair by deleting markers). So it is retried
+# like a transient failure, within the same --max_attempts bound, and counted as filtered only after that.
+NOISY_FILTERS = ("forward too slow",)
+
+
+def retryable(why: str) -> bool:
+    """Whether another job might succeed where this one failed."""
+    return failure_kind(why) == "retry" or any(f in why.lower() for f in NOISY_FILTERS)
 
 
 def failure_kind(why: str) -> str:
@@ -106,10 +115,10 @@ def shard_verdict(failures: dict[str, dict], max_attempts: int) -> tuple[list, l
     pending, lost, filtered = [], [], []
     for mid, f in sorted(failures.items()):
         kind = failure_kind(f["why"])
-        if kind == "filtered":
-            filtered.append(mid)
-        elif kind == "retry" and f["attempts"] < max_attempts:
+        if retryable(f["why"]) and f["attempts"] < max_attempts:
             pending.append(mid)
+        elif kind == "filtered":
+            filtered.append(mid)
         else:
             lost.append(mid)
     return pending, lost, filtered
@@ -511,7 +520,7 @@ def main() -> None:
                     fh.write(json.dumps({"id": mid, "reset": args.retry_failed}) + "\n")
                 hist[mid], h = [], []
                 reset_done.add(mid)
-            if h and (failure_kind(h[-1]) != "retry" or len(h) >= args.max_attempts):
+            if h and (not retryable(h[-1]) or len(h) >= args.max_attempts):
                 failed += 1  # exhausted in an earlier job: record it, do not try again
                 failures[mid] = {"why": h[-1], "attempts": len(h), "entry": e["id"]}
                 print(f"    {mid} not retried ({len(h)} attempts): {h[-1][:80]}", flush=True)
