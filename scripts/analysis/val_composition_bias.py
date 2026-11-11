@@ -105,11 +105,26 @@ def main() -> None:
     ap.add_argument("--size", default="30k", choices=["10k", "30k", "100k"])
     ap.add_argument("--draws", type=int, default=5)
     ap.add_argument("--out", default="outputs/justification_oct22")
+    ap.add_argument(
+        "--dirs",
+        default="",
+        help="comma-separated model directories to pool instead of the tuned bank. The bank is 20 "
+        "seeds of one recipe and so the least composition-sensitive set there is; a heterogeneous "
+        "set (the reference bracket, a loop run, the two pooled) is the case worth testing.",
+    )
+    ap.add_argument("--pattern", default="r*_menu_*.npz")
+    ap.add_argument("--tag", default="")
     a = ap.parse_args()
 
-    bank = load(f"{MR}/bench38_ln_{TUNED[a.size]}_{a.size}_c20", "r*_menu_*.npz")
-    assert bank and len(bank["ms"]) > 1, f"no bank at {a.size}"
-    yv, y, ms = bank["yv"], bank["y"], bank["ms"]
+    dirs = [d for d in a.dirs.split(",") if d] or [f"{MR}/bench38_ln_{TUNED[a.size]}_{a.size}_c20"]
+    parts = [load(d, a.pattern) for d in dirs]
+    assert all(p for p in parts), f"nothing loaded from {[d for d, p in zip(dirs, parts) if not p]}"
+    yv, y = parts[0]["yv"], parts[0]["y"]
+    for p in parts[1:]:  # pooling only makes sense if every part was scored on the same rows
+        assert np.allclose(p["yv"], yv), "the directories do not share a validation set"
+    ms = [m for p in parts for m in p["ms"]]
+    assert len(ms) > 1, f"only {len(ms)} usable models"
+    print(f"pooled {len(ms)} models from {len(dirs)} directory(ies)")
 
     v = np.load(VAL_ASSET, allow_pickle=True)
     t = np.load(TRAIN_CACHE, allow_pickle=True)
@@ -179,7 +194,7 @@ def main() -> None:
     )
 
     os.makedirs(a.out, exist_ok=True)
-    path = f"{a.out}/val_composition_bias_{a.size}.json"
+    path = f"{a.out}/val_composition_bias_{a.size}{a.tag}.json"
     json.dump(res, open(path, "w"), indent=1, default=float)
     print(f"wrote {path}")
 
