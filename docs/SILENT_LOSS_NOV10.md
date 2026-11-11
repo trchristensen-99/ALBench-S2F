@@ -39,9 +39,19 @@ after the directories were restarted, in single jobs with no resume.
 
 The dispatcher's automatic pause (3 consecutive jobs that end in under 5 min) **did not fire** for any
 of them: `short_fails` is 0 and no short-failure line was logged, although it fired for other cells
-in the same hours. `check_finished()` is the same as on Nov 3. I did not find the cause. Candidates are
-a second writer of `state.json`, or `checked`/`last_job` being overwritten. Until it is explained, the
-pause should not be relied on as the backstop for a resubmit loop.
+in the same hours.
+
+**Cause, found later the same day:** `check_finished()` parsed the elapsed time with
+`(el.split(":") + ["0", "0"])[-3:]`, which pads on the wrong end, so `"00:00:24"` read as 24 hours. No
+job that ran for one second or more ever counted as short, and the `else` branch reset `short_fails` to 0.
+The only jobs ever counted were 0-second ones: the three `CANCELLED` lines at 14:22, which were the only
+`sacct`-derived lines in three days of logs. Calling the live `check_finished()` on job 3942392
+(`FAILED|00:00:24`) left `short_fails` at 0. The automatic pause has therefore never worked. It is fixed
+by a shared `[D-]HH:MM:SS` parser (`elapsed_s()`); tests drive three 20-second failures to a pause.
+The "second writer of `state.json`" hypothesis was tested and is not supported. The only code that writes
+the file besides the dispatcher is old backups, an unused `dispatcher_v2.py`, and `unpause_zoo_nov9.py`,
+written after the event. One dispatcher cycled every 182-188 s throughout, with five out-of-turn cycles
+in six hours.
 
 ## 2. Triage of directories marked complete with models missing
 

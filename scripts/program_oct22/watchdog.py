@@ -1,4 +1,13 @@
-"""HPC-side watchdog for the dispatcher program (cron, every 30 minutes). Runs on the login node, so it is light: file reads, squeue, the status script.
+"""SUPERSEDED 2026-11-10; DO NOT RUN. It refuses to start unless ALBENCH_RUN_OLD_WATCHDOG=1.
+
+Its automatic actions delete COMPLETE_{k}of{n} markers so that a shard reruns. orchestration/menu_retrain.py
+now does that work itself: transient failures (OOM, a forward-time gate rejecting a good model on a loaded
+node) are retried by leaving the shard without a marker, bounded by --max_attempts counted from
+failed.jsonl, and a shard that still lost models writes DEGRADED_{k}of{n}.json before COMPLETE. Deleting a
+COMPLETE marker behind that logic makes a closed shard rerun for nothing, and leaves a DEGRADED record whose
+marker has gone. Kept for the record; see docs/SILENT_LOSS_NOV10.md.
+
+HPC-side watchdog for the dispatcher program (cron, every 30 minutes). Runs on the login node, so it is light: file reads, squeue, the status script.
 
 Why it exists: the monitoring I do from a laptop session needs the VPN. When the VPN drops nothing watches the queue and the routine failures (a model
 that ran out of the MIG slice memory, a burst of CPU-gate failures that wrote a COMPLETE marker with nothing trained) wait for the next reconnect.
@@ -183,4 +192,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if os.environ.get("ALBENCH_RUN_OLD_WATCHDOG") != "1":
+        raise SystemExit(
+            "watchdog.py is superseded (it deletes COMPLETE markers that menu_retrain.py's retry logic "
+            "depends on); see its docstring"
+        )
     main()

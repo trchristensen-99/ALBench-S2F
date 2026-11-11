@@ -211,6 +211,15 @@ def log(msg: str) -> None:
         fh.write(line + "\n")
 
 
+def elapsed_s(el: str) -> int | None:
+    """Slurm elapsed time ([D-]HH:MM:SS, MM:SS) in seconds; None if it does not parse."""
+    m = re.match(r"(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$", el.strip())
+    if not m:
+        return None
+    d, h, mi, s = (int(x or 0) for x in m.groups())
+    return ((d * 24 + h) * 60 + mi) * 60 + s
+
+
 def my_jobs() -> list[dict]:
     jobs = []
     for line in sh(f'{SB}/squeue -u {USER} -h -o "%i|%j|%q|%t|%b|%V|%M"').splitlines():
@@ -667,8 +676,13 @@ def check_finished(c: dict, st: dict, mine_ids: set) -> None:
             f"  {c['name']}: job {jid} exited 75 (LLM limit) after {el}; reset time parsed from CLI: {when}"
         )
         return
-    h, m, s = (el.split(":") + ["0", "0"])[-3:] if el.count(":") == 2 else ("0", "0", "0")
-    secs = int(h) * 3600 + int(m) * 60 + int(s)
+    # was `(el.split(":") + ["0", "0"])[-3:]`, which padded on the wrong end: "00:00:24" parsed as 24 h, so no
+    # job that ran for a second or more ever counted as a short failure, and the pause after 3 never fired
+    # (2026-11-08: 10 cells resubmitted ~90 times each, every job FAILED in about 20 s, short_fails stayed 0)
+    secs = elapsed_s(el)
+    if secs is None:
+        log(f"  {c['name']}: job {jid}: unparsed elapsed {el!r} from sacct; not counted")
+        return
     if secs < 300 and not state.startswith("COMPLETED"):
         st["short_fails"] = st.get("short_fails", 0) + 1
         log(

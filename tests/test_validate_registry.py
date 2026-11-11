@@ -104,3 +104,36 @@ def test_menu_wall_follows_the_per_model_cap():
     assert wall("zz_x", 60, "h100", qos="default") == disp.WALL["default"]  # other queues unchanged
     llm = cell(name="g30_x", cmd="python scratchpad/arch_autoresearch.py --D 30000")
     assert disp.wall_and_budget(llm, "slow_nice", "h100")[0] == "08:00:00"
+
+
+def test_elapsed_parsing():
+    disp = vr.load_dispatcher()
+    assert disp.elapsed_s("00:00:24") == 24  # was read as 24 hours
+    assert disp.elapsed_s("01:02:03") == 3723
+    assert disp.elapsed_s("1-02:03:04") == 93784
+    assert disp.elapsed_s("12:34") == 754
+    assert disp.elapsed_s("Unknown") is None
+
+
+def test_short_failures_pause_after_three(monkeypatch):
+    disp = vr.load_dispatcher()
+    rows = iter(["FAILED|00:00:24|1:0", "FAILED|00:00:17|1:0", "FAILED|00:00:20|1:0"])
+    monkeypatch.setattr(disp, "sh", lambda cmd: next(rows))
+    monkeypatch.setattr(disp, "log", lambda m: None)
+    st = {}
+    for jid in ("1", "2", "3"):
+        st["last_job"] = jid
+        disp.check_finished({"name": "x"}, st, set())
+    assert st["short_fails"] == 3 and st.get("paused") is True
+
+
+def test_quick_success_and_long_jobs_do_not_count(monkeypatch):
+    disp = vr.load_dispatcher()
+    rows = iter(["COMPLETED|00:01:00|0:0", "FAILED|02:00:00|1:0", "TIMEOUT|1-00:00:05|0:0"])
+    monkeypatch.setattr(disp, "sh", lambda cmd: next(rows))
+    monkeypatch.setattr(disp, "log", lambda m: None)
+    st = {"short_fails": 2}
+    for jid in ("1", "2", "3"):
+        st["last_job"] = jid
+        disp.check_finished({"name": "x"}, st, set())
+        assert st["short_fails"] == 0 and not st.get("paused")

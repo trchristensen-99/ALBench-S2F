@@ -46,7 +46,8 @@ then for each cell:
 3. **last job**: `check_finished()` asks `sacct`. Exit code **75** means the LLM usage limit, not a
    failure: all LLM cells pause until the reset time parsed from the CLI's log, plus 2 min, and then a
    probe call must succeed. Any other end in < 300 s that is not `COMPLETED` counts as a short failure,
-   and 3 in a row pause the cell (`state.json` `paused`; clear it by hand).
+   and 3 in a row pause the cell (`state.json` `paused`; clear it by hand). Before 2026-11-10 this pause
+   never fired, because of an elapsed-time parsing bug, so pre-fix `short_fails` values mean nothing.
 4. **running?** If a job `d_{name}` (or a name in `ext`) is queued or running, the cell is active. A
    running job with no new result for `STALL_S` (3 h H100, 6 h V100) is logged as `STALL?` and never
    killed. A job pending on `default` for longer than `PD_MIGRATE_S` (20 min) is re-routed through `choose()`
