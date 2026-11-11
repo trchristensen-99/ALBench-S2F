@@ -42,6 +42,9 @@ import register_ln100 as ln  # noqa: E402
 
 DRY = ln.DRY
 NEW_REPS = (3, 4)
+BACKUP_SUFFIX = (
+    ".bak_nov11b"  # a later rep tranche reuses main() and must not clobber this snapshot
+)
 LADDERS = (("al57", "register_nov11a"), ("al56", "register_nov9j"), ("al55", "register_nov9i"))
 
 
@@ -97,7 +100,7 @@ def main():
             for c in new:
                 print(" ", c["name"])
             return
-        shutil.copy(path, path + ".bak_nov11b")
+        shutil.copy(path, path + BACKUP_SUFFIX)
         json.dump(reg2, open(path + ".tmp", "w"), indent=1)
         os.replace(path + ".tmp", path)
         print("registered")
