@@ -30,6 +30,19 @@ which Python evaluates as `A or (B and C)`. Once any model existed, a resumed jo
 default flank context took the no-context path and died on the override guard. That happened in 893 job
 logs on 2026-11-08, across 10 cells. Retries depend on resumed jobs working, so this is fixed too.
 
+The 10 cells were `sc31_zoonomia_orthologs_100k_s{2,3,5}`, `sc31_zoonomia_orthologs_30k_s3`,
+`un10_zoonomia_orthologs_r{1,2}_s2`, `un30_zoonomia_orthologs_r3_s{1,2}` and `un30_zoov2_r1_s{0,1}`.
+Each burned 84 to 97 jobs between 13:06 and 18:54; every job FAILED in 17 to 24 s (exit 1). The loop
+ended when they were paused by hand (`paused_why` in `state.json`). **No progress was lost in current
+results**: all 10 are now done, and every model in their shards was written on Nov 9, 11:11 to 12:47,
+after the directories were restarted, in single jobs with no resume.
+
+The dispatcher's automatic pause (3 consecutive jobs that end in under 5 min) **did not fire** for any
+of them: `short_fails` is 0 and no short-failure line was logged, although it fired for other cells
+in the same hours. `check_finished()` is the same as on Nov 3. I did not find the cause. Candidates are
+a second writer of `state.json`, or `checked`/`last_job` being overwritten. Until it is explained, the
+pause should not be relied on as the backstop for a resubmit loop.
+
 ## 2. Triage of directories marked complete with models missing
 
 The audit's 288 counted every directory with a `failed.jsonl`. Counting only models that are **still
@@ -70,6 +83,12 @@ shape, 3 build); `sc31_` 3 (9 shape, 2 build); `fe35_` 1; `tr38_` 2 (3 OOM); `al
 No `refrnn*`, `refmal*`, `m3b_`, `m3c_` or `bench38_ln_*` directory is missing a model.
 
 ## 3. RETRAIN_PFX: why the 42 unmatched families were not added
+
+> **Correction.** The first version of this section used a slice's ×8 cap multiplier, but MIG jobs never
+> get these walls: `sbatch_text` calls `wall_and_budget(c, "mig", ...)`, which returns `WALL["mig"]`
+> (36 h). On `slow_nice` the slowest class is a V100 (×5). The conclusion holds when measured per cell
+> and per GPU class. The fix, a wall derived from each cell's per-model cap, is on branch
+> `wall-from-cap`: models that do not fit their wall go from 22 to 0 of 3,168 (cell, GPU) pairs.
 
 Each retrain family whose name matches no rule gets the 2-day `slow_nice` wall, and adding it to
 `RETRAIN_PFX` would give it 3:30. For each such family I compared the longest single model measured in
@@ -117,8 +136,11 @@ prompt behaviour, so the call belongs to whoever owns those experiments.
    menu bug, but `midx >= target` would be the naive fix (resubmitting forever). It needs the same
    terminal-marker-plus-record treatment.
 5. **Muon falls back to AdamW with only a print** (`arch_autoresearch.py:273`). `menu_retrain` and the
-   loop call `train_one` directly, so they bypass the library's `_require_optimizer` guard. An unknown
-   optimizer name trains AdamW and is recorded under its original name.
+   loop call `train_one` directly, so they bypass the library's `_require_optimizer` guard. *Downgraded
+   after review:* `build_opt` returns the optimizer actually used, and `meta["optimizer_used"]` records
+   it, so every past run can be checked from its artefact. This is hygiene, not a results problem. The
+   one gap is an unrecognised name (not `muon`/`adam`/`adamw`): it trains AdamW but is returned, and
+   recorded, under its original name.
 6. **The Zoonomia reservoir breaks the chromosome holdout rule.** The rate file excludes only chr7 and
    chr13, so 14,702 of its 199,373 regions (7.4%) are on chr19, chr21 or chrX, and
    `PhylogeneticZoonomiaSampler` applies no filter by default. Measured on the current nested
