@@ -73,7 +73,7 @@ def main():
             want = re.sub(r"(_[sr])\d+$", r"\g<1>1", c["name"])
             assert want in by_name, f"{c['name']}: no rep-1 twin named {want}"
             expect = by_name[want]["cmd"].replace("_r1", f"_r{rep}").replace("_s1", f"_s{rep}")
-            expect = re.sub(r"--seed 1\b", f"--seed {rep}", expect)
+            expect = re.sub(r"--(seed|reps) 1\b", rf"--\g<1> {rep}", expect)
             assert c["cmd"] == expect, (
                 f"{c['name']} is not rep 1 with the number changed:\n  got  {c['cmd']}\n  want {expect}"
             )
