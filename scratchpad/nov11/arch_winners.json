@@ -1,0 +1,17 @@
+{
+ "10000": {
+  "malinois": "malinois_e1600_wd04_lr001",
+  "dream_rnn": "dream_rnn_e800_wd02_lr001",
+  "dream_attn": "dream_attn_e800_wd04_lr0003"
+ },
+ "30000": {
+  "dream_rnn": "dream_rnn_e1600_bs512_adamw",
+  "dream_attn": "dream_attn_e500_bs512_adamw",
+  "malinois": "malinois_e800_bs1024_muon"
+ },
+ "100000": {
+  "malinois": "malinois_e800_wd01_lr001",
+  "dream_attn": "dream_attn_e800_wd02_lr0003",
+  "dream_rnn": "dream_rnn_e800_wd02_lr001"
+ }
+}
