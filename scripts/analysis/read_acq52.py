@@ -117,7 +117,7 @@ def main() -> None:
     print(
         f"{'arm':14s} {'rep':>3s} {'label mean':>10s} " + " ".join(f"{s[:11]:>12s}" for s in srcs)
     )
-    for tag, (t, _d) in sorted(traces.items()):
+    for _k, (t, _d) in sorted(traces.items(), key=lambda kv: str(kv[0])):
         if t["schedule"] == [0]:
             continue
         comp: dict[str, int] = {}
@@ -130,7 +130,13 @@ def main() -> None:
                 tot += rd["n_add"]
                 wsum += rd["n_add"] * rd["sel_label_mean"]
         n = max(1, sum(comp.values()))
-        arm, rep = tag.rsplit("_s", 1)
+        # the dict key is the run DIRECTORY, not the tag; the endpoint table above reads
+        # t["tag"] and guards the `_s` split, and this loop has to do the same or it dies on
+        # a Path (and would mislabel a single-replicate arm even where it did not)
+        arm, sep, rep = t["tag"].rpartition("_s")
+        if not sep:
+            arm, rep = t["tag"], "1"
+
         print(
             f"{arm:14s} {rep:>3s} {wsum / max(1, tot):>10.3f} "
             + " ".join(f"{100 * comp.get(s, 0) / n:>11.1f}%" for s in srcs)
@@ -138,10 +144,10 @@ def main() -> None:
     print("\n(an equal draw would be 14.3% each; the candidate pool is 1/7 of each reservoir)")
 
     print("\n=== the iterative arms, round by round ===")
-    for tag, (t, _d) in sorted(traces.items()):
+    for _k, (t, _d) in sorted(traces.items(), key=lambda kv: str(kv[0])):
         if len(t["schedule"]) < 2:
             continue
-        print(f"{tag}:")
+        print(f"{t[tag]}:")
         for rd in t["rounds"]:
             if rd.get("final"):
                 print(f"  final train at {rd['trained_at']:,}")
