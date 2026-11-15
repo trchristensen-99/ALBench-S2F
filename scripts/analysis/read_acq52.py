@@ -88,12 +88,21 @@ def main() -> None:
         if not sep:
             base, rep = tag, "1"
         arm = f"+{sum(t['schedule']) // 1000}k {base}"
-        rows.setdefault(arm, []).append((single, stack))
+        # Reps of ONE arm can draw from different candidate pools: s1-s3 of the bench38
+        # arms see 7 reservoirs and s4-s6 only 3 (the larger rungs cannot be filled from
+        # all seven -- zoonomia_orthologs is 15.4% duplicates, genomic caps near 315k).
+        # Averaging them reports the gap between two conditions as replicate noise, so
+        # carry the pool size through and mark any row that straddles.
+        nsrc = len({k for rd in t["rounds"] for k in rd.get("composition", {})})
+        rows.setdefault(arm, []).append((single, stack, nsrc))
         cols = " ".join(f"{single[s]:.4f}/{stack[s]:.4f}" for s in SETS)
         print(f"{arm:20s} {rep:>3s} {n:>2d}   {cols}")
 
     print()
-    print(f"{'arm':20s} {'reps':>4s} " + " ".join(f"{s + ' stack':>16s}" for s in SETS))
+    print(
+        f"{'arm':20s} {'reps':>4s} {'pools':>7s} "
+        + " ".join(f"{s + ' stack':>16s}" for s in SETS)
+    )
     order = [a for a in rows if a.split(" ", 1)[1] in ORDER] + [
         a for a in rows if a.split(" ", 1)[1] not in ORDER
     ]
@@ -105,7 +114,11 @@ def main() -> None:
             cols.append(
                 f"{v.mean():.4f}+-{v.std():.4f}" if len(v) > 1 else f"{v.mean():.4f}        "
             )
-        print(f"{arm:20s} {len(rs):>4d} " + " ".join(f"{c:>16s}" for c in cols))
+        pools = sorted({x[2] for x in rs})
+        tag_p = "+".join(str(x) for x in pools) + ("*" if len(pools) > 1 else "")
+        print(
+            f"{arm:20s} {len(rs):>4d} {tag_p:>7s} " + " ".join(f"{c:>16s}" for c in cols)
+        )
 
     print()
     print("=== what each arm bought, by reservoir (share of its 75,000) ===")
