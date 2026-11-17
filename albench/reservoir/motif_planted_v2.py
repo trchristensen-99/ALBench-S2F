@@ -589,7 +589,8 @@ class PhylogeneticZoonomiaSampler(ReservoirSampler):
     ``data/zoonomia/per_position_rates.npz`` holds, for 199,373 cCRE regions of
     200bp, the per-position substitution rate across 241 mammals together with the
     matching sequence, phyloP score and cCRE class. chr7 and chr13 are already
-    excluded upstream, so the test chromosomes do not leak in.
+    excluded upstream; chr19/chr21/chrX are dropped by the exclude_chroms default,
+    so no holdout chromosome leaks in.
 
     Using those rates rather than one flat rate is the point of this reservoir: a
     flat rate mutates a conserved TF binding site as readily as unconstrained
@@ -620,7 +621,7 @@ class PhylogeneticZoonomiaSampler(ReservoirSampler):
         rate_mode: str = "per_position_matched",
         rates_path: str | None = None,
         ti_tv: float = 2.0,
-        exclude_chroms: tuple[str, ...] = (),
+        exclude_chroms: tuple[str, ...] = ("chr19", "chr21", "chrX"),
         ccre_classes: tuple[str, ...] = (),
     ) -> None:
         """Initialize sampler.
@@ -636,8 +637,12 @@ class PhylogeneticZoonomiaSampler(ReservoirSampler):
                 transition-biased at roughly 2:1, so drawing uniformly among the
                 three alternative bases produces the wrong mutation spectrum.
                 Set to 1.0 for a uniform spectrum.
-            exclude_chroms: Additional chromosomes to drop (chr7/chr13 are already
-                excluded when the rate file was built).
+            exclude_chroms: Chromosomes to drop. Defaults to the validation
+                chromosomes (chr19, chr21, chrX); the test pair (chr7, chr13) is
+                already excluded upstream when the rate file is built, so the
+                default leaves all five holdout chromosomes out. Until Nov 17 2026
+                this defaulted to (), so 7.37% of every pool was a lightly mutated
+                copy of a validation-chromosome cCRE and leaked into training.
             ccre_classes: Restrict to these cCRE classes (e.g. ``("pELS", "dELS")``).
                 Empty keeps all.
         """
