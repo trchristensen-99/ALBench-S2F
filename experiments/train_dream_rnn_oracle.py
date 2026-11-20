@@ -170,8 +170,27 @@ def set_seed(seed: int) -> None:
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, criterion) -> dict[str, float]:
-    """Pearson/Spearman/loss on a loader, using the scalar expression head."""
+def rc_batch(x):
+    """Reverse-complement a (B, 6, L) yeast batch and set its reverse-complement flag.
+
+    Channels are ACGT, then the RC flag, then the singleton flag (data/yeast.py). The
+    complement is the reversal of the first four channels (A<->T, C<->G) and the reverse
+    is a flip along the length axis; the flag channel is what the DREAM-RNN architecture
+    reserves to tell it which strand it is looking at, and until now nothing ever set it.
+    """
+    out = x.clone()
+    out[:, :4] = x[:, :4].flip(1).flip(2)
+    out[:, 5] = x[:, 5].flip(1)  # singleton is per-sequence, but keep it aligned
+    out[:, 4] = 1.0
+    return out
+
+
+def evaluate(model, loader, device, criterion, rc_average: bool = False) -> dict[str, float]:
+    """Pearson/Spearman/loss on a loader, using the scalar expression head.
+
+    ``rc_average`` averages the forward and reverse-complement logits, the evaluation half
+    of the augmentation the human harness fixed on (albench/arch_search/harness_standard.py).
+    """
     from scipy.stats import pearsonr, spearmanr
 
     model.eval()
@@ -180,6 +199,8 @@ def evaluate(model, loader, device, criterion) -> dict[str, float]:
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
         logits = model.get_logits(x)
+        if rc_average:
+            logits = 0.5 * (logits + model.get_logits(rc_batch(x)))
         losses.append(criterion(logits, y).item())
         # The scalar activity is the bin-weighted mean; comparing scalars keeps this
         # metric comparable with the human oracle's Pearson r.
@@ -208,7 +229,26 @@ def main() -> int:
     ap.add_argument("--n-folds", type=int, default=10)
     ap.add_argument("--folds-npy", default="data/yeast/oracle_folds_v2.npy")
     ap.add_argument("--out-dir", default="outputs/yeast_oracle_v2")
-    ap.add_argument("--epochs", type=int, default=6)
+    ap.add_argument(
+        "--epochs",
+        type=int,
+        default=6,
+        help=(
+            "OneCycleLR is defined over this many epochs, so it is a schedule length, not a "
+            "stopping rule: all ten folds of the 6-epoch run selected epoch 6 of 6, which is "
+            "what a truncated schedule looks like. Sweep it (scripts/program_oct22 ye41) "
+            "before trusting a value."
+        ),
+    )
+    ap.add_argument(
+        "--rc-aug",
+        action="store_true",
+        help=(
+            "reverse-complement augmentation: flip half of each training batch and set the "
+            "RC flag channel, and average both strands at evaluation. The channel has always "
+            "been in the encoding (data/yeast.py) and was always zero."
+        ),
+    )
     ap.add_argument("--batch-size", type=int, default=1024)
     ap.add_argument("--lr", type=float, default=5e-3)
     ap.add_argument("--lr-lstm", type=float, default=1e-3)
@@ -375,6 +415,12 @@ def main() -> int:
         for x, y in train_loader:
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
+            if args.rc_aug:
+                # Flip half the samples, one forward pass -- the oracle's own protocol, and
+                # the variant measured to be worth +0.032 genomic r over a two-pass
+                # consistency loss on the human side (docs/LEGNET_VS_LOOP_AND_NEXT_ARMS.md).
+                flip = torch.rand(x.shape[0], device=x.device) < 0.5
+                x = torch.where(flip[:, None, None], rc_batch(x), x)
             optimizer.zero_grad(set_to_none=True)
             loss = criterion(model.get_logits(x), y)
             loss.backward()
@@ -383,7 +429,7 @@ def main() -> int:
                 scheduler.step()
             tot += loss.item()  # .item() not float(): the latter keeps the graph alive
             nb += 1
-        v = evaluate(model, val_loader, device, criterion)
+        v = evaluate(model, val_loader, device, criterion, rc_average=args.rc_aug)
         print(
             f"  epoch {epoch + 1}/{args.epochs} train_loss={tot / max(nb, 1):.4f} "
             f"val_r={v['pearson']:.4f} ({time.time() - t0:.0f}s)",

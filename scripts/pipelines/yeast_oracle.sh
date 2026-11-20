@@ -40,7 +40,7 @@ train)
           --array "0-9" -- bash -c "
     f=\$ALBENCH_TASK_ID
     [ -s \"$OUT/fold_\${f}$tag/test_metrics.json\" ] && { echo \"SKIP fold \$f$tag\"; exit 0; }
-    ${ALBENCH_PYTHON:-uv run --no-sync python} experiments/train_yeast_oracle_v2.py \
+    ${ALBENCH_PYTHON:-uv run --no-sync python} experiments/train_dream_rnn_oracle.py \
       --fold-id \"\$f\" --tag '$tag' $extra --resume"
   ;;
 
