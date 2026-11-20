@@ -52,7 +52,7 @@ Write real code. It will be executed and trained."""
 
 TASK = """\
 TASK: predict measured regulatory activity of a 200bp human DNA sequence in a \
-massively parallel reporter assay (lentiMPRA, K562). Input is one-hot DNA; target \
+massively parallel reporter assay (episomal plasmid MPRA, K562). Input is one-hot DNA; target \
 is a single continuous activity value. Training set size for this run: {D:,} \
 sequences. Local sequence motifs (transcription-factor binding sites) are known to \
 drive activity, but so are their number, spacing and arrangement, and long-range \

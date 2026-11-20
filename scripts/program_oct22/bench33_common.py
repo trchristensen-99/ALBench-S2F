@@ -59,7 +59,7 @@ def flank_onehot(seq: str) -> np.ndarray:
 
 
 def mpra_flanks(n: int) -> tuple[np.ndarray, np.ndarray]:
-    """The n bases of the lentiMPRA plasmid immediately 5' and 3' of the 200 bp insert, one-hot (n, 4) each."""
+    """The n bases of the MPRA plasmid immediately 5' and 3' of the 200 bp insert, one-hot (n, 4) each."""
     from data.k562_full import MPRA_DOWNSTREAM, MPRA_UPSTREAM
 
     return flank_onehot(MPRA_UPSTREAM[-n:]), flank_onehot(MPRA_DOWNSTREAM[:n])

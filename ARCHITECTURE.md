@@ -9,10 +9,10 @@ ALBench-S2F (Active Learning Benchmark — Sequence-to-Function) is a benchmarki
 ### Scientific Context
 
 - **Problem**: Training genomic models requires labeled data (e.g., MPRA assays) that is expensive to generate. Active learning asks: *which sequences should we label next to learn the most?*
-- **Organisms**: Human (K562 lentiMPRA) and Yeast (random promoter MPRA)
+- **Organisms**: Human (K562 episomal plasmid MPRA) and Yeast (random promoter MPRA)
 - **Oracle**: AlphaGenome (frozen encoder + probing head) provides in-silico labels
 - **Student**: DREAM-RNN (CNN + BiLSTM) learns from labeled data and estimates uncertainty
-- **Goal**: Identify optimal (reservoir, acquisition) strategy combinations, then synthesize the winning sequences for real lentiMPRA experiments
+- **Goal**: Identify optimal (reservoir, acquisition) strategy combinations, then synthesize the winning sequences for a real MPRA experiment
 
 ### Experiment Overview
 
@@ -54,7 +54,7 @@ ALBench-S2F/
 │
 ├── data/                       # Application data loading and task config
 │   ├── base.py                 # SequenceDataset ABC
-│   ├── k562.py                 # K562Dataset — human lentiMPRA (200bp, 5ch)
+│   ├── k562.py                 # K562Dataset — human episomal MPRA (200bp, 5ch)
 │   ├── k562_full.py            # K562FullDataset — chr-split version for oracle training
 │   ├── yeast.py                # YeastDataset — yeast random promoter (150bp, 6ch)
 │   ├── hashfrag_splits.py      # HashFragSplitter — homology-aware train/val/test splits
@@ -149,7 +149,7 @@ Schedule dispatch allows different reservoir/acquisition strategies per round.
 
 ## 4. Data Pipelines
 
-### 4.1 K562 (Human lentiMPRA)
+### 4.1 K562 (human episomal plasmid MPRA)
 
 **Source**: Gosai et al., Nature 2023 ([Zenodo](https://zenodo.org/records/10698014))
 

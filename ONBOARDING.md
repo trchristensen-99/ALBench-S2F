@@ -28,7 +28,7 @@ compute-efficient**, measured on cumulative GPU-seconds — see §4.
 |---|---|
 | `albench/` | Core AL engine package: `model.py` (SequenceModel ABC), `loop.py` (AL driver), `reservoir/` (candidate generators), `acquisition/` (selection fns). Model-agnostic; see ARCHITECTURE.md. |
 | `models/` | Concrete models: LegNet student, AlphaGenome oracle wrappers. |
-| `data/` | Dataset loaders + `TaskConfig` (K562 lentiMPRA, yeast). Cached test/oracle batteries with `PROVENANCE.json`. |
+| `data/` | Dataset loaders + `TaskConfig` (K562 episomal MPRA, yeast). Cached test/oracle batteries with `PROVENANCE.json`. |
 | `experiments/` | **Main entry points.** `scaling_hp_search.py` (HP-search driver) and `hp_strategies.py` (strategy registry) are the two files you'll touch most. |
 | `scripts/` | SLURM submitters (`submit_step1_bakeoff.py`, …), data prep, `install_hpc_packages.sh`. |
 | `scripts/analysis/` | Post-hoc analysis: efficiency curves, ElasticNet ensemble/recipe search, persona-combo ranking. |
