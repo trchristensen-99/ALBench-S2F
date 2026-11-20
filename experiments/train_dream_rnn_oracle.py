@@ -169,7 +169,6 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-@torch.no_grad()
 def rc_batch(x):
     """Reverse-complement a (B, 6, L) yeast batch and set its reverse-complement flag.
 
@@ -185,6 +184,7 @@ def rc_batch(x):
     return out
 
 
+@torch.no_grad()
 def evaluate(model, loader, device, criterion, rc_average: bool = False) -> dict[str, float]:
     """Pearson/Spearman/loss on a loader, using the scalar expression head.
 
