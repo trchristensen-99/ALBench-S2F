@@ -35,7 +35,18 @@ SEED0 = {1: 43, 2: 44, 3: 45, 4: 46, 5: 47, 6: 48}
 
 
 def load(d: Path) -> tuple[list[str], np.ndarray, str]:
+    # 2026-11-12: replicates 1-3 wrote the draw INSIDE RAW/{strategy}__g{seed}/ (next to a COMPLETE
+    # marker), but the cells building replicates 4-6 write it beside that directory, as
+    # RAW/{strategy}__g{seed}__{hash}.npz, and leave the directory empty. Globbing only the
+    # directory therefore found zero files and tripped the assert below on every new replicate.
+    # Accept either layout: the directory first, then its sibling-prefix form.
     files = [f for f in glob.glob(str(d / "*.npz")) if not f.endswith("_MANIFEST.npz")]
+    if not files:
+        files = [
+            f
+            for f in glob.glob(f"{d}__*.npz")
+            if not f.endswith("_MANIFEST.npz")
+        ]
     assert len(files) == 1, f"{d}: expected one .npz, found {len(files)}"
     z = np.load(files[0], allow_pickle=True)
     return (

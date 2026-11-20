@@ -160,7 +160,7 @@ def main() -> None:
     for _k, (t, _d) in sorted(traces.items(), key=lambda kv: str(kv[0])):
         if len(t["schedule"]) < 2:
             continue
-        print(f"{t[tag]}:")
+        print(f"{t['tag']}:")
         for rd in t["rounds"]:
             if rd.get("final"):
                 print(f"  final train at {rd['trained_at']:,}")
