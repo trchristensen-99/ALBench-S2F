@@ -140,3 +140,34 @@ same object identity, and private names present through the old path.
 motif_planted_v2.py` contains both the general motif planter AND the hg38-specific
 `PhylogeneticZoonomiaSampler`, so the `strategies/` vs `domains/` split needs that file
 divided first. Worth doing deliberately rather than as part of a move.
+
+---
+
+## Navigating `scripts/`, and why it was not renamed (2026-11-20)
+
+The Nov-2 audit proposed moving `scripts/analysis/` and `scripts/program_oct22/` into one
+`study/` tree. Three measurements taken before doing it argue against the rename, so the
+tree keeps its names and this section is the map instead.
+
+1. **2,185 registry cells record `scripts/program_oct22/...` as the command they ran.** The
+   registry is the provenance record of the study: moving the directory makes 2,185 rows
+   describe a path that never existed, unless every `cmd` string is rewritten, which edits
+   the record of what was executed in order to tidy a directory name.
+2. **`scripts/pipelines/` is live again.** `yeast_oracle.sh` drives the yeast oracle, which
+   is part of the registered-report plan, so it is not Sep-era legacy.
+3. **`scripts/analysis/` is not dead code.** Of its 198 files, 11 have no mention anywhere
+   else and all 11 are from November. The audit's "92 low-value" group is an age-and-topic
+   judgement, not a dead-code finding, so moving it removes nothing and edits ~137 files of
+   paths in docs, scripts and notes.
+
+The four zones, by what each is for:
+
+| zone | what it is | how to tell |
+|---|---|---|
+| `albench/` | the library: the only API, the only place new shared code goes | imported by everything; `albench` CLI entry point |
+| `scripts/` root, `scripts/pipelines/`, `orchestration/` | live tooling: pool building, labelling, the dispatcher, the oracle pipelines | referenced by a current doc or run by hand today |
+| `scripts/program_oct22/` | the executed record of the Oct 22 - Nov program: 50 `register_*` say what each cell tested, the runtime scripts are what the cells ran | named in a registry cell's `cmd` |
+| `scripts/analysis/`, `scripts/val_variants/`, `ar2/`, `slide_figures/` | the study's analyses and their outputs | reads `outputs/`, writes a table or a figure |
+
+A file in the third or fourth zone is kept because deleting it would make a published number
+unreproducible, not because anything imports it. New shared code never goes there.

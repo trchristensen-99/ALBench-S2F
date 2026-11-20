@@ -236,11 +236,16 @@ def test_stress_set_and_rule(tmp_path):
     assert 0.1 < np.mean(gc) < 0.3
     save_stress_set(tmp_path / "s" / "stress.npy", s1)
     assert load_stress_set(tmp_path / "s" / "stress.npy") == s1
+    # The rule is max_abs_z = 25 training SDs (ar2/evaluator/stress.py); this test was
+    # written against an earlier threshold of 10 and asserted that 10.5 exploded, so it
+    # had been failing ever since the threshold moved.
     assert not stress_check(np.array([0.0, 9.9]))["exploded"]
+    assert not stress_check(np.array([0.0, 24.9]))["exploded"]
     assert (
-        stress_check(np.array([0.0, 10.5]))["exploded"]
+        stress_check(np.array([0.0, 25.5]))["exploded"]
         and stress_check(np.array([np.nan]))["exploded"]
     )
+    assert stress_check(np.array([0.0, 10.5]), max_abs_z=10.0)["exploded"]
     rng = np.random.default_rng(0)
     sh = dinuc_shuffle(seqs[0], rng)
     pairs = lambda s: sorted(s[i : i + 2] for i in range(len(s) - 1))  # noqa: E731

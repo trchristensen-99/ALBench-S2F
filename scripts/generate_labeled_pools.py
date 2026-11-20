@@ -139,14 +139,32 @@ ORACLE_BATCH_SIZE = 2048  # sequences per oracle.predict() call
 
 
 def _load_reservoir(name: str, seed: int):
-    """Load a reservoir sampler from its YAML config."""
-    import yaml
+    """Build a reservoir sampler: from the registry, or from a YAML config if one exists.
+
+    The registry comes first because it is the API (AGENTS.md) and because the YAML path
+    had quietly stopped working: `configs/reservoir/` holds five files, none of them for
+    the strategies this script names by default, and the directory is not even tracked, so
+    a fresh clone could not generate a single pool. The YAML branch is kept for the five
+    experimental configs that only exist in that form.
+    """
+    from albench.core.registry import REGISTRY
+
+    if name in REGISTRY:
+        return REGISTRY[name].factory(seed=seed)
 
     cfg_path = REPO / "configs" / "reservoir" / f"{name}.yaml"
     if not cfg_path.exists():
-        raise FileNotFoundError(f"No reservoir config: {cfg_path}")
-    cfg = yaml.safe_load(cfg_path.read_text())
+        import difflib
 
+        near = difflib.get_close_matches(name, sorted(REGISTRY), n=3)
+        raise FileNotFoundError(
+            f"{name!r} is not a registered strategy (`albench list`) and there is no "
+            f"{cfg_path}." + (f" Did you mean: {', '.join(near)}?" if near else "")
+        )
+
+    import yaml
+
+    cfg = yaml.safe_load(cfg_path.read_text())
     target = cfg.pop("_target_")
     for k, v in cfg.items():
         if v == "${seed}":
