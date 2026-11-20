@@ -28,9 +28,19 @@ REPO = str(REPO_ROOT)  # was the cluster checkout, hard-coded
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "experiments"))
 
-from albench.arch_search.propose import build_arch_prompt, call_model, parse_proposals  # noqa: E402  (after the sys.path setup)
-from albench.arch_search.train_generated import one_hot, predict  # noqa: E402  (after the sys.path setup)
-from albench.arch_search.validate import build_and_check, static_check  # noqa: E402  (after the sys.path setup)
+from albench.arch_search.propose import (  # noqa: E402  (after the sys.path setup)
+    build_arch_prompt,
+    call_model,
+    parse_proposals,
+)
+from albench.arch_search.train_generated import (  # noqa: E402  (after the sys.path setup)
+    one_hot,
+    predict,
+)
+from albench.arch_search.validate import (  # noqa: E402  (after the sys.path setup)
+    build_and_check,
+    static_check,
+)
 
 TRAIN_NOTE = (
     "SETUP: you write ONLY the architecture (the Net class, always required and complete). A fixed "
@@ -486,7 +496,9 @@ _SAFE_BUILTINS = {
     ).split()
     if hasattr(_bi, k)
 }
-from albench.arch_search.validate import ALLOWED_IMPORTS as _ALLOWED  # noqa: E402  (after the sys.path setup)
+from albench.arch_search.validate import (  # noqa: E402  (after the sys.path setup)
+    ALLOWED_IMPORTS as _ALLOWED,
+)
 
 
 def _gated_import(name, *a, **k):
@@ -692,6 +704,47 @@ def _round_note(args, rd, cap_min, lessons=()):
     parts += sp
     parts.append(base)
     return "\n\n".join(parts)
+
+
+def _env_snapshot() -> dict:
+    """Python, framework and package versions as they are at this moment.
+
+    Recorded once per run because nothing else in the output says which torch trained the models,
+    and a reader rebuilding a model from the deposited code needs it.
+    """
+    import platform
+
+    pkgs = {}
+    for name in ("torch", "numpy", "scipy", "sklearn", "pandas"):
+        try:
+            mod = __import__(name)
+            pkgs[name] = getattr(mod, "__version__", "unknown")
+        except Exception:
+            continue
+    fw = f"PyTorch {pkgs['torch']}" if "torch" in pkgs else "not_reported"
+    return {"python": platform.python_version(), "framework": fw, "packages": pkgs}
+
+
+def _record_failure(out_dir, proposal: dict, reason: str, **extra) -> None:
+    """Append one line to ``failed_runs.jsonl``: a proposal that was never scored, with its code.
+
+    A failed run is as much a result as a trained one -- it says which designs the harness cannot
+    build or train -- and until now it survived only in the printed log, so the code that failed
+    was lost. One line per failure, appended, so a requeue never rewrites earlier ones.
+    """
+    row = {
+        "status": "failed",
+        "reason": reason,
+        "idea": proposal.get("idea", ""),
+        "why": proposal.get("why", ""),
+        "source": proposal.get("source", ""),
+        **extra,
+    }
+    try:
+        with open(Path(out_dir) / "failed_runs.jsonl", "a") as fh:
+            fh.write(json.dumps(row, default=str) + "\n")
+    except OSError:  # a lost failure record must never take the run down
+        pass
 
 
 def main():
@@ -1026,6 +1079,9 @@ def main():
                 "LLM_MODEL": os.environ.get("LLM_MODEL"),
                 "argv": sys.argv,
                 "resumed_from_round": start_rd,
+                # package versions cannot be recovered from the artefacts afterwards, and a CAMEO
+                # deposit needs them (albench/arch_search/cameo.py reads this block verbatim)
+                "env": _env_snapshot(),
             },
             indent=2,
             default=str,
@@ -1091,6 +1147,7 @@ def main():
             )
             if model is None:
                 history.append({"idea": p["idea"], "ok": False, "reason": verdict.reason})
+                _record_failure(args.out_dir, p, verdict.reason, status="invalid", round=rd)
                 print(f"    discard: {verdict.reason[:75]}", flush=True)
                 continue
             spec = {}
@@ -1102,7 +1159,8 @@ def main():
             tc = sample_train(spec)
             import torch
 
-            torch.manual_seed(1000 + midx)
+            seed = 1000 + midx
+            torch.manual_seed(seed)
             t0 = time.time()
             try:
                 tfn = extract_train(p["source"]) if args.full_control else None
@@ -1118,11 +1176,33 @@ def main():
                 history.append(
                     {"idea": p["idea"], "ok": False, "reason": f"train err {type(e).__name__}"}
                 )
+                _record_failure(
+                    args.out_dir,
+                    p,
+                    f"train err {type(e).__name__}: {str(e)[:200]}",
+                    status="failed",
+                    round=rd,
+                    seed=seed,
+                    train_config=tc,
+                    n_params=verdict.n_params,
+                    train_minutes=(time.time() - t0) / 60,
+                )
                 print(f"    train-err: {type(e).__name__}: {str(e)[:60]}", flush=True)
                 continue
             if model is None:
                 history.append(
                     {"idea": p["idea"], "ok": False, "reason": info.get("error", "fail")}
+                )
+                _record_failure(
+                    args.out_dir,
+                    p,
+                    str(info.get("error", "fail")),
+                    status="failed",
+                    round=rd,
+                    seed=seed,
+                    train_config=tc,
+                    n_params=verdict.n_params,
+                    train_minutes=(time.time() - t0) / 60,
                 )
                 print(f"    train-fail: {info.get('error')}", flush=True)
                 continue
@@ -1133,6 +1213,17 @@ def main():
             ) > 1e3:  # finite-but-absurd outputs (seen: ~1e20) wreck any ensemble
                 history.append(
                     {"idea": p["idea"], "ok": False, "reason": "exploded predictions (|pred|>1e3)"}
+                )
+                _record_failure(
+                    args.out_dir,
+                    p,
+                    "exploded predictions (|pred|>1e3)",
+                    status="invalid",
+                    round=rd,
+                    seed=seed,
+                    train_config=tc,
+                    n_params=verdict.n_params,
+                    train_minutes=(time.time() - t0) / 60,
                 )
                 print("    train-fail: exploded predictions (|pred|>1e3)", flush=True)
                 continue
@@ -1151,6 +1242,17 @@ def main():
                         "reason": f"exploded predictions on {_bad[0]} (|pred|>1e3)",
                     }
                 )
+                _record_failure(
+                    args.out_dir,
+                    p,
+                    f"exploded predictions on {_bad[0]} (|pred|>1e3)",
+                    status="invalid",
+                    round=rd,
+                    seed=seed,
+                    train_config=tc,
+                    n_params=verdict.n_params,
+                    train_minutes=(time.time() - t0) / 60,
+                )
                 print(f"    train-fail: exploded predictions on {_bad[0]} (|pred|>1e3)", flush=True)
                 continue
             r = pear(res["test_pred"], te_oracle)
@@ -1164,6 +1266,7 @@ def main():
                 "why": p.get("why", ""),
                 "n_params": verdict.n_params,
                 "train_config": tc,
+                "seed": seed,  # torch.manual_seed above; a CAMEO run entry must carry it
                 "optimizer_used": used,
                 "val_pearson": vr,
                 "best_val_pearson": vr,
