@@ -152,3 +152,36 @@ def test_long_format_excludes_the_held_out_cell():
     si, ki, y, se = D.long_format(data, rows, ["K562", "HepG2"])
     assert len(si) == 2 * n
     assert set(np.unique(ki)) == {0, 1}, "the held-out cell leaked into training"
+
+
+def test_chromosome_holdout_survives_a_prefixless_table():
+    """Gosai's table writes `7`, the constants say `chr7`. The split must still hold out."""
+    chrom = D.normalise_chrom(["7", "13", "19", "21", "X", "1", "2"])
+    assert list(chrom[:2]) == ["chr7", "chr13"]
+    n = len(chrom)
+    data = D.MultiCellData(
+        idx=np.zeros((n, 10), np.uint8),
+        y=np.ones((n, 3), np.float32),
+        se=np.ones((n, 3), np.float32),
+        mask=np.ones((n, 3), bool),
+        chrom=chrom,
+        cells=list(CELLS),
+    )
+    s = data.split()
+    assert int(s["test"].sum()) == 2
+    assert int(s["val"].sum()) == 3
+    assert int(s["train"].sum()) == 2
+
+
+def test_an_unmatched_holdout_raises_instead_of_training_on_it():
+    n = 4
+    data = D.MultiCellData(
+        idx=np.zeros((n, 10), np.uint8),
+        y=np.ones((n, 3), np.float32),
+        se=np.ones((n, 3), np.float32),
+        mask=np.ones((n, 3), bool),
+        chrom=np.array(["7", "13", "19", "1"], dtype=object),  # not normalised
+        cells=list(CELLS),
+    )
+    with pytest.raises(ValueError, match="chromosome holdout matched nothing"):
+        data.split()

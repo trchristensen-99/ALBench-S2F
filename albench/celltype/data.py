@@ -33,6 +33,15 @@ _BASE = {b: i for i, b in enumerate("ACGT")}
 MARGIN = FLANK_CTX + SHIFT_MAX
 
 
+def normalise_chrom(values) -> np.ndarray:
+    """``7`` -> ``chr7``. Gosai's table omits the prefix; the holdout constants carry it."""
+    out = []
+    for v in values:
+        s = str(v).strip()
+        out.append(s if s.lower().startswith("chr") else f"chr{s}")
+    return np.array(out, dtype=object)
+
+
 @dataclass
 class MultiCellData:
     """Sequences once, labels per cell, and the mask that says which were measured."""
@@ -60,9 +69,23 @@ class MultiCellData:
         )
 
     def split(self) -> dict[str, np.ndarray]:
-        """Row selectors for the chromosome split. Anything not held out is training."""
+        """Row selectors for the chromosome split. Anything not held out is training.
+
+        Raises rather than returning an empty holdout. Gosai's Table S2 writes chromosomes
+        as bare ``7``/``13``, so an unnormalised ``isin(chrom, ("chr7", ...))`` matches
+        nothing, every holdout silently becomes training data, and the run still finishes
+        and still reports numbers -- which is precisely the failure the "chromosome
+        holdouts are real, check this" rule exists to catch. Normalisation happens at load;
+        this is the assertion that it worked.
+        """
         te = np.isin(self.chrom, TEST_CHROMS)
         va = np.isin(self.chrom, VAL_CHROMS)
+        if self.chrom[0] != "designed" and not (te.any() and va.any()):
+            seen = sorted(set(self.chrom.tolist()))[:8]
+            raise ValueError(
+                f"chromosome holdout matched nothing (test={int(te.sum())}, "
+                f"val={int(va.sum())}); labels look like {seen}, expected {TEST_CHROMS}"
+            )
         return {"train": ~(te | va), "val": va, "test": te}
 
 
@@ -139,7 +162,7 @@ def load_gosai(path: str | None = None, *, cells=GOSAI_CELLS) -> MultiCellData:
         y=np.nan_to_num(y),
         se=np.nan_to_num(se, nan=1.0),
         mask=mask,
-        chrom=d["chr"].astype(str).to_numpy(dtype=object),
+        chrom=normalise_chrom(d["chr"].to_numpy()),
         cells=cells,
         ids=d["IDs"].astype(str).to_numpy(dtype=object),
     )
