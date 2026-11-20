@@ -371,6 +371,13 @@ MIG_BAD = {
         "dream_attn_e500_bs1024_muon",
     ],
     "REFMALINOISRECIPE_30K.json": ["malinois_e800_bs2048_adamw"],
+    # The ARCHREP_ replicate menus re-use entries measured elsewhere, so they inherit those
+    # entries' slice behaviour under a NEW file name -- which is what MIG_BAD keys on. Each
+    # holds one DREAM-Attn recipe already known to OOM under its original menu. DREAM-RNN here
+    # is bs512 and Malinois bs1024, and only bs2048 has ever lost a slice for those two.
+    "ARCHREP_10k.json": ["dream_attn_e800_wd04_lr0003"],
+    "ARCHREP_30k.json": ["dream_attn_e500_bs512_adamw"],
+    "ARCHREP_100k.json": ["dream_attn_e800_wd02_lr0003"],
 }  # menu entries that run out of memory on a MIG slice (menu file name -> entry ids)
 _MENU_IDS: dict = {}
 
@@ -418,6 +425,26 @@ def mig_ok(c: dict) -> bool:
     return True
 
 
+def _cell_budget_hours(c: dict) -> float:
+    """The --budget_hours an arch cell asks for; 0.0 for cells that do not use the flag."""
+    m = re.search(r"--budget_hours\s+([\d.]+)", c.get("cmd", ""))
+    return float(m.group(1)) if m else 0.0
+
+
+def _starved(c: dict, q: str, g: str) -> bool:
+    """True when (q, g) would give this cell so little round-starting time it cannot progress.
+
+    2026-11-13: BUDGET[("fast", "v100")] is 0.6 h. A 16 h arch search placed there starts
+    rounds for 0.6 h of a 4 h wall and advances about as far as one hour would elsewhere.
+    og51_30k_r4 did this twice in a row and its replacement cell og51_30k_r7 immediately
+    did it too, because choose() offers any LLM cell a free fast slot unconditionally.
+    """
+    want = _cell_budget_hours(c)
+    if want <= 0:
+        return False
+    return BUDGET.get((q, g), want) < 0.25 * want
+
+
 def choose(c: dict, mine: list[dict], free: dict, exclude_id: str | None = None) -> tuple[str, str]:
     allowed = c["gpus"]
     _gpu_only = (
@@ -448,6 +475,7 @@ def choose(c: dict, mine: list[dict], free: dict, exclude_id: str | None = None)
             )
             and g in allowed
             and cnt("fast", g) < FAST_CAP[g]
+            and not _starved(c, "fast", g)
         ):
             return "fast", g
     # The two fast V100 slots are unused whenever the LLM is up: the test above hands fast/v100 to LLM cells
@@ -461,6 +489,7 @@ def choose(c: dict, mine: list[dict], free: dict, exclude_id: str | None = None)
         and "LLM_MODEL" not in c.get("env", {})
         and c["name"].startswith(RETRAIN_PFX)
         and not c["name"].startswith("sw38_100k")
+        and not _starved(c, "fast", "v100")
     ):
         return "fast", "v100"
     n_def = sum(1 for j in js if j["qos"] == "default")
@@ -711,6 +740,15 @@ def check_finished(c: dict, st: dict, mine_ids: set) -> None:
     secs = elapsed_s(el)
     if secs is None:
         log(f"  {c['name']}: job {jid}: unparsed elapsed {el!r} from sacct; not counted")
+        return
+    # 2026-11-12: during the cluster-wide Slurm upgrade an admin (uid 10336) scancel'd our entire
+    # pending queue. Every one of those jobs came back as CANCELLED at 0s -- it never started, so it
+    # says nothing about the cell -- yet each counted as a short failure, and three such sweeps would
+    # have PAUSED the whole program right as the nodes came back. A job that never ran is not a fault
+    # of the cell. retire_slice() only ever cancels RUNNING slices, so those still have secs>0 and go
+    # on counting as before.
+    if secs == 0 and state.startswith("CANCELLED"):
+        log(f"  {c['name']}: job {jid} cancelled before it started ({state}); not counted")
         return
     if secs < 300 and not state.startswith("COMPLETED"):
         st["short_fails"] = st.get("short_fails", 0) + 1
