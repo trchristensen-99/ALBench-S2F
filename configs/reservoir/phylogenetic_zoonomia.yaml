@@ -1,0 +1,3 @@
+_target_: albench.reservoir.motif_planted_v2.PhylogeneticZoonomiaSampler
+seed: ${seed}
+mut_rate: 0.02

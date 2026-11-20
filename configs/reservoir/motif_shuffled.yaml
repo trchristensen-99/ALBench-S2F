@@ -1,0 +1,5 @@
+# motif_set was dropped on 2026-11-20: MotifShuffledSampler always scans the PFM
+# vocabulary now (albench/motifs/vocabulary.py), never the nine hardcoded strings.
+_target_: albench.reservoir.motif_planted_v2.MotifShuffledSampler
+seed: ${seed}
+include_rc_variants: true
