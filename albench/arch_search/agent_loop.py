@@ -61,6 +61,7 @@ from typing import Callable
 import numpy as np
 
 from albench.arch_search import propose as _propose
+from albench.arch_search.arch_autoresearch import _record_failure
 from albench.arch_search.propose import CONTRACT, SYSTEM, TASK, build_arch_prompt
 from albench.arch_search.validate import build_and_check
 
@@ -1595,12 +1596,17 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
 
     args, h, rd = ctx.args, ctx.h, plan["round"]
 
-    def fail(reason: str) -> None:
+    seed = 1000 + ctx.midx
+
+    def fail(reason: str, status: str = "failed") -> None:
         item.update(status="failed", reason=reason)
         # carry the source so the proposer can be shown the lines that failed, not just a one-line reason
         ctx.history.append(
             {"idea": item["idea"], "ok": False, "reason": reason, "source": item.get("source")}
         )
+        # and to failed_runs.jsonl, the same file the baseline loop writes, so a CAMEO
+        # deposit carries the failed runs of either loop (albench/arch_search/cameo.py)
+        _record_failure(ctx.out_p, item, reason, status=status, round=rd, seed=seed)
         save_plan(ctx.out_p, plan)
 
     model, verdict = build_and_check(
@@ -1608,7 +1614,7 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
     )
     if model is None:
         ctx.say(f"    discard: {verdict.reason[:75]}")
-        return fail(f"rebuild failed: {verdict.reason}")
+        return fail(f"rebuild failed: {verdict.reason}", status="invalid")
     if (
         getattr(h, "wrap_model", None) is not None
     ):  # flank-context students: WideCrop around the checked architecture
@@ -1630,7 +1636,7 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
         "AL_FIXED_EPOCHS"
     ):  # the proposer chooses optimizer, lr, wd, batch and schedule; the epoch budget is the harness's
         tc = {**tc, "epochs": int(os.environ["AL_FIXED_EPOCHS"])}
-    torch.manual_seed(1000 + ctx.midx)
+    torch.manual_seed(seed)  # seed = 1000 + ctx.midx, as in the baseline loop
     t0 = time.time()
     try:
         model, info, used = h.train_one(
@@ -1649,14 +1655,14 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
     _vp = res["val_pred"]
     if (not np.isfinite(_vp).all()) or float(np.abs(_vp).max()) > 1e3:
         ctx.say("    train-fail: exploded predictions (|pred|>1e3)")
-        return fail("exploded predictions (|pred|>1e3)")
+        return fail("exploded predictions (|pred|>1e3)", status="invalid")
     for k, Xk in h.Xsets.items():
         res[f"test_pred_{k}"] = h.predict_rc(model, Xk)
     _bad = [k for k, v in res.items() if (not np.isfinite(v).all()) or float(np.abs(v).max()) > 1e3]
     if _bad:
         ctx.say(f"    train-fail: exploded predictions on {_bad[0]} (|pred|>1e3)")
         return fail(
-            "exploded predictions on a held-out input (|pred|>1e3)"
+            "exploded predictions on a held-out input (|pred|>1e3)", status="invalid"
         )  # no evaluation-set name in what the agents read (audit F3)
     r = h.pear(res["test_pred"], h.te_oracle)
     vr = h.pear(res["val_pred"], h.yva)
@@ -1669,6 +1675,7 @@ def _train_item(ctx: AgentCtx, plan: dict, item: dict) -> None:
         "why": item["why"],
         "n_params": verdict.n_params,
         "train_config": tc,
+        "seed": seed,  # a CAMEO run entry must carry it
         "optimizer_used": used,
         "val_pearson": vr,
         "best_val_pearson": vr,

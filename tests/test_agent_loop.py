@@ -346,7 +346,9 @@ def test_single_loop_screens_are_still_mirrored():
     for needle in (
         "exploded predictions (|pred|>1e3)",
         "exploded predictions on",
-        "torch.manual_seed(1000 + ",
+        "seed = 1000 + ",  # same seeding rule in both loops
+        '"seed": seed',  # and both record it, which a CAMEO deposit requires
+        "_record_failure(",  # and both log a failed proposal with its source
     ):
         assert needle in src_a and needle in src_b, needle
 

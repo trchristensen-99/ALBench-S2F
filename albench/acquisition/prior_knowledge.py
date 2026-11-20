@@ -46,7 +46,20 @@ class PriorKnowledgeAcquisition(AcquisitionFunction):
         self.w_gc_prior = w_gc_prior / total
         self.target_activity = target_activity
         self.target_gc = float(target_gc)
-        self.motifs = [m.upper() for m in (motifs or ["TATA", "CACGTG", "GGGCGG"]) if m]
+        # No hardcoded default list: three consensus strings score almost nothing and are
+        # the leakage mode albench/motifs/vocabulary.py exists to avoid. Unset means the
+        # installed PFM vocabulary (CIS-BP, else JASPAR), resolved lazily so a caller that
+        # passes its own motifs never pays for the database.
+        self._motifs = [m.upper() for m in motifs if m] if motifs else None
+
+    @property
+    def motifs(self) -> list[str]:
+        """The motifs to count: the ones passed in, else the installed PFM vocabulary."""
+        if self._motifs is None:
+            from albench.reservoir.motif_planted_v2 import _vocab_consensus
+
+            self._motifs = _vocab_consensus()
+        return self._motifs
 
     @staticmethod
     def _normalize(x: np.ndarray) -> np.ndarray:

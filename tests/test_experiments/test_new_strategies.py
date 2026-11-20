@@ -58,20 +58,22 @@ def test_combined_acquisition_supports_activity_prior() -> None:
     assert int(selected[0]) == 3
 
 
-def test_partial_mutagenesis_sampler_prefers_filtered_metadata() -> None:
-    """Sampler should prefer mutation-fraction-matching candidates."""
+def test_partial_mutagenesis_rates_stay_inside_the_configured_band() -> None:
+    """A uniform rate distribution draws every per-sequence rate inside [min_rate, max_rate].
+
+    The earlier version of this test asked ``sample()`` to filter candidates by a
+    ``mutation_fraction`` in their metadata, through constructor arguments
+    (``min_mutation_fraction``/``max_mutation_fraction``) the sampler has never had --
+    ``sample()`` is a plain random draw, documented as such. It therefore tested nothing
+    and had never passed. The rate band is the behaviour that argument pair was reaching
+    for, and it is real.
+    """
     sampler = PartialMutagenesisSampler(
-        seed=7, min_mutation_fraction=0.05, max_mutation_fraction=0.2
+        seed=7, mutation_rate_distribution="uniform", min_rate=0.05, max_rate=0.2
     )
-    candidates = ["A", "C", "G", "T"]
-    metadata = [
-        {"mutation_fraction": 0.01},
-        {"mutation_fraction": 0.10},
-        {"mutation_fraction": 0.15},
-        {"mutation_fraction": 0.30},
-    ]
-    idx = sampler.sample(candidates=candidates, n_samples=2, metadata=metadata)
-    assert set(idx).issubset({1, 2})
+    rates = sampler._get_mutation_rates(512)
+    assert rates.shape == (512,)
+    assert rates.min() >= 0.05 and rates.max() <= 0.2
 
 
 def test_tf_motif_shuffle_sampler_prefers_motif_rich_sequences() -> None:

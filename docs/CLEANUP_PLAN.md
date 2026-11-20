@@ -1,6 +1,19 @@
 # ALBench-S2F: cleanup plan for onboarding collaborators (read-only audit, 2026-11-02)
 
-Companion to `docs/CODEBASE_OUTLINE.md`. Nothing here has been executed: every command is a proposal for review. Risk labels: **none** (cannot change behaviour), **low** (behaviour of a live run cannot change; a tool or doc may), **needs-check** (a human must confirm something first). "After" lists what to run to prove nothing broke.
+> **Partly executed, 2026-11-20.** The library half of step P3 is done: the 10 unregistered samplers
+> (the 9 in 1.3 plus `motif_planted`, which only `motif_density` imported), `acquisition/bait.py`,
+> `arch_search/bridge.py`, the nested `albench/pyproject.toml` + `README.md`, the 4 tracked `.bak`
+> files, and the 6 stale test modules that made `pytest tests/ -q` die on collection (section 1.4).
+> `git show 4c48d53^:<path>` recovers any of them. The hardcoded consensus-motif lists went with
+> them: `motif_planted_v2` now takes its scan strings from `albench/motifs/vocabulary.py`
+> (1,021 CIS-BP consensuses, both strands) and rejects the legacy `motif_set` values, and
+> `tf_motif_shuffle` / `prior_knowledge` no longer default to three strings. **Not executed:** the
+> `scripts/` reorganisation (P5), `ar2/`, the yeast stack, and `slide_figures/` — section 5 decisions.
+> A reference count run on 2026-11-20 found only 11 of 198 `scripts/analysis` files with no mention
+> anywhere else, and all 11 are from November, so the "92 low-value" group is an age-and-topic
+> judgement, not a dead-code finding; treat P3's analysis-script list as a move, not a delete.
+
+Companion to `docs/CODEBASE_OUTLINE.md`. Nothing else here has been executed: every command is a proposal for review. Risk labels: **none** (cannot change behaviour), **low** (behaviour of a live run cannot change; a tool or doc may), **needs-check** (a human must confirm something first). "After" lists what to run to prove nothing broke.
 
 ---------------------------------------------------------------------------------------------------
 

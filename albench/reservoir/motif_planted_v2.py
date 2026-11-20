@@ -31,26 +31,37 @@ logger = logging.getLogger(__name__)
 
 _NUC_BYTES = np.frombuffer(b"ACGT", dtype=np.uint8)
 
-K562_MOTIFS = [
-    "TATAAA",  # TATA box
-    "CACGTG",  # E-box (MYC, MAX)
-    "GGGCGG",  # SP1
-    "CCAAT",  # NF-Y / CCAAT-box
-    "GATA",  # GATA factors
-    "AGATAA",  # GATA1 consensus
-    "CTCFCC",  # CTCF partial (6bp)
-    "TGACGTCA",  # AP-1 / CRE
-    "TGAGTCA",  # AP-1
-]
 
-YEAST_MOTIFS = [
-    "TATAAA",
-    "GCGATGAG",
-    "CACGTG",
-    "CCAAT",
-    "ACCCG",
-    "TGACTC",
-]
+def _vocab_consensus(
+    task: str = "k562",
+    *,
+    meme: str | None = None,
+    include_rc: bool = True,
+) -> list[str]:
+    """Consensus strings of the installed PFM vocabulary (CIS-BP, else JASPAR).
+
+    This replaces the nine hardcoded consensus strings every sampler in this file used to
+    scan for. Nine strings are not a vocabulary -- a 200 bp oligo holds about four sites, so
+    nine motifs give almost no combinatorial space -- and one of them ('CTCFCC') was not a
+    real CTCF site at all. Where a sampler needs literal strings to SCAN for (rather than
+    PWMs to sample from), it takes them from the same vocabulary everything else uses, so
+    the scan and the planting cannot drift apart.
+    """
+    from albench.motifs import vocabulary as V
+
+    # Resolved here, not left to build(): its own default is None and it stamps the file's
+    # mtime into the cache key before it would resolve one.
+    motifs = V.build(
+        meme=meme or os.environ.get("MOTIF_MEME_PATH") or V._default_meme(),
+        human_only=(task == "k562"),
+        cluster_at=0.90,
+        trim_ic=0.5,
+        max_len=12,
+    )
+    out = [m.consensus for m in motifs]
+    if include_rc:
+        out = sorted(set(out) | {_rc(c) for c in out})
+    return out
 
 
 def _bg_cache_path() -> Path:
@@ -85,7 +96,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         seed: int | None = None,
         min_motifs: int = 3,
         max_motifs: int = 7,
-        motif_set: str = "auto",
+        motif_set: str = "pfm",
         include_rc_variants: bool = True,
         preserve_native_motifs: bool = True,
         vocab_cluster_at: float | None = 0.90,
@@ -107,11 +118,12 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             seed: Random seed.
             min_motifs: Minimum motifs planted per sequence.
             max_motifs: Maximum motifs planted per sequence (inclusive).
-            motif_set: ``"auto"``/``"k562"``/``"yeast"`` use the legacy hardcoded
-                consensus strings. ``"pfm"`` builds a real vocabulary from the installed
-                PFM database (CIS-BP if present, else JASPAR) via
-                :mod:`albench.motifs.vocabulary`, which is what the
-                vocabulary-source and filter arms vary.
+            motif_set: ``"pfm"``, the only value. The vocabulary is built from the
+                installed PFM database (CIS-BP if present, else JASPAR) via
+                :mod:`albench.motifs.vocabulary`, which is what the vocabulary-source
+                and filter arms vary. The legacy ``"auto"``/``"k562"``/``"yeast"``
+                hardcoded consensus lists are gone; ``plant_mode="consensus"`` is the
+                memorisation control, and it stamps the PFM's own consensus.
             include_rc_variants: Also plant reverse-complement orientations.
             preserve_native_motifs: Keep motif matches already present in the
                 background rather than overwriting them.
@@ -162,6 +174,12 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         if cluster_mode not in ("representative", "sample_members"):
             raise ValueError(
                 f"cluster_mode must be 'representative' or 'sample_members', got {cluster_mode!r}"
+            )
+        if str(motif_set).lower() != "pfm":
+            raise ValueError(
+                f"motif_set must be 'pfm', got {motif_set!r}. The hardcoded consensus lists "
+                "were removed on 2026-11-20; use plant_mode='consensus' for the memorisation "
+                "control, which stamps the PFM's own consensus."
             )
         self._rng = np.random.default_rng(seed)
         self.min_motifs = min_motifs
@@ -331,15 +349,6 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         )
         return self._vocab
 
-    def _get_motifs(self, task: str) -> list[str]:
-        if self.motif_set == "k562" or (self.motif_set == "auto" and task == "k562"):
-            motifs = list(K562_MOTIFS)
-        else:
-            motifs = list(YEAST_MOTIFS)
-        if self.include_rc_variants:
-            motifs = list(set(motifs + [_rc(m) for m in motifs]))
-        return motifs
-
     def _load_backgrounds(self) -> np.ndarray:
         if self._bg_seqs is None:
             z = np.load(_bg_cache_path(), allow_pickle=True)
@@ -354,26 +363,18 @@ class MotifPlantedV2Sampler(ReservoirSampler):
 
     def generate(self, n_sequences: int, task: str = "k562") -> tuple[list[str], pd.DataFrame]:
         seq_len = 200 if task == "k562" else 80
-        # "pfm" = build a real PFM vocabulary from the installed motif database.
-        # The database is resolved by albench.motifs.vocabulary._default_meme(), which
-        # PREFERS CIS-BP and falls back to JASPAR -- so neither database name belongs
-        # here as a motif_set value; only "pfm" selects the vocabulary path.
-        use_vocab = str(self.motif_set).lower() == "pfm"
-        if use_vocab:
-            vocab = self._build_vocab()
-            # Planting draws by entry; native-motif detection scans for literal
-            # strings, so it uses every variant's consensus (all cluster members and
-            # both orientations), not just the entries we plant from.
-            motifs = [m.consensus for m in vocab]
-            motif_names = [m.name for m in vocab]
-            native_scan = self._native_consensus
-            ct_pool = np.array(
-                [i for i, nm in enumerate(motif_names) if nm in self._ct_entries], dtype=int
-            )
-        else:
-            motifs = self._get_motifs(task)
-            motif_names = list(motifs)
-            ct_pool = np.empty(0, dtype=int)
+        # The vocabulary comes from the installed PFM database, resolved by
+        # albench.motifs.vocabulary._default_meme(), which PREFERS CIS-BP and falls back
+        # to JASPAR. Planting draws by entry; native-motif detection scans for literal
+        # strings, so it uses every variant's consensus (all cluster members and both
+        # orientations), not just the entries we plant from.
+        vocab = self._build_vocab()
+        motifs = [m.consensus for m in vocab]
+        motif_names = [m.name for m in vocab]
+        native_scan = self._native_consensus
+        ct_pool = np.array(
+            [i for i, nm in enumerate(motif_names) if nm in self._ct_entries], dtype=int
+        )
         backgrounds = self._load_backgrounds() if task == "k562" else None
 
         sequences: list[str] = []
@@ -398,7 +399,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             occupied = set()
             if self.preserve_native_motifs:
                 core_str = "".join(core)
-                for motif in native_scan if use_vocab else motifs:
+                for motif in native_scan:
                     pos = core_str.find(motif)
                     while pos != -1:
                         occupied |= set(range(pos, pos + len(motif)))
@@ -406,7 +407,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                         pos = core_str.find(motif, pos + 1)
 
             n_plant = self._rng.integers(self.min_motifs, self.max_motifs + 1)
-            if use_vocab and ct_pool.size and self.ct_bias > 0:
+            if ct_pool.size and self.ct_bias > 0:
                 # Upweight, do not restrict: a fraction of sites come from the
                 # cell-type-enriched entries, the rest from the whole vocabulary.
                 from_ct = self._rng.random(n_plant) < self.ct_bias
@@ -420,15 +421,11 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             planted_log = []
             for mi in chosen_idx:
                 mi = int(mi)
-                if use_vocab:
-                    # A fresh draw per plant, so the same motif appears as different
-                    # strings across the reservoir.
-                    pool = self._inst[motif_names[mi]]
-                    motif = self._mutate_site(pool[int(self._rng.integers(0, len(pool)))])
-                    label = motif_names[mi]
-                else:
-                    motif = motifs[mi]
-                    label = motif
+                # A fresh draw per plant, so the same motif appears as different
+                # strings across the reservoir.
+                pool = self._inst[motif_names[mi]]
+                motif = self._mutate_site(pool[int(self._rng.integers(0, len(pool)))])
+                label = motif_names[mi]
                 motif_len = len(motif)
                 if motif_len >= seq_len:
                     continue
@@ -450,11 +447,11 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         meta = pd.DataFrame(
             {
                 "seq_idx": np.arange(n_sequences, dtype=np.int64),
-                "method": ("motif_planted_v2_pfm" if use_vocab else "motif_planted_v2_gc_matched"),
+                "method": "motif_planted_v2_pfm",
                 "source": "generated",
                 "vocab_size": len(motifs),  # entries (clusters), not orientations
-                "plant_mode": self.plant_mode if use_vocab else "consensus",
-                "cluster_mode": self.cluster_mode if use_vocab else "n/a",
+                "plant_mode": self.plant_mode,
+                "cluster_mode": self.cluster_mode,
                 "planted_motifs": planted_motifs_list,
                 "n_motifs_planted": np.array(n_planted_list, dtype=np.int32),
                 "n_native_motifs_preserved": np.array(n_native_kept, dtype=np.int32),
@@ -480,22 +477,13 @@ class MotifShuffledSampler(ReservoirSampler):
     def __init__(
         self,
         seed: int | None = None,
-        motif_set: str = "auto",
         include_rc_variants: bool = True,
     ) -> None:
         self._rng = np.random.default_rng(seed)
-        self.motif_set = motif_set
         self.include_rc_variants = include_rc_variants
 
     def _get_motifs(self, task: str) -> list[str]:
-        motifs = list(
-            K562_MOTIFS
-            if (self.motif_set == "k562" or (self.motif_set == "auto" and task == "k562"))
-            else YEAST_MOTIFS
-        )
-        if self.include_rc_variants:
-            motifs = list(set(motifs + [_rc(m) for m in motifs]))
-        return motifs
+        return _vocab_consensus(task, include_rc=self.include_rc_variants)
 
     def sample(self, candidates, n_samples, metadata=None):
         if n_samples > len(candidates):
