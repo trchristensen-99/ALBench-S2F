@@ -80,8 +80,15 @@ def predict(model, idx, cell_idx, device, batch: int = 512, rc_average: bool = T
     return out
 
 
-def evaluate_cells(model, data: D.MultiCellData, rows, cells, device) -> dict:
-    """Per-cell r and ceiling on one row selection, for every cell the data carries."""
+def evaluate_cells(model, data: D.MultiCellData, rows, cells, device, mode: str = "") -> dict:
+    """Per-cell r and ceiling on one row selection, for every cell the data carries.
+
+    A held-out cell's score carries ``zero_shot_valid``. For `embed` and `onehot` it is
+    False: those modes have no way to build a vector for a cell they never trained on, so
+    the score runs through an untrained row and is not a transfer result however plausible
+    it looks. Reporting it unflagged is how `onehot` ended up appearing to beat `text` at
+    something `onehot` cannot do at all.
+    """
     sel = np.flatnonzero(rows)
     res = {}
     for j, cell in enumerate(data.cells):
@@ -100,6 +107,10 @@ def evaluate_cells(model, data: D.MultiCellData, rows, cells, device) -> dict:
             "gap": round(c - r, 4) if np.isfinite(c) and np.isfinite(r) else None,
             "held_out": cell not in cells,
         }
+        if cell not in cells:
+            res[cell]["zero_shot_valid"] = bool(mode and C.can_describe_novel(mode))
+            if mode == "agnostic":
+                res[cell]["note"] = "cell-agnostic floor, not a transfer claim"
     return res
 
 
@@ -249,7 +260,7 @@ def main() -> None:
             step += 1
             tot += float(loss.detach())
             nb += 1
-        val = evaluate_cells(model, data, split["val"], train_cells, device)
+        val = evaluate_cells(model, data, split["val"], train_cells, device, a.mode)
         seen = [v["r"] for k, v in val.items() if not v["held_out"] and np.isfinite(v["r"])]
         history.append(
             {
@@ -273,7 +284,7 @@ def main() -> None:
         "n_train_pairs": int(len(si)),
         "n_parameters": int(n_par),
         "n_conditioner_parameters": int(n_cond),
-        "genomic_test": evaluate_cells(model, data, split["test"], train_cells, device),
+        "genomic_test": evaluate_cells(model, data, split["test"], train_cells, device, a.mode),
         "genomic_test_differences": evaluate_differences(model, data, split["test"], device),
         "history": history,
         "minutes": round((time.time() - t0) / 60, 2),
@@ -296,7 +307,7 @@ def main() -> None:
         try:
             dz = D.load_designed_crosscell(a.designed_dir, a.crosscell, cells=tuple(cells))
             allrows = np.ones(len(dz), dtype=bool)
-            metrics["designed"] = evaluate_cells(model, dz, allrows, train_cells, device)
+            metrics["designed"] = evaluate_cells(model, dz, allrows, train_cells, device, a.mode)
             metrics["designed_differences"] = evaluate_differences(model, dz, allrows, device)
             save()
         except Exception as exc:  # noqa: BLE001 - recorded, not swallowed

@@ -224,3 +224,17 @@ def test_an_unmatched_holdout_raises_instead_of_training_on_it():
     )
     with pytest.raises(ValueError, match="chromosome holdout matched nothing"):
         data.split()
+
+
+def test_only_describable_modes_claim_a_valid_zero_shot_score():
+    """`embed` and `onehot` have no vector for an unseen cell, so their held-out score is
+    the behaviour of an untrained row -- not transfer. It must not be reported as if it were."""
+    assert C.can_describe_novel("text")
+    assert C.can_describe_novel("hybrid")
+    assert C.can_describe_novel("structured")
+    assert not C.can_describe_novel("embed")
+    assert not C.can_describe_novel("onehot")
+    assert not C.can_describe_novel("agnostic")
+    # every mode is classified one way or the other
+    for m in C.CONDITIONING_MODES:
+        assert isinstance(C.can_describe_novel(m), bool)

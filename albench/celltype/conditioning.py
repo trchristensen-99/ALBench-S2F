@@ -40,6 +40,24 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+
+def can_describe_novel(mode: str) -> bool:
+    """Can this mode produce a conditioning vector for a cell it never trained on?
+
+    This is not a nicety, it decides whether a held-out-cell score means anything. `embed`
+    gives every cell a free row initialised at std=0.02, and `onehot` gives it a column of
+    a trained projection; a held-out cell's row or column receives no gradient, so at
+    evaluation it is still an arbitrary small vector. Scoring through it does not measure
+    zero-shot transfer -- it measures whatever that arbitrary direction happens to do -- and
+    the number comes out looking like a real result. `agnostic` reads no cell at all, so its
+    held-out score is the cross-cell mean: a legitimate floor, not a transfer claim.
+
+    Only the modes that build their vector from a DESCRIPTION can be asked about a cell they
+    have never seen.
+    """
+    return mode in ("text", "text_shuffled", "structured", "hybrid")
+
+
 CONDITIONING_MODES = (
     "agnostic",
     "onehot",
