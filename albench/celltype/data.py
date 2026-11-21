@@ -31,14 +31,26 @@ GOSAI_CELLS = ("K562", "HepG2", "SK-N-SH")
 _COL = {"K562": "K562", "HepG2": "HepG2", "SK-N-SH": "SKNSH"}
 _BASE = {b: i for i, b in enumerate("ACGT")}
 MARGIN = FLANK_CTX + SHIFT_MAX
+CHROM_NAMES = {str(i) for i in range(1, 23)} | {"X", "Y", "M", "MT"}
 
 
 def normalise_chrom(values) -> np.ndarray:
-    """``7`` -> ``chr7``. Gosai's table omits the prefix; the holdout constants carry it."""
+    """``7`` -> ``chr7``. Gosai's table omits the prefix; the holdout constants carry it.
+
+    Only values that LOOK like a chromosome are prefixed. A designed oligo has no genomic
+    origin and is labelled ``designed``; blindly prefixing turned that into ``chrdesigned``,
+    which matched no holdout and no exclusion, so the designed rows -- the cross-cell eval
+    set -- went straight into training and nothing in the output said so.
+    """
     out = []
     for v in values:
         s = str(v).strip()
-        out.append(s if s.lower().startswith("chr") else f"chr{s}")
+        if s.lower().startswith("chr"):
+            out.append(s)
+        elif s.upper() in CHROM_NAMES:
+            out.append(f"chr{s.upper() if not s.isdigit() else s}")
+        else:
+            out.append(s)
     return np.array(out, dtype=object)
 
 

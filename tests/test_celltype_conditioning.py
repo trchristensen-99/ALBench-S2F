@@ -180,8 +180,10 @@ def test_designed_rows_stay_out_of_training_when_the_corpus_is_mixed():
     real measurement ceiling. Training on them would contaminate exactly the endpoint the
     conditioning study is scored on, and nothing in the output would say so.
     """
-    chrom = D.normalise_chrom(["7", "19", "1", "2"])
-    chrom = np.array([*list(chrom), "designed", "designed"], dtype=object)
+    # Pass "designed" through normalise_chrom too: it used to come back "chrdesigned",
+    # which matches no holdout and no exclusion, so the rows trained silently.
+    chrom = D.normalise_chrom(["7", "19", "1", "2", "designed", "designed"])
+    assert list(chrom[4:]) == ["designed", "designed"]
     n = len(chrom)
     data = D.MultiCellData(
         idx=np.zeros((n, 10), np.uint8),
