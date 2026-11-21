@@ -279,18 +279,30 @@ def main() -> None:
         "minutes": round((time.time() - t0) / 60, 2),
     }
 
-    if os.path.exists(a.crosscell) and os.path.isdir(a.designed_dir):
-        dz = D.load_designed_crosscell(a.designed_dir, a.crosscell, cells=tuple(cells))
-        allrows = np.ones(len(dz), dtype=bool)
-        metrics["designed"] = evaluate_cells(model, dz, allrows, train_cells, device)
-        metrics["designed_differences"] = evaluate_differences(model, dz, allrows, device)
+    def save() -> None:
+        with open(os.path.join(a.out, "metrics.json"), "w") as fh:
+            json.dump(metrics, fh, indent=1)
+        torch.save(
+            {"state_dict": model.state_dict(), "args": vars(a), "cells": cells},
+            os.path.join(a.out, "model.pt"),
+        )
 
-    with open(os.path.join(a.out, "metrics.json"), "w") as fh:
-        json.dump(metrics, fh, indent=1)
-    torch.save(
-        {"state_dict": model.state_dict(), "args": vars(a), "cells": cells},
-        os.path.join(a.out, "model.pt"),
-    )
+    # Save BEFORE the optional designed-set evaluation, then again with it. The first
+    # 7-cell grid trained all 20 epochs on all 8 arms and then threw away every one of
+    # them, because this block raised on a cell the designed libraries never measured.
+    # An optional extra evaluation must never be able to discard a finished training run.
+    save()
+    if os.path.exists(a.crosscell) and os.path.isdir(a.designed_dir):
+        try:
+            dz = D.load_designed_crosscell(a.designed_dir, a.crosscell, cells=tuple(cells))
+            allrows = np.ones(len(dz), dtype=bool)
+            metrics["designed"] = evaluate_cells(model, dz, allrows, train_cells, device)
+            metrics["designed_differences"] = evaluate_differences(model, dz, allrows, device)
+            save()
+        except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
+            metrics["designed_error"] = f"{type(exc).__name__}: {exc}"
+            save()
+            print(f"designed-set evaluation failed and was recorded: {exc}", flush=True)
     print(json.dumps({k: v for k, v in metrics.items() if k != "history"}, indent=1))
 
 

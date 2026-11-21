@@ -285,9 +285,23 @@ def load_designed_crosscell(
     rows = np.array([pos[ids[k]] for k in keep])
     seqs = [seqs[k] for k in keep]
 
+    # Only three cells were ever measured on the designed libraries. A 7-cell run still asks
+    # for all seven, so the four that were never assayed come back as NaN and are masked out
+    # rather than raising -- the designed set is an eval set, and losing it should cost those
+    # four columns, not the whole evaluation.
     col = {"K562": "k562", "HepG2": "hepg2", "SK-N-SH": "sknsh"}
-    y = np.stack([cc[f"measured_{col[c]}"][rows].astype(np.float32) for c in cells], 1)
-    se = np.stack([cc[f"measured_se_{col[c]}"][rows].astype(np.float32) for c in cells], 1)
+    blank = np.full(len(rows), np.nan, np.float32)
+    y = np.stack(
+        [cc[f"measured_{col[c]}"][rows].astype(np.float32) if c in col else blank for c in cells],
+        1,
+    )
+    se = np.stack(
+        [
+            cc[f"measured_se_{col[c]}"][rows].astype(np.float32) if c in col else blank
+            for c in cells
+        ],
+        1,
+    )
     return MultiCellData(
         idx=encode_sequences(seqs),
         y=np.nan_to_num(y),
