@@ -238,3 +238,48 @@ def test_only_describable_modes_claim_a_valid_zero_shot_score():
     # every mode is classified one way or the other
     for m in C.CONDITIONING_MODES:
         assert isinstance(C.can_describe_novel(m), bool)
+
+
+def test_search_contract_rejects_models_that_break_it():
+    """The loop execs model code the proposer wrote; it must reject before training, not during."""
+    from albench.celltype import search as S
+
+    good = (
+        "import torch\n"
+        "import torch.nn as nn\n"
+        "class Net(nn.Module):\n"
+        "    def __init__(self, d_cond):\n"
+        "        super().__init__()\n"
+        "        self.c = nn.Conv1d(4, 8, 5, padding=2)\n"
+        "        self.g = nn.Linear(d_cond, 8)\n"
+        "        self.h = nn.Linear(8, 1)\n"
+        "    def forward(self, x, z):\n"
+        "        f = torch.relu(self.c(x)).mean(-1) * (1 + self.g(z))\n"
+        "        return self.h(f).reshape(-1)\n"
+    )
+    net = S.instantiate(good, 384, 10_000_000)
+    assert net(torch.zeros(3, 4, S.INPUT_W), torch.zeros(3, 384)).reshape(-1).shape[0] == 3
+
+    with pytest.raises(ValueError, match="no class named Net"):
+        S.instantiate("class Other: pass", 384, 10_000_000)
+    with pytest.raises(ValueError, match="exceeds"):
+        S.instantiate(good, 384, 10)  # parameter budget is enforced before any training
+
+
+def test_search_derangement_leaves_no_cell_its_own_description():
+    from albench.celltype import search as S
+
+    for seed in range(5):
+        p = S.derange(7, seed)
+        assert sorted(p.tolist()) == list(range(7))
+        assert not (p == np.arange(7)).any()
+
+
+def test_search_never_puts_a_test_cell_in_training():
+    """SK-N-SH and Jurkat must not appear in the loop's training cells, at any seed."""
+    from albench.celltype import search as S
+
+    assert S.SELECT_CELL not in S.TRAIN_CELLS
+    for c in S.TEST_CELLS:
+        assert c not in S.TRAIN_CELLS
+        assert c != S.SELECT_CELL
