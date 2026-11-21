@@ -154,6 +154,12 @@ def main() -> None:
     )
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--subset", type=int, default=0, help="debug: cap training pairs")
+    ap.add_argument(
+        "--corpus",
+        default="gosai",
+        choices=("gosai", "tewhey"),
+        help="gosai = 798k sequences x 3 cells; tewhey = 1.48M x 7 cells",
+    )
     ap.add_argument("--designed-dir", default="outputs/designed3")
     ap.add_argument("--crosscell", default="outputs/designed3/crosscell_measured.npz")
     ap.add_argument("--out", required=True)
@@ -165,14 +171,28 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     t0 = time.time()
-    data = D.load_gosai()
+    data = D.load_tewhey() if a.corpus == "tewhey" else D.load_gosai()
     split = data.split()
     cells = list(data.cells)
-    holdout = None if a.holdout_cell.lower() == "none" else a.holdout_cell
-    train_cells = [c for c in cells if c != holdout]
+    # Several cells may be held out at once: the 7-cell split keeps one back as a validation
+    # cell and two as test cells, so that the scheme is tuned on a cell it has never trained
+    # on and then scored on two more it has never tuned on either.
+    holdout = (
+        []
+        if a.holdout_cell.lower() == "none"
+        else [D.canonical_cell(c) for c in a.holdout_cell.split(",") if c.strip()]
+    )
+    unknown = [c for c in holdout if c not in cells]
+    if unknown:
+        raise SystemExit(
+            f"--holdout-cell names {unknown}, which the corpus does not carry: {cells}"
+        )
+    train_cells = [c for c in cells if c not in holdout]
     print(
-        f"loaded {len(data):,} sequences in {time.time() - t0:.1f}s | "
-        f"train cells {train_cells} | holdout {holdout}",
+        f"loaded {len(data):,} sequences from {a.corpus} in {time.time() - t0:.1f}s | "
+        f"train cells {train_cells} | holdout {holdout or None} | "
+        f"rows train={int(split['train'].sum()):,} val={int(split['val'].sum()):,} "
+        f"test={int(split['test'].sum()):,}",
         flush=True,
     )
 

@@ -42,6 +42,16 @@ def normalise_chrom(values) -> np.ndarray:
     return np.array(out, dtype=object)
 
 
+def canonical_cell(name: str) -> str:
+    """``sknsh`` -> ``SK-N-SH``, so a command line need not match the corpus spelling."""
+    from albench.celltype.descriptions import canonical
+
+    try:
+        return canonical(name)
+    except KeyError:
+        return str(name).strip()
+
+
 @dataclass
 class MultiCellData:
     """Sequences once, labels per cell, and the mask that says which were measured."""
@@ -80,13 +90,20 @@ class MultiCellData:
         """
         te = np.isin(self.chrom, TEST_CHROMS)
         va = np.isin(self.chrom, VAL_CHROMS)
-        if self.chrom[0] != "designed" and not (te.any() and va.any()):
+        designed = self.chrom == "designed"
+        if designed.all():
+            return {"train": ~(te | va), "val": va, "test": te}
+        if not (te.any() and va.any()):
             seen = sorted(set(self.chrom.tolist()))[:8]
             raise ValueError(
                 f"chromosome holdout matched nothing (test={int(te.sum())}, "
                 f"val={int(va.sum())}); labels look like {seen}, expected {TEST_CHROMS}"
             )
-        return {"train": ~(te | va), "val": va, "test": te}
+        # A corpus that mixes genomic and designed oligos must keep the designed ones OUT of
+        # training: they carry no chromosome, so the chromosome holdout cannot protect them,
+        # and they are the cross-cell eval set. Training on them would contaminate the one
+        # endpoint where the cell-type difference has a real measurement ceiling.
+        return {"train": ~(te | va | designed), "val": va, "test": te, "designed": designed}
 
 
 def encode_sequences(seqs, margin: int = MARGIN) -> np.ndarray:
@@ -165,6 +182,67 @@ def load_gosai(path: str | None = None, *, cells=GOSAI_CELLS) -> MultiCellData:
         chrom=normalise_chrom(d["chr"].to_numpy()),
         cells=cells,
         ids=d["IDs"].astype(str).to_numpy(dtype=object),
+    )
+
+
+TEWHEY_CELLS = ("K562", "HepG2", "SK-N-SH", "A549", "GM12878", "HCT116", "Jurkat")
+
+
+def load_tewhey(path: str | None = None, *, cells=TEWHEY_CELLS, require_chrom: bool = True):
+    """The 7-cell Tewhey/Siraj corpus: 1.48M oligos, 4.52M (oligo, cell) observations.
+
+    This is the corpus that makes a conditioning scheme answerable. With Gosai's three cells
+    a text embedding has only three points to learn from, so nothing constrains the mapping
+    off those points and `text` cannot be told apart from `onehot` -- which is exactly what
+    the first bake-off measured. Seven cells give the scheme somewhere to interpolate.
+
+    The sequences come from the ENCODE ``elements_references`` FASTAs rather than from hg38:
+    reconstructing them from coordinates fails outright (the base at ``chr:pos`` agrees with
+    ``ref_allele`` at chance, and the variant's offset inside the oligo is not identifiable
+    from the reference at all).
+
+    ``require_chrom`` refuses a corpus built before chromosomes were attached, because the
+    holdout cannot be honoured without them and the resulting run would look fine.
+    """
+    from albench.core import paths
+
+    if path is None:
+        cand = [
+            os.environ.get("ALBENCH_TEWHEY_CORPUS", ""),
+            str(paths.REPO_ROOT / "outputs/tewhey/corpus_chrom.npz"),
+        ]
+        path = next((c for c in cand if c and os.path.exists(c)), "")
+        if not path:
+            raise FileNotFoundError(
+                "Tewhey corpus not found; build it with scratchpad/nov20/build_tewhey_corpus.py "
+                "then attach chromosomes with scratchpad/nov20/add_corpus_chrom.py"
+            )
+
+    z = np.load(path, allow_pickle=True)
+    if require_chrom and "chrom" not in z.files:
+        raise ValueError(
+            f"{path} carries no chromosome column, so chr7/chr13 cannot be held out; "
+            "run scratchpad/nov20/add_corpus_chrom.py on it first"
+        )
+    have = [str(c) for c in z["cells"]]
+    cells = list(cells)
+    missing = [c for c in cells if c not in have]
+    if missing:
+        raise ValueError(f"corpus has no column for {missing}; it carries {have}")
+    col = [have.index(c) for c in cells]
+
+    y = z["y"][:, col].astype(np.float32)
+    se = z["se"][:, col].astype(np.float32)
+    mask = z["mask"][:, col] if "mask" in z.files else (np.isfinite(y) & np.isfinite(se))
+    chrom = normalise_chrom(z["chrom"]) if "chrom" in z.files else np.array(["designed"] * len(y))
+    return MultiCellData(
+        idx=encode_sequences([str(s) for s in z["sequences"]]),
+        y=np.nan_to_num(y),
+        se=np.nan_to_num(se, nan=1.0),
+        mask=mask & np.isfinite(y) & np.isfinite(se),
+        chrom=chrom,
+        cells=cells,
+        ids=np.array([str(i) for i in z["oligo_id"]], dtype=object),
     )
 
 

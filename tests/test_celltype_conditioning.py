@@ -173,6 +173,43 @@ def test_chromosome_holdout_survives_a_prefixless_table():
     assert int(s["train"].sum()) == 2
 
 
+def test_designed_rows_stay_out_of_training_when_the_corpus_is_mixed():
+    """The designed oligos carry no chromosome, so the holdout cannot protect them.
+
+    They are also the cross-cell eval set -- the one place the cell-type DIFFERENCE has a
+    real measurement ceiling. Training on them would contaminate exactly the endpoint the
+    conditioning study is scored on, and nothing in the output would say so.
+    """
+    chrom = D.normalise_chrom(["7", "19", "1", "2"])
+    chrom = np.array([*list(chrom), "designed", "designed"], dtype=object)
+    n = len(chrom)
+    data = D.MultiCellData(
+        idx=np.zeros((n, 10), np.uint8),
+        y=np.ones((n, 3), np.float32),
+        se=np.ones((n, 3), np.float32),
+        mask=np.ones((n, 3), bool),
+        chrom=chrom,
+        cells=list(CELLS),
+    )
+    s = data.split()
+    assert int(s["train"].sum()) == 2, "designed rows leaked into training"
+    assert int(s["designed"].sum()) == 2
+    assert not (s["train"] & s["designed"]).any()
+
+
+def test_an_all_designed_corpus_still_splits_without_a_chromosome():
+    n = 4
+    data = D.MultiCellData(
+        idx=np.zeros((n, 10), np.uint8),
+        y=np.ones((n, 3), np.float32),
+        se=np.ones((n, 3), np.float32),
+        mask=np.ones((n, 3), bool),
+        chrom=np.array(["designed"] * n, dtype=object),
+        cells=list(CELLS),
+    )
+    assert int(data.split()["train"].sum()) == n
+
+
 def test_an_unmatched_holdout_raises_instead_of_training_on_it():
     n = 4
     data = D.MultiCellData(
