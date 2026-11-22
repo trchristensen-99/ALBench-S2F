@@ -109,8 +109,16 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--sizes", default="30000")
+    ap.add_argument(
+        "--n-seeds",
+        type=int,
+        default=5,
+        help="3 recovers 65-75%% of the 20-seed ensemble gain, 5 recovers 84-89%%",
+    )
     a = ap.parse_args()
 
+    global SEEDS_A
+    SEEDS_A = {i: s for i, s in list(SEEDS_A.items())[: a.n_seeds]}
     new = []
     for d in [int(x) for x in a.sizes.split(",")]:
         new += cells_arm_a(d)
