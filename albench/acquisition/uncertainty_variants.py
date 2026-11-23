@@ -72,7 +72,7 @@ class AggregateUncertaintyAcquisition(AcquisitionFunction):
         if n_select > len(candidates):
             raise ValueError("n_select cannot exceed candidate count")
         u = _per_condition_uncertainty(student, candidates)
-        total = (u**2).sum(axis=1)          # variances add; uncertainties do not
+        total = (u**2).sum(axis=1)  # variances add; uncertainties do not
         return np.argsort(-total)[:n_select].astype(np.int64)
 
 
@@ -131,7 +131,7 @@ class ActivityNormalisedUncertaintyAcquisition(AcquisitionFunction):
         for b in range(n_bins):
             m = idx_bin == b
             if m.sum() < 3:
-                resid[m] = 0.0          # too few to judge; do not let noise rank
+                resid[m] = 0.0  # too few to judge; do not let noise rank
                 continue
             centre = np.median(unc[m])
             # MAD as the spread: robust to the few very uncertain points that are
@@ -142,6 +142,8 @@ class ActivityNormalisedUncertaintyAcquisition(AcquisitionFunction):
 
         logger.info(
             "activity-normalised uncertainty: %d bins, residual range %.2f..%.2f",
-            n_bins, float(resid.min()), float(resid.max()),
+            n_bins,
+            float(resid.min()),
+            float(resid.max()),
         )
         return np.argsort(-resid)[:n_select].astype(np.int64)
