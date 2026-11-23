@@ -42,7 +42,6 @@ from albench.arch_search.harness_standard import FLANK_CTX, SHIFT_MAX
 from albench.celltype import conditioning as C
 from albench.celltype import data as D
 
-INPUT_W = D.INSERT_LEN + 2 * FLANK_CTX
 # Ordered by how much data each carries, so "pretrain on 3" is a defined set rather than an
 # arbitrary one, and the 1-cell arm is the richest single cell rather than the poorest.
 CELL_ORDER = ["HepG2", "K562", "SK-N-SH", "HCT116", "A549", "GM12878", "Jurkat"]
@@ -78,11 +77,12 @@ def run_epochs(model, data, si, ki, y, *, epochs, batch, lr, seed, device):
         order = rng.permutation(len(si))
         for s in range(0, len(order), batch):
             b = order[s : s + batch]
-            sh = int(rng.integers(-SHIFT_MAX, SHIFT_MAX + 1))
-            lo = D.MARGIN - FLANK_CTX + sh
-            x = D.onehot_from_idx(data.idx[si[b]][:, lo : lo + INPUT_W], device)
-            if rng.random() < 0.5:
-                x = x.flip(1).flip(2)
+            # The FULL stored row, not a 240-bp slice of it. The backbone is wrapped in
+            # flank_context.WideCrop, which expects the wide window and takes its own
+            # 240-bp crop with the +-10 shift; handing it a pre-cropped 240 leaves no
+            # margin, so the shift runs off the end and the convolution receives a
+            # 10-wide tensor. Matching albench.celltype.train exactly is the point.
+            x = D.onehot_from_idx(data.idx[si[b]], device)
             ci = torch.as_tensor(ki[b], device=device)
             yt = torch.as_tensor(y[b], device=device, dtype=torch.float32)
             with torch.amp.autocast("cuda", enabled=(device == "cuda")):
@@ -102,10 +102,10 @@ def score(model, data, rows, cell, device) -> dict:
     sel = sel[data.mask[sel, j]]
     model.eval()
     out = np.zeros(len(sel), np.float32)
-    c = D.MARGIN - FLANK_CTX
     with torch.no_grad():
         for s in range(0, len(sel), 1024):
-            x = D.onehot_from_idx(data.idx[sel[s : s + 1024]][:, c : c + INPUT_W], device)
+            # Again the full row: in eval mode WideCrop takes the centred window itself.
+            x = D.onehot_from_idx(data.idx[sel[s : s + 1024]], device)
             ci = torch.full((x.shape[0],), j, dtype=torch.long, device=device)
             p = model(x, cell_idx=ci).reshape(-1) + model(x.flip(1).flip(2), cell_idx=ci).reshape(
                 -1
