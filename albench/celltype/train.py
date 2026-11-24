@@ -158,6 +158,13 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=0.005)
     ap.add_argument("--weight-decay", type=float, default=0.01)
     ap.add_argument(
+        "--grad-clip",
+        type=float,
+        default=1.0,
+        help="global grad-norm cap; 0 disables. The conditioned modes need it: agnostic "
+        "never diverged, FiLM modes diverged in 21 of 28 unclipped ct44 runs",
+    )
+    ap.add_argument(
         "--residual-penalty",
         type=float,
         default=0.1,
@@ -233,6 +240,8 @@ def main() -> None:
     history = []
     rng = np.random.default_rng(a.seed)
     step = 0
+    n_skipped = 0
+    diverged = None
     for ep in range(a.epochs):
         model.train()
         order = rng.permutation(len(si))
@@ -252,13 +261,30 @@ def main() -> None:
                 if a.mode == "hybrid" and a.residual_penalty:
                     loss = loss + a.residual_penalty * model.encoder.residual_penalty()
             opt.zero_grad(set_to_none=True)
+            lv = float(loss.detach())
+            if not np.isfinite(lv):
+                # Do not let one non-finite batch write NaN into the weights, which is
+                # unrecoverable: every later forward is NaN, every later r is NaN, and the
+                # run spends its remaining epochs producing a metrics.json full of NaN
+                # that reads like a result. 21 of the 42 ct44 runs died exactly this way.
+                n_skipped += 1
+                if step < steps - 1:
+                    sched.step()
+                step += 1
+                continue
             scaler.scale(loss).backward()
+            # Clipping is what the conditioned modes were missing: `agnostic` never
+            # diverged, FiLM-conditioned modes diverged in 21 of 28 runs, and always at
+            # epochs 4-9 -- the one-cycle peak, where pct_start=0.3 of 20 epochs puts it.
+            if a.grad_clip > 0:
+                scaler.unscale_(opt)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), a.grad_clip)
             scaler.step(opt)
             scaler.update()
             if step < steps - 1:
                 sched.step()
             step += 1
-            tot += float(loss.detach())
+            tot += lv
             nb += 1
         val = evaluate_cells(model, data, split["val"], train_cells, device, a.mode)
         seen = [v["r"] for k, v in val.items() if not v["held_out"] and np.isfinite(v["r"])]
@@ -272,9 +298,17 @@ def main() -> None:
         )
         print(
             f"epoch {ep + 1}/{a.epochs} loss {tot / max(1, nb):.4f} "
-            f"val_r(seen) {np.mean(seen) if seen else float('nan'):.4f}",
+            f"val_r(seen) {np.mean(seen) if seen else float('nan'):.4f} "
+            f"skipped {n_skipped}",
             flush=True,
         )
+        if nb == 0 or not seen:
+            # Every batch of a whole epoch was non-finite, or no cell scored: the run is
+            # not going to recover, and finishing it would cost another hour and produce
+            # an all-NaN metrics.json. Stop and say so in the artefact.
+            diverged = ep + 1
+            print(f"DIVERGED at epoch {diverged}: stopping rather than writing NaN", flush=True)
+            break
 
     metrics = {
         "args": vars(a),
@@ -288,6 +322,10 @@ def main() -> None:
         "genomic_test_differences": evaluate_differences(model, data, split["test"], device),
         "history": history,
         "minutes": round((time.time() - t0) / 60, 2),
+        # Stamped on every run, not only the failures, so a reader can tell a converged
+        # run from a salvaged one without opening the history.
+        "diverged_epoch": diverged,
+        "n_batches_skipped": int(n_skipped),
     }
 
     def save() -> None:

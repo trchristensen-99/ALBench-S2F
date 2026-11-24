@@ -90,7 +90,15 @@ def run_epochs(model, data, si, ki, y, *, epochs, batch, lr, seed, device):
                 sq = (p.float() - yt) ** 2
                 loss = torch.stack([sq[ci == j].mean() for j in torch.unique(ci)]).mean()
             opt.zero_grad(set_to_none=True)
+            if not torch.isfinite(loss).item():
+                # A non-finite batch writes NaN into the weights and every later forward,
+                # r and curve point is NaN. The conditioned ct44 runs died exactly this
+                # way in 21 of 28 cases; clipping below is the other half of that fix.
+                sched.step()
+                continue
             scaler.scale(loss).backward()
+            scaler.unscale_(opt)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             scaler.step(opt)
             scaler.update()
             sched.step()
