@@ -122,9 +122,101 @@ VARIANTS: list[tuple[str, str, dict, str]] = [
         "CONTROL for fsp_max: designs from noise rather than from a real CRE, so the "
         "starting sequence's contribution is separable from the optimisation's",
     ),
+    # ----------------------------------------------------------------------------------
+    # APPEND ONLY BELOW THIS LINE. The build array reads this table by INDEX, so inserting
+    # a row renumbers every row after it and a queued task then builds a different variant
+    # than the registry expects. Rows 0-9 were already built or in flight when these were
+    # added on Nov 24; appending keeps their meaning and costs nothing.
+    # ----------------------------------------------------------------------------------
+    # --- UPWEIGHT rather than exclude -------------------------------------------------
+    # Arm A's motif reservoirs RESTRICT the vocabulary to one annotation class. These keep
+    # every class present and only change the proportions, which is both the gentler
+    # intervention and the one a collaborator can actually dial. `tier_flat` is the
+    # no-preference reference: if upweighting either class does not beat it, the
+    # proportion does not matter and the axis collapses to "plant motifs".
+    (
+        "tier_up_ct",
+        "motif_tiered",
+        {"tier_weights": "k562_only=0.50,shared_core=0.20,hepg2_only=0.15,other=0.15"},
+        "cell-type-specific motifs upweighted to half the sites, nothing excluded",
+    ),
+    (
+        "tier_up_shared",
+        "motif_tiered",
+        {"tier_weights": "shared_core=0.50,k562_only=0.20,hepg2_only=0.15,other=0.15"},
+        "shared motifs upweighted to half the sites, nothing excluded",
+    ),
+    (
+        "tier_flat",
+        "motif_tiered",
+        {"tier_weights": "k562_only=0.25,shared_core=0.25,hepg2_only=0.25,other=0.25"},
+        "REFERENCE: no class preferred. The gap from here to tier_up_* is what "
+        "upweighting buys at all",
+    ),
+    # --- per-SEQUENCE purity ladder ---------------------------------------------------
+    # Same classes, but each sequence commits to ONE of them instead of blending. A corpus
+    # of uniform blends lets a model succeed by learning the average effect of "motifs are
+    # present"; a pure-shared sequence beside a pure-ct-specific one of identical
+    # construction makes the class the only thing that explains the difference. The ladder
+    # runs 90% -> 50% -> 15% pure, and the last rung should reproduce the site-scope arms,
+    # which is the internal consistency check on the whole ladder.
+    (
+        "tseq_pure",
+        "motif_tiered",
+        {
+            "tier_weights": (
+                "k562_only=0.30,shared_core=0.30,hepg2_only=0.15,other=0.15,mixed=0.10"
+            ),
+            "tier_scope": "sequence",
+        },
+        "90% of sequences are pure single-class: the strongest contrast available",
+    ),
+    (
+        "tseq_half",
+        "motif_tiered",
+        {
+            "tier_weights": (
+                "k562_only=0.175,shared_core=0.175,hepg2_only=0.075,other=0.075,mixed=0.50"
+            ),
+            "tier_scope": "sequence",
+        },
+        "half pure, half blended -- the realistic middle",
+    ),
+    (
+        "tseq_mixed",
+        "motif_tiered",
+        {
+            "tier_weights": (
+                "k562_only=0.05,shared_core=0.05,hepg2_only=0.025,other=0.025,mixed=0.85"
+            ),
+            "tier_scope": "sequence",
+        },
+        "15% pure: should reproduce the site-scope arms, confirming that scope is the "
+        "only thing differing across the ladder",
+    ),
+    # --- Gosai's other two design methods ---------------------------------------------
+    (
+        "sa_max",
+        "sim_anneal",
+        {},
+        "simulated annealing toward high activity: a temperature-controlled walk over "
+        "single-base edits rather than a gradient",
+    ),
+    ("sa_target", "sim_anneal_target", {}, "annealing toward the middle of the range"),
+    (
+        "ada_max",
+        "adalead",
+        {},
+        "AdaLead toward high activity: threshold-greedy evolutionary search with rollout",
+    ),
+    ("ada_target", "adalead_target", {}, "AdaLead toward the middle of the range"),
 ]
 
-GUIDES: dict[str, str] = {n: BANK for n, s, _, _ in VARIANTS if s.startswith("fastseqprop")}
+# Every model-in-the-loop arm is guided by a STUDENT, never the oracle. Keyed off the
+# strategy's declared assets rather than a name prefix, so a design method added later
+# cannot silently default to oracle guidance by being spelled differently.
+_GUIDED_PREFIXES = ("fastseqprop", "sim_anneal", "adalead", "ise_")
+GUIDES: dict[str, str] = {n: BANK for n, s, _, _ in VARIANTS if s.startswith(_GUIDED_PREFIXES)}
 
 
 def main() -> None:

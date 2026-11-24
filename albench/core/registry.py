@@ -477,6 +477,13 @@ def _reg_motif() -> None:
     tiered["native_min_len"] = Param(
         8, "ignore native matches shorter than this when reserving positions"
     )
+    tiered["tier_scope"] = Param(
+        "site",
+        "site (every sequence is a blend in the requested proportions) | sequence (each "
+        "sequence commits to ONE tier, so the weights are the fraction of PURE "
+        "cell-type-specific / shared / inactive sequences, with 'mixed' for blended ones)",
+        choices=("site", "sequence"),
+    )
     register(
         Spec(
             name="motif_tiered",
@@ -880,6 +887,81 @@ def _reg_sheet_additions() -> None:
                     "tau": Param(1.0, "softmax temperature"),
                     "entropy_weight": Param(0.0, "penalty keeping the distribution open"),
                 },
+            )
+        )
+
+    # The other two methods that built the Gosai designed set. They reach different
+    # sequences and fail differently from a gradient method, so a corpus that wants to
+    # cover the designed regime needs all three rather than one corner of it.
+    from albench.reservoir.design_methods import AdaLeadSampler, SimulatedAnnealingSampler
+
+    _DESIGN_VARIANTS = [
+        (
+            "sim_anneal",
+            SimulatedAnnealingSampler,
+            {"objective": "maximize"},
+            "Metropolis walk over single-base edits at a cooling temperature.",
+            {
+                "n_steps": Param(300, "Metropolis proposals per design"),
+                "t0": Param(1.0, "starting temperature, in oracle label units"),
+                "t_end": Param(0.01, "final temperature (geometric schedule)"),
+                "n_mut": Param(1, "bases changed per proposal"),
+            },
+        ),
+        (
+            "sim_anneal_target",
+            SimulatedAnnealingSampler,
+            {"objective": "target", "target_activity": 0.5},
+            "Annealing toward a MID target rather than the top of the range.",
+            {
+                "n_steps": Param(300, "Metropolis proposals per design"),
+                "t0": Param(1.0, "starting temperature, in oracle label units"),
+                "t_end": Param(0.01, "final temperature (geometric schedule)"),
+                "n_mut": Param(1, "bases changed per proposal"),
+            },
+        ),
+        (
+            "adalead",
+            AdaLeadSampler,
+            {"objective": "maximize"},
+            "Threshold-greedy evolutionary search with rollout (Sinai et al. 2020).",
+            {
+                "n_rounds": Param(10, "evolutionary rounds"),
+                "population": Param(16, "children proposed per design per round"),
+                "kappa": Param(0.05, "parent threshold; smaller is greedier"),
+                "mutation_rate": Param(0.02, "per-base rate when proposing a child"),
+                "rollout": Param(4, "extra mutate-and-keep steps on an improving child"),
+            },
+        ),
+        (
+            "adalead_target",
+            AdaLeadSampler,
+            {"objective": "target", "target_activity": 0.5},
+            "AdaLead toward a MID target.",
+            {
+                "n_rounds": Param(10, "evolutionary rounds"),
+                "population": Param(16, "children proposed per design per round"),
+                "kappa": Param(0.05, "parent threshold; smaller is greedier"),
+                "mutation_rate": Param(0.02, "per-base rate when proposing a child"),
+                "rollout": Param(4, "extra mutate-and-keep steps on an improving child"),
+            },
+        ),
+    ]
+    for _name, _cls, _fixed, _doc, _params in _DESIGN_VARIANTS:
+        register(
+            Spec(
+                name=_name,
+                group="model_generative",
+                doc=(
+                    _doc + " Model-in-the-loop: needs a predictor in the Context. Unlike "
+                    "FastSeqProp it needs only predict(), so the oracle COULD guide it -- "
+                    "it should not, for the reason in albench/ensemble/bank.py."
+                ),
+                factory=lambda seed=None, _c=_cls, _f=_fixed, **kw: _c(seed=seed, **{**_f, **kw}),
+                adapter=_ise_adapter_named(_name),
+                needs_pool=True,
+                assets=("oracle",),
+                params={**_params, "batch_size": Param(4096, "sequences per predict() call")},
             )
         )
 

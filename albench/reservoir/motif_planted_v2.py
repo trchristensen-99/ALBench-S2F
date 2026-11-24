@@ -113,6 +113,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         ct_bias: float = 0.0,
         instance_pool: int = 256,
         tier_weights: str | None = None,
+        tier_scope: str = "site",
         native_min_len: int = 0,
     ) -> None:
         """Initialize sampler.
@@ -201,6 +202,23 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 Cannot be combined with ``vocab_subset`` (a tier draw needs the whole
                 vocabulary to draw tiers FROM) or with ``ct_bias`` (both reweight the
                 same draw, and together neither fraction is the realised one).
+            tier_scope: Whether a tier is chosen per ``"site"`` or per ``"sequence"``.
+
+                Under ``"site"`` every sequence is a blend in roughly the requested
+                proportions. Under ``"sequence"`` each sequence commits to ONE tier and
+                plants all of its sites from it, so the weights become the fraction of
+                SEQUENCES that are purely cell-type-specific, purely shared, purely
+                inactive-here, and so on, with the extra tier ``mixed`` naming sequences
+                that still blend per site.
+
+                These are different experiments and the second is usually the one worth
+                running. A corpus of uniformly blended sequences lets a model do well by
+                learning the average effect of "some motifs are present"; a corpus
+                containing a pure-shared sequence and a pure-ct-specific sequence of
+                otherwise identical construction forces the contrast between them to be
+                the only thing that explains their different activity. Per-sequence purity
+                is also what a real library looks like: enhancers are not uniform blends
+                of every annotation class.
             native_min_len: Ignore native matches shorter than this when deciding which
                 positions are already occupied. 0 keeps every match, which is the
                 behaviour every arm built before 2026-11-24 used.
@@ -257,6 +275,9 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         self.ct_bias = ct_bias
         self.instance_pool = instance_pool
         self.tier_weights = tier_weights
+        if tier_scope not in ("site", "sequence"):
+            raise ValueError(f"tier_scope must be 'site' or 'sequence', got {tier_scope!r}")
+        self.tier_scope = tier_scope
         self.native_min_len = int(native_min_len)
         # Parse at construction, not at generate(): a typo in a tier name is a silent
         # reweighting of the whole corpus otherwise, and by the time generate() runs we
@@ -275,6 +296,28 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 "so together neither number is the realised fraction. Express the "
                 "cell-type upweighting as a tier weight instead."
             )
+        if "mixed" in self._tiers:
+            if tier_scope != "sequence":
+                raise ValueError(
+                    "the 'mixed' tier only means something with tier_scope='sequence', "
+                    "where it names sequences that blend per site while the others commit "
+                    "to one tier. Under tier_scope='site' EVERY sequence is already mixed, "
+                    "so the weight would be silently meaningless."
+                )
+            if len(self._tiers) == 1:
+                raise ValueError(
+                    "'mixed' is the only tier, so there is nothing to mix: a mixed "
+                    "sequence draws its sites from the OTHER tiers."
+                )
+        # The per-site distribution a `mixed` sequence uses: the other tiers, renormalised.
+        # Precomputed so the inner loop does no arithmetic per sequence.
+        self._mixed_tiers: tuple[str, ...] = ()
+        self._mixed_p: np.ndarray | None = None
+        if "mixed" in self._tiers:
+            keep = [i for i, t in enumerate(self._tiers) if t != "mixed"]
+            self._mixed_tiers = tuple(self._tiers[i] for i in keep)
+            w = self._tier_p[keep]
+            self._mixed_p = w / w.sum()
         self._tier_entries: dict[str, np.ndarray] = {}  # tier -> entry indices, lazy
         self._ct_entries: set[str] = set()
         self._bg_seqs: np.ndarray | None = None  # lazy
@@ -282,8 +325,10 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         self._inst: dict[str, list[str]] = {}  # entry label -> pre-drawn instances
         self._native_consensus: list[str] = []  # every variant's consensus, for native scan
 
-    # Tiers backed by a named list in the tf_sets asset, plus two that are not.
-    _SYNTH_TIERS = ("other", "decoy")
+    # Tiers backed by a named list in the tf_sets asset, plus three that are not. "mixed"
+    # is only meaningful under tier_scope="sequence", where it names a sequence that draws
+    # each of its sites from a different tier instead of committing to one.
+    _SYNTH_TIERS = ("other", "decoy", "mixed")
 
     @staticmethod
     def _parse_tiers(spec: str | None) -> tuple[tuple[str, ...], np.ndarray | None]:
@@ -498,6 +543,11 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         annotated = set().union(*sets.values()) if sets else set()
         self._tier_entries = {}
         for t in self._tiers:
+            if t == "mixed":
+                # Not a vocabulary subset: a "mixed" SEQUENCE draws each of its sites from
+                # the other tiers. It has no entries of its own and is resolved per site.
+                self._tier_entries[t] = np.arange(len(self._vocab), dtype=int)
+                continue
             if t == "decoy":
                 # Drawn from the whole vocabulary and then shuffled, so every entry is
                 # eligible; the tier is a transformation, not a subset.
@@ -563,6 +613,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         n_planted_list: list[int] = []
         n_native_kept: list[int] = []
         planted_motifs_list: list[str] = []
+        seq_tier_list: list[str] = []
 
         for i in range(n_sequences):
             # Background: real genomic if available, else uniform random
@@ -594,8 +645,20 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 # Tier first, then an entry uniformly inside it. Drawing the entry first
                 # and rejecting would make the realised fractions depend on tier sizes
                 # rather than on the weights that were asked for.
-                picks = self._rng.choice(len(self._tiers), size=n_plant, p=self._tier_p)
-                site_tier = [self._tiers[p] for p in picks]
+                if self.tier_scope == "sequence":
+                    # One tier for the WHOLE sequence, so the corpus contains pure
+                    # examples of each class rather than uniform blends of all of them.
+                    seq_t = self._tiers[int(self._rng.choice(len(self._tiers), p=self._tier_p))]
+                    if seq_t == "mixed":
+                        picks = self._rng.choice(
+                            len(self._mixed_tiers), size=n_plant, p=self._mixed_p
+                        )
+                        site_tier = [self._mixed_tiers[p] for p in picks]
+                    else:
+                        site_tier = [seq_t] * int(n_plant)
+                else:
+                    picks = self._rng.choice(len(self._tiers), size=n_plant, p=self._tier_p)
+                    site_tier = [self._tiers[p] for p in picks]
                 chosen_idx = np.array(
                     [
                         int(
@@ -651,6 +714,11 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             n_planted_list.append(len(planted_log))
             n_native_kept.append(native)
             planted_motifs_list.append(",".join(planted_log) if planted_log else "none")
+            # Under sequence scope this is the sequence's class and the column the arm is
+            # analysed on; under site scope every sequence is a blend and it says so.
+            seq_tier_list.append(
+                ("" if not self._tiers else (seq_t if self.tier_scope == "sequence" else "site"))
+            )
 
         meta = pd.DataFrame(
             {
@@ -663,6 +731,8 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 # Requested fractions; the REALISED ones are recoverable per site from the
                 # "tier:motif" prefixes in planted_motifs, which is the number to report.
                 "tier_weights": self.tier_weights or "",
+                "tier_scope": self.tier_scope,
+                "seq_tier": seq_tier_list,
                 "planted_motifs": planted_motifs_list,
                 "n_motifs_planted": np.array(n_planted_list, dtype=np.int32),
                 "n_native_motifs_preserved": np.array(n_native_kept, dtype=np.int32),
