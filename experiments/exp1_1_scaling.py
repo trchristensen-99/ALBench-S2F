@@ -710,32 +710,54 @@ def _load_k562_dream_oracle():
 
 
 def _load_yeast_dream_oracle():
-    """Load yeast DREAM-RNN 10-fold oracle."""
+    """Load the yeast DREAM-RNN k-fold oracle, newest validated ensemble first.
+
+    WHY THE SEARCH ORDER. `oracle_dream_rnn_yeast_kfold_v2` holds the 6-fold ensemble
+    trained before the Nov 20 audit, every fold of which stopped at epoch 6 of 6 with
+    the reverse-complement channel wired to zero. `yeast_prod` holds the ye43 rebuild:
+    10 folds, 12 epochs, best_epoch now 10-11 rather than pinned at the last epoch, and
+    scored on the actual DREAM 2022 test set (71,103 held-out sequences, zero overlap
+    with train) at Pearson r = 0.9647 / r^2 = 0.9307 / Spearman 0.9673 as an ensemble
+    against 0.9595 for a single fold. Every yeast pool labelled from here on should be
+    labelled by that one, so it is tried first and the old directory is kept only as a
+    fallback for reproducing pre-Nov-23 pools.
+    """
     import torch
 
     from models.dream_rnn import create_dream_rnn
 
-    oracle_dir = REPO / "outputs" / "oracle_dream_rnn_yeast_kfold_v2"
+    candidates = [
+        (REPO / "outputs" / "yeast_prod", "fold_*_e12_prod"),
+        (REPO / "outputs" / "oracle_dream_rnn_yeast_kfold_v2", "oracle_*"),
+    ]
     runs = []
-    for run_dir in sorted(oracle_dir.glob("oracle_*")):
-        ckpt = run_dir / "best_model.pt"
-        if ckpt.exists():
-            runs.append(ckpt)
+    for oracle_dir, pattern in candidates:
+        runs = [p / "best_model.pt" for p in sorted(oracle_dir.glob(pattern))]
+        runs = [p for p in runs if p.exists()]
+        if runs:
+            break
 
     if not runs:
-        raise FileNotFoundError(f"No yeast DREAM oracle checkpoints in {oracle_dir}")
+        raise FileNotFoundError(
+            "No yeast DREAM oracle checkpoints in " + " or ".join(str(d / p) for d, p in candidates)
+        )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     models = []
     for ckpt_path in runs:
+        state = torch.load(ckpt_path, map_location="cpu")
+        # Width from the checkpoint's own stamped args, not from constants here. The
+        # two oracle generations were trained by different scripts and a mismatch would
+        # surface as an opaque strict-load failure rather than as "wrong width".
+        ck = state.get("args") or {}
         m = create_dream_rnn(
             input_channels=6,
             sequence_length=150,
             task_mode="yeast",
-            cnn_filters=256,
-            hidden_dim=320,
+            cnn_filters=ck.get("cnn_filters", 256),
+            hidden_dim=ck.get("hidden_dim", 320),
+            **{k: ck[k] for k in ("dropout_cnn", "dropout_lstm") if k in ck and ck[k] is not None},
         )
-        state = torch.load(ckpt_path, map_location="cpu")
         m.load_state_dict(state["model_state_dict"], strict=True)
         m.to(device).eval()
         models.append(m)

@@ -650,25 +650,37 @@ def _reg_sheet_additions() -> None:
     def _ise(seed=None, **kw):
         return InSilicoEvolutionGenerativeSampler(seed=seed, **kw)
 
-    def _ise_adapter(s, n, ctx):
-        # REFUSE to run without a fitness model. The sampler's own fallback is random
-        # mutagenesis at 5%, which would make this arm a silent duplicate of the
-        # mutagenesis arm under a different name -- exactly the failure that made the
-        # tuned and untuned EvoAug arms byte-identical.
-        model = getattr(ctx, "oracle", None)
-        if model is None:
-            raise ValueError(
-                "in-silico evolution is model-in-the-loop: it needs a predictor to "
-                "score each generation. Pass an oracle in the Context. Running it "
-                "without one silently degrades to random mutagenesis, which would "
-                "duplicate the mutagenesis arm rather than evolve anything."
+    def _ise_adapter_named(name: str = "ise_maximize"):
+        """An ISE adapter that knows which arm it is.
+
+        The name only affects error messages, but it affects the two that matter: a
+        missing pool and a missing fitness model both have to say which of the five
+        objectives was being built, or the failure is unattributable in an array job.
+        """
+
+        def adapt(s, n, ctx):
+            # REFUSE to run without a fitness model. The sampler's own fallback is
+            # random mutagenesis at 5%, which would make this arm a silent duplicate of
+            # the mutagenesis arm under a different name -- exactly the failure that
+            # made the tuned and untuned EvoAug arms byte-identical.
+            model = getattr(ctx, "oracle", None)
+            if model is None:
+                raise ValueError(
+                    f"{name} is model-in-the-loop: it needs a predictor to score each "
+                    "generation. Pass an oracle in the Context. Running it without one "
+                    "silently degrades to random mutagenesis, which would duplicate the "
+                    "mutagenesis arm rather than evolve anything."
+                )
+            return s.generate(
+                n,
+                base_sequences=ctx.require_pool(name),
+                task=ctx.task,
+                student_model=model,
             )
-        return s.generate(
-            n,
-            base_sequences=ctx.require_pool("ise_maximize"),
-            task=ctx.task,
-            student_model=model,
-        )
+
+        return adapt
+
+    _ise_adapter = _ise_adapter_named("ise_maximize")
 
     register(
         Spec(
@@ -693,9 +705,79 @@ def _reg_sheet_additions() -> None:
                 "evolution_mode": Param(
                     "maximize", "maximize | target", choices=("maximize", "target")
                 ),
+                "temperature": Param(
+                    1.0,
+                    "softmax temperature on the selection step; higher keeps more of "
+                    "the population, so the arm explores instead of converging",
+                ),
             },
         )
     )
+
+    # WHICH PART OF THE ACTIVITY RANGE TO SPEND OLIGOS ON. `ise_maximize` answers only
+    # "make it as active as possible", which is one corner of a design space the
+    # sampler already implements and the registry never exposed: minimize, hit a
+    # target, or spread targets across the range. For a library this is the live
+    # question -- a training corpus concentrated at the top of the dynamic range
+    # teaches a student nothing about the rest of it -- so each objective is its own
+    # registered arm with a fixed activity target, rather than a tuple parameter that
+    # would have to survive string coercion through --set.
+    #
+    # Read every one of these against `mutagenesis` at the same per-base rate: the
+    # evolution loop costs oracle calls that random mutagenesis does not, so the arm
+    # only earns its place where it beats mutagenesis, not where it beats random.
+    _ISE_VARIANTS = [
+        (
+            "ise_minimize",
+            {"evolution_mode": "minimize"},
+            "Evolution toward LOW activity: silencers and dead sequence. The negative "
+            "half of the dynamic range is where every student is worst and where the "
+            "genomic pool has least to say, since real CREs are selected for function.",
+        ),
+        (
+            "ise_target_mid",
+            {"evolution_mode": "target", "target_activity": 0.5},
+            "Evolution toward MID activity. Deliberately the hardest target: the "
+            "measurement ceiling in the middle tertile is ~0 (Nov 20), so this arm "
+            "doubles as a test of whether a reservoir can be aimed at a region the "
+            "assay cannot resolve.",
+        ),
+        (
+            "ise_diverse",
+            {"evolution_mode": "diverse_targets", "activity_distribution": "uniform"},
+            "Evolution toward targets drawn UNIFORMLY across the activity range -- one "
+            "lineage aimed high, the next low. This is the arm that corresponds to the "
+            "library-design instinct of covering the dynamic range rather than its top, "
+            "and the one to beat if 'spread the budget' is to be the recommendation.",
+        ),
+        (
+            "ise_explore",
+            {"evolution_mode": "maximize", "temperature": 4.0},
+            "The same maximisation objective as ise_maximize at a high selection "
+            "temperature, so the elite set stays diverse. Isolates how much of any "
+            "ise_maximize result is the objective and how much is the loss of "
+            "diversity that greedy selection causes.",
+        ),
+    ]
+    for _name, _fixed, _doc in _ISE_VARIANTS:
+        register(
+            Spec(
+                name=_name,
+                group="model_generative",
+                doc=_doc + " Model-in-the-loop: needs a predictor in the Context.",
+                factory=lambda seed=None, _f=_fixed, **kw: _ise(seed=seed, **{**_f, **kw}),
+                adapter=_ise_adapter_named(_name),
+                needs_pool=True,
+                assets=("oracle",),
+                params={
+                    "n_evolution_rounds": Param(5, "generations of mutate-score-select"),
+                    "mutation_rate": Param(0.05, "per-base rate within a generation"),
+                    "population_size": Param(100, "candidates per generation"),
+                    "elite_fraction": Param(0.2, "top fraction carried forward"),
+                    "temperature": Param(1.0, "softmax temperature on selection"),
+                },
+            )
+        )
 
     from albench.reservoir.zoonomia_orthologs import ZoonomiaOrthologSampler
 

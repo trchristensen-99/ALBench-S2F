@@ -60,6 +60,18 @@ def main() -> int:
     ap.add_argument("--oracle", default="ag_s2")
     ap.add_argument("--oracle-id", default="oracle_v3")
     ap.add_argument(
+        "--guide-model",
+        default=None,
+        help=(
+            "directory of a saved LegNet bank to use as the FITNESS model for "
+            "model-in-the-loop strategies, instead of the oracle. Labelling still uses "
+            "the oracle. Guiding with the oracle makes a model-guided arm an upper "
+            "bound -- it selects at the labeller's own argmax, which no collaborator "
+            "can reproduce -- so the realistic arm guides with a student trained on "
+            "data we already have, e.g. outputs/wed41/bench38_ln_e500_wd2_30k_c20"
+        ),
+    )
+    ap.add_argument(
         "--skip-existing",
         action="store_true",
         default=True,
@@ -74,9 +86,20 @@ def main() -> int:
         k, v = item.split("=", 1)
         params[k.strip()] = _coerce(v)
 
+    # The fitness model is part of what a model-guided pool IS, so it belongs in the
+    # identity: an oracle-guided ise_maximize and a bank-guided one are different pools
+    # and must not collide on the same content hash, or --skip-existing will hand back
+    # whichever was built first under the other one's name.
+    sspec = get(args.strategy)
+    guide_id = None
+    if "oracle" in (sspec.assets or ()):
+        guide_id = (
+            f"bank:{Path(args.guide_model).name}" if args.guide_model else f"oracle:{args.oracle}"
+        )
+
     spec = PoolSpec(
         strategy=args.strategy,
-        params=params,
+        params={**params, **({"guide_model": guide_id} if guide_id else {})},
         size=args.size,
         generation_seed=args.generation_seed,
         task=args.task,
@@ -97,7 +120,6 @@ def main() -> int:
 
     # ---- generate ----------------------------------------------------------
     t0 = time.time()
-    sspec = get(args.strategy)
     # Load the genomic pool only for strategies that derive from it, so a purely
     # generative strategy does not pay for reading it.
     pool_seqs = None
@@ -106,7 +128,36 @@ def main() -> int:
 
         z = np.load(resolve("bg_cache"), allow_pickle=True)
         pool_seqs = [str(s) for s in z["sequences"]]
-    ctx = Context(task=args.task, pool_sequences=pool_seqs)
+
+    # A model-in-the-loop strategy needs its fitness model BEFORE generation, not just
+    # a labeller afterwards, and the adapter refuses to run without one rather than
+    # falling back to random mutagenesis. Loading it here is also what makes the
+    # resulting pool honest about what it is: the sequences were selected by the same
+    # ensemble that then labels them, so the arm is an upper bound on what
+    # model-guided design can deliver, not an estimate of it. A realistic arm guides
+    # with a student trained on data we already have (--guide-model), which is the
+    # comparison that tells a collaborator what to expect.
+    guide = None
+    if guide_id is not None:
+        t_g = time.time()
+        if args.guide_model:
+            from albench.ensemble.bank import LegNetBank
+
+            guide = LegNetBank(args.guide_model)
+            logger.info("  %s in %.0fs", guide.describe(), time.time() - t_g)
+        else:
+            from experiments.exp1_1_scaling import _load_oracle
+
+            guide = _load_oracle(args.task, oracle_type=args.oracle)
+            logger.warning(
+                "  fitness model is the ORACLE (%s, %.0fs): this arm is an UPPER BOUND, "
+                "not an estimate -- it selects at the argmax of the same ensemble that "
+                "labels it. Pass --guide-model for the realistic arm.",
+                args.oracle,
+                time.time() - t_g,
+            )
+
+    ctx = Context(task=args.task, pool_sequences=pool_seqs, oracle=guide)
     seqs, _meta = sspec.generate(spec.size, ctx, seed=spec.generation_seed, **params)
     gen_s = time.time() - t0
     logger.info(
@@ -133,7 +184,9 @@ def main() -> int:
     from experiments.exp1_1_scaling import _load_oracle
     from scripts.generate_labeled_pools import _label_sequences
 
-    oracle = _load_oracle(args.task, oracle_type=args.oracle)
+    # Reuse the fitness model when it is the same ensemble: loading the AG oracle twice
+    # costs more than the labelling itself.
+    oracle = guide if guide is not None else _load_oracle(args.task, oracle_type=args.oracle)
     logger.info("  oracle loaded in %.0fs", time.time() - t0)
 
     t0 = time.time()
