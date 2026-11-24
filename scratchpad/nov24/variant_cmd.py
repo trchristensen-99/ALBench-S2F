@@ -44,6 +44,22 @@ def main() -> None:
         return
     if not 0 <= a.index < len(VARIANTS):
         raise SystemExit(f"index {a.index} out of range: {len(VARIANTS)} variants")
+
+    # A readable name may not contain "_d". bench33_legnet.py derives its output
+    # directory as Path(pool).stem.split("_d")[0], splitting on the FIRST occurrence, so
+    # "ea_dup_only_d30000" resolves to "ea" and "ise_diverse_d30000" to "ise" -- and two
+    # ise_* variants would then share one output directory and overwrite each other's
+    # weights while both reporting success. Checked here rather than trusted, because
+    # the symptom is a plausible result in the wrong place.
+    bad = sorted(n for n, *_ in VARIANTS if "_d" in n)
+    if bad:
+        raise SystemExit(
+            "these variant names collapse under the trainer's stem.split('_d')[0]: "
+            + ", ".join(bad)
+        )
+    if len({n for n, *_ in VARIANTS}) != len(VARIANTS):
+        raise SystemExit("duplicate variant names: two rows would share one output dir")
+
     name, strategy, params, why = VARIANTS[a.index]
 
     from albench.core.pools import PoolSpec

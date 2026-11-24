@@ -163,7 +163,7 @@ VARIANTS: list[tuple[str, str, dict[str, object], str]] = [
         "translocation alone: preserves content, changes spacing -- the syntax edit",
     ),
     (
-        "ea_dup_only",
+        "ea_tandem_only",
         "evoaug",
         {
             "p_deletion": 0.0,
@@ -231,7 +231,7 @@ VARIANTS: list[tuple[str, str, dict[str, object], str]] = [
         "evolve toward mid activity, where the assay's own ceiling is ~0",
     ),
     (
-        "ise_diverse",
+        "ise_spread",
         "ise_diverse",
         {},
         "lineages aimed uniformly across the range: the 'cover the dynamic range' arm",
@@ -254,7 +254,7 @@ VARIANTS: list[tuple[str, str, dict[str, object], str]] = [
         "maximise, guided by the 300k bank rather than the 30k one",
     ),
     (
-        "ise_diverse_g300k",
+        "ise_spread_g300k",
         "ise_diverse",
         {},
         "spread across the range, guided by the 300k bank: the guide-quality contrast",
@@ -275,11 +275,11 @@ VARIANTS: list[tuple[str, str, dict[str, object], str]] = [
 GUIDES: dict[str, str] = {
     "ise_minimize": "outputs/wed41/bench38_ln_e500_wd2_30k_c20",
     "ise_target_mid": "outputs/wed41/bench38_ln_e500_wd2_30k_c20",
-    "ise_diverse": "outputs/wed41/bench38_ln_e500_wd2_30k_c20",
+    "ise_spread": "outputs/wed41/bench38_ln_e500_wd2_30k_c20",
     "ise_explore": "outputs/wed41/bench38_ln_e500_wd2_30k_c20",
     "ise_maximize_g30k": "outputs/wed41/bench38_ln_e500_wd2_30k_c20",
     "ise_maximize_g300k": "outputs/wed41/bench38_ln_e300_wd05_300k_c20",
-    "ise_diverse_g300k": "outputs/wed41/bench38_ln_e300_wd05_300k_c20",
+    "ise_spread_g300k": "outputs/wed41/bench38_ln_e300_wd05_300k_c20",
 }
 
 # Arm A rows these are differences against. Not generated here -- they already exist in

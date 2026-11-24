@@ -46,7 +46,11 @@ def cells() -> list[dict]:
     out = []
     for name, strategy, params, _why in VARIANTS:
         pool = f"{POOLS}/{name}_d30000.npz"
-        tag = f"var41_ln_{CFG}_{D // 1000}k_c20_{name}"
+        # `bench38_`, not `var41_`: the trainer names its own output directory and this
+        # has to match it exactly. A guessed directory is the failure mode from Nov 15 --
+        # the cell looks registered, the dispatcher marks it done on a COMPLETE file in a
+        # directory that holds no weights, and the reader returns models=0.
+        tag = f"bench38_ln_{CFG}_{D // 1000}k_c20_{name}"
         out_dir = f"{OUT_ROOT}/{tag}"
         for i, s in SEEDS.items():
             done = f"{out_dir}/COMPLETE_s{i}"
