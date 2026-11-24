@@ -60,7 +60,11 @@ print("2. FastSeqProp against the Arm A 30k bank")
 bank = LegNetBank("outputs/wed41/bench38_ln_e500_wd2_30k_c20", max_members=2)
 print("   " + bank.describe())
 
-z = np.load("data/cache/gosai_background_cache.npz", allow_pickle=True)
+# resolve(), not a literal: the background set is the chromosome-split TRAIN cache, and
+# hard-coding a path is how a run ends up starting its designs from held-out chromosomes.
+from albench.paths import resolve
+
+z = np.load(resolve("bg_cache"), allow_pickle=True)
 pool = [str(x) for x in z["sequences"][:5000]]
 
 fsp = get("fastseqprop").build(seed=0, n_steps=60, batch_size=256)
