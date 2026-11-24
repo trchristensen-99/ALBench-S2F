@@ -14,16 +14,19 @@
 # rather than burning the rest of the schedule. All 42 are rerun, not just the 21 that
 # failed, so the whole table is one recipe.
 #
-# On the default H100 QOS: the dispatcher has drained, so the H100 slots are free and a
-# run that takes ~80 min on a V100 takes well under the 12-hour limit here.
+# slow_nice, not default: `default` caps submissions at 16 per user, so a 42-task array is
+# refused outright, while slow_nice allows 1000 submitted and 40 running. The slots come
+# from the three-round Arm B motif arms, cancelled to pay for this -- Arm B on genomic
+# measured three rounds against one at +0.0005 (0.9211 vs 0.9206) against a seed sd of
+# 0.001, so the rounds axis is buying nothing and this fold is broken.
 #SBATCH --job-name=ct45
 #SBATCH --partition=gpuq
 #SBATCH --account=cshlsbs
-#SBATCH --qos=default
-#SBATCH --gres=gpu:h100:1
+#SBATCH --qos=slow_nice
+#SBATCH --gres=gpu:v100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=220G
-#SBATCH --time=11:00:00
+#SBATCH --time=1-00:00:00
 #SBATCH --output=outputs/celltype/logs/ct45_%A_%a.log
 #SBATCH --array=0-41
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
