@@ -80,7 +80,16 @@ class LegNetBank:
         self.models = []
         for c in ckpts:
             net = ns["Net"]()
-            net.load_state_dict(torch.load(c, map_location="cpu"), strict=True)
+            sd = torch.load(c, map_location="cpu")
+            # bench33_legnet.py saves the INNER network, whose keys are bare
+            # ("stem.block.0.weight"), while mpra_legnet_ref's Net holds it as a
+            # `legnet` submodule and expects them prefixed. Load into whichever module
+            # the keys actually describe rather than renaming them: a rename that
+            # happened to fit a different architecture would load silently.
+            target = net
+            if not any(k.startswith("legnet.") for k in sd) and hasattr(net, "legnet"):
+                target = net.legnet
+            target.load_state_dict(sd, strict=True)
             # The crop wrapper is what makes this read sequences the way the bank was
             # trained to read them: the 240-bp standard with the centred window at eval.
             m = flank_context.wrap(net, ctx=flank_ctx, shift=shift_max)
