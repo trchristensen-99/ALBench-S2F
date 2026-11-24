@@ -134,24 +134,35 @@ def loco() -> None:
         return
     cells = sorted({c for _, c in by})
     modes = sorted({m for m, _ in by})
+
     # The held-out cell's own column of the per-cell score block. `designed` carries only
     # the three cells the designed libraries assayed, so four of the seven folds have no
     # designed column at all -- a blank there is a missing measurement, not a zero.
+    def finite(xs):
+        """Drop non-finite scores and SAY how many were dropped.
+
+        np.mean over a list holding one NaN returns NaN, which prints as a dash-like
+        `nan` and reads as "this arm failed" when in fact one seed of two is missing.
+        """
+        ok = [float(x) for x in xs if isinstance(x, (int, float)) and np.isfinite(x)]
+        return ok, len(xs) - len(ok)
+
+    def held_score(m, block, cell):
+        v = (m.get(block) or {}).get(cell)
+        if isinstance(v, dict):
+            return v.get("r") if v.get("zero_shot_valid", True) else None
+        return v
+
+    dropped = 0
     for block in ("genomic_test", "designed"):
         print("\n=== ct44 LOCO -- %s, r on the cell that was held out" % block)
         print("%-16s" % "mode" + "".join("%13s" % c for c in cells))
         for mo in modes:
             line = "%-16s" % mo
             for c in cells:
-                vals = []
-                for m in by.get((mo, c), []):
-                    v = (m.get(block) or {}).get(c)
-                    if isinstance(v, dict):
-                        if v.get("r") is not None and v.get("zero_shot_valid", True):
-                            vals.append(v["r"])
-                    elif isinstance(v, (int, float)) and np.isfinite(v):
-                        vals.append(float(v))
-                line += "%13s" % ("%.4f" % np.mean(vals) if vals else "-")
+                ok, nbad = finite([held_score(m, block, c) for m in by.get((mo, c), [])])
+                dropped += nbad
+                line += "%13s" % ("%.4f" % np.mean(ok) if ok else "-")
             print(line)
 
     # The seen-cell average is the comparison that makes the held-out column readable: a
@@ -163,16 +174,22 @@ def loco() -> None:
         for c in cells:
             vals = []
             for m in by.get((mo, c), []):
-                seen = [
-                    (v["r"] if isinstance(v, dict) else v)
-                    for k, v in (m.get("genomic_test") or {}).items()
-                    if k != c
-                ]
-                seen = [x for x in seen if isinstance(x, (int, float)) and np.isfinite(x)]
+                seen, _ = finite(
+                    [
+                        (v["r"] if isinstance(v, dict) else v)
+                        for k, v in (m.get("genomic_test") or {}).items()
+                        if k != c
+                    ]
+                )
                 if seen:
                     vals.append(float(np.mean(seen)))
             line += "%13s" % ("%.4f" % np.mean(vals) if vals else "-")
         print(line)
+    print("\n%d non-finite or invalid per-cell scores were dropped." % dropped)
+    print(
+        "%d runs read, %d (mode, holdout) combinations."
+        % (sum(len(v) for v in by.values()), len(by))
+    )
     print("\nBlank = no valid zero-shot score: `embed` and `onehot` cannot build a vector")
     print("for a cell they never trained, so their held-out row is an untrained artifact.")
 
