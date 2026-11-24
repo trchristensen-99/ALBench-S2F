@@ -64,7 +64,7 @@ VARIANTS: list[tuple[str, str, dict, str]] = [
         "value of planting sites the annotation calls inactive",
     ),
     (
-        "tier_no_decoy",
+        "tier_nodecoy",
         "motif_tiered",
         {"tier_weights": "shared_core=0.40,k562_only=0.35,hepg2_only=0.25"},
         "isolates the decoy contribution: real-but-inactive motifs without any "
