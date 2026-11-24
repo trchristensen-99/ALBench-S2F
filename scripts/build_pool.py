@@ -124,6 +124,18 @@ def main() -> int:
     # generative strategy does not pay for reading it.
     pool_seqs = None
     if sspec.needs_pool:
+        # `bg_cache` is the HUMAN genomic background (314,981 Gosai CREs). A derived
+        # strategy under task="yeast" would perturb human 200-mers and drop an 80-bp
+        # fragment of one into the yeast promoter context -- a defensible arm, but not
+        # the arm anyone asked for, and indistinguishable from the intended one once
+        # written. Refuse rather than substitute.
+        if args.task != "k562":
+            raise SystemExit(
+                f"{args.strategy} derives from a candidate pool, and the only one wired "
+                f"up is the human genomic background. Building it for task={args.task} "
+                f"would silently perturb human sequence. A {args.task} version needs its "
+                f"own background set declared in albench/paths.py first."
+            )
         from albench.paths import resolve
 
         z = np.load(resolve("bg_cache"), allow_pickle=True)
