@@ -134,20 +134,45 @@ def loco() -> None:
         return
     cells = sorted({c for _, c in by})
     modes = sorted({m for m, _ in by})
-    for endpoint in ("held_genomic", "held_designed"):
-        print("\n=== ct44 LOCO -- %s (r on the held-out cell)" % endpoint)
+    # The held-out cell's own column of the per-cell score block. `designed` carries only
+    # the three cells the designed libraries assayed, so four of the seven folds have no
+    # designed column at all -- a blank there is a missing measurement, not a zero.
+    for block in ("genomic_test", "designed"):
+        print("\n=== ct44 LOCO -- %s, r on the cell that was held out" % block)
         print("%-16s" % "mode" + "".join("%13s" % c for c in cells))
         for mo in modes:
             line = "%-16s" % mo
             for c in cells:
                 vals = []
                 for m in by.get((mo, c), []):
-                    for k, v in m.items():
-                        if isinstance(v, dict) and endpoint in k and v.get("r") is not None:
-                            if v.get("zero_shot_valid", True):
-                                vals.append(v["r"])
+                    v = (m.get(block) or {}).get(c)
+                    if isinstance(v, dict):
+                        if v.get("r") is not None and v.get("zero_shot_valid", True):
+                            vals.append(v["r"])
+                    elif isinstance(v, (int, float)) and np.isfinite(v):
+                        vals.append(float(v))
                 line += "%13s" % ("%.4f" % np.mean(vals) if vals else "-")
             print(line)
+
+    # The seen-cell average is the comparison that makes the held-out column readable: a
+    # mechanism can only be said to fail on a new cell if it worked on the trained ones.
+    print("\n--- same models, mean r over the six cells they DID train on (genomic) ---")
+    print("%-16s" % "mode" + "".join("%13s" % c for c in cells))
+    for mo in modes:
+        line = "%-16s" % mo
+        for c in cells:
+            vals = []
+            for m in by.get((mo, c), []):
+                seen = [
+                    (v["r"] if isinstance(v, dict) else v)
+                    for k, v in (m.get("genomic_test") or {}).items()
+                    if k != c
+                ]
+                seen = [x for x in seen if isinstance(x, (int, float)) and np.isfinite(x)]
+                if seen:
+                    vals.append(float(np.mean(seen)))
+            line += "%13s" % ("%.4f" % np.mean(vals) if vals else "-")
+        print(line)
     print("\nBlank = no valid zero-shot score: `embed` and `onehot` cannot build a vector")
     print("for a cell they never trained, so their held-out row is an untrained artifact.")
 
