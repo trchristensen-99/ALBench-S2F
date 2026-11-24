@@ -17,7 +17,12 @@ import numpy as np
 ROOT = "/grid/wsbs/home_norepl/christen/ALBench-S2F"
 NEST = f"{ROOT}/outputs/grid_pools/k562_nested"
 REPS = f"{ROOT}/outputs/grid_pools/k562_reps"
-LADDER = (10000, 30000, 100000, 300000)
+# 1M belongs here because the two motif reservoirs actually have 1M pools and they are
+# nested like every other size. Without it a request for 400k-600k finds no source above
+# itself and is refused as "above the ladder", which is how the motif_ct_enriched curve
+# came to stop at 300k while motif_shared_core ran to 1M -- a missing rung in the one
+# comparison that decides what a million-sequence allocation buys.
+LADDER = (10000, 30000, 100000, 300000, 1000000)
 
 
 def slice_one(src: str, dst: str, n: int, dry: bool) -> str:

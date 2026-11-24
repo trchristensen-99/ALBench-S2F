@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from albench.reservoir.base import ReservoirSampler
+from albench.reservoir.random_sampler import _dinuc_shuffle
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         motif_mutation_rate: float = 0.0,
         ct_bias: float = 0.0,
         instance_pool: int = 256,
+        tier_weights: str | None = None,
     ) -> None:
         """Initialize sampler.
 
@@ -168,6 +170,36 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             instance_pool: Instances pre-drawn per motif under ``pwm_sample``.
                 Reservoirs are generated at the 1M+ scale, so instances are drawn from
                 this pool rather than freshly per plant.
+            tier_weights: Plant from SEVERAL annotation tiers at once, as
+                ``"shared_core=0.4,k562_only=0.3,hepg2_only=0.2,decoy=0.1"``. Weights are
+                normalised and name the fraction of planted SITES (not sequences) drawn
+                from each tier. This is the discrimination arm: ``vocab_subset`` restricts
+                the vocabulary to one annotation class, so a student trained on it sees
+                only motifs that are active here and never learns what an inactive one
+                looks like -- every motif it has ever seen predicted activity. Tiers put
+                active, cell-type-specific, other-cell-type and non-functional sites in
+                the same corpus so the contrast is learnable.
+
+                Tiers resolve against the ``tf_sets`` asset, for the K562 target:
+                ``shared_core`` (active across cell types), ``k562_only`` (specific to
+                the target), ``hepg2_only`` (annotated active in the OTHER cell type and
+                so expected inactive here), ``ct_enriched``, ``k562``, ``hepg2``,
+                ``other`` (in the vocabulary, in none of the annotated sets), and the
+                synthetic ``decoy``. ``hepg2_only`` and ``other`` are the arms that test
+                the annotation itself rather than trusting it: ChIP-derived activity
+                calls are noisy, and a site the annotation says is dead here is only
+                evidence of nothing if the oracle agrees.
+
+                ``decoy`` plants a dinucleotide-preserving shuffle of a real motif
+                instance -- same length, same dinucleotide composition, no binding
+                preference. It separates "a motif-shaped thing sits here" from "THIS
+                motif sits here", which is the confound a planted corpus otherwise
+                carries: without it, a student can score well by detecting that the
+                background was overwritten at all.
+
+                Cannot be combined with ``vocab_subset`` (a tier draw needs the whole
+                vocabulary to draw tiers FROM) or with ``ct_bias`` (both reweight the
+                same draw, and together neither fraction is the realised one).
         """
         if plant_mode not in ("pwm_sample", "consensus"):
             raise ValueError(f"plant_mode must be 'pwm_sample' or 'consensus', got {plant_mode!r}")
@@ -203,11 +235,79 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         self.motif_mutation_rate = motif_mutation_rate
         self.ct_bias = ct_bias
         self.instance_pool = instance_pool
+        self.tier_weights = tier_weights
+        # Parse at construction, not at generate(): a typo in a tier name is a silent
+        # reweighting of the whole corpus otherwise, and by the time generate() runs we
+        # are inside an array task that has already paid for a GPU.
+        self._tiers, self._tier_p = self._parse_tiers(tier_weights)
+        if self._tiers and vocab_subset:
+            raise ValueError(
+                f"tier_weights and vocab_subset={vocab_subset!r} cannot be combined: "
+                "vocab_subset restricts the vocabulary to one annotation class, which is "
+                "the very set a tier draw has to choose BETWEEN. Drop vocab_subset and "
+                "express the restriction as a tier weight of 1.0."
+            )
+        if self._tiers and ct_bias > 0:
+            raise ValueError(
+                f"tier_weights and ct_bias={ct_bias} both reweight the same per-site draw, "
+                "so together neither number is the realised fraction. Express the "
+                "cell-type upweighting as a tier weight instead."
+            )
+        self._tier_entries: dict[str, np.ndarray] = {}  # tier -> entry indices, lazy
         self._ct_entries: set[str] = set()
         self._bg_seqs: np.ndarray | None = None  # lazy
         self._vocab: list = []  # lazy: list[Motif], one representative per entry
         self._inst: dict[str, list[str]] = {}  # entry label -> pre-drawn instances
         self._native_consensus: list[str] = []  # every variant's consensus, for native scan
+
+    # Tiers backed by a named list in the tf_sets asset, plus two that are not.
+    _SYNTH_TIERS = ("other", "decoy")
+
+    @staticmethod
+    def _parse_tiers(spec: str | None) -> tuple[tuple[str, ...], np.ndarray | None]:
+        """Parse ``"a=0.4,b=0.6"`` into tier names and a normalised probability vector."""
+        if not spec:
+            return (), None
+        names: list[str] = []
+        w: list[float] = []
+        for item in str(spec).split(","):
+            item = item.strip()
+            if not item:
+                continue
+            if "=" not in item:
+                raise ValueError(
+                    f"tier_weights entry {item!r} must be name=weight, as in "
+                    "'shared_core=0.4,k562_only=0.3,hepg2_only=0.2,decoy=0.1'"
+                )
+            k, v = item.split("=", 1)
+            try:
+                f = float(v)
+            except ValueError:
+                raise ValueError(f"tier weight for {k.strip()!r} is not a number: {v!r}") from None
+            if f < 0:
+                raise ValueError(f"tier weight for {k.strip()!r} is negative: {f}")
+            names.append(k.strip())
+            w.append(f)
+        if not names:
+            raise ValueError(f"tier_weights parsed to nothing: {spec!r}")
+        if len(set(names)) != len(names):
+            raise ValueError(f"tier_weights names a tier twice: {spec!r}")
+        arr = np.asarray(w, dtype=float)
+        if arr.sum() <= 0:
+            raise ValueError(f"tier weights sum to {arr.sum()}; at least one must be > 0")
+        return tuple(names), arr / arr.sum()
+
+    def _load_tf_sets(self) -> dict[str, set[str]]:
+        import yaml
+
+        from albench.paths import resolve as resolve_asset
+
+        raw = yaml.safe_load(Path(resolve_asset("tf_sets")).read_text()) or {}
+        return {
+            k: {str(t).upper() for t in v}
+            for k, v in raw.items()
+            if not k.startswith("_") and isinstance(v, list)
+        }
 
     def _resolve_tf_sets(self) -> tuple[set[str] | None, set[str]]:
         """Return (tf names to KEEP or None, cell-type-enriched tf names).
@@ -319,6 +419,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         self._vocab = []
         self._native_consensus = []
         n_members = []
+        entry_tfs: list[set[str]] = []
         for g in groups:
             variants = list(g)
             if self.include_rc_variants:
@@ -335,6 +436,12 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             self._vocab.append(g[0])
             self._native_consensus.extend(m.consensus for m in variants)
             n_members.append(len(g))
+            # Same tokenisation the ct_bias path uses, so an entry is assigned to a tier
+            # by exactly the rule that assigns it to the cell-type-enriched pool.
+            entry_tfs.append({t.upper() for m in g for t in re.split(r"[:\-_.]", m.name) if t})
+
+        if self._tiers:
+            self._build_tier_index(entry_tfs)
 
         lens = np.array([m.length for m in self._vocab])
         nm = np.array(n_members)
@@ -348,6 +455,57 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             f"rc={'in-entry' if self.include_rc_variants else 'off'}"
         )
         return self._vocab
+
+    def _build_tier_index(self, entry_tfs: list[set[str]]) -> None:
+        """Map each requested tier to the vocabulary entries that belong to it.
+
+        An entry may belong to several tiers (a TF can be both shared_core and k562), and
+        that overlap is kept rather than resolved by priority: forcing a single assignment
+        would silently shrink whichever tier lost the tie, and the weights would then not
+        describe the corpus. A tier draw picks the tier first and then an entry uniformly
+        within it, so overlap costs nothing.
+        """
+        sets = self._load_tf_sets()
+        unknown = [t for t in self._tiers if t not in sets and t not in self._SYNTH_TIERS]
+        if unknown:
+            raise ValueError(
+                f"tier_weights names {unknown} which the tf_sets asset does not define. "
+                f"Available: {sorted(sets)} plus {list(self._SYNTH_TIERS)}."
+            )
+
+        annotated = set().union(*sets.values()) if sets else set()
+        self._tier_entries = {}
+        for t in self._tiers:
+            if t == "decoy":
+                # Drawn from the whole vocabulary and then shuffled, so every entry is
+                # eligible; the tier is a transformation, not a subset.
+                idx = np.arange(len(self._vocab), dtype=int)
+            elif t == "other":
+                idx = np.array(
+                    [i for i, tf in enumerate(entry_tfs) if not (tf & annotated)], dtype=int
+                )
+            else:
+                want = sets[t]
+                idx = np.array([i for i, tf in enumerate(entry_tfs) if tf & want], dtype=int)
+            self._tier_entries[t] = idx
+
+        empty = [t for t in self._tiers if self._tier_entries[t].size == 0]
+        if empty:
+            # Dropping an empty tier would redistribute its weight to the others without
+            # saying so, and the arm's label would then misdescribe the corpus it built.
+            raise ValueError(
+                f"tier(s) {empty} match no vocabulary entry, so the requested mixture "
+                f"cannot be built. Vocabulary is {len(self._vocab)} entries; tier sizes "
+                f"{ {t: int(self._tier_entries[t].size) for t in self._tiers} }. Loosen "
+                "vocab_cluster_at / vocab_trim_ic / vocab_max_len, or drop the tier."
+            )
+        logger.info(
+            "MotifPlantedV2 tiers: "
+            + ", ".join(
+                f"{t}={self._tier_entries[t].size} entries @ {p:.2f}"
+                for t, p in zip(self._tiers, self._tier_p, strict=True)
+            )
+        )
 
     def _load_backgrounds(self) -> np.ndarray:
         if self._bg_seqs is None:
@@ -407,7 +565,23 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                         pos = core_str.find(motif, pos + 1)
 
             n_plant = self._rng.integers(self.min_motifs, self.max_motifs + 1)
-            if ct_pool.size and self.ct_bias > 0:
+            site_tier: list[str] | None = None
+            if self._tiers:
+                # Tier first, then an entry uniformly inside it. Drawing the entry first
+                # and rejecting would make the realised fractions depend on tier sizes
+                # rather than on the weights that were asked for.
+                picks = self._rng.choice(len(self._tiers), size=n_plant, p=self._tier_p)
+                site_tier = [self._tiers[p] for p in picks]
+                chosen_idx = np.array(
+                    [
+                        int(
+                            self._tier_entries[t][self._rng.integers(0, self._tier_entries[t].size)]
+                        )
+                        for t in site_tier
+                    ],
+                    dtype=int,
+                )
+            elif ct_pool.size and self.ct_bias > 0:
                 # Upweight, do not restrict: a fraction of sites come from the
                 # cell-type-enriched entries, the rest from the whole vocabulary.
                 from_ct = self._rng.random(n_plant) < self.ct_bias
@@ -419,13 +593,23 @@ class MotifPlantedV2Sampler(ReservoirSampler):
             else:
                 chosen_idx = self._rng.integers(0, len(motifs), size=n_plant)
             planted_log = []
-            for mi in chosen_idx:
+            for si, mi in enumerate(chosen_idx):
                 mi = int(mi)
                 # A fresh draw per plant, so the same motif appears as different
                 # strings across the reservoir.
                 pool = self._inst[motif_names[mi]]
                 motif = self._mutate_site(pool[int(self._rng.integers(0, len(pool)))])
                 label = motif_names[mi]
+                if site_tier is not None:
+                    tier = site_tier[si]
+                    if tier == "decoy":
+                        # Same length and dinucleotide composition, no binding
+                        # preference: the control that separates "the background was
+                        # overwritten here" from "this motif is here".
+                        motif = _dinuc_shuffle(motif, self._rng)
+                        label = f"decoy:{label}"
+                    else:
+                        label = f"{tier}:{label}"
                 motif_len = len(motif)
                 if motif_len >= seq_len:
                     continue
@@ -452,6 +636,9 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 "vocab_size": len(motifs),  # entries (clusters), not orientations
                 "plant_mode": self.plant_mode,
                 "cluster_mode": self.cluster_mode,
+                # Requested fractions; the REALISED ones are recoverable per site from the
+                # "tier:motif" prefixes in planted_motifs, which is the number to report.
+                "tier_weights": self.tier_weights or "",
                 "planted_motifs": planted_motifs_list,
                 "n_motifs_planted": np.array(n_planted_list, dtype=np.int32),
                 "n_native_motifs_preserved": np.array(n_native_kept, dtype=np.int32),

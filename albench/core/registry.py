@@ -446,6 +446,43 @@ def _reg_motif() -> None:
         )
     )
 
+    # The DISCRIMINATION arm. Every motif reservoir above restricts the vocabulary to one
+    # annotation class, so a student trained on it has never seen a motif that is present
+    # and inactive -- every motif in its experience predicted activity, and it cannot have
+    # learned to tell the three classes apart. This one plants from all of them at once.
+    #
+    # Two of the tiers test the annotation rather than trusting it. `hepg2_only` is
+    # annotated active in HepG2 and NOT in K562, so under the annotation it should be
+    # inert here; `other` is in the vocabulary and in none of the annotated sets at all.
+    # ChIP-derived activity calls are noisy and incomplete, so "inactive here" is a
+    # hypothesis -- and a sequence whose planted site the annotation calls dead but the
+    # oracle scores as live is exactly the observation that corrects the annotation. A
+    # library that only ever plants motifs already believed active cannot make it.
+    tiered = dict(shared)
+    tiered["tier_weights"] = Param(
+        "shared_core=0.35,k562_only=0.30,hepg2_only=0.20,decoy=0.15",
+        "fraction of planted SITES per annotation tier: shared_core | k562_only | "
+        "hepg2_only | ct_enriched | k562 | hepg2 | other | decoy (dinucleotide-shuffled "
+        "motif: same length and composition, no binding preference)",
+    )
+    tiered.pop("ct_bias")  # mutually exclusive: both reweight the same per-site draw
+    register(
+        Spec(
+            name="motif_tiered",
+            group="motif",
+            doc=(
+                "Motifs planted from SEVERAL annotation tiers at once -- shared, "
+                "cell-type-specific, annotated-inactive-here, and non-functional decoys -- "
+                "so a student can learn to tell them apart instead of only ever seeing "
+                "motifs that work. Also the arm that tests the activity annotation itself."
+            ),
+            factory=lambda seed=None, **kw: MotifPlantedV2Sampler(seed=seed, motif_set="pfm", **kw),
+            adapter=lambda s, n, ctx: s.generate(n, task=ctx.task),
+            assets=("bg_cache",),
+            params=tiered,
+        )
+    )
+
 
 def _reg_baselines() -> None:
     from albench.reservoir.genomic import GenomicSampler
