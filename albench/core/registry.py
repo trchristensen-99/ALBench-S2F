@@ -466,6 +466,17 @@ def _reg_motif() -> None:
         "motif: same length and composition, no binding preference)",
     )
     tiered.pop("ct_bias")  # mutually exclusive: both reweight the same per-site draw
+    # Without this the tier arm is not density-comparable to the arms it is read against.
+    # Measured over 200 sequences: the unrestricted 628-entry vocabulary finds 179 native
+    # "matches" per 200-bp window and plants 2.21 of the 3-7 sites asked for, against 5.10
+    # for motif_shared_core and 4.61 for motif_ct_enriched. A 200-bp window does not hold
+    # 179 binding sites -- consensus strings run as short as 4 bp and match by chance --
+    # so the blocked positions are arithmetic. 8 bp keeps the protection where a match
+    # means something. The restriction is set HERE rather than in the sampler default so
+    # that no arm measured before 2026-11-24 changes behaviour.
+    tiered["native_min_len"] = Param(
+        8, "ignore native matches shorter than this when reserving positions"
+    )
     register(
         Spec(
             name="motif_tiered",
@@ -812,6 +823,62 @@ def _reg_sheet_additions() -> None:
                     "population_size": Param(100, "candidates per generation"),
                     "elite_fraction": Param(0.2, "top fraction carried forward"),
                     "temperature": Param(1.0, "softmax temperature on selection"),
+                },
+            )
+        )
+
+    # FastSeqProp -- gradient design, not evolution. Gosai et al. built their designed
+    # high-activity set with this (plus simulated annealing and AdaLead), and that set is
+    # one of our eval corpora, so it is worth having a reservoir that reaches sequence
+    # space the way the thing we are evaluated on was reached. Every ise_ arm explores by
+    # mutation and therefore stays near sequences it has already scored; this optimises
+    # the input directly and goes somewhere else.
+    from albench.reservoir.fastseqprop import FastSeqPropSampler
+
+    _FSP_VARIANTS = [
+        ("fastseqprop", {"objective": "maximize"}, "Gradient ascent toward HIGH activity."),
+        ("fastseqprop_min", {"objective": "minimize"}, "Gradient descent toward LOW activity."),
+        (
+            "fastseqprop_target",
+            {"objective": "target", "target_activity": 0.5},
+            "Gradient design toward a MID target, so the corpus covers the middle of the "
+            "range rather than only its ends.",
+        ),
+        (
+            "fastseqprop_random_init",
+            {"objective": "maximize", "init": "random"},
+            "Gradient ascent from NOISE rather than from a real CRE. The paired control "
+            "for how much of the designed sequence is the starting CRE and how much the "
+            "optimisation actually put there.",
+        ),
+    ]
+    for _name, _fixed, _doc in _FSP_VARIANTS:
+        register(
+            Spec(
+                name=_name,
+                group="model_generative",
+                doc=(
+                    _doc + " Needs a DIFFERENTIABLE guide (a LegNet bank, not the "
+                    "AlphaGenome oracle): it takes gradients through the input one-hot."
+                ),
+                factory=lambda seed=None, _f=_fixed, **kw: FastSeqPropSampler(
+                    seed=seed, **{**_f, **kw}
+                ),
+                adapter=_ise_adapter_named(_name),
+                needs_pool=True,
+                assets=("oracle",),
+                params={
+                    "n_steps": Param(150, "Adam steps per batch; cost is linear in this"),
+                    "lr": Param(0.1, "Adam learning rate on the logits"),
+                    "batch_size": Param(512, "designs optimised simultaneously"),
+                    "guide_members": Param(2, "bank members to backprop through (None=all)"),
+                    "init": Param(
+                        "pool",
+                        "pool (start from a real CRE) | random (start from noise)",
+                        choices=("pool", "random"),
+                    ),
+                    "tau": Param(1.0, "softmax temperature"),
+                    "entropy_weight": Param(0.0, "penalty keeping the distribution open"),
                 },
             )
         )

@@ -113,6 +113,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         ct_bias: float = 0.0,
         instance_pool: int = 256,
         tier_weights: str | None = None,
+        native_min_len: int = 0,
     ) -> None:
         """Initialize sampler.
 
@@ -200,6 +201,26 @@ class MotifPlantedV2Sampler(ReservoirSampler):
                 Cannot be combined with ``vocab_subset`` (a tier draw needs the whole
                 vocabulary to draw tiers FROM) or with ``ct_bias`` (both reweight the
                 same draw, and together neither fraction is the realised one).
+            native_min_len: Ignore native matches shorter than this when deciding which
+                positions are already occupied. 0 keeps every match, which is the
+                behaviour every arm built before 2026-11-24 used.
+
+                This exists because native-motif protection silently caps planting
+                density, and the cap scales with how many consensus strings get scanned.
+                Measured over 200 sequences: motif_shared_core (71 entries) finds 3.8
+                native matches and plants 5.10 sites of the 3-7 asked; motif_ct_enriched
+                (152) finds 19.7 and plants 4.61; the unrestricted 628-entry vocabulary
+                finds 179.4 and plants 2.21. A 200-bp window cannot hold 179 real binding
+                sites -- the vocabulary contains consensus strings as short as 4 bp, and a
+                given 4-mer occurs by chance about once per 256 bases, so most of those
+                matches are arithmetic rather than biology. Protecting them fills
+                ``occupied`` and planting then fails its 20 placement attempts.
+
+                Setting this to 8 keeps the protection for sites long enough that a match
+                means something and restores the asked-for density. It is NOT applied to
+                the pre-existing arms, whose results are already measured under the old
+                behaviour; changing those in passing would silently break comparability
+                with every Arm A number.
         """
         if plant_mode not in ("pwm_sample", "consensus"):
             raise ValueError(f"plant_mode must be 'pwm_sample' or 'consensus', got {plant_mode!r}")
@@ -236,6 +257,7 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         self.ct_bias = ct_bias
         self.instance_pool = instance_pool
         self.tier_weights = tier_weights
+        self.native_min_len = int(native_min_len)
         # Parse at construction, not at generate(): a typo in a tier name is a silent
         # reweighting of the whole corpus otherwise, and by the time generate() runs we
         # are inside an array task that has already paid for a GPU.
@@ -529,7 +551,9 @@ class MotifPlantedV2Sampler(ReservoirSampler):
         vocab = self._build_vocab()
         motifs = [m.consensus for m in vocab]
         motif_names = [m.name for m in vocab]
-        native_scan = self._native_consensus
+        # Filtered once, not per sequence: a short consensus is scanned against every
+        # background otherwise, and the scan is the expensive half of generation.
+        native_scan = [s for s in self._native_consensus if len(s) >= self.native_min_len]
         ct_pool = np.array(
             [i for i, nm in enumerate(motif_names) if nm in self._ct_entries], dtype=int
         )
