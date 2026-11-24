@@ -41,6 +41,11 @@ METHODS = (
     "badge_epistemic_only",
     "badge_kmeanspp_only",
     "batchbald",
+    # Added 2026-11-24. The first three were registered as strategies but were never
+    # reachable from the AL loop, so no arm had ever run them end to end.
+    "activity_normalized",
+    "diversity_kmeans",
+    "expected_activity",
 )
 
 
@@ -67,6 +72,28 @@ def build_acq(method: str, seed: int):
         return KMeansPPOnlyAcquisition(seed=seed)
     if method == "batchbald":
         return BatchBALDAcquisition(seed=seed)
+    if method == "activity_normalized":
+        # The CONTROL for plain `epistemic`, and the reason it matters: activities are
+        # log2FC, and in regression the absolute error grows with the magnitude of the
+        # prediction, so ranking by raw ensemble spread partly re-ranks by activity.
+        # Arm B is consistent with exactly that -- epistemic selected a label mean of
+        # 2.38 against a pool mean of 1.21 on motif_shared_core. This scores each
+        # candidate by how far its uncertainty sits ABOVE the trend at its own activity
+        # level, so "genuinely ambiguous" is separated from "merely active". If it
+        # matches random, epistemic's gain was an activity gain.
+        from albench.acquisition.uncertainty_variants import (
+            ActivityNormalisedUncertaintyAcquisition,
+        )
+
+        return ActivityNormalisedUncertaintyAcquisition(seed=seed)
+    if method == "diversity_kmeans":
+        from albench.acquisition.diversity import DiversityAcquisition
+
+        return DiversityAcquisition(seed=seed)
+    if method == "expected_activity":
+        from albench.acquisition.ensemble_acq import ExpectedActivityAcquisition
+
+        return ExpectedActivityAcquisition(seed=seed)
     raise ValueError(f"unknown method {method!r}; have {METHODS}")
 
 
