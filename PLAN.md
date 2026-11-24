@@ -64,3 +64,53 @@ why this cost one job rather than eight GPU-hours.
 the deliverable); expression-conditioned cell-type conditioning, which needs ENCODE pulls
 for five cell lines; the ct45 LOCO fold, still diverging in 9 of 42 runs at lr 0.005 even
 with clipping.
+
+## 2026-11-24 (evening) — tiers, gradient design, and the pool-size axis nobody had moved
+
+**Cancelled.** `ab42`, the 300k-start acquisition arm, six tasks in flight. The from-scratch
+rung is what the library decision rests on and the start-from-300k arm needed 450k-sequence
+runs to say anything. 65 GPU-h and six queue slots returned; the queue absorbed them inside
+three minutes.
+
+**Launched.**
+
+| arm | what | cost |
+|---|---|---|
+| `sc46` (registry, 12 cells) | the missing `motif_ct_enriched` from-scratch curve at 400k/500k/600k/1M, seed-PAIRED with shared_core's own seeds at each size | 52 GPU-h |
+| `ab43` (4074540) | candidate-pool SIZE via `--cap` (50k/500k/970k) and a UNION pool over both motif reservoirs, 5 seeds each | 24 GPU-h |
+| `cd46` (4074575) | `onehot` and `embed` conditioning against `agnostic`/`text`/`text_shuffled` on SEEN cells, lr 0.002 | ~22 GPU-h |
+| Arm A3 (4074595 + 30 cells) | six motif-TIER mixtures and four FastSeqProp designers | ~20 GPU-h |
+
+**Three findings that changed what got built.**
+
+- *Arm B never used its 1M pools.* `run_al` caps scored candidates at 200,000 and uniformly
+  subsamples above that (`albench/acquisition/run_al.py:111`), so every published Arm B arm
+  selected from 200k candidates whatever pool it was pointed at. The pool-size axis is
+  therefore unmeasured, and `--cap` on one pool is a cleaner experiment than slicing pools:
+  seed set, reservoir, recipe and oracle are all held byte-identical.
+- *Native-motif protection was capping planting density, and the cap scales with vocabulary
+  size.* Measured over 200 sequences: shared_core (71 entries) finds 3.8 native matches and
+  plants 5.10 of the 3-7 asked; ct_enriched (152) finds 19.7 and plants 4.61; the
+  unrestricted 628-entry vocabulary finds 179.4 and plants 2.21. Consensus strings run as
+  short as 4 bp and match by chance. `native_min_len` fixes it, defaulting to 0 so no arm
+  measured before today changes; only `motif_tiered` sets 8, which restored it to 4.96.
+  **Consequence: the site-density variants now running must be read on MEASURED density.**
+- *FastSeqProp optimises hard and partly optimises its guide.* Canary: guide 0.358 -> 14.08
+  on its own designs, oracle 6.92 on the same sequences, 0.48 on the CREs they started from.
+  The gain is real (the oracle is independent) but about half the claimed improvement is
+  guide exploitation, and 6.92 is far outside the measured range (motif pools 0.78-1.21).
+  Report the guide-oracle gap for every model-guided arm.
+
+**Not launched, and why.** The AlphaGenome yeast oracle is S1 — a head trained on a FROZEN
+human/mouse-pretrained encoder — which is the obvious explanation for r = 0.6076 against the
+RNN's 0.9647: nothing makes a frozen human encoder linearly predict yeast promoter strength.
+S2 (joint encoder + head fine-tuning) is already implemented as a student type with an HP
+grid for `alphagenome_yeast_s2` and was never used for the oracle. But no training script for
+the yeast AG oracle survives in the repo, so this is a new JAX/orbax trainer rather than a
+config change, and it is not on the critical path: we have a 0.9647 oracle. Staged plan is
+one fold first (~6 GPU-h) against the RNN's 0.9647 before committing to a 10-fold ensemble.
+
+**Budget.** ~174 GPU-h committed across today, over the standing 150 GPU-h grant. The
+instruction was to saturate the GPUs and the queue is in fact saturated (42 running, 13
+pending, zero free, at the cap on every QOS). `cd46` is the arm to cut first if the grant
+is meant to hold.
