@@ -312,7 +312,16 @@ FAMILIES: dict[str, tuple[str | None, list[str], str]] = {
 
 
 def fig2(out: Path) -> None:
-    fig, ax = plt.subplots(figsize=(7.6, 4.6))
+    fig, ax = plt.subplots(figsize=(8.8, 4.6))
+    # Both motif reservoirs as reference lines, not just each family's own default: the best
+    # member of the vocab/density family (`mot_core_ct50`) is a motif_shared_core variant,
+    # so without shared_core's line a reader credits it with a gain that is just the other
+    # reservoir.
+    for res, ls in (("motif_ct_enriched", ":"), ("motif_shared_core", "--")):
+        b = arm(res, MR)
+        if b:
+            ax.axvline(b["ood"], color=GREY, lw=1, ls=ls)
+            ax.text(b["ood"], 0.72, f" {res}", rotation=90, fontsize=6.5, color=GREY, va="bottom")
     y = 0
     ticks, labels = [], []
     for fam, (base, variants, colour) in FAMILIES.items():
@@ -343,10 +352,12 @@ def fig2(out: Path) -> None:
         labels.append(f"{fam}  (n={len(vals)})")
         y -= 1
     ax.set_yticks(ticks, labels)
+    ax.set_xlim(right=ax.get_xlim()[1] + 0.13)  # room for the best-member labels
     ax.set_xlabel("designed-set r  (stacked, 3 seeds, 30k)")
     ax.set_title(
         "Within-family spread is often larger than between-family\n"
-        "open circle = the family's default; label = best member",
+        "open circle = that family's default; label = best member; grey lines = the two "
+        "motif reservoirs",
         loc="left",
     )
     fig.savefig(out / "fig2_within_family_spread.png")
@@ -452,11 +463,19 @@ def fig4(out: Path) -> None:
     b = arm("motif_ct_enriched", MR)
     if b:
         ax.axhline(b["ood"], color="black", lw=1.2, ls="--")
-        ax.text(
-            0.01,
-            b["ood"] + 0.004,
-            "motif_ct_enriched (plants only active classes)",
+        ax.text(0.01, b["ood"] + 0.004, "motif_ct_enriched: the untiered reservoir", fontsize=7.5)
+    # The control carries the argument: tier_active_only plants NOTHING the annotation calls
+    # inactive and still loses most of the gap, so the cost is not the inactive content.
+    ctrl = next((p for p in pts if p[2] == "tier_active_only"), None)
+    if ctrl and b:
+        ax.annotate(
+            f"tier_active_only\n0% inactive, still {ctrl[1] - b['ood']:+.3f}",
+            (ctrl[0], ctrl[1]),
+            textcoords="offset points",
+            xytext=(14, -6),
             fontsize=7.5,
+            color=BLUE,
+            arrowprops={"arrowstyle": "->", "color": BLUE, "lw": 0.9},
         )
     x = np.array([p[0] for p in pts])
     yv = np.array([p[1] for p in pts])
@@ -466,24 +485,24 @@ def fig4(out: Path) -> None:
         ax.plot(xs, np.polyval(k, xs), color=GREY, lw=1.2)
         ax.text(
             0.98,
-            0.95,
-            f"slope {k[0]:+.2f} r per unit inactive fraction\n"
+            0.06,
+            f"no dose-response: slope {k[0]:+.2f} r per unit inactive fraction,\n"
             f"Pearson {np.corrcoef(x, yv)[0, 1]:+.2f} over {len(x)} arms",
             transform=ax.transAxes,
             ha="right",
-            va="top",
+            va="bottom",
             fontsize=7.5,
             color=GREY,
         )
     ax.set_xlabel("fraction of planted sites annotated inactive in K562 (incl. decoys)")
     ax.set_ylabel("designed-set r")
     ax.set_title(
-        "Planting sites the annotation calls dead costs real performance\n"
-        "and the cost scales with how many",
+        "Every tiered arm loses, but HOW MUCH inactive content does not predict how much.\n"
+        "The cost is partitioning the vocabulary, not the inactive sites themselves.",
         loc="left",
     )
     ax.legend(fontsize=8, loc="lower left")
-    fig.savefig(out / "fig4_tier_inactive_cost.png")
+    fig.savefig(out / "fig4_tier_cost.png")
     plt.close(fig)
     print("fig4 written")
 
@@ -539,40 +558,48 @@ def fig5(out: Path) -> None:
 
     # (b) the rules, all at the same reservoir, recipe, seeds and cap.
     ax = axes[1]
+    # Colour encodes the RESERVOIR and position encodes the rule: colouring per rule as
+    # well leaves the legend describing one thing and the bars another.
     rules = [
-        ("random", "random", GREY),
-        ("epistemic", "epistemic", BLUE),
-        ("activity_normalized", "activity-normalised", GREEN),
-        ("expected_activity", "expected activity", VERM),
-        ("diversity_kmeans", "diversity (k-means)", ORANGE),
+        ("random", "random"),
+        ("epistemic", "epistemic"),
+        ("activity_normalized", "activity-normalised"),
+        ("expected_activity", "expected activity"),
+        ("diversity_kmeans", "diversity (k-means)"),
     ]
-    width, got = 0.38, False
-    for k, (res, off) in enumerate(
-        (("motif_shared_core", -width / 2), ("motif_ct_enriched", width / 2))
+    width, got, missing = 0.38, False, []
+    for k, (res, off, colour) in enumerate(
+        (
+            ("motif_shared_core", -width / 2, BLUE),
+            ("motif_ct_enriched", width / 2, GREEN),
+        )
     ):
-        xs, ys, cs = [], [], []
-        for i, (m, _lab, colour) in enumerate(rules):
+        xs, ys = [], []
+        for i, (m, _lab) in enumerate(rules):
             s = _one(A44, f"{res}_{m}")
             if s:
                 xs.append(i + off)
                 ys.append(s["ood"])
-                cs.append(colour)
                 got = True
+            else:
+                missing.append(i + off)
         if xs:
             ax.bar(
                 xs,
                 ys,
                 width=width,
-                color=cs,
-                alpha=0.55 if k else 1.0,
+                color=colour,
                 edgecolor="black",
                 linewidth=0.4,
-                label="shared_core" if k == 0 else "ct_enriched",
+                label=res.replace("motif_", ""),
             )
     if got:
-        ax.set_xticks(range(len(rules)), [lab for _, lab, _ in rules], rotation=20, ha="right")
+        ax.set_xticks(range(len(rules)), [lab for _, lab in rules], rotation=20, ha="right")
         ax.set_ylabel("designed-set r")
         ax.set_ylim(0.55, None)
+        lo = ax.get_ylim()[0]
+        for x in missing:
+            ax.text(x, lo + 0.004, "running", rotation=90, fontsize=6.5, ha="center", color=GREY)
         ax.legend(fontsize=7.5)
     else:
         note(ax, "acquisition rules still training")
@@ -704,6 +731,11 @@ def fig7(out: Path) -> None:
         xs = np.array(centres, dtype=float) + (i - 1) * w
         ys = [got.get((c, m), 0.0) for c in present]
         ax.bar(xs, ys, width=w, color=colours[m], label=m, edgecolor="black", linewidth=0.3)
+        # A missing bar here is a run that DIVERGED at lr 0.005 and was dropped, not a
+        # measured zero. Say so on the axis rather than leaving a gap to be misread.
+        for x, c in zip(xs, present, strict=False):
+            if (c, m) not in got:
+                ax.text(x, 0.012, "diverged", rotation=90, fontsize=6, ha="center", color=GREY)
     if any(cd47.values()):
         x0 = len(present) + 0.5
         for i, m in enumerate(modes):
