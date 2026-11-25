@@ -106,12 +106,30 @@ Stated in advance so the decision is not made after seeing the numbers:
 - the controller never moves the split, i.e. the informativeness signal is flat, which
   would mean the exploit half was never distinguishable from the explore half.
 
+## Rounds: three, and run it inside the existing acquisition arms
+
+**Three rounds, not five**, and not as a standalone experiment. `ab41` already runs the
+acquisition arms at R=1 and R=3 over the same 30k seed and the same 30k total budget, so a
+3-round adaptive arm drops straight into that table and is read against `epistemic`,
+`badge`, `random` and the rest at identical budget, seeds and recipe. A 5-round arm would
+be comparable to nothing we have, and the extra two rounds would be spent before we know
+whether the first three move anything.
+
+This also fixes the comparison problem: the question is not "does the adaptive reservoir
+improve over its own round 0" -- almost anything does -- but "does it beat the best fixed
+reservoir plus the best acquisition rule at the same budget". Running it as a method inside
+the existing 3-round arm makes that the default reading rather than an extra analysis.
+
+If three rounds show movement, extending to five is a cheap follow-up on the same code. If
+they do not, five would not have helped.
+
 ## Cost
 
-Per round at 100k acquired: attribution over the training set ~10 min on an H100; discovery
-~20 min CPU; generation and oracle labelling ~25 min; bank retrain ~2 GPU-h at 3 seeds.
-Call it **3 GPU-h per round**, so a 5-round arm is ~15 GPU-h and the mandatory frozen
-control doubles it to **~30 GPU-h** for one complete comparison.
+Per round at 30k acquired in three steps of 10k: attribution over the training set ~5 min
+on an H100; discovery ~20 min CPU; generation and oracle labelling ~10 min; bank retrain
+~1.5 GPU-h at 3 seeds. Call it **~2 GPU-h per round**, so a 3-round arm is **~6 GPU-h**,
+and the mandatory frozen-reservoir control doubles it to **~12 GPU-h** for one complete
+comparison that slots into the existing table.
 
 That is cheap enough that the reason to think before building is the design risk, not the
 compute.
@@ -123,5 +141,7 @@ compute.
    matched to the adaptive arm's realised mixture? The latter is a harder test and
    separates "adaptation helped" from "the mixture it converged on was good" -- which is
    arguably the result we actually want, since a static mixture is what we would ship.
+   Note this control can only be built *after* the adaptive arm runs, so it is a second
+   pass, not a parallel arm.
 3. Does the loop run on K562 only, or does the yeast half need it too? Yeast has no
    reservoir comparison at all yet, so probably not.
