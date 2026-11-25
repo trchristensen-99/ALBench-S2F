@@ -141,10 +141,15 @@ def score_panel(model, data, rows_mask, cell: str, ref_cell: str, device: str) -
             pr = _predict(model, data, both, jr, device)
             dy = data.y[both, j] - data.y[both, jr]
             dse = np.sqrt(np.square(data.se[both, j]) + np.square(data.se[both, jr]))
-            r_spec = pearson(pt - pr, dy)
-            res["r_specific"] = round(r_spec, 4)
-            res["ceiling_specific"] = round(_ceiling(dy, dse), 4)
-            res["n_specific"] = int(len(both))
+            dp = pt - pr
+            if float(np.ptp(dp)) == 0.0:
+                # Not a NaN to be averaged over later: the quantity does not exist for this
+                # model. Say which, so a silent nan column is never read as "hard endpoint".
+                res["r_specific_unavailable"] = "model predicts both cells identically"
+            else:
+                res["r_specific"] = round(pearson(dp, dy), 4)
+                res["ceiling_specific"] = round(_ceiling(dy, dse), 4)
+                res["n_specific"] = int(len(both))
     return res
 
 
@@ -198,7 +203,19 @@ def acquire(
     if strategy == "contrastive":
         pt = _predict(model, data, avail, j, device)
         others = np.stack([_predict(model, data, avail, o, device) for o in other_j])
-        return avail[np.argsort(np.abs(pt - others.mean(axis=0)))[-k:]]
+        d = np.abs(pt - others.mean(axis=0))
+        # A model that cannot tell the cells apart returns an all-equal d, and argsort of a
+        # constant is index order -- so this would quietly select the last k rows in
+        # chromosome order and report it as a strategy. That is how the first dp48 run
+        # spent its budget. Fail instead.
+        if float(np.ptp(d)) == 0.0:
+            raise RuntimeError(
+                "contrastive: the model predicts an identical value for the target and "
+                "reference cells, so there is no contrast to rank by. An `agnostic` model "
+                "ignores cell_idx entirely; use --mode onehot (cd46: onehot is the ceiling "
+                "for a cell that was trained on)."
+            )
+        return avail[np.argsort(d)[-k:]]
 
     if strategy == "expected_activity":
         return avail[np.argsort(_predict(model, data, avail, j, device))[-k:]]
@@ -238,8 +255,15 @@ def main() -> None:
     ap.add_argument("--ref-cell", default="K562", help="reference for the specificity endpoint")
     ap.add_argument("--strategies", default=",".join(STRATEGIES))
     ap.add_argument("--shots", default="1000,5000,20000,100000")
-    ap.add_argument("--mode", default="agnostic", choices=C.CONDITIONING_MODES)
-    ap.add_argument("--depth", default="readout", choices=C.DEPTHS)
+    # onehot/deep, not agnostic/readout. An agnostic model has no cell input at all, so it
+    # predicts one number per sequence: the specificity endpoint is identically zero (it
+    # reported r_spec=nan in every cell of the first run) and `contrastive` degenerates to
+    # index order. cd46 also measured onehot to be the best conditioning available for a
+    # cell that was trained on -- 0.8180 genomic against agnostic's 0.7830, and 0.8144
+    # against 0.2937 on the designed set -- and indistinguishable from `embed` and `text`,
+    # so it is both the correct and the simplest choice here.
+    ap.add_argument("--mode", default="onehot", choices=C.CONDITIONING_MODES)
+    ap.add_argument("--depth", default="deep", choices=C.DEPTHS)
     ap.add_argument("--d-cond", type=int, default=32)
     ap.add_argument("--pre-epochs", type=int, default=10)
     ap.add_argument("--adapt-epochs", type=int, default=20)
@@ -271,6 +295,15 @@ def main() -> None:
     avail = np.flatnonzero(split["train"] & data.mask[:, tj])
     shots = [int(x) for x in a.shots.split(",")]
     strategies = [s.strip() for s in a.strategies.split(",") if s.strip()]
+    # Checked here rather than at the point of use: the pretrain is ~15 minutes and there is
+    # no reason to spend it on a configuration whose headline endpoint cannot be computed.
+    if a.mode == "agnostic" and ("contrastive" in strategies or ref in data.cells):
+        raise SystemExit(
+            "--mode agnostic has no cell input, so the model predicts one number per "
+            "sequence. The r_specific endpoint is then identically zero and `contrastive` "
+            "has nothing to rank. Pass --mode onehot (the default), or drop both the "
+            "contrastive strategy and the --ref-cell."
+        )
     print(
         f"target {tgt} | ref {ref} | pretrain on {pre_cells}\n"
         f"{len(avail):,} acquirable sequences on train chromosomes | shots {shots}\n"
