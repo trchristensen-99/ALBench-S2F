@@ -13,7 +13,7 @@
 #SBATCH --partition=gpuq
 #SBATCH --account=cshlsbs
 #SBATCH --qos=slow_nice
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=200G
 #SBATCH --time=10:00:00
