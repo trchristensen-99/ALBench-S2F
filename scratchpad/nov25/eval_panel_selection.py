@@ -163,21 +163,42 @@ def collect(min_genomic: float) -> tuple[list[str], list[str], np.ndarray, np.nd
     return names, (keys or []), np.array(means), np.array(sds)
 
 
-def greedy(keys: list[str], disc: np.ndarray, C: np.ndarray, k: int = 5) -> list[int]:
-    """Most discriminating first, then lowest maximum correlation with what is chosen."""
-    order = [int(np.nanargmax(disc))]
+def greedy(
+    keys: list[str],
+    disc: np.ndarray,
+    mean_r: np.ndarray,
+    C: np.ndarray,
+    k: int = 5,
+    min_disc: float = 2.0,
+    max_r: float = 0.90,
+) -> list[int]:
+    """Most discriminating first, then lowest maximum correlation with what is chosen.
+
+    Both filters come straight from the brief: an endpoint must be able to out-rank a
+    re-run (`min_disc`) and must not already be saturated (`max_r`). Without the second one
+    the selection reaches for gc_sweep, which is decorrelated from everything precisely
+    because every corpus scores 0.92 on it and the ordering is close to noise.
+    """
+    ok = [
+        j
+        for j in range(len(keys))
+        if np.isfinite(disc[j]) and disc[j] >= min_disc and mean_r[j] <= max_r
+    ]
+    if not ok:
+        return []
+    order = [max(ok, key=lambda j: disc[j])]
     while len(order) < k:
-        best, best_score = None, np.inf
-        for j in range(len(keys)):
-            if j in order or not np.isfinite(disc[j]) or disc[j] < 1.0:
-                continue
-            worst = np.nanmax(np.abs([C[j, i] for i in order]))
-            # Break ties toward the more discriminating endpoint.
-            score = worst - 0.02 * disc[j] / max(disc)
-            if score < best_score:
-                best, best_score = j, score
-        if best is None:
+        rest = [j for j in ok if j not in order]
+        if not rest:
             break
+        # Lowest worst-case correlation with the current set; ties go to the more
+        # discriminating endpoint.
+        best = min(
+            rest,
+            key=lambda j: (
+                np.nanmax(np.abs([C[j, i] for i in order])) - 0.02 * disc[j] / float(max(disc))
+            ),
+        )
         order.append(best)
     return order
 
@@ -210,8 +231,8 @@ def main() -> int:
     for i in np.argsort(-np.nan_to_num(disc)):
         print(f"{keys[i]:<20}{mean_r[i]:>9.4f}{between[i]:>10.4f}{within[i]:>9.4f}{disc[i]:>9.2f}")
 
-    pick = greedy(keys, disc, C, k=5)
-    print("\nGreedy decorrelated shortlist (discriminating, then least redundant):")
+    pick = greedy(keys, disc, mean_r, C, k=5)
+    print("\nShortlist: discrimination >= 2.0, mean r <= 0.90, then greedily decorrelated")
     for n, i in enumerate(pick, 1):
         worst = max((abs(C[i, j]) for j in pick if j != i), default=0.0)
         print(

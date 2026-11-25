@@ -58,7 +58,11 @@ BLUE, VERM, GREEN, PURPLE, ORANGE, SKY = (
     "#56B4E9",
 )
 GREY = "#6b6b6b"
-SEED_NOISE = 0.008  # measured single-run sd on this harness
+SEED_NOISE = 0.008  # measured single-run sd on this harness, averaged over endpoints
+# Per-endpoint seed noise: the mean within-arm sd over the three seeds, measured across the
+# 36 candidate corpora by scratchpad/nov25/eval_panel_selection.py. These differ by a factor
+# of seven, so the averaged constant above must not be used to compare endpoints.
+NOISE = {"genomic": 0.0022, "ood": 0.0158, "random_32k": 0.0023}
 
 plt.rcParams.update(
     {
@@ -201,16 +205,18 @@ def fig1(out: Path) -> None:
     ax.grid(False)
     fig.colorbar(im, ax=ax, fraction=0.046, shrink=0.8, pad=0.04)
 
-    # (c) discrimination: spread across CANDIDATE corpora in units of seed noise. An
-    # endpoint that cannot separate corpora by more than a re-run separates itself is not
-    # worth a slide.
+    # (c) discrimination: spread across CANDIDATE corpora divided by this endpoint's OWN
+    # seed noise, measured as the within-arm sd over its three seeds. A single shared noise
+    # constant is wrong here and not harmlessly so: the genomic endpoint's within-arm sd is
+    # 0.0022 while the designed set's is 0.0158, a factor of seven, so a shared denominator
+    # understates genomic and overstates designed. fig10 does this for all 31 endpoints.
     ax = axes[2]
-    disc = [M[ok, SETS.index(s)].std() / SEED_NOISE for s in SETS]
+    disc = [M[ok, SETS.index(s)].std() / max(NOISE[s], 1e-6) for s in SETS]
     ax.barh(lab, disc, color=[BLUE, VERM, GREEN], height=0.6)
     ax.axvline(1.0, color=GREY, lw=1, ls="--")
     for i, v in enumerate(disc):
         ax.text(v + max(disc) * 0.02, i, f"{v:.1f}x", va="center", fontsize=8)
-    ax.set_xlabel("candidate spread / seed noise")
+    ax.set_xlabel("candidate spread / that endpoint's seed noise")
     ax.set_title("(c) discrimination", fontsize=9)
     ax.set_xlim(0, max(disc) * 1.3)
 
