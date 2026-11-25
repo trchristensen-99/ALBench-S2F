@@ -285,7 +285,7 @@ def main() -> int:
         x=0.02,
         ha="left",
     )
-    fig.tight_layout(rect=(0, 0.21, 1, 0.96))
+    fig.tight_layout(rect=(0, 0.14, 1, 0.96))
     fig.savefig(out / "fig15_scaling_with_branches.png")
     plt.close(fig)
     print("fig15 written")
@@ -408,7 +408,7 @@ def main() -> int:
         x=0.02,
         ha="left",
     )
-    fig.tight_layout(rect=(0, 0.19, 1, 0.93))
+    fig.tight_layout(rect=(0, 0.13, 1, 0.93))
     fig.savefig(out / "fig15b_selection_vs_drawing.png")
     plt.close(fig)
     print("fig15b written")

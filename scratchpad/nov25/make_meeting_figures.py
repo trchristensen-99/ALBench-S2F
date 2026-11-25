@@ -649,39 +649,48 @@ def fig5b(out: Path) -> None:
     sets = [(k, lab, c) for k, lab, c in A_SETS]
     shades = {1: BLUE, 2: GREEN, 3: ORANGE, 4: VERM}
 
+    # ONE row order for every panel, fewest reservoirs first. Sorting each panel by its own
+    # value put a different combination on each row while the y-axis was shared, so the
+    # labels on the left panel named the wrong bars in the other two.
+    combos = sorted(range(len(B_SETS)), key=lambda j: (len(B_SETS[j]), B_SETS[j]))
+    labels = [" + ".join(SHORT[c] for c in B_SETS[j]) for j in combos]
     fig, axes = plt.subplots(
         len(sets),
         len(rules),
-        figsize=(4.6 * len(rules), 3.5 * len(sets)),
+        figsize=(5.2 * len(rules), 3.9 * len(sets)),
         squeeze=False,
-        sharey="row",
     )
     for r_i, (key, set_lab, _c) in enumerate(sets):
         for c_i, rule in enumerate(rules):
             ax = axes[r_i][c_i]
-            rows = [
-                (len(B_SETS[j]), " + ".join(SHORT[c] for c in B_SETS[j]), st[key])
-                for (rl, j), st in have.items()
-                if rl == rule and key in st
-            ]
-            if not rows:
+            vals = [have.get((rule, j), {}).get(key, np.nan) for j in combos]
+            if not any(np.isfinite(v) for v in vals):
                 note(ax, "still training")
+                ax.set_yticks(range(len(combos)), labels, fontsize=7)
                 continue
-            rows.sort(key=lambda t: t[2])
             ax.barh(
-                range(len(rows)),
-                [t[2] for t in rows],
-                color=[shades[t[0]] for t in rows],
+                range(len(combos)),
+                vals,
+                color=[shades[len(B_SETS[j])] for j in combos],
                 height=0.72,
                 edgecolor="black",
                 linewidth=0.3,
             )
-            ax.set_yticks(range(len(rows)), [t[1] for t in rows], fontsize=7.5)
-            best1 = max((t[2] for t in rows if t[0] == 1), default=None)
+            ax.set_yticks(range(len(combos)), labels, fontsize=7)
+            ax.invert_yaxis()
+            best1 = max(
+                (
+                    v
+                    for j, v in zip(combos, vals, strict=True)
+                    if len(B_SETS[j]) == 1 and np.isfinite(v)
+                ),
+                default=None,
+            )
             if best1 is not None:
                 ax.axvline(best1, color="black", lw=1.0, ls="--")
-            lo, hi = min(t[2] for t in rows), max(t[2] for t in rows)
-            ax.set_xlim(lo - 0.03 * (hi - lo + 0.02), hi + 0.01)
+            fin = [v for v in vals if np.isfinite(v)]
+            lo, hi = min(fin), max(fin)
+            ax.set_xlim(lo - 0.06 * (hi - lo + 0.02), hi + 0.02 * (hi - lo + 0.02))
             if r_i == 0:
                 ax.set_title(rule)
             if c_i == 0:

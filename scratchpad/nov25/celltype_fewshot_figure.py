@@ -155,7 +155,7 @@ def main() -> int:
     print(f"targets: {[(t, by_target[t][0]) for t in tgts]}")
 
     fig, axes = plt.subplots(
-        2, len(tgts), figsize=(3.7 * len(tgts), 7.4), squeeze=False, sharex=True
+        2, len(tgts), figsize=(3.5 * len(tgts), 7.6), squeeze=False, sharex=True
     )
     for col, tgt in enumerate(tgts):
         mode, rec = by_target[tgt]
@@ -165,10 +165,10 @@ def main() -> int:
             pts = sorted((k, v) for k, v in rec["curves"][npre].items())
             xs = [max(k, 30) for k, _ in pts]  # 0 shots drawn at the left edge of a log axis
             ys = [v for _, v in pts]
-            cells = rec["pre_cells"].get(npre) or []
+            # No donor name in the legend: the 1-cell donor is HepG2 for every target
+            # except HepG2 itself, where it is K562, and one shared legend cannot say both.
+            # It goes in the panel title instead.
             lab = PRE_LABEL.get(npre, f"on {npre} cells")
-            if npre == 1 and cells:
-                lab += f" ({cells[0]})"
             ax.plot(
                 xs,
                 ys,
@@ -192,7 +192,10 @@ def main() -> int:
                 note += "  (curves above it: its SE term is overstated)"
             ax.text(32, rec["ceiling"], note, fontsize=7, va="bottom")
         ax.set_xscale("log")
-        ax.set_title(f"target {tgt}  ({mode})")
+        donor = (rec["pre_cells"].get(1) or [None])[0]
+        ax.set_title(
+            f"target {tgt}  ({mode})" + (f"\n1 cell = {donor}" if donor else ""), fontsize=10
+        )
         if col == 0:
             ax.set_ylabel("r on the target cell, test chromosomes")
 
@@ -234,10 +237,11 @@ def main() -> int:
         if any(p[3] for p in rows):
             ax.text(
                 0.97,
-                0.05,
+                0.96,
                 "open ▲ = lower bound\n(better than 100k from scratch)",
                 transform=ax.transAxes,
                 ha="right",
+                va="top",
                 fontsize=7,
                 color=GREY,
             )

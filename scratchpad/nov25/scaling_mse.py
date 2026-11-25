@@ -285,7 +285,9 @@ def main() -> int:
     ap.add_argument("--max-members", type=int, default=3)
     ap.add_argument(
         "--sets",
-        default="genomic,ood,random_32k,sub_high,D:inversion,D:snv",
+        # Not motif_grammar: it is scored from sidecars, which only the checkpointed wed41
+        # cells have, and those exist at two sizes -- it would be a two-point panel.
+        default="genomic,ood,random_32k,sub_high,D:evoaug_mix,D:snv_sig",
         help="endpoints to draw as curve panels",
     )
     a = ap.parse_args()
@@ -311,7 +313,7 @@ def main() -> int:
     (out / "scaling_mse.json").write_text(json.dumps(table, indent=1, default=float))
 
     panels = [s.strip() for s in a.sets.split(",")]
-    fig, axes = plt.subplots(2, 3, figsize=(12.6, 7.0))
+    fig, axes = plt.subplots(2, 3, figsize=(12.6, 8.0))
     for ax, ep in zip(axes.ravel(), panels, strict=False):
         for (res, _), colour in zip(RESERVOIRS, PALETTE, strict=False):
             pts = [
@@ -326,19 +328,23 @@ def main() -> int:
             ax.plot(xs, ys, "o-", color=colour, ms=5, lw=1.7, label=res)
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.set_title(ep.replace("D:", "Δ"), fontsize=10)
+        ax.set_title(PRETTY_EP.get(ep, ep.replace("D:", "Δ")), fontsize=10)
         ax.grid(True, which="both", alpha=0.2, lw=0.5)
     for ax in axes[1]:
         ax.set_xlabel("training sequences")
     for ax in axes[:, 0]:
         ax.set_ylabel("MSE (stacked ensemble)")
-    axes[0][0].legend(fontsize=7.5, ncols=2)
+    # Below the panels: inside the first one it sat on the curves it was labelling.
+    h, lb = axes[0][0].get_legend_handles_labels()
+    fig.legend(
+        h, lb, loc="lower center", ncols=min(6, len(lb)), fontsize=8.5, bbox_to_anchor=(0.5, 0.0)
+    )
     fig.suptitle(
         "Scaling in MSE, tuned LegNet recipe at every size, across eval sets",
         y=0.98,
         fontsize=12,
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.tight_layout(rect=(0, 0.08, 1, 0.95))
     fig.savefig(out / "fig12_scaling_mse.png", dpi=170)
     plt.close(fig)
     print("fig12 written")
