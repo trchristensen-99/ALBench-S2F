@@ -118,7 +118,12 @@ def make_backgrounds(n: int, rng: np.random.Generator) -> tuple[list[str], list[
 def build_vocabs(rng: np.random.Generator):
     from albench.motifs import vocabulary as V
 
-    full = V.build(human_only=False, cluster_at=0.90, min_ic=6.0)
+    # `build` only resolves its default MEME path after the cache key, so a bare call
+    # crashes on `Path(None)`. Resolve it here and print it: which PFM database this is
+    # (CIS-BP, not JASPAR, on this cluster) is part of the eval set's provenance.
+    meme = V._default_meme()
+    print(f"PFM source: {meme}", flush=True)
+    full = V.build(meme=meme, human_only=False, cluster_at=0.90, min_ic=6.0)
     full = [m for m in full if m.length <= 20]
     order = rng.permutation(len(full))
     out = {

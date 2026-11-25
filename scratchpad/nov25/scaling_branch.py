@@ -40,6 +40,7 @@ sys.path.insert(0, str(REPO / "scratchpad/nov25"))
 from scaling_mse import RESERVOIRS, TUNED, cell_dir, endpoint_mse  # noqa: E402
 
 MR = REPO / "outputs/menu_retrain_v0"
+A52 = REPO / "outputs/acq52"
 HEADLINE = [
     ("genomic", "genomic"),
     ("ood", "high-activity designed"),
@@ -116,6 +117,16 @@ def _heatmap(scratch: dict, endpoints: list[tuple[str, str]], path: Path, title:
     res_present = [r for r, _ in RESERVOIRS if r in scratch]
     if not sizes or not res_present:
         print(f"{path.name}: nothing to draw")
+        return
+    # An endpoint nothing has been scored on is dropped, not drawn as an empty strip: a blank
+    # row reads as "every corpus failed" rather than "not measured here".
+    endpoints = [
+        (ep, lab)
+        for ep, lab in endpoints
+        if any(ep in scratch[r].get(D, {}) for r in res_present for D in sizes)
+    ]
+    if not endpoints:
+        print(f"{path.name}: no endpoint has any value")
         return
     fig, axes = plt.subplots(
         1,
@@ -216,7 +227,7 @@ def main() -> int:
     print(f"from-scratch: {len(scratch)} reservoirs | branches: {sorted(br)}")
 
     # ---------------- fig15: curves with branches -------------------------------
-    fig, axes = plt.subplots(2, 2, figsize=(11.6, 8.0))
+    fig, axes = plt.subplots(2, 2, figsize=(11.6, 10.2))
     for ax, (ep, lab) in zip(axes.ravel(), HEADLINE, strict=False):
         for (res, _), colour in zip(RESERVOIRS, PALETTE, strict=False):
             pts = [
@@ -264,15 +275,17 @@ def main() -> int:
     for ax in axes[:, 0]:
         ax.set_ylabel("MSE (stacked ensemble)")
     h, lbl = axes[0][0].get_legend_handles_labels()
-    fig.legend(h, lbl, loc="lower center", ncols=3, fontsize=8, bbox_to_anchor=(0.5, -0.07))
+    # The legend is 16 entries; it has to have its own strip of the figure, reserved by the
+    # tight_layout rect, or it lands on the bottom row's tick labels.
+    fig.legend(h, lbl, loc="lower center", ncols=3, fontsize=8, bbox_to_anchor=(0.5, 0.0))
     fig.suptitle(
         "From-scratch curves, with acquisition branching off the 30k pilot",
-        y=0.98,
+        y=0.995,
         fontsize=12,
         x=0.02,
         ha="left",
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.tight_layout(rect=(0, 0.21, 1, 0.96))
     fig.savefig(out / "fig15_scaling_with_branches.png")
     plt.close(fig)
     print("fig15 written")
@@ -288,7 +301,29 @@ def main() -> int:
         scratch,
         EXTENDED,
         out / "fig16b_headline_heatmap_extended.png",
-        "Headline endpoints, plus a measured-variant and a motif-grammar endpoint",
+        "Headline endpoints, plus a measured-variant endpoint",
+    )
+
+    # ---------------- fig16c: the endpoints that need the weights back ----------
+    # A new eval set can only be scored where the CHECKPOINTS survive, and
+    # menu_retrain_v0 was trained without --save-weights. The wed41 copies have them, at
+    # 30k and 300k only -- so this is a separate, smaller figure whose every row, the
+    # trained-in ones included, comes from the same wed41 cells. Mixing the two roots
+    # inside one panel would put different models in different rows of one column.
+    w41: dict[str, dict[int, dict[str, float]]] = {}
+    for res, suffix in RESERVOIRS:
+        for D, cfg in ((30_000, "e500_wd2_30k"), (300_000, "e300_wd05_300k")):
+            d = REPO / f"outputs/wed41/bench38_ln_{cfg}_c20{suffix}"
+            if not d.is_dir():
+                continue
+            r = endpoint_mse(d, a.max_members)
+            if r:
+                w41.setdefault(res, {})[D] = r
+    _heatmap(
+        w41,
+        EXTENDED + [("motif_planted", "motif planted (one configuration)")],
+        out / "fig16c_motif_grammar_heatmap.png",
+        "Checkpointed cells only (wed41): the motif-grammar and motif-planted endpoints",
     )
 
     # ---------------- fig15b: one pilot, few lines -------------------------------
@@ -300,23 +335,46 @@ def main() -> int:
     # selecting rather than the value of the candidate pool.
     PILOT = "motif_shared_core_d30000.npz"
     WANT = ["os_random", "os_epi", "it3_epi"]
-    fig, axes = plt.subplots(2, 2, figsize=(11.0, 7.6))
+    # The genomic-pilot arms (ab54) live outside menu_retrain_v0 and carry no acq_trace, so
+    # they are read by path. They are the comparison the registered report needs: the same
+    # candidate pool and the same two rules, but starting from the 30k of real sequence a
+    # collaborator already has rather than from a designed pilot.
+    gp = {}
+    for rule, colour, tagn in (
+        ("uncertainty", "#D55E00", "uncertainty, 1 round"),
+        ("random", "#E69F00", "random, 1 round"),
+    ):
+        d = A52 / f"gpilot_{rule}/bench38_ln_e500_105k_c20_gpilot_{rule}"
+        if d.is_dir():
+            r = endpoint_mse(d, a.max_members)
+            if r:
+                gp[rule] = (105_000, r, colour, f"{tagn} | pilot genomic 30k")
+    fig, axes = plt.subplots(2, 2, figsize=(11.6, 9.6))
     for ax, (ep, lab) in zip(axes.ravel(), HEADLINE, strict=False):
-        pts = [
-            (D, v[ep])
-            for D, v in sorted(scratch.get("motif_shared_core", {}).items())
-            if ep in v and v[ep] > 0
-        ]
-        if len(pts) >= 2:
-            ax.plot(
-                [q[0] for q in pts],
-                [q[1] for q in pts],
-                "o-",
-                color="#999999",
-                ms=5,
-                lw=1.8,
-                label="from scratch: motif_shared_core",
-            )
+        # Every from-scratch reservoir, faint, so a branch can be read against all of them
+        # and not only against the one it happens to start on.
+        for (res, _), colour in zip(RESERVOIRS, PALETTE, strict=False):
+            pts = [
+                (D, v[ep]) for D, v in sorted(scratch.get(res, {}).items()) if ep in v and v[ep] > 0
+            ]
+            if len(pts) >= 2:
+                ax.plot(
+                    [q[0] for q in pts],
+                    [q[1] for q in pts],
+                    "o-",
+                    color=colour,
+                    ms=4,
+                    lw=1.3,
+                    alpha=0.45,
+                    label=f"from scratch: {res}",
+                )
+        for rule, (size, r, colour, blab) in gp.items():
+            anchor = scratch.get("genomic", {}).get(30_000, {}).get(ep)
+            if ep not in r or not np.isfinite(r[ep]) or r[ep] <= 0:
+                continue
+            xs = ([30_000] if anchor else []) + [size]
+            yv = ([anchor] if anchor else []) + [r[ep]]
+            ax.plot(xs, yv, "--", color=colour, lw=2.4, marker="s", ms=6, label=blab)
         for tag in WANT:
             per_size = br.get((tag, PILOT))
             if not per_size:
@@ -340,15 +398,17 @@ def main() -> int:
     for ax in axes[:, 0]:
         ax.set_ylabel("MSE (stacked ensemble)")
     h, lb = axes[0][0].get_legend_handles_labels()
-    fig.legend(h, lb, loc="lower center", ncols=3, fontsize=8.5, bbox_to_anchor=(0.5, -0.12))
+    fig.legend(h, lb, loc="lower center", ncols=3, fontsize=8.5, bbox_to_anchor=(0.5, 0.0))
     fig.suptitle(
-        "Selection vs drawing (branches: 30k motif_shared_core pilot, 7-reservoir candidate pool)",
-        y=0.98,
-        fontsize=12,
+        "Selection vs drawing: solid branches from a 30k motif pilot, dashed from a 30k "
+        "genomic pilot\n(every branch selects from the same equal 7-reservoir pool of 1M, "
+        "200k of it scored)",
+        y=0.995,
+        fontsize=11.5,
         x=0.02,
         ha="left",
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.tight_layout(rect=(0, 0.19, 1, 0.93))
     fig.savefig(out / "fig15b_selection_vs_drawing.png")
     plt.close(fig)
     print("fig15b written")

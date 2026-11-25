@@ -97,7 +97,9 @@ def main() -> int:
     from albench.acquisition.legnet_bank import LegNetBank
 
     for d in targets:
-        pts = sorted(glob.glob(str(d / "*.pt")))[: a.max_members]
+        # Absolute, because these are symlinked into a temp directory below and a relative
+        # target would resolve against that directory instead.
+        pts = sorted(glob.glob(str(d.resolve() / "*.pt")))[: a.max_members]
         if not pts:
             print(f"SKIP {d.name}: no checkpoints")
             continue

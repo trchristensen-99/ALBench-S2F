@@ -244,7 +244,9 @@ def endpoint_mse(d: Path, max_members: int = 3) -> dict[str, float] | None:
     stack, _, _ = enet_all_pos(V, yv, Tm, np.arange(len(yv)))
 
     out: dict[str, float] = {}
-    for s in keep:
+    # Over `Tm`, not `keep`: the sidecar sets were added to Tm after keep was computed, and
+    # scoring only `keep` silently dropped every rescored endpoint.
+    for s in Tm:
         out[s] = float(np.mean((stack[s] - Y[s]) ** 2))
     if "genomic" in stack:
         for s in PERTURB:

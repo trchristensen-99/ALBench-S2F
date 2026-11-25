@@ -92,6 +92,11 @@ def _share_panel(ax, blobs: list[tuple[str, dict]], title: str) -> None:
     uniform = 100.0 / len(names)
     h = 0.8 / len(blobs)
     y = np.arange(len(names))
+    vmax = max(
+        100.0 * v / sum(b["realised_mixture"].values())
+        for _, b in blobs
+        for v in b["realised_mixture"].values()
+    )
     for i, (rule, b) in enumerate(blobs):
         tot = sum(b["realised_mixture"].values())
         vals = [100.0 * b["realised_mixture"].get(n, 0) / tot for n in names]
@@ -105,21 +110,25 @@ def _share_panel(ax, blobs: list[tuple[str, dict]], title: str) -> None:
             label=f"{RULE_LABEL.get(rule, rule)}  (selected activity {b['label_mean']:.2f})",
         )
         for yy, v in zip(y + (i - (len(blobs) - 1) / 2) * h, vals, strict=True):
-            ax.text(v + 0.35, yy, f"{v:.1f}", va="center", fontsize=7, color=GREY)
-    ax.axvline(uniform, color="black", ls="--", lw=1.1)
+            ax.text(v + 0.012 * vmax, yy, f"{v:.1f}", va="center", fontsize=7, color=GREY)
+    ax.axvline(uniform, color="black", ls="--", lw=1.1, zorder=0)
+    # The reference label goes in the headroom ABOVE the first bar, not at the foot of the
+    # axes where it ran into the bars, the tick labels and the legend at once.
     ax.text(
         uniform,
-        len(names) - 0.35,
-        f"  equal shares ({uniform:.1f}%)",
+        -1.0,
+        f" equal shares ({uniform:.1f}%)",
         fontsize=8,
         color="black",
-        va="top",
+        va="center",
     )
     ax.set_yticks(y, names, fontsize=8.5)
-    ax.invert_yaxis()
+    ax.set_ylim(len(names) - 0.45, -1.4)
+    ax.set_xlim(0, vmax * 1.12)
     ax.set_xlabel("share of the selected corpus (%)")
     ax.set_title(title)
-    ax.legend(fontsize=8, loc="lower right")
+    # Below the axes: inside the plot it covered the bars of whichever corner it was put in.
+    ax.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.13), handlelength=1.3)
 
 
 def fig18(out: Path) -> None:
@@ -135,7 +144,7 @@ def fig18(out: Path) -> None:
         return
 
     panels = [p for p in (seven, four) if p]
-    fig, axes = plt.subplots(1, len(panels), figsize=(6.9 * len(panels), 4.6), squeeze=False)
+    fig, axes = plt.subplots(1, len(panels), figsize=(6.9 * len(panels), 5.3), squeeze=False)
     titles = []
     if seven:
         n = seven[0][1]["n_candidates"]
@@ -236,7 +245,8 @@ def fig19(out: Path) -> None:
                 )
         if vals_all:
             lo, hi = min(vals_all), max(vals_all)
-            ax.set_ylim(lo - 0.12 * (hi - lo + 0.01), hi + 0.06 * (hi - lo + 0.01))
+            # Headroom at the top for the star marker, which otherwise sat on the spine.
+            ax.set_ylim(lo - 0.12 * (hi - lo + 0.01), hi + 0.14 * (hi - lo + 0.01))
         ax.set_xticks(
             x,
             [n.replace("motif_shared_core", "motif") for _j, n, _c in SINGLES],
@@ -246,8 +256,17 @@ def fig19(out: Path) -> None:
         ax.set_title(f"eval set: {lab}")
         ax.set_xlabel("the one reservoir the rule chose from")
     np.atleast_1d(axes)[0].set_ylabel("stacked r   (D = 30,000)")
-    np.atleast_1d(axes)[0].legend(
-        title="acquisition rule", title_fontsize=9, fontsize=8.5, loc="lower left"
+    # One legend for the figure, under the panels: inside panel 1 it covered four bars.
+    handles, labels = np.atleast_1d(axes)[0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        title="acquisition rule",
+        title_fontsize=9,
+        fontsize=8.5,
+        ncols=len(labels),
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.1),
     )
     fig.suptitle(
         "No universal best corpus: each endpoint is won by the pool that resembles it "
