@@ -40,9 +40,18 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
+    # A size>0 check is NOT enough and this bit us on Nov 24: two array tasks called this
+    # at once, the second saw the first's partially-written file, skipped, and then died
+    # with BadZipFile. Only a file that actually opens counts as present, and the write
+    # below is atomic so a visible file is always a complete one.
     if os.path.exists(a.out) and os.path.getsize(a.out) > 0:
-        print(f"SKIP already present: {a.out}")
-        return
+        try:
+            with np.load(a.out, allow_pickle=True) as z:
+                _ = z["sequences"]
+            print(f"SKIP already present: {a.out}")
+            return
+        except Exception as e:
+            print(f"present but unreadable ({type(e).__name__}), rebuilding: {a.out}")
 
     za = np.load(f"{NEST}/{a.a}_d{a.size}.npz", allow_pickle=True)
     zb = np.load(f"{NEST}/{a.b}_d{a.size}.npz", allow_pickle=True)
@@ -67,8 +76,12 @@ def main() -> None:
     # silently becomes "different starting data" rather than "more candidates".
     assert np.array_equal(seqs[:SEED_N], sa[:SEED_N]), "seed prefix is not shared_core's 30k"
 
+    # Write to a per-process temp name and rename: os.replace is atomic within a
+    # filesystem, so a concurrent task either sees no file or a complete one. Two tasks
+    # may both build -- wasteful but correct, and the content is identical either way.
+    tmp = f"{a.out}.tmp.{os.getpid()}"
     np.savez_compressed(
-        a.out,
+        tmp,
         sequences=seqs,
         oracle_labels=labs,
         source=src,
@@ -78,6 +91,10 @@ def main() -> None:
         extended_from=np.array(f"{a.a}_d{a.size}.npz+{a.b}_d{a.size}.npz"),
         n_base=np.array(SEED_N),
     )
+    # savez_compressed appends .npz when the name lacks it; a.out already ends in .npz so
+    # tmp does not, and the real file on disk is tmp + ".npz".
+    written = tmp if os.path.exists(tmp) else tmp + ".npz"
+    os.replace(written, a.out)
     print(
         f"wrote {a.out}\n  {len(seqs):,} rows: seed {SEED_N:,} ({a.a}) + "
         f"{len(sa) - SEED_N:,} {a.a} + {len(sb) - SEED_N:,} {a.b} candidates"
