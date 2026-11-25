@@ -38,22 +38,28 @@ sys.path.insert(0, str(REPO / "orchestration"))
 from ens_util import enet_all_pos  # noqa: E402
 
 ROOTS = [REPO / "outputs/wed41", REPO / "outputs/menu_retrain_v0"]
+# 1M is deliberately absent: motif_shared_core is the only reservoir that reaches it, so a
+# point there has nothing to be compared against and only stretches the axis.
 TUNED = {
     10_000: "e800_wd4",
     30_000: "e500_wd2",
     100_000: "e500",
     300_000: "e300_wd05",
-    1_000_000: "e200_wd05",
 }
+# Only reservoirs with a cell at EVERY size, so no curve has a hole in it. Audited
+# 2026-11-25: these six all have >=10 members at 10k/30k/100k/300k. The ones dropped and
+# why -- evoaug, gc_matched, dinuc_shuffle and motif_syntax_core exist only at 30k and 300k,
+# so they contributed two-point curves that read as full ones; `evoaug_paper2023` is the
+# EvoAug variant that does have every rung, so it stands in for that family.
+# zoonomia_orthologs has full coverage but is excluded from the study (validation-chromosome
+# breach, 15.4% exact duplicates).
 RESERVOIRS = [
     ("genomic", ""),  # the bare cell name carries no suffix
     ("random", "_random"),
     ("motif_shared_core", "_motif_shared_core"),
     ("motif_ct_enriched", "_motif_ct_enriched"),
-    ("evoaug", "_evoaug"),
+    ("evoaug_paper2023", "_evoaug_paper2023"),
     ("mutagenesis", "_mutagenesis"),
-    ("gc_matched", "_gc_matched"),
-    ("dinuc_shuffle", "_dinuc_shuffle"),
 ]
 PERTURB = (
     "dinuc_shuffle",
@@ -74,12 +80,17 @@ PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#0
 
 
 def cell_dir(res_suffix: str, D: int) -> Path | None:
+    """The richest matching cell. Both roots can hold the same name with different seed
+    counts (wed41 has 5 members at 30k where menu_retrain_v0 has 20), and taking whichever
+    root was listed first would assemble one curve from two different ensembles."""
     name = f"bench38_ln_{TUNED[D]}_{D // 1000}k_c20{res_suffix}"
+    best, best_n = None, 0
     for r in ROOTS:
         p = r / name
-        if p.is_dir() and glob.glob(str(p / "*_meta.json")):
-            return p
-    return None
+        n = len(glob.glob(str(p / "*_meta.json"))) if p.is_dir() else 0
+        if n > best_n:
+            best, best_n = p, n
+    return best
 
 
 def endpoint_mse(d: Path, max_members: int = 3) -> dict[str, float] | None:
