@@ -13,6 +13,7 @@ learned specificity, which is the thing a conditioned model is for).
 from __future__ import annotations
 
 import json
+import math
 import re
 import statistics as st
 import sys
@@ -36,9 +37,15 @@ def collect() -> dict[str, list[dict]]:
 
 def mean_over(runs: list[dict], section: str, key: str = "r") -> tuple[float, float, int]:
     """Mean across cells within a run, then mean/sd across seeds."""
+    # isfinite, not `is not None`: a cell with too few paired rows writes a JSON NaN, and
+    # statistics.stdev raises on it rather than propagating.
     per_seed = []
     for r in runs:
-        vals = [v[key] for v in r.get(section, {}).values() if v.get(key) is not None]
+        vals = [
+            v[key]
+            for v in r.get(section, {}).values()
+            if isinstance(v.get(key), (int, float)) and math.isfinite(v[key])
+        ]
         if vals:
             per_seed.append(sum(vals) / len(vals))
     if not per_seed:
