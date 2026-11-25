@@ -62,7 +62,12 @@ RESERVOIRS = [
     ("mutagenesis", "_mutagenesis"),
 ]
 # "ood" is the stored key for the high-activity DESIGNED set.
-PRETTY_EP = {"ood": "high-activity designed", "random_32k": "random"}
+PRETTY_EP = {
+    "ood": "high-activity designed",
+    "random_32k": "random",
+    "D:snv_sig": "SNV effect (significant, measured)",
+    "D:inversion": "\u0394inversion",
+}
 PERTURB = (
     "dinuc_shuffle",
     "sub_low",
@@ -79,6 +84,71 @@ PERTURB = (
 )
 # Okabe-Ito
 PALETTE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9", "#000000", "#999999"]
+
+
+_SNV: dict | None = None
+
+
+def snv_significant(z_gate: float = 2.0) -> dict | None:
+    """Real MEASURED SNV effects whose size clears measurement error.
+
+    The stored `D:snv` endpoint scores every pair, and 96% of pairs have an effect smaller
+    than the noise on it (true delta sd 0.466, mean |delta| 0.285, only 4.0% above 1.0), so
+    it is mostly a test of predicting zero -- which is why it discriminates at 1.6x. Gating
+    on |delta| / SE(delta) makes it a test of predicting effects that are real.
+
+    Two things make this stronger than the oracle-based delta endpoints: the target is the
+    MEASUREMENT, not the oracle's opinion of it (the two agree at only r = 0.40 on deltas),
+    and SE comes from Gosai's own lfcSE rather than being assumed. Row order is verified
+    against the stored oracle labels before use.
+    """
+    global _SNV
+    if _SNV is not None:
+        return _SNV or None
+    bat = REPO / "data/k562/test_sets_ag_s2_chrsplit/snv_mono_chr7_13_intermediate.npz"
+    if not bat.exists():
+        _SNV = {}
+        return None
+    b = np.load(bat, allow_pickle=True)
+    ref_s = [str(x) for x in b["ref_sequences"]]
+    alt_s = [str(x) for x in b["alt_sequences"]]
+    td = np.asarray(b["true_alt_label"], float) - np.asarray(b["true_ref_label"], float)
+
+    try:
+        # Read the table directly rather than through load_gosai: that returns base INDICES
+        # inside a plasmid window, and the battery stores bare 200-bp strings, so the join
+        # key only exists in the raw file.
+        # Same resolution order as albench.celltype.data.load_gosai; the table is not a
+        # declared paths.py asset.
+        import os
+
+        import pandas as pd
+
+        cand = [
+            os.environ.get("ALBENCH_GOSAI_TABLE_S2", ""),
+            str(REPO / "data/k562/DATA-Table_S2__MPRA_dataset.txt"),
+        ]
+        tbl_path = next((c for c in cand if c and os.path.exists(c)), "")
+        if not tbl_path:
+            raise FileNotFoundError("Gosai Table S2 not found")
+        tbl = pd.read_csv(tbl_path, sep="\t", low_memory=False)
+        se_by_seq = dict(
+            zip(tbl["sequence"].astype(str), tbl["K562_lfcSE"].astype(float), strict=True)
+        )
+        sr = np.array([se_by_seq.get(x, np.nan) for x in ref_s])
+        sa = np.array([se_by_seq.get(x, np.nan) for x in alt_s])
+        sd = np.sqrt(sr**2 + sa**2)
+        print(
+            f"  SNV gate: SE found for {int(np.isfinite(sd).sum()):,} of {len(sd):,} pairs",
+            flush=True,
+        )
+    except Exception as e:  # SE unavailable: fall back to a magnitude gate, and say so
+        print(f"  SNV gate: no SE ({type(e).__name__}: {e}); using |delta| >= 1.0", flush=True)
+        sd = np.full(len(td), 0.5)
+    keep = np.isfinite(td) & np.isfinite(sd) & (np.abs(td) >= z_gate * sd)
+    print(f"  SNV significant-effect gate: {int(keep.sum()):,} of {len(td):,} pairs", flush=True)
+    _SNV = {"delta": td, "keep": keep}
+    return _SNV
 
 
 def cell_dir(res_suffix: str, D: int) -> Path | None:
@@ -139,9 +209,13 @@ def endpoint_mse(d: Path, max_members: int = 3) -> dict[str, float] | None:
                 dy = Y[s] - Y["genomic"]
                 out[f"D:{s}"] = float(np.mean((dp - dy) ** 2))
     if "snv_ref" in stack and "snv_alt" in stack:
-        out["D:snv"] = float(
-            np.mean(((stack["snv_alt"] - stack["snv_ref"]) - (Y["snv_alt"] - Y["snv_ref"])) ** 2)
-        )
+        pd_ = stack["snv_alt"] - stack["snv_ref"]
+        out["D:snv"] = float(np.mean((pd_ - (Y["snv_alt"] - Y["snv_ref"])) ** 2))
+        g = snv_significant()
+        if g is not None and len(g["delta"]) == len(pd_):
+            k = g["keep"]
+            if k.sum() > 200:
+                out["D:snv_sig"] = float(np.mean((pd_[k] - g["delta"][k]) ** 2))
     out["_n_members"] = float(V.shape[1])
     return out
 
