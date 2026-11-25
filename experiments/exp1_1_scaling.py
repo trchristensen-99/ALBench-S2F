@@ -758,7 +758,19 @@ def _load_yeast_dream_oracle():
             hidden_dim=ck.get("hidden_dim", 320),
             **{k: ck[k] for k in ("dropout_cnn", "dropout_lstm") if k in ck and ck[k] is not None},
         )
-        m.load_state_dict(state["model_state_dict"], strict=True)
+        # The two oracle generations also disagree on where the weights live: the ye43
+        # production rebuild writes "state_dict", the older v2 folds "model_state_dict".
+        # Pick whichever is present rather than assuming, so a checkpoint with neither
+        # names itself instead of raising a bare KeyError from inside the loader -- which
+        # is how this surfaced on Nov 24, as five failed yeast pool builds all reporting
+        # "Failed to load dream_rnn oracle for yeast: 'model_state_dict'".
+        sd = next((state[k] for k in ("state_dict", "model_state_dict") if k in state), None)
+        if sd is None:
+            raise KeyError(
+                f"{ckpt_path} holds no recognisable weights: expected 'state_dict' or "
+                f"'model_state_dict', found {sorted(state)}"
+            )
+        m.load_state_dict(sd, strict=True)
         m.to(device).eval()
         models.append(m)
 
