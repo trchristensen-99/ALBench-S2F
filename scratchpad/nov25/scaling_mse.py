@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -38,6 +39,12 @@ sys.path.insert(0, str(REPO / "orchestration"))
 from ens_util import enet_all_pos  # noqa: E402
 
 ROOTS = [REPO / "outputs/wed41", REPO / "outputs/menu_retrain_v0"]
+# Extra cell roots, colon-separated. /grid/wsbs is at 100% inodes, so runs from Nov 25 on
+# write their cells to /grid/koo instead; without this they are simply invisible to the
+# figures and a size column reads as "not measured" when it was measured somewhere else.
+# cell_dir() still takes the RICHEST matching cell, so a root listed here cannot quietly
+# replace a wed41 cell with a thinner one of the same name.
+ROOTS += [Path(p) for p in os.environ.get("ALBENCH_EXTRA_ROOTS", "").split(":") if p]
 # 1M is deliberately absent: motif_shared_core is the only reservoir that reaches it, so a
 # point there has nothing to be compared against and only stretches the axis.
 TUNED = {
