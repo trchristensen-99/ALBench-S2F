@@ -48,10 +48,15 @@ def main():
     ap.add_argument(
         "--no_val", action="store_true", help="skip the validation caches (already built)"
     )
+    # RES was hardcoded to the three reservoirs the Oct-26 comparison used, but
+    # label_pool_multicell.py relabel-reps wrote sidecars for ALL of them, so the HepG2
+    # oracle work for the other eight was done and then never turned into pools. The
+    # default is unchanged so an existing invocation produces exactly what it used to.
+    ap.add_argument("--strategies", nargs="+", default=RES)
     args = ap.parse_args()
     for r in args.reps:
         for size in args.sizes:
-            for st in RES:
+            for st in args.strategies:
                 z = np.load(f"{REPS}/{st}_r{r}_d{size}.npz", allow_pickle=True)
                 src = 30000 if size == 10000 else size
                 m = np.load(
