@@ -73,13 +73,16 @@ BLUE, VERM, GREEN, GREY = "#0072B2", "#D55E00", "#009E73", "#6b6b6b"
 
 plt.rcParams.update(
     {
-        "figure.dpi": 160,
-        "savefig.dpi": 160,
-        "font.size": 9,
+        "figure.dpi": 200,
+        "savefig.dpi": 200,
+        "font.size": 10,
+        "axes.titlesize": 11,
+        "axes.titleweight": "semibold",
+        "axes.titlelocation": "left",
         "axes.spines.top": False,
         "axes.spines.right": False,
         "axes.grid": True,
-        "grid.alpha": 0.25,
+        "grid.alpha": 0.18,
         "legend.frameon": False,
         "savefig.bbox": "tight",
     }
@@ -265,7 +268,7 @@ def main() -> int:
     ax.text(ax.get_xlim()[0], 1.05, " cannot out-rank a re-run", fontsize=7, color=GREY)
     ax.set_xlabel("mean r across candidate corpora  (saturation ->)")
     ax.set_ylabel("discrimination  (between-corpus sd / seed sd)")
-    ax.set_title("(a) only a few endpoints can rank anything", fontsize=9.5)
+    ax.set_title("(a) discrimination vs saturation", fontsize=10)
     ax.legend(fontsize=7, loc="upper right")
 
     ax = fig.add_subplot(gs[0, 1])
@@ -274,7 +277,7 @@ def main() -> int:
     short = [keys[i].replace("D:", "Δ") for i in o]
     ax.set_xticks(range(len(short)), short, rotation=90, fontsize=5.5)
     ax.set_yticks(range(len(short)), short, fontsize=5.5)
-    ax.set_title("(b) how the endpoints rank corpora\n(ordered by discrimination)", fontsize=9.5)
+    ax.set_title("(b) endpoint correlation", fontsize=10)
     ax.grid(False)
     fig.colorbar(im, ax=ax, fraction=0.046, shrink=0.8, pad=0.03)
 
@@ -299,13 +302,14 @@ def main() -> int:
     ax.set_xlim(0.5, min(12, len(cum)) + 0.5)
     ax.set_xlabel("principal component")
     ax.set_ylabel("cumulative variance")
-    ax.set_title("(c) how many real dimensions", fontsize=9.5)
+    ax.set_title("(c) effective dimensions", fontsize=10)
 
     fig.suptitle(
-        f"Eval panel: {len(keys)} endpoints measured on {len(names)} candidate corpora, "
-        "and the few worth reporting",
-        y=1.04,
-        fontsize=10.5,
+        f"Eval panel: {len(keys)} endpoints on {len(names)} candidate corpora",
+        y=1.0,
+        fontsize=12,
+        x=0.02,
+        ha="left",
     )
     fig.savefig(out / "fig10_eval_panel_selection.png")
     plt.close(fig)
