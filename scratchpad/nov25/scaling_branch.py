@@ -253,6 +253,68 @@ def main() -> int:
     fig.savefig(out / "fig16_headline_heatmap.png")
     plt.close(fig)
     print("fig16 written")
+
+    # ---------------- fig15b: one pilot, few lines -------------------------------
+    # The uncluttered version. Restricted to arms sharing ONE pilot
+    # (motif_shared_core 30k) so every line starts from the same point and the only
+    # difference is the rule -- which is the comparison, and which the full figure buries
+    # under six from-scratch curves and three other pilots. The random arm is the control:
+    # it draws from the same 1M candidate pool, so uncertainty minus random is the value of
+    # selecting rather than the value of the candidate pool.
+    PILOT = "motif_shared_core_d30000.npz"
+    WANT = ["os_random", "os_epi", "it3_epi"]
+    fig, axes = plt.subplots(2, 2, figsize=(11.0, 7.6))
+    for ax, (ep, lab) in zip(axes.ravel(), HEADLINE, strict=False):
+        pts = [
+            (D, v[ep])
+            for D, v in sorted(scratch.get("motif_shared_core", {}).items())
+            if ep in v and v[ep] > 0
+        ]
+        if len(pts) >= 2:
+            ax.plot(
+                [q[0] for q in pts],
+                [q[1] for q in pts],
+                "o-",
+                color="#999999",
+                ms=5,
+                lw=1.8,
+                label="from scratch: motif_shared_core",
+            )
+        for tag in WANT:
+            per_size = br.get((tag, PILOT))
+            if not per_size:
+                continue
+            blab, colour = BRANCHES[tag]
+            sizes_b = sorted(per_size)
+            ys = [float(np.mean([r[ep] for r in per_size[s] if ep in r])) for s in sizes_b]
+            keep = [(s, y) for s, y in zip(sizes_b, ys, strict=True) if np.isfinite(y) and y > 0]
+            if not keep:
+                continue
+            anchor = scratch.get("motif_shared_core", {}).get(30_000, {}).get(ep)
+            xs = ([30_000] if anchor else []) + [q[0] for q in keep]
+            yv = ([anchor] if anchor else []) + [q[1] for q in keep]
+            ax.plot(xs, yv, "-", color=colour, lw=2.4, marker="D", ms=6, label=blab)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_title(lab)
+        ax.grid(True, which="both", alpha=0.18, lw=0.5)
+    for ax in axes[1]:
+        ax.set_xlabel("total training sequences")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("MSE (stacked ensemble)")
+    h, lb = axes[0][0].get_legend_handles_labels()
+    fig.legend(h, lb, loc="lower center", ncols=4, fontsize=9, bbox_to_anchor=(0.5, -0.05))
+    fig.suptitle(
+        "Selection vs drawing, from one 30k motif_shared_core pilot",
+        y=0.98,
+        fontsize=12,
+        x=0.02,
+        ha="left",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(out / "fig15b_selection_vs_drawing.png")
+    plt.close(fig)
+    print("fig15b written")
     print(f"\n-> {out}")
     return 0
 
