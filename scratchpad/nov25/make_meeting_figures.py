@@ -143,28 +143,47 @@ def fig1(out: Path) -> None:
     if len(M) < 10:
         print("fig1: too few corpora")
         return
-    fig, axes = plt.subplots(1, 3, figsize=(11, 3.4))
-
-    # (a) pairwise scatter: are the endpoints measuring the same thing?
-    ax = axes[0]
     gi, di, ri = (SETS.index(s) for s in ("genomic", "ood", "random_32k"))
-    ax.scatter(M[:, gi], M[:, di], s=18, c=BLUE, alpha=0.8, label="designed vs genomic")
-    ax.scatter(M[:, gi], M[:, ri], s=18, c=VERM, alpha=0.8, marker="^", label="random vs genomic")
-    for x, y, c in ((M[:, gi], M[:, di], BLUE), (M[:, gi], M[:, ri], VERM)):
-        if len(x) > 2:
-            b = np.polyfit(x, y, 1)
-            xs = np.linspace(x.min(), x.max(), 20)
-            ax.plot(xs, np.polyval(b, xs), c=c, lw=1.2, alpha=0.6)
+    lab = [PRETTY[s] for s in SETS]
+
+    # A corpus that teaches the student almost nothing -- the pure-design arms sit at
+    # genomic r 0.31-0.74 against the motif families' 0.89 -- pulls every endpoint down
+    # together, and a correlation computed over that range says only "broken corpora are
+    # broken everywhere". The decision is made among CANDIDATE corpora, so the redundancy
+    # that matters is the one inside that range.
+    ok = M[:, gi] >= 0.85
+    fig, axes = plt.subplots(1, 3, figsize=(12.4, 3.6), gridspec_kw={"wspace": 0.42})
+
+    # (a) pairwise scatter, with the degenerate arms shown but marked.
+    ax = axes[0]
+    for m, colour, marker, name in (
+        (ok, BLUE, "o", "designed"),
+        (ok, VERM, "^", "random"),
+    ):
+        yidx = di if name == "designed" else ri
+        ax.scatter(M[m, gi], M[m, yidx], s=20, c=colour, marker=marker, label=f"{name} (candidate)")
+        ax.scatter(
+            M[~m, gi],
+            M[~m, yidx],
+            s=18,
+            facecolors="none",
+            edgecolors=colour,
+            marker=marker,
+            alpha=0.55,
+        )
+    ax.axvline(0.85, color=GREY, lw=1, ls="--")
+    ax.text(0.855, 0.02, "candidate corpora ->", fontsize=7, color=GREY)
     ax.set_xlabel("genomic held-out r")
     ax.set_ylabel("other endpoint r")
-    ax.set_title(f"(a) endpoints across {len(M)} corpora")
-    ax.legend(loc="lower right", fontsize=7.5)
+    ax.set_title(f"(a) {int(ok.sum())} candidates of {len(M)} corpora")
+    ax.legend(loc="upper left", fontsize=7)
 
-    # (b) correlation matrix of the endpoints over corpora.
+    # (b) correlation among the candidates only; the all-corpora value is printed under it
+    # so the difference between the two readings is on the slide rather than hidden.
     ax = axes[1]
-    C = np.corrcoef(M.T)
+    C = np.corrcoef(M[ok].T)
+    Call = np.corrcoef(M.T)
     im = ax.imshow(C, cmap="RdBu_r", vmin=-1, vmax=1)
-    lab = [PRETTY[s] for s in SETS]
     ax.set_xticks(range(len(lab)), lab, rotation=30, ha="right")
     ax.set_yticks(range(len(lab)), lab)
     for i in range(len(lab)):
@@ -172,32 +191,33 @@ def fig1(out: Path) -> None:
             ax.text(
                 j,
                 i,
-                f"{C[i, j]:.2f}",
+                f"{C[i, j]:.2f}\n({Call[i, j]:.2f})",
                 ha="center",
                 va="center",
-                fontsize=8,
+                fontsize=7.5,
                 color="white" if abs(C[i, j]) > 0.6 else "black",
             )
-    ax.set_title("(b) how redundant they are")
+    ax.set_title("(b) redundancy among candidates\n(all corpora in brackets)", fontsize=9)
     ax.grid(False)
-    fig.colorbar(im, ax=ax, fraction=0.046, shrink=0.85)
+    fig.colorbar(im, ax=ax, fraction=0.046, shrink=0.8, pad=0.04)
 
-    # (c) discrimination: spread across corpora in units of seed noise. An endpoint that
-    # cannot separate corpora by more than a re-run separates itself is not worth a slide.
+    # (c) discrimination: spread across CANDIDATE corpora in units of seed noise. An
+    # endpoint that cannot separate corpora by more than a re-run separates itself is not
+    # worth a slide.
     ax = axes[2]
-    disc = [M[:, SETS.index(s)].std() / SEED_NOISE for s in SETS]
+    disc = [M[ok, SETS.index(s)].std() / SEED_NOISE for s in SETS]
     ax.barh(lab, disc, color=[BLUE, VERM, GREEN], height=0.6)
     ax.axvline(1.0, color=GREY, lw=1, ls="--")
     for i, v in enumerate(disc):
-        ax.text(v + 0.3, i, f"{v:.1f}x", va="center", fontsize=8)
-    ax.set_xlabel("corpus spread / seed noise")
-    ax.set_title("(c) discrimination")
-    ax.set_xlim(0, max(disc) * 1.25)
+        ax.text(v + max(disc) * 0.02, i, f"{v:.1f}x", va="center", fontsize=8)
+    ax.set_xlabel("candidate spread / seed noise")
+    ax.set_title("(c) discrimination", fontsize=9)
+    ax.set_xlim(0, max(disc) * 1.3)
 
     fig.suptitle(
         "Eval sets: measure everything, report the few that are hard, independent and "
         "discriminating",
-        y=1.04,
+        y=1.05,
         fontsize=10.5,
     )
     fig.savefig(out / "fig1_endpoint_independence.png")
