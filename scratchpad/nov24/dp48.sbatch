@@ -10,10 +10,20 @@
 # target-cell labels is revealing labels we already hold, and the acquisition pool is
 # drawn from TRAIN chromosomes so the holdout still protects the evaluation.
 #
-# One array task per target cell. SK-N-SH is the one that matters; Jurkat and GM12878 are
-# there because a strategy that only wins on one cell is a property of that cell. GM12878
-# is ceiling-limited (everything tops out near r 0.29) and is read as a check, not as
-# evidence.
+# One array task per target cell. A strategy that only wins on one cell is a property of
+# that cell, so three are run; acquirable / test / K562-paired-test counts, measured:
+#
+#   SK-N-SH  704,220 / 69,819 / 34,678   primary: the third experimental cell line
+#   A549     318,171 / 31,775 / 31,775   fully paired with K562, so the specificity
+#                                        endpoint is at full strength here
+#   GM12878  277,083 / 27,960 / 27,960   counts are fine but everything tops out near
+#                                        r 0.29, so it is a check, not evidence
+#
+# NOT Jurkat, despite being in the corpus: 2,428 acquirable sequences and 365 test rows.
+# The 5,000 and 20,000 rungs would both exceed the pool and collapse to the same arm, and
+# 365 rows will not resolve differences of this size. NOT HCT116 as a target either --
+# only 1,703 of its test rows are paired with K562, so its specificity endpoint would rest
+# on a twentieth of the data the others use.
 #SBATCH --job-name=dp48
 #SBATCH --partition=gpuq
 #SBATCH --account=cshlsbs
@@ -29,7 +39,7 @@ cd /grid/wsbs/home_norepl/christen/ALBench-S2F
 export PYTHONPATH="$PWD:$PWD/experiments"
 mkdir -p outputs/celltype/logs
 
-CELLS=(SK-N-SH Jurkat GM12878)
+CELLS=(SK-N-SH A549 GM12878)
 c=${CELLS[$SLURM_ARRAY_TASK_ID]}
 
 echo "dp48: target=$c"
