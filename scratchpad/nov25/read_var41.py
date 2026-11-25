@@ -108,6 +108,13 @@ FAMILIES: dict[str, tuple[str | None, list[str]]] = {
 }
 
 
+# A variant whose base cell is NOT its family's default. `mot_core_ct*` are
+# motif_shared_core with ct_bias, not motif_ct_enriched with anything, and shared_core is
+# the stronger of the two reservoirs on the designed endpoint -- so scoring them against
+# ct_enriched would credit the blend with a difference that is just the other reservoir.
+BASE_OVERRIDE = {"mot_core_ct20": "motif_shared_core", "mot_core_ct50": "motif_shared_core"}
+
+
 def row(d: Path):
     if not d.is_dir():
         return None
@@ -125,14 +132,15 @@ def main() -> int:
         hdr = f"{'arm':<26}{'K':>3}" + "".join(f"{PRETTY[s]:>12}" for s in SETS)
         print(hdr)
         print("-" * len(hdr))
-        ref: dict[str, float] = {}
-        if base:
-            got = row(MR / f"{PREFIX}_{base}")
+        bases: dict[str, dict[str, float]] = {}
+        wanted = {base} | {BASE_OVERRIDE[v] for v in variants if v in BASE_OVERRIDE}
+        for b in sorted(x for x in wanted if x):
+            got = row(MR / f"{PREFIX}_{b}")
             if got:
                 _, stack, k = got
-                ref = stack
+                bases[b] = stack
                 cells = "".join(f"{stack[s]:>12.4f}" for s in SETS)
-                print(f"{'[base] ' + base:<26}{k:>3}{cells}")
+                print(f"{'[base] ' + b:<26}{k:>3}{cells}")
         out = []
         for v in variants:
             got = row(VAR / f"{PREFIX}_{v}")
@@ -147,11 +155,13 @@ def main() -> int:
             if stack is None:
                 print(f"{v:<26}  --  (no finished members)")
                 continue
+            ref = bases.get(BASE_OVERRIDE.get(v, base or ""), {})
             cells = ""
             for s in SETS:
                 d = stack[s] - ref[s] if ref else None
                 cells += f"{stack[s]:>12.4f}" if d is None else f"{stack[s]:>8.4f}{d:>+8.4f}"
-            print(f"{v:<26}{k:>3}{cells}")
+            tag = f"{v} [vs {BASE_OVERRIDE[v]}]" if v in BASE_OVERRIDE else v
+            print(f"{tag:<26}{k:>3}{cells}")
     print("\nstacked (enet_all_pos) r; +-value is the delta against that family's base cell.")
     print("seed noise on this harness is ~0.008 -- a delta inside that is not a result.")
     return 0
