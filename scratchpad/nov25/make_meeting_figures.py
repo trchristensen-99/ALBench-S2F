@@ -973,7 +973,6 @@ RULES11 = [
     ("uncertainty", "uncertainty", BLUE),
     ("activity_normalized", "activity-norm.", GREEN),
     ("expected_activity", "expected act.", VERM),
-    ("diversity_kmeans", "diversity", ORANGE),
 ]
 # Ordered by Arm A's designed-endpoint rank, so the x axis IS reservoir quality and a rule
 # whose behaviour depends on quality shows as a sloped line rather than a scramble.
@@ -1070,7 +1069,7 @@ def fig11(out: Path) -> None:
 
     h, lb = axes[0].get_legend_handles_labels()
     # Below the axes, not inside: at this aspect ratio an in-axes legend sat on the lines.
-    fig.legend(h, lb, loc="lower center", ncols=4, fontsize=9, bbox_to_anchor=(0.5, -0.08))
+    fig.legend(h, lb, loc="lower center", ncols=4, fontsize=9, bbox_to_anchor=(0.5, -0.20))
     fig.suptitle(
         "Acquisition rule x reservoir",
         y=1.0,
