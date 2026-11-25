@@ -45,11 +45,20 @@ GROUPS = {
         ("union_epi", "1.97M union, epistemic"),
         ("union_rand", "1.97M union, RANDOM"),
     ],
-    "ab44 -- acquisition rules that were never reachable from the loop": [
+    # ab45's epistemic and random are interleaved with ab44's new rules on purpose: they
+    # are the same settings (cfg e500, D=60k, seed-size 30k, five fixed seeds, cap 200k) and
+    # the new rules are uninterpretable without them on the same page.
+    "ab44 + ab45 -- every rule at matched reservoir, recipe, seeds and cap": [
+        ("motif_shared_core_random", "shared_core  RANDOM"),
+        ("motif_shared_core_epistemic", "shared_core  epistemic"),
         ("motif_shared_core_activity_normalized", "shared_core  activity_norm"),
         ("motif_shared_core_expected_activity", "shared_core  expected_act"),
+        ("motif_shared_core_diversity_kmeans", "shared_core  diversity"),
+        ("motif_ct_enriched_random", "ct_enriched  RANDOM"),
+        ("motif_ct_enriched_epistemic", "ct_enriched  epistemic"),
         ("motif_ct_enriched_activity_normalized", "ct_enriched  activity_norm"),
         ("motif_ct_enriched_expected_activity", "ct_enriched  expected_act"),
+        ("motif_ct_enriched_diversity_kmeans", "ct_enriched  diversity"),
     ],
 }
 ROOTS = {"ab43": REPO / "outputs/acq43", "ab44": REPO / "outputs/acq44"}
