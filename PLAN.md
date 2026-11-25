@@ -178,3 +178,37 @@ later row and a queued task then builds the wrong variant.
 loop, its two mandatory controls (genomic-seeded round 0 against lexicon tail-eating; a
 frozen-reservoir arm at equal budget) and its abandonment criteria, to be agreed before any
 compute goes into it.
+
+## 2026-11-24 (night) — follow-ups, and a queue that was blocking itself
+
+**Launched.** `dm47` (design-method budget ladder), `dp48` (data-poor cell type, 3 cells),
+`ye48` (AG yeast S2, one fold as a decision point), `tier100k` (tier arms get a second
+scale rung so they enter the reservoir table), plus Arm A3 extended to 20 variants.
+
+**Three fixes.**
+
+- *The ab43 union arm lost a write race.* Two array tasks both called
+  `build_union_pool.py`; the skip check was "exists and size > 0", so the second saw a
+  partially written file and died with `BadZipFile`. Now a present file counts only if it
+  opens, and the write is temp-file-plus-`os.replace`, which is atomic.
+- *Jurkat cannot support dp48.* 2,428 acquirable sequences and 365 test rows: the 5,000
+  and 20,000 rungs would both exceed the pool and collapse to one arm. Replaced with A549
+  (318,171 / 31,775), which is also fully paired with K562 so the specificity endpoint runs
+  at full strength. HCT116 excluded as a target for the same reason in reverse -- only
+  1,703 of its test rows pair with K562.
+- *We were blocking ourselves on the queue.* `QOSMaxGRESPerUser` was holding ye46, ab41 and
+  ab43: slow_nice has a V100 sub-cap of 20 and we were sitting on it, while the SEPARATE
+  slow_nice H100 allocation (also 20) was essentially empty. Jobs asking for a generic
+  `gres/gpu:1` were landing in the saturated V100 pool and waiting on a cap that no freed
+  hardware can lift. Moving ab44, tier100k, dp48, var2 and the yeast pools to
+  `gres/gpu:h100:1` converted a hard block into an ordinary Priority wait and cut the
+  QOS-blocked count from 4 to 2.
+
+**Decisions recorded.**
+
+- The attribution loop runs at THREE rounds inside the existing `ab41` R=3 arms, not as a
+  standalone 5-round experiment: it is then read against epistemic, badge and random at
+  identical budget, seeds and recipe. ~6 GPU-h, ~12 with the frozen-reservoir control.
+- Yeast oracle: AG S2 only if it clears the pre-agreed bar (<0.90 unusable, 0.90-0.955
+  judge only, >=~0.955 adopt). Worth noting it also fixes the copying hazard, since every
+  yeast student we train is a DREAM-RNN and an AG oracle is architecturally distant.
