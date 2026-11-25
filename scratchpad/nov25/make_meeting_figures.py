@@ -676,12 +676,16 @@ def fig7(out: Path) -> None:
     colours = {"agnostic": GREY, "text": BLUE, "text_shuffled": VERM}
     w = 0.26
     present = [c for c in cells if any((c, m) in got for m in modes)]
+    # Positions tracked explicitly: the clean rerun sits in its own slot after a gap, so
+    # the tick positions are not a plain arange over the labels.
+    centres = list(range(len(present)))
+    labels = list(present)
     for i, m in enumerate(modes):
-        xs = np.arange(len(present)) + (i - 1) * w
+        xs = np.array(centres, dtype=float) + (i - 1) * w
         ys = [got.get((c, m), 0.0) for c in present]
         ax.bar(xs, ys, width=w, color=colours[m], label=m, edgecolor="black", linewidth=0.3)
     if any(cd47.values()):
-        x0 = len(present) + 0.4
+        x0 = len(present) + 0.5
         for i, m in enumerate(modes):
             if cd47[m]:
                 ax.bar(
@@ -693,8 +697,9 @@ def fig7(out: Path) -> None:
                     edgecolor="black",
                     linewidth=0.3,
                 )
-        present = present + ["SK-N-SH\n(clean rerun)"]
-    ax.set_xticks(np.arange(len(present)) + [0] * (len(present) - 1) + [0.4], present, fontsize=7.5)
+        centres.append(x0)
+        labels.append("SK-N-SH\nclean rerun")
+    ax.set_xticks(centres, labels, fontsize=7.5)
     ax.set_ylabel("r on the HELD-OUT cell")
     ax.set_title(
         "A cell description does not reach a cell type we have no measurements for.\n"
