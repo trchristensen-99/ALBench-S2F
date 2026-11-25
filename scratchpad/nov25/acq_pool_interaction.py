@@ -83,6 +83,17 @@ def main() -> int:
     ap.add_argument("--seed-size", type=int, default=30_000)
     ap.add_argument("--select", type=int, default=30_000)
     ap.add_argument("--cap", type=int, default=200_000)
+    # diversity_kmeans is excluded by default and the name is why it looks cheap:
+    # DiversityAcquisition is greedy farthest-point, O(N*k) with k = n_select, so selecting
+    # 30,000 of 200,000 candidates is 30,000 passes over the full embedding matrix -- hours
+    # per pool on CPU, against ~2 minutes for every other rule combined. Its TRAINED outcome
+    # is already measured on both motif reservoirs by ab44/ab45, which is the number that
+    # matters; the profile's job is the interaction across eight reservoirs, and four rules
+    # answer "parallel lines or not".
+    ap.add_argument(
+        "--rules",
+        default="random,uncertainty,activity_normalized,expected_activity",
+    )
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
@@ -134,13 +145,19 @@ def main() -> int:
             "bank_r_on_pool": round(float(np.corrcoef(pred, cy)[0, 1]), 4),
             "rules": {},
         }
-        rules = {
-            "random": RandomAcquisition(seed=0),
-            "epistemic": UncertaintyAcquisition(),
-            "activity_normalized": ActivityNormalisedUncertaintyAcquisition(seed=0),
-            "expected_activity": ExpectedActivityAcquisition(seed=0),
-            "diversity_kmeans": DiversityAcquisition(seed=0),
+        all_rules = {
+            "random": lambda: RandomAcquisition(seed=0),
+            # "uncertainty", not "epistemic": one name for one thing across the figure set.
+            "uncertainty": UncertaintyAcquisition,
+            "activity_normalized": lambda: ActivityNormalisedUncertaintyAcquisition(seed=0),
+            "expected_activity": lambda: ExpectedActivityAcquisition(seed=0),
+            "diversity_kmeans": lambda: DiversityAcquisition(seed=0),
         }
+        want = [r.strip() for r in a.rules.split(",") if r.strip()]
+        unknown = [r for r in want if r not in all_rules]
+        if unknown:
+            raise SystemExit(f"unknown rule(s) {unknown}; have {sorted(all_rules)}")
+        rules = {r: all_rules[r]() for r in want}
         picks: dict[str, np.ndarray] = {}
         for name, rule in rules.items():
             try:

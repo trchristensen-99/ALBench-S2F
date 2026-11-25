@@ -22,7 +22,7 @@
 #SBATCH --mem=200G
 #SBATCH --time=06:00:00
 #SBATCH --output=outputs/acq50/logs/acqint_%A_%a.log
-#SBATCH --array=0-7%2
+#SBATCH --array=0-7%4
 set -euo pipefail
 cd /grid/wsbs/home_norepl/christen/ALBench-S2F
 export PATH="$HOME/.local/bin:$PATH"

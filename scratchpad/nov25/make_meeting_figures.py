@@ -920,7 +920,7 @@ def fig9(out: Path) -> None:
 A50 = REPO / "outputs/acq50"
 RULES11 = [
     ("random", "random", GREY),
-    ("epistemic", "epistemic", BLUE),
+    ("uncertainty", "uncertainty", BLUE),
     ("activity_normalized", "activity-norm.", GREEN),
     ("expected_activity", "expected act.", VERM),
     ("diversity_kmeans", "diversity", ORANGE),
