@@ -879,6 +879,121 @@ def fig9(out: Path) -> None:
     print("fig9 written")
 
 
+# --------------------------------------------------------------------------- fig 11
+
+A50 = REPO / "outputs/acq50"
+RULES11 = [
+    ("random", "random", GREY),
+    ("epistemic", "epistemic", BLUE),
+    ("activity_normalized", "activity-norm.", GREEN),
+    ("expected_activity", "expected act.", VERM),
+    ("diversity_kmeans", "diversity", ORANGE),
+]
+# Ordered by Arm A's designed-endpoint rank, so the x axis IS reservoir quality and a rule
+# whose behaviour depends on quality shows as a sloped line rather than a scramble.
+RES11 = [
+    ("dinuc_shuffle", "dinuc"),
+    ("random", "random"),
+    ("gc_matched", "gc_match"),
+    ("genomic", "genomic"),
+    ("evoaug_paper2023", "evoaug"),
+    ("mutagenesis", "mutagen"),
+    ("motif_ct_enriched", "motif_ct"),
+    ("motif_shared_core", "motif_sc"),
+]
+
+
+def fig11(out: Path) -> None:
+    """Is a rule's behaviour a property of the rule, or of the rule x reservoir pair?"""
+    data: dict[str, dict] = {}
+    for res, _lab in RES11:
+        f = A50 / f"{res}.json"
+        if f.exists():
+            data[res] = json.loads(f.read_text())
+    if len(data) < 3:
+        print(f"fig11: only {len(data)} reservoirs profiled yet")
+        return
+
+    def pick_bank(rec: dict, prefer_own: str) -> dict | None:
+        own = f"bench38_ln_e500_wd2_30k_c20_{prefer_own}"
+        if own in rec["banks"]:
+            return rec["banks"][own]
+        return rec["banks"].get("bench38_ln_e500_wd2_30k_c20")
+
+    present = [(r, lab) for r, lab in RES11 if r in data]
+    xs = np.arange(len(present))
+    fig, axes = plt.subplots(1, 3, figsize=(13.2, 3.9), gridspec_kw={"wspace": 0.3})
+
+    # (a) activity shift, in pool-sd units so pools with different label scales compare.
+    # (b) k-mer spread of the selection over the pool's: does the rule narrow the corpus.
+    for ax, key, ylab, title in (
+        (
+            axes[0],
+            "label_z_vs_pool",
+            "selected activity  (pool sd)",
+            "(a) what each rule buys, by reservoir quality",
+        ),
+        (
+            axes[1],
+            "kmer_spread_ratio",
+            "4-mer spread / pool",
+            "(b) does the rule narrow sequence space?",
+        ),
+    ):
+        for m, lab, colour in RULES11:
+            ys = []
+            for r, _ in present:
+                b = pick_bank(data[r], r)
+                v = (b or {}).get("rules", {}).get(m, {}).get(key)
+                ys.append(v if isinstance(v, (int, float)) else np.nan)
+            ax.plot(xs, ys, "o-", color=colour, ms=5, lw=1.6, label=lab)
+        ax.axhline(0.0 if key == "label_z_vs_pool" else 1.0, color=GREY, lw=1, ls="--")
+        ax.set_xticks(xs, [lab for _, lab in present], rotation=35, ha="right", fontsize=7.5)
+        ax.set_ylabel(ylab)
+        ax.set_title(title, fontsize=9.5)
+    axes[0].legend(fontsize=7, ncols=2)
+
+    # (c) the decomposition: matched bank minus common bank, on the activity shift. A
+    # non-zero value means the rule behaves differently because the MODEL changed, not
+    # because the candidates did.
+    ax = axes[2]
+    any_pair = False
+    for m, lab, colour in RULES11:
+        ys = []
+        for r, _ in present:
+            rec = data[r]
+            own = rec["banks"].get(f"bench38_ln_e500_wd2_30k_c20_{r}")
+            com = rec["banks"].get("bench38_ln_e500_wd2_30k_c20")
+            if own and com:
+                a_ = own.get("rules", {}).get(m, {}).get("label_z_vs_pool")
+                b_ = com.get("rules", {}).get(m, {}).get("label_z_vs_pool")
+                ys.append(
+                    a_ - b_
+                    if isinstance(a_, (int, float)) and isinstance(b_, (int, float))
+                    else np.nan
+                )
+                any_pair = True
+            else:
+                ys.append(np.nan)
+        ax.plot(xs, ys, "o-", color=colour, ms=5, lw=1.6, label=lab)
+    ax.axhline(0.0, color=GREY, lw=1, ls="--")
+    ax.set_xticks(xs, [lab for _, lab in present], rotation=35, ha="right", fontsize=7.5)
+    ax.set_ylabel("matched bank - common bank")
+    ax.set_title("(c) is it the candidates or the ranker?", fontsize=9.5)
+    if not any_pair:
+        note(ax, "no reservoir has both banks yet")
+
+    fig.suptitle(
+        "Acquisition x reservoir, profiled without training: parallel lines mean the rule "
+        "axis can be explored on one reservoir",
+        y=1.05,
+        fontsize=10.5,
+    )
+    fig.savefig(out / "fig11_acq_pool_interaction.png")
+    plt.close(fig)
+    print("fig11 written")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="outputs/figures/nov25")
@@ -896,6 +1011,7 @@ def main() -> int:
         "7": fig7,
         "8": fig8,
         "9": fig9,
+        "11": fig11,
     }
     want = a.only.split(",") if a.only else list(todo)
     for k in want:
