@@ -782,27 +782,57 @@ def fig8(out: Path) -> None:
         print("fig8: dp48 has not written results yet")
         return
     cells = sorted({f.parent.name.replace("dp48_", "") for f in files})
-    fig, axes = plt.subplots(1, len(cells), figsize=(4.2 * len(cells), 3.5), squeeze=False)
+    # Two rows, because the two endpoints move in OPPOSITE directions and a figure showing
+    # only r_all would say "buy data, it helps" and hide that the same data costs
+    # specificity. The 0-shot value is drawn as a horizontal line rather than a point at
+    # x=0, which a log axis cannot show.
+    fig, axes = plt.subplots(
+        2, len(cells), figsize=(4.1 * len(cells), 6.2), squeeze=False, sharex=True
+    )
     colours = [GREY, BLUE, GREEN, PURPLE, VERM, ORANGE]
-    for ax, cell in zip(axes[0], cells, strict=False):
+    for col, cell in enumerate(cells):
         f = next((p for p in files if p.parent.name == f"dp48_{cell}"), None)
         if f is None:
             continue
         rec = json.loads(f.read_text())
         rows = rec.get("results", rec if isinstance(rec, list) else [])
-        by: dict[str, list[tuple[int, float]]] = {}
-        for r in rows:
-            if "strategy" in r and "shots" in r:
-                by.setdefault(r["strategy"], []).append((r["shots"], r.get("r_all", float("nan"))))
-        for (s, pts), colour in zip(sorted(by.items()), colours, strict=False):
-            pts.sort()
-            ax.plot([p[0] for p in pts], [p[1] for p in pts], "o-", color=colour, ms=4, label=s)
-        ax.set_xscale("log")
-        ax.set_xlabel("sequences measured in this cell")
-        ax.set_title(cell)
-    axes[0][0].set_ylabel("r on the target cell")
+        for row, key, ylab in (
+            (0, "r_all", "r on the target cell"),
+            (1, "r_specific", "r on the target-minus-reference DIFFERENCE"),
+        ):
+            ax = axes[row][col]
+            by: dict[str, list[tuple[int, float]]] = {}
+            zero = None
+            for r in rows:
+                v = r.get(key)
+                if not isinstance(v, (int, float)) or not math.isfinite(v):
+                    continue
+                if r.get("strategy") == "none" or r.get("shots") in (0, None):
+                    zero = v
+                    continue
+                if "strategy" in r and "shots" in r:
+                    by.setdefault(r["strategy"], []).append((r["shots"], v))
+            for (s, pts), colour in zip(sorted(by.items()), colours, strict=False):
+                pts.sort()
+                ax.plot([p[0] for p in pts], [p[1] for p in pts], "o-", color=colour, ms=4, label=s)
+            if zero is not None:
+                ax.axhline(zero, color="black", lw=1.2, ls="--")
+                ax.text(
+                    1100, zero, " no target data at all", fontsize=7, va="bottom", color="black"
+                )
+            ax.set_xscale("log")
+            if row == 1:
+                ax.set_xlabel("sequences measured in this cell")
+            if col == 0:
+                ax.set_ylabel(ylab, fontsize=8)
+            ax.set_title(f"{cell}  ({'activity' if row == 0 else 'specificity'})", fontsize=9)
     axes[0][0].legend(fontsize=7)
-    fig.suptitle("How many oligos a third cell line actually needs", y=1.04, fontsize=10.5)
+    fig.suptitle(
+        "A third cell line needs ~1k sequences for most of its activity gain -- and the "
+        "same data makes SPECIFICITY worse",
+        y=1.0,
+        fontsize=10.5,
+    )
     fig.savefig(out / "fig8_datapoor_allocation.png")
     plt.close(fig)
     print("fig8 written")
