@@ -59,9 +59,16 @@ def main() -> int:
     ap.add_argument(
         "--source",
         action="append",
-        required=True,
+        default=[],
         help="name=count, repeatable; counts sum to the candidate-pool size",
     )
+    # The pilot/candidates split, for reproducing the al52-style arms with a chosen pilot.
+    # The seed pool is PREPENDED to the output and is not a selection candidate, so the arm
+    # is "this pilot, plus N chosen from that candidate file" -- which is what the branch
+    # figures need and what --source alone cannot express.
+    ap.add_argument("--seed-pool", default="", help="npz prepended verbatim, not selectable")
+    ap.add_argument("--candidates", default="", help="explicit candidate npz, instead of --source")
+    ap.add_argument("--cap", type=int, default=200_000, help="candidates scored, as run_al does")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
 
@@ -79,16 +86,46 @@ def main() -> int:
     seqs: list[str] = []
     ys: list[np.ndarray] = []
     src_tag: list[str] = []
-    for spec in a.source:
-        name, _, cnt = spec.partition("=")
-        s, y = load_source(name, int(cnt), rng)
-        seqs += s
-        ys.append(y)
-        src_tag += [name] * len(s)
+    if a.candidates:
+        z = np.load(a.candidates, allow_pickle=True)
+        seqs = [str(x) for x in z["sequences"]]
+        ys = [np.asarray(z["oracle_labels"], np.float32)]
+        src_tag = (
+            [str(x) for x in z["source"]] if "source" in z.files else ["candidates"] * len(seqs)
+        )
+    else:
+        if not a.source:
+            raise SystemExit("pass --source or --candidates")
+        for spec in a.source:
+            name, _, cnt = spec.partition("=")
+            sq, yv = load_source(name, int(cnt), rng)
+            seqs += sq
+            ys.append(yv)
+            src_tag += [name] * len(sq)
     y = np.concatenate(ys)
-    print(f"candidate pool: {len(seqs):,} from {len(a.source)} source(s)", flush=True)
+    # Subsampled exactly as run_al does, so these arms are comparable with the al52/al54
+    # ones rather than quietly scoring five times as many candidates.
+    if len(seqs) > a.cap:
+        keep = np.sort(rng.choice(len(seqs), a.cap, replace=False))
+        seqs = [seqs[i] for i in keep]
+        y = y[keep]
+        src_tag = [src_tag[i] for i in keep]
+    print(f"candidate pool: {len(seqs):,} (cap {a.cap:,})", flush=True)
 
-    if a.select >= len(seqs):
+    seed_seqs: list[str] = []
+    seed_y = np.zeros(0, np.float32)
+    if a.seed_pool:
+        zs = np.load(a.seed_pool, allow_pickle=True)
+        seed_seqs = [str(x) for x in zs["sequences"]]
+        seed_y = np.asarray(zs["oracle_labels"], np.float32)
+        print(f"pilot: {len(seed_seqs):,} from {Path(a.seed_pool).name}", flush=True)
+
+    n_pick = a.select - len(seed_seqs)
+    if n_pick <= 0:
+        raise SystemExit(
+            f"--select {a.select:,} is not larger than the {len(seed_seqs):,}-row pilot"
+        )
+    if n_pick >= len(seqs):
         # Selection is a no-op: the arm IS the pool. This is the x = D point of the sweep
         # and it must be kept, because it is the random-draw baseline the curve rises from.
         idx = np.arange(len(seqs))
@@ -113,7 +150,7 @@ def main() -> int:
         if a.method not in rules:
             raise SystemExit(f"unknown method {a.method}; have {sorted(rules)}")
         student = LegNetBank(a.bank)
-        idx = np.asarray(rules[a.method]().select(student, seqs, a.select), dtype=int)
+        idx = np.asarray(rules[a.method]().select(student, seqs, n_pick), dtype=int)
     sel = np.sort(idx)
 
     from stage2_lib import save_pool  # noqa: E402
@@ -121,8 +158,8 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     save_pool(
         str(out),
-        [seqs[i] for i in sel],
-        y[sel],
+        seed_seqs + [seqs[i] for i in sel],
+        np.concatenate([seed_y, y[sel]]),
         "oracle_v3",
         "+".join(s.split("=")[0] for s in a.source),
         a.seed,
@@ -137,6 +174,8 @@ def main() -> int:
                 "sources": a.source,
                 "method": a.method,
                 "n_candidates": len(seqs),
+                "pilot": Path(a.seed_pool).name if a.seed_pool else None,
+                "pilot_n": len(seed_seqs),
                 "selected": int(len(sel)),
                 "realised_mixture": mix,
                 "label_mean": round(float(y[sel].mean()), 4),
