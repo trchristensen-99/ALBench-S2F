@@ -242,7 +242,7 @@ def main() -> int:
 
     # --------------------------------------------------------------- figure
     fig = plt.figure(figsize=(12.6, 4.2))
-    gs = fig.add_gridspec(1, 3, width_ratios=[1.15, 1.0, 0.85], wspace=0.34)
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.15, 1.0, 0.85], wspace=0.46)
 
     ax = fig.add_subplot(gs[0, 0])
     is_eff = np.array([k.startswith("D:") for k in keys])
@@ -286,8 +286,16 @@ def main() -> int:
     ax.plot(range(1, len(cum) + 1), cum, "o-", color=BLUE, ms=4)
     ax.axhline(0.9, color=GREY, lw=1, ls="--")
     n90 = int(np.searchsorted(cum, 0.9) + 1)
-    ax.text(n90 + 0.4, 0.5, f"{n90} components\ncarry 90%", fontsize=8, color=GREY)
     ax.axvline(n90, color=GREY, lw=1, ls=":")
+    ax.annotate(
+        f"{n90} components carry 90%\nof the variance across\nall {len(keys)} endpoints",
+        xy=(0.95, 0.12),
+        xycoords="axes fraction",
+        ha="right",
+        va="bottom",
+        fontsize=8,
+        color=GREY,
+    )
     ax.set_xlim(0.5, min(12, len(cum)) + 0.5)
     ax.set_xlabel("principal component")
     ax.set_ylabel("cumulative variance")
