@@ -317,11 +317,12 @@ def fig2(out: Path) -> None:
     # member of the vocab/density family (`mot_core_ct50`) is a motif_shared_core variant,
     # so without shared_core's line a reader credits it with a gain that is just the other
     # reservoir.
+    refs = []
     for res, ls in (("motif_ct_enriched", ":"), ("motif_shared_core", "--")):
         b = arm(res, MR)
         if b:
             ax.axvline(b["ood"], color=GREY, lw=1, ls=ls)
-            ax.text(b["ood"], 0.72, f" {res}", rotation=90, fontsize=6.5, color=GREY, va="bottom")
+            refs.append((b["ood"], res))
     y = 0
     ticks, labels = [], []
     for fam, (base, variants, colour) in FAMILIES.items():
@@ -353,6 +354,9 @@ def fig2(out: Path) -> None:
         y -= 1
     ax.set_yticks(ticks, labels)
     ax.set_xlim(right=ax.get_xlim()[1] + 0.13)  # room for the best-member labels
+    ax.set_ylim(min(ticks) - 0.9, max(ticks) + 0.6)
+    for x, res in refs:  # labelled inside the axes, not off the top of the figure
+        ax.text(x, min(ticks) - 0.85, f" {res}", rotation=90, fontsize=6.5, color=GREY, va="bottom")
     ax.set_xlabel("designed-set r  (stacked, 3 seeds, 30k)")
     ax.set_title(
         "Within-family spread is often larger than between-family\n"
