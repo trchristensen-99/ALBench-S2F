@@ -621,12 +621,11 @@ def fig5(out: Path) -> None:
         ax.set_xscale("log")
         ax.set_xlabel("candidate sequences available to the rule")
         ax.set_ylabel("stacked r  (D = 30,000)")
-        ax.legend(title="eval set", title_fontsize=9)
+        ax.legend(title="eval set", title_fontsize=9, loc="center left", fontsize=8.5)
         ax.annotate(
-            "no-op selection\n(= random draw)",
-            xy=(30_000, ax.get_ylim()[0]),
-            xytext=(6, 14),
-            textcoords="offset points",
+            "open marker = no-op selection\n(pool = D, so a plain random draw)",
+            xy=(0.03, 0.03),
+            xycoords="axes fraction",
             fontsize=8,
             color=GREY,
         )
@@ -672,7 +671,7 @@ def fig5(out: Path) -> None:
             )
             for k in sorted(shades)
         ]
-        ax.legend(handles=handles, loc="lower right", fontsize=8)
+        ax.legend(handles=handles, loc="lower right", fontsize=8, bbox_to_anchor=(1.0, -0.02))
     else:
         note(ax, "ab52 panel B still training")
     ax.set_title("(b) what it chooses from")
