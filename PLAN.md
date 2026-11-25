@@ -212,3 +212,91 @@ scale rung so they enter the reservoir table), plus Arm A3 extended to 20 varian
 - Yeast oracle: AG S2 only if it clears the pre-agreed bar (<0.90 unusable, 0.90-0.955
   judge only, >=~0.955 adopt). Worth noting it also fixes the copying hazard, since every
   yeast student we train is a DREAM-RNN and an AG oracle is architecturally distant.
+
+## 2026-11-25 (early) — the Arm A3 table came in, and it changed the reservoir story
+
+Most of last night's queue finished. The results below are what the 16:00 meeting should
+be built on; figures are in `outputs/figures/nov25/`, built by
+`scratchpad/nov25/make_meeting_figures.py` and `scratchpad/nov25/eval_panel_selection.py`,
+both re-runnable as the afternoon's arms land.
+
+**The eval panel has three real dimensions, and we had been reporting the wrong three.**
+Every arm already stores predictions for 18 eval sets, and the perturbation sets are
+row-aligned with `genomic`, so 13 derived EFFECT endpoints (`pred_X - pred_genomic` against
+`oracle_X - oracle_genomic`) exist for free. Over 31 endpoints x 36 candidate corpora:
+3 principal components carry 90% of the variance. Discrimination, measured properly as
+between-corpus sd over each endpoint's OWN within-arm seed sd, ranks `random_32k` 7.2x,
+`sub_high` 7.1x, `del_high` 5.4x, **`D:inversion` 4.6x**, `ood` 3.7x, `genomic` 2.3x.
+The greedy decorrelated shortlist under the meeting's own criteria (discrimination >= 2,
+mean r <= 0.90) is **random_32k, genomic, ins_low, ood, D:inversion**.
+Note the measurement trap we walked into first: a single shared 0.008 seed-noise constant
+made `genomic` read 1.0x, because its real within-arm sd is 0.0022 while `ood`'s is 0.0158,
+a factor of seven. Per-endpoint noise is not optional for this comparison.
+
+**Tiering loses, but not for the reason proposed.** All 12 tier arms sit below plain
+`motif_ct_enriched` on the designed endpoint, by 0.008 to 0.133. But the amount of
+annotated-inactive content does NOT predict how far below: slope +0.03 r per unit inactive
+fraction, Pearson +0.12 over 12 arms. `tier_active_only`, which plants nothing the
+annotation calls inactive, still loses 0.054. So the cost is PARTITIONING THE VOCABULARY,
+which matches `mot_ct_v30` at -0.065 and `mot_ct_v120` at -0.026. Per-sequence purity
+(`tseq_*`) is worse than per-site mixing at matched composition, consistent with a pure
+sequence simply being uninformative for K562 and the arm therefore paying an effective
+data reduction.
+
+**Density is the one parameter that moved anything, and it has not peaked.** On
+`motif_ct_enriched`: 1-2 sites -0.077, 3-7 (base) 0.540, 8-15 +0.021, 15-25 **+0.077** and
++0.013 on random too, at a -0.018 genomic cost. Every site-QUALITY knob loses. The
+shared_core/ct_enriched blend (`mot_core_ct20/50`) is flat to within noise once scored
+against `motif_shared_core` rather than `motif_ct_enriched` -- the apparent +0.09 was
+entirely "shared_core is the better reservoir". Launched `var3` (4 pools, 12 students,
+9 GPU-h): shared_core at 8-15 and 15-25, ct_enriched at 25-40 and 40-60.
+
+**Design methods are catastrophic as reservoirs, and `dm47` says why.** Students trained on
+30k pure designed sequences: `ada_max` 0.352 designed, `sa_max` 0.272, `fsp_max` **0.111**,
+against the motif families' 0.54-0.63. The ranking is inverse to the guide-oracle gap.
+`dm47`'s budget ladder is decisive on its own: oracle activity saturates near 7.3 for every
+method, and FastSeqProp's oracle activity DECLINES with more optimisation (6.96 at 50 steps,
+6.67 at 150, 6.45 at 500) while its guide rises to 18.6. Simulated annealing improves
+monotonically (6.21 / 7.24 / 7.31, p90 7.85) and beats FastSeqProp at every budget on true
+activity. The earlier canary was simply unfair to the search methods: FastSeqProp updates
+all 200 positions per step while SA had changed <=60 bases in total.
+
+**Acquisition: the pool is worth as much as the rule, and the rule's gain is pool-stable.**
+ab43, designed endpoint: 50k candidates 0.756, 500k 0.780, 970k 0.785 -- so +0.029 for a 20x
+larger pool, saturating by 500k. Epistemic minus random is +0.0423 at 970k and +0.0421 at
+the 1.97M union: the GAIN is stable across pools even though the LEVEL moves. Pooling two
+reservoirs buys nothing over one reservoir at the same cap (0.779 vs 0.785), and the union's
+random arm is slightly worse than the single pool's (0.737 vs 0.743), consistent with
+dilution by the weaker reservoir.
+
+**Conditioning: the channel is worth a lot, its content is worth nothing.** cd46, 15/15
+clean at lr 0.002. Genomic r: agnostic 0.7830, onehot 0.8180, embed 0.8182, text 0.8151,
+text_shuffled 0.8177. Designed r: agnostic 0.2937 against ~0.816 for every conditioned mode.
+A deliberately WRONG description matches a correct one, and both match a bare one-hot ID.
+So on cells we have data for, no descriptor is needed. ct45's leave-one-cell-out grid says
+the transfer case fails too: text minus text_shuffled is +0.0099 with an across-cell sd of
+0.0334, and `agnostic` beats `text` on 4 of 6 paired cells (mean -0.0135). That grid ran at
+lr 0.005 and diverged in 9 of 42, all in the conditioned arms, so `cd47` is rerunning
+SK-N-SH at lr 0.002, 3 modes x 3 seeds.
+
+**Two silent bugs found and fixed.**
+
+- `albench/celltype/datapoor.py` defaulted to `--mode agnostic`, which has no cell input at
+  all. `_predict` therefore returned the same vector for target and reference, so
+  `r_specific` was NaN in all three cells (and read as a hard endpoint rather than an
+  undefined one), and `contrastive` ranked by `|pt - pr|` = a constant, whose argsort is
+  index order -- it selected the last k rows in chromosome order and called it a strategy.
+  Default is now onehot/deep; both degeneracies raise. dp48 relaunched, old runs moved to
+  `attic_dp48_agnostic_*`.
+- `ab44`'s four new rules had no matched control. Arm B's 60k arms are `e500_wd15`, a
+  different recipe, and ab43's random arms were scored at a 970k cap, which ab43 itself
+  shows is worth ~0.03. `ab45` runs epistemic and random at exactly ab44's settings.
+
+**Queue.** The GPU picture inverted overnight: at 04:25 there were zero free H100s
+cluster-wide and 28 free V100s, with our slow_nice V100 sub-cap at 2 of 20 -- the exact
+mirror of last night. Everything new went to `gres/gpu:v100:1` and started immediately;
+running count went 10 -> 25. Two H100 jobs (ab44_1, dp48_1) had been PREEMPTED and requeued,
+so slow_nice H100 is not free capacity either. We are now AT the V100 sub-cap, so `var3`
+went to `qos=default` with `--array=0-3%1`, which is a separate allocation. The standing
+"always prefer H100" rule needs qualifying: prefer whichever card is actually free, and
+check `sinfo` before pinning.
