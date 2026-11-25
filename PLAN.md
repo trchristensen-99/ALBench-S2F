@@ -114,3 +114,67 @@ one fold first (~6 GPU-h) against the RNN's 0.9647 before committing to a 10-fol
 instruction was to saturate the GPUs and the queue is in fact saturated (42 running, 13
 pending, zero free, at the cap on every QOS). `cd46` is the arm to cut first if the grant
 is meant to hold.
+
+## 2026-11-24 (late) — reprioritised to the 0/30k curves, and three things that were broken
+
+**Deferred.** `sc46` (motif_ct_enriched 400k-1M) out of the registry via the new
+`defer_cells.py` and its four running H100 jobs cancelled: the agreed priority for the
+meeting is finishing the 0-start and 30k-start curves, and 300k-and-above is later work.
+Restore with `defer_cells.py --restore scratchpad/nov24/deferred_sc46_.json`.
+
+**Three failures found by auditing rather than by waiting.**
+
+- *All five yeast pool builds had failed* and nothing had surfaced it. Generation worked
+  (30,000 sequences in 27 s); labelling died with `KeyError: 'model_state_dict'`. The ye43
+  production rebuild stores weights under `state_dict`; only the older v2 folds used
+  `model_state_dict`, and the Nov 24 loader change took ye43's config while keeping the old
+  key. Fixed to accept either and to name the checkpoint when neither is present.
+  Resubmitted as 4075030.
+- *Three registered acquisition methods were unreachable from the AL loop.*
+  `uncertainty_activity_normalised` and `diversity_kmeans` were registered as strategies
+  but absent from `run_al`'s `METHODS`, so no arm had ever run them end to end. Wired in,
+  along with a new `expected_activity`.
+- *`tier_no_decoy` would have collapsed* to `tier_no` under the trainer's `_d` split --
+  third time that guard has paid for itself.
+
+**Measured, and both change what to recommend.**
+
+*Acquisition is part uncertainty and part activity, and they can be separated.* On
+motif_shared_core (pool label mean 1.210, 200k candidates, Arm A's own bank):
+
+| rule | label mean | mean uncertainty | frac > pool mean |
+|---|---|---|---|
+| random | 1.213 | 0.159 | 0.38 |
+| epistemic | 2.377 | 0.313 | 0.76 |
+| activity_normalized | 1.180 | 0.268 | 0.38 |
+| expected_activity | 3.843 | 0.224 | 1.00 |
+
+`activity_normalized` keeps 86% of epistemic's uncertainty gain over random at ZERO
+activity shift. Epistemic is not merely activity ranking -- it does not reach
+expected_activity's 3.84 -- but it buys roughly double the pool mean. `ab44` (4075026)
+trains all three on both motif reservoirs at Arm B's recipe and seeds.
+
+*The gradient designer exploits its guide; the two search designers do not.* Canary, same
+guide and the same 256 starting CREs (oracle 0.480):
+
+| method | guide final | oracle | gap |
+|---|---|---|---|
+| FastSeqProp | 14.076 | 6.923 | **+7.153** |
+| simulated annealing | 2.398 | 2.304 | +0.094 |
+| AdaLead | 3.121 | 3.195 | -0.074 |
+
+Budgets were not matched (60 SA steps and 4 AdaLead rounds against 150 FastSeqProp steps),
+so the absolute levels are not comparable -- but the gap is scale-free and differs by ~75x.
+For a library, what SA and AdaLead promise is what the oracle delivers.
+
+**Also launched.** Arm A3 extended to 20 variants: `tier_up_ct` / `tier_up_shared` /
+`tier_flat` (upweight without excluding) and a per-SEQUENCE purity ladder
+`tseq_pure`/`tseq_half`/`tseq_mixed` (verified 91% / 16% pure against the designed 90/15),
+plus `sa_max`/`sa_target`/`ada_max`/`ada_target`. The variant table is now append-only
+below a marked line -- the build array reads it by INDEX, so inserting renumbers every
+later row and a queued task then builds the wrong variant.
+
+**Design, not built.** `docs/DESIGN_attribution_loop.md` specifies the explore/exploit
+loop, its two mandatory controls (genomic-seeded round 0 against lexicon tail-eating; a
+frozen-reservoir arm at equal budget) and its abandonment criteria, to be agreed before any
+compute goes into it.
