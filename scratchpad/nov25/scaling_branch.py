@@ -44,7 +44,16 @@ HEADLINE = [
     ("genomic", "genomic"),
     ("ood", "high-activity designed"),
     ("random_32k", "random"),
-    ("D:inversion", "Δinversion"),
+    ("D:evoaug_mix", "EvoAug-style Δ (real effects)"),
+]
+# The extended panel adds the two endpoints the headline four leave out: a MEASURED
+# variant-effect endpoint (Gosai's own SNV pairs, gated on effect size against lfcSE, and
+# kept separate from the EvoAug-style one, which is oracle-derived and multi-operation), and
+# a motif set that varies the grammar rather than only the vocabulary. Both are scored from
+# sidecars, so an older cell that has not been rescored shows as a blank cell, not a guess.
+EXTENDED = HEADLINE + [
+    ("D:snv_sig", "SNV effect (Gosai, high-effect)"),
+    ("motif_grammar", "motif grammar (varied syntax)"),
 ]
 # Acquisition arm families: tag -> (label, colour). The PILOT is NOT hardcoded -- it is read
 # from each trace's own `seed_pool`, because the tags do not say what they branch from and
@@ -92,6 +101,66 @@ plt.rcParams.update(
 )
 
 CELL = re.compile(r"^bench38_ln_(?P<cfg>.+?)_(?P<size>\d+)k_c20_(?P<tag>.+?)(?:_s\d+)?$")
+
+
+def _heatmap(scratch: dict, endpoints: list[tuple[str, str]], path: Path, title: str) -> None:
+    """One panel per dataset size: MSE printed, colour = ratio to the best corpus there.
+
+    Split by size, because a single wide strip invited comparisons across sizes that are not
+    the comparison anyone wants: within a size the strategies are directly comparable;
+    across sizes the data amount differs and the colour says nothing useful. The colour is
+    the ratio, so one scale works for rows whose MSE differs by 100x; the printed number is
+    the MSE, which is what anyone will want to quote.
+    """
+    sizes = [s for s in (10_000, 30_000, 100_000, 300_000) if any(s in v for v in scratch.values())]
+    res_present = [r for r, _ in RESERVOIRS if r in scratch]
+    if not sizes or not res_present:
+        print(f"{path.name}: nothing to draw")
+        return
+    fig, axes = plt.subplots(
+        1,
+        len(sizes),
+        figsize=(3.05 * len(sizes), 0.52 * len(endpoints) + 2.0),
+        squeeze=False,
+        sharey=True,
+    )
+    im = None
+    for ax, D in zip(axes[0], sizes, strict=True):
+        M = np.full((len(endpoints), len(res_present)), np.nan)
+        for j, r in enumerate(res_present):
+            for i, (ep, _) in enumerate(endpoints):
+                M[i, j] = scratch[r].get(D, {}).get(ep, np.nan)
+        R = M / np.nanmin(M, axis=1, keepdims=True)
+        im = ax.imshow(R, aspect="auto", cmap="RdYlGn_r", vmin=1.0, vmax=1.6)
+        ax.set_xticks(range(len(res_present)), res_present, rotation=90, fontsize=7)
+        ax.set_title(f"D = {D // 1000}k", fontsize=10)
+        ax.grid(False)
+        for i in range(M.shape[0]):
+            for j in range(M.shape[1]):
+                if np.isfinite(M[i, j]):
+                    v = M[i, j]
+                    ax.text(
+                        j,
+                        i,
+                        f"{v:.3f}" if v < 10 else f"{v:.1f}",
+                        ha="center",
+                        va="center",
+                        fontsize=6.5,
+                        color="white" if R[i, j] > 1.4 else "black",
+                    )
+    axes[0][0].set_yticks(range(len(endpoints)), [h[1] for h in endpoints], fontsize=8)
+    if im is not None:
+        fig.colorbar(im, ax=axes[0], fraction=0.02, pad=0.02, label="MSE / best at this size")
+    fig.suptitle(
+        f"{title}: MSE in each cell, colour = ratio to the best corpus at that size",
+        y=1.02,
+        fontsize=12,
+        x=0.02,
+        ha="left",
+    )
+    fig.savefig(path)
+    plt.close(fig)
+    print(f"{path.name} written")
 
 
 def branch_points(max_members: int):
@@ -214,47 +283,13 @@ def main() -> int:
     # across sizes the data amount differs and the colour says nothing useful. Each panel is
     # normalised by the best STRATEGY at that size for that endpoint, so 1.00 always means
     # "the best corpus at this size" and the number is a straightforward MSE ratio.
-    sizes = [s for s in (10_000, 30_000, 100_000, 300_000) if any(s in v for v in scratch.values())]
-    res_present = [r for r, _ in RESERVOIRS if r in scratch]
-    fig, axes = plt.subplots(
-        1, len(sizes), figsize=(3.05 * len(sizes), 3.4), squeeze=False, sharey=True
+    _heatmap(scratch, HEADLINE, out / "fig16_headline_heatmap.png", "Headline endpoints")
+    _heatmap(
+        scratch,
+        EXTENDED,
+        out / "fig16b_headline_heatmap_extended.png",
+        "Headline endpoints, plus a measured-variant and a motif-grammar endpoint",
     )
-    for ax, D in zip(axes[0], sizes, strict=True):
-        M = np.full((len(HEADLINE), len(res_present)), np.nan)
-        for j, r in enumerate(res_present):
-            for i, (ep, _) in enumerate(HEADLINE):
-                M[i, j] = scratch[r].get(D, {}).get(ep, np.nan)
-        R = M / np.nanmin(M, axis=1, keepdims=True)
-        im = ax.imshow(R, aspect="auto", cmap="RdYlGn_r", vmin=1.0, vmax=1.6)
-        # Colour is the ratio (comparable across rows whose MSE differs by 100x); the
-        # printed number is the MSE itself, which is what anyone will want to quote.
-        ax.set_xticks(range(len(res_present)), res_present, rotation=90, fontsize=7)
-        ax.set_title(f"D = {D // 1000}k", fontsize=10)
-        ax.grid(False)
-        for i in range(R.shape[0]):
-            for j in range(R.shape[1]):
-                if np.isfinite(R[i, j]):
-                    ax.text(
-                        j,
-                        i,
-                        f"{R[i, j]:.2f}",
-                        ha="center",
-                        va="center",
-                        fontsize=6.5,
-                        color="white" if R[i, j] > 1.4 else "black",
-                    )
-    axes[0][0].set_yticks(range(len(HEADLINE)), [h[1] for h in HEADLINE], fontsize=8)
-    fig.colorbar(im, ax=axes[0], fraction=0.02, pad=0.02, label="MSE / best at this size")
-    fig.suptitle(
-        "Headline endpoints: MSE (colour = ratio to the best corpus at that size)",
-        y=1.02,
-        fontsize=12,
-        x=0.02,
-        ha="left",
-    )
-    fig.savefig(out / "fig16_headline_heatmap.png")
-    plt.close(fig)
-    print("fig16 written")
 
     # ---------------- fig15b: one pilot, few lines -------------------------------
     # The uncluttered version. Restricted to arms sharing ONE pilot

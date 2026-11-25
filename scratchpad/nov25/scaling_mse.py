@@ -65,9 +65,24 @@ RESERVOIRS = [
 PRETTY_EP = {
     "ood": "high-activity designed",
     "random_32k": "random",
-    "D:snv_sig": "SNV effect (significant, measured)",
+    "D:snv_sig": "SNV effect (Gosai, high-effect)",
+    "D:evoaug_mix": "EvoAug-style \u0394 (multi-op, real effects)",
     "D:inversion": "\u0394inversion",
+    "motif_grammar": "motif grammar (varied syntax)",
+    "motif_planted": "motif planted (one configuration)",
 }
+# Sidecar predictions for eval sets that did not exist when the cells were trained
+# (scratchpad/nov25/rescore_extra_sets.py). Looked up by cell name under a root, or beside
+# the cell -- the filesystem holding the cells ran out of inodes, so both have to work.
+import os as _os  # noqa: E402
+
+SIDECAR_ROOT = _os.environ.get("ALBENCH_SIDECAR_ROOT", "")
+SIDECAR_NAME = "extra_evalsets_v1.npz"
+# The operations pooled into the EvoAug-style endpoint. One perturbation on its own is a
+# narrow question; EvoAug's augmentations are a MIX of substitution, indel and
+# rearrangement, and the use case (a personal genome against the reference) is likewise.
+EVOAUG_OPS = ("sub_med", "sub_high", "ins_med", "del_med", "inversion", "translocation")
+EVOAUG_GATE = 1.0  # |true delta| in log2FC that an effect must clear to be scored
 PERTURB = (
     "dinuc_shuffle",
     "sub_low",
@@ -165,6 +180,28 @@ def cell_dir(res_suffix: str, D: int) -> Path | None:
     return best
 
 
+def _extra_sets(d: Path, used: list[str]) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Sidecar predictions for one cell, as {set: ((N, members), oracle)}."""
+    cands = [Path(SIDECAR_ROOT) / f"{d.name}.npz"] if SIDECAR_ROOT else []
+    cands.append(d / SIDECAR_NAME)
+    p = next((c for c in cands if c.exists()), None)
+    if p is None:
+        return {}
+    z = np.load(p, allow_pickle=True)
+    mids = [str(x) for x in z["members"]]
+    try:
+        cols = [mids.index(u) for u in used]
+    except ValueError:
+        return {}  # scored before this cell gained the members the figure stacks
+    out = {}
+    for k in z.files:
+        if not k.startswith("pred_"):
+            continue
+        s = k[len("pred_") :]
+        out[s] = (np.asarray(z[k], float)[cols].T, np.asarray(z[f"oracle_{s}"], float).ravel())
+    return out
+
+
 def endpoint_mse(d: Path, max_members: int = 3) -> dict[str, float] | None:
     """Stacked-ensemble MSE on every level and effect endpoint for one trained cell.
 
@@ -183,12 +220,13 @@ def endpoint_mse(d: Path, max_members: int = 3) -> dict[str, float] | None:
     Y = {s: np.asarray(lab[f"oracle_{s}"], float).ravel() for s in sets}
     yv = np.asarray(lab["val_labels"], float).ravel()
 
-    V, T = [], {s: [] for s in sets}
+    V, T, used = [], {s: [] for s in sets}, []
     for m in metas[:max_members]:
         z = np.load(m.replace("_meta.json", ".npz"), allow_pickle=True)
         if "test_pred_genomic" not in z.files:
             continue
         V.append(np.asarray(z["val_pred"], float).ravel())
+        used.append(Path(m).name[: -len("_meta.json")])
         for s in sets:
             k = f"test_pred_{s}"
             T[s].append(np.asarray(z[k], float).ravel() if k in z.files else None)
@@ -197,6 +235,12 @@ def endpoint_mse(d: Path, max_members: int = 3) -> dict[str, float] | None:
     V = np.array(V).T
     keep = [s for s in sets if all(t is not None for t in T[s])]
     Tm = {s: np.array(T[s]).T for s in keep}
+    # Extra sets are stacked by the SAME validation-fitted weights as the trained-in ones,
+    # so their columns have to be the same members in the same order; a sidecar that does
+    # not cover every member used here is dropped rather than padded.
+    for s, (p, y) in _extra_sets(d, used).items():
+        Tm[s] = p
+        Y[s] = y
     stack, _, _ = enet_all_pos(V, yv, Tm, np.arange(len(yv)))
 
     out: dict[str, float] = {}
@@ -208,6 +252,19 @@ def endpoint_mse(d: Path, max_members: int = 3) -> dict[str, float] | None:
                 dp = stack[s] - stack["genomic"]
                 dy = Y[s] - Y["genomic"]
                 out[f"D:{s}"] = float(np.mean((dp - dy) ** 2))
+    if "genomic" in stack:
+        # Pooled EvoAug-style endpoint: several operations at once, scored only where the
+        # true effect is large enough to be a real effect rather than a test of zero.
+        dp, dy = [], []
+        for s in EVOAUG_OPS:
+            if s in stack and len(stack[s]) == len(stack["genomic"]):
+                dp.append(stack[s] - stack["genomic"])
+                dy.append(Y[s] - Y["genomic"])
+        if dp:
+            dpc, dyc = np.concatenate(dp), np.concatenate(dy)
+            k = np.abs(dyc) >= EVOAUG_GATE
+            if k.sum() > 200:
+                out["D:evoaug_mix"] = float(np.mean((dpc[k] - dyc[k]) ** 2))
     if "snv_ref" in stack and "snv_alt" in stack:
         pd_ = stack["snv_alt"] - stack["snv_ref"]
         out["D:snv"] = float(np.mean((pd_ - (Y["snv_alt"] - Y["snv_ref"])) ** 2))

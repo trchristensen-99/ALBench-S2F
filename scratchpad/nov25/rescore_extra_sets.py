@@ -26,15 +26,29 @@ REPO = Path(os.environ.get("ALBENCH_ROOT", Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scratchpad/nov25"))
 
-BATTERY = REPO / "data/k562/test_sets_ag_s2_chrsplit"
+# Several directories are searched for an eval set, and the sidecar may be written somewhere
+# other than the cell. That is not generality for its own sake: the filesystem holding the
+# trained cells ran out of INODES on 2026-11-25 (52,428,800 of 52,428,800 used), so a script
+# that could only write next to the cell it scores could not run at all.
+BATTERIES = [
+    Path(p)
+    for p in (
+        os.environ.get("ALBENCH_EXTRA_BATTERY", ""),
+        str(REPO / "data/k562/test_sets_ag_s2_chrsplit"),
+    )
+    if p
+]
 SIDECAR = "extra_evalsets_v1.npz"
 
 
 def load_set(name: str) -> tuple[list[str], np.ndarray]:
-    p = BATTERY / f"{name}_oracle.npz"
-    z = np.load(p, allow_pickle=True)
-    key = "oracle_mean" if "oracle_mean" in z.files else "oracle_labels"
-    return [str(x) for x in z["sequences"]], np.asarray(z[key], np.float32).ravel()
+    for b in BATTERIES:
+        p = b / f"{name}_oracle.npz"
+        if p.exists():
+            z = np.load(p, allow_pickle=True)
+            key = "oracle_mean" if "oracle_mean" in z.files else "oracle_labels"
+            return [str(x) for x in z["sequences"]], np.asarray(z[key], np.float32).ravel()
+    raise FileNotFoundError(f"{name} in none of {[str(b) for b in BATTERIES]}")
 
 
 def cells(max_members: int) -> list[Path]:
@@ -56,7 +70,15 @@ def main() -> int:
     ap.add_argument("--max-members", type=int, default=3)
     ap.add_argument("--dirs", nargs="*", default=[])
     ap.add_argument("--force", action="store_true")
+    ap.add_argument(
+        "--sidecar-root",
+        default=os.environ.get("ALBENCH_SIDECAR_ROOT", ""),
+        help="write <root>/<cell name>.npz instead of a file inside the cell directory",
+    )
     a = ap.parse_args()
+    root = Path(a.sidecar_root) if a.sidecar_root else None
+    if root:
+        root.mkdir(parents=True, exist_ok=True)
 
     data = {}
     for s in a.sets:
@@ -79,7 +101,7 @@ def main() -> int:
         if not pts:
             print(f"SKIP {d.name}: no checkpoints")
             continue
-        side = d / SIDECAR
+        side = (root / f"{d.name}.npz") if root else (d / SIDECAR)
         have = {}
         if side.exists() and not a.force:
             z = np.load(side, allow_pickle=True)
