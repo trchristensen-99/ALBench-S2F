@@ -66,18 +66,32 @@ NOISE = {"genomic": 0.0022, "ood": 0.0158, "random_32k": 0.0023}
 
 plt.rcParams.update(
     {
-        "figure.dpi": 160,
-        "savefig.dpi": 160,
-        "font.size": 9,
-        "axes.titlesize": 10,
-        "axes.labelsize": 9,
+        # One style for every panel in the set. Titles are short and left-aligned: the
+        # explanation belongs in the talk, not burned into the image, and a two-line
+        # sentence as a suptitle is what was colliding with the axes.
+        "figure.dpi": 200,
+        "savefig.dpi": 200,
+        "font.size": 10,
+        "axes.titlesize": 11,
+        "axes.titleweight": "semibold",
+        "axes.titlelocation": "left",
+        "axes.titlepad": 8,
+        "axes.labelsize": 10,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
         "axes.spines.top": False,
         "axes.spines.right": False,
+        "axes.linewidth": 0.8,
         "axes.grid": True,
-        "grid.alpha": 0.25,
+        "axes.axisbelow": True,
+        "grid.alpha": 0.18,
         "grid.linewidth": 0.6,
         "legend.frameon": False,
+        "legend.fontsize": 9,
+        "lines.linewidth": 1.8,
+        "lines.markersize": 5,
         "savefig.bbox": "tight",
+        "figure.constrained_layout.use": False,
     }
 )
 
@@ -221,9 +235,8 @@ def fig1(out: Path) -> None:
     ax.set_xlim(0, max(disc) * 1.3)
 
     fig.suptitle(
-        "Eval sets: measure everything, report the few that are hard, independent and "
-        "discriminating",
-        y=1.05,
+        "Which eval sets can rank a corpus",
+        y=1.0,
         fontsize=10.5,
     )
     fig.savefig(out / "fig1_endpoint_independence.png")
@@ -365,9 +378,7 @@ def fig2(out: Path) -> None:
         ax.text(x, min(ticks) - 0.85, f" {res}", rotation=90, fontsize=6.5, color=GREY, va="bottom")
     ax.set_xlabel("designed-set r  (stacked, 3 seeds, 30k)")
     ax.set_title(
-        "Within-family spread is often larger than between-family\n"
-        "open circle = that family's default; label = best member; grey lines = the two "
-        "motif reservoirs",
+        "Within-family spread vs between-family",
         loc="left",
     )
     fig.savefig(out / "fig2_within_family_spread.png")
@@ -416,8 +427,8 @@ def fig3(out: Path) -> None:
         42, axes[0].get_ylim()[0] + 0.01, "overlap\nforced", fontsize=7, color=GREY, ha="center"
     )
     fig.suptitle(
-        "Planting density is the one reservoir parameter that moves the designed endpoint",
-        y=1.03,
+        "Planting density",
+        y=1.0,
         fontsize=10.5,
     )
     fig.savefig(out / "fig3_density_ladder.png")
@@ -507,8 +518,7 @@ def fig4(out: Path) -> None:
     ax.set_xlabel("fraction of planted sites annotated inactive in K562 (incl. decoys)")
     ax.set_ylabel("designed-set r")
     ax.set_title(
-        "Every tiered arm loses, but HOW MUCH inactive content does not predict how much.\n"
-        "The cost is partitioning the vocabulary, not the inactive sites themselves.",
+        "Cost of tiering the motif vocabulary",
         loc="left",
     )
     ax.legend(fontsize=8, loc="lower left")
@@ -615,9 +625,7 @@ def fig5(out: Path) -> None:
         note(ax, "acquisition rules still training")
     ax.set_title("(b) which rule, at matched everything")
 
-    fig.suptitle(
-        "Acquisition: the pool it selects from matters as much as the rule", y=1.04, fontsize=10.5
-    )
+    fig.suptitle("Acquisition: pool and rule", y=1.0, fontsize=10.5)
     fig.savefig(out / "fig5_acquisition.png")
     plt.close(fig)
     print("fig5 written")
@@ -691,8 +699,7 @@ def fig6(out: Path) -> None:
     ax.set_xticks(np.arange(len(secs)), [lab for _, lab in secs], fontsize=8)
     ax.set_ylabel("r (mean over cells and 3 seeds)")
     ax.set_title(
-        "The cell channel is worth a great deal; what you put IN it is worth nothing.\n"
-        "A one-hot ID matches a real description, and matches a deliberately WRONG one.",
+        "Cell conditioning: channel vs content",
         loc="left",
     )
     ax.legend(fontsize=7.5, ncols=5, loc="upper center", bbox_to_anchor=(0.5, -0.18))
@@ -764,9 +771,7 @@ def fig7(out: Path) -> None:
     ax.set_xticks(centres, labels, fontsize=7.5)
     ax.set_ylabel("r on the HELD-OUT cell")
     ax.set_title(
-        "A cell description does not reach a cell type we have no measurements for.\n"
-        "No conditioning at all is as good -- so every cell we intend to predict needs its "
-        "own oligos.",
+        "Transfer to a held-out cell type",
         loc="left",
     )
     ax.legend(fontsize=8)
@@ -828,8 +833,7 @@ def fig8(out: Path) -> None:
             ax.set_title(f"{cell}  ({'activity' if row == 0 else 'specificity'})", fontsize=9)
     axes[0][0].legend(fontsize=7)
     fig.suptitle(
-        "A third cell line needs ~1k sequences for most of its activity gain -- and the "
-        "same data makes SPECIFICITY worse",
+        "Measured sequences needed in a third cell line",
         y=1.0,
         fontsize=10.5,
     )
@@ -878,13 +882,15 @@ def fig9(out: Path) -> None:
             [p[0] for p in pts], [p[2] for p in pts], "o-", color=c, ms=5, label=f"{name} (oracle)"
         )
         axes[1].plot([p[1] for p in pts], [p[2] for p in pts], "o-", color=c, ms=5, label=name)
-        for p in pts:
+        # Alternating offsets: at the low-budget end the three methods land almost on top
+        # of each other and a fixed offset stacked the labels.
+        for n, p in enumerate(pts):
             axes[1].annotate(
                 str(p[0]),
                 (p[1], p[2]),
                 textcoords="offset points",
-                xytext=(4, -8),
-                fontsize=6,
+                xytext=(6, 6 if n % 2 else -11),
+                fontsize=7,
                 color=c,
             )
     axes[0].set_xscale("log")
@@ -900,8 +906,8 @@ def fig9(out: Path) -> None:
     axes[1].set_title("(b) dotted line = perfect calibration")
     axes[1].legend(fontsize=7.5)
     fig.suptitle(
-        "Design methods at matched compute: the overshoot is not a fixable offset",
-        y=1.04,
+        "Design methods at matched compute",
+        y=1.0,
         fontsize=10.5,
     )
     fig.savefig(out / "fig9_design_budget.png")
@@ -1014,9 +1020,8 @@ def fig11(out: Path) -> None:
         note(ax, "no reservoir has both banks yet")
 
     fig.suptitle(
-        "Acquisition x reservoir, profiled without training: parallel lines mean the rule "
-        "axis can be explored on one reservoir",
-        y=1.05,
+        "Acquisition rule x reservoir",
+        y=1.0,
         fontsize=10.5,
     )
     fig.savefig(out / "fig11_acq_pool_interaction.png")
