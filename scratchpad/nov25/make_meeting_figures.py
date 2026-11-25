@@ -777,7 +777,7 @@ def fig7(out: Path) -> None:
 
 def fig8(out: Path) -> None:
     """dp48: how much measured data a data-poor cell actually needs, and bought how."""
-    files = sorted(CT.glob("dp48_*/panel.json")) + sorted(CT.glob("dp48_*/metrics.json"))
+    files = sorted(CT.glob("dp48_*/curve.json"))
     if not files:
         print("fig8: dp48 has not written results yet")
         return
