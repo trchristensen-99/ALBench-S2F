@@ -46,7 +46,13 @@ from read_acq52 import SETS, read_run  # noqa: E402
 MR = REPO / "outputs/menu_retrain_v0"
 VAR = REPO / "outputs/var41"
 PREFIX = "bench38_ln_e500_wd2_30k_c20"
-PRETTY = {"genomic": "genomic", "ood": "designed", "random_32k": "random"}
+# The eval set is stored under the key "ood" for historical reasons; it is the
+# high-activity DESIGNED set, and "ood" told nobody that.
+PRETTY = {
+    "genomic": "genomic",
+    "ood": "high-activity designed",
+    "random_32k": "random",
+}
 
 # Okabe-Ito, light-surface safe (yellow omitted: it fails contrast on white).
 BLUE, VERM, GREEN, PURPLE, ORANGE, SKY = (
@@ -376,7 +382,7 @@ def fig2(out: Path) -> None:
     ax.set_ylim(min(ticks) - 0.9, max(ticks) + 0.6)
     for x, res in refs:  # labelled inside the axes, not off the top of the figure
         ax.text(x, min(ticks) - 0.85, f" {res}", rotation=90, fontsize=6.5, color=GREY, va="bottom")
-    ax.set_xlabel("designed-set r  (stacked, 3 seeds, 30k)")
+    ax.set_xlabel("high-activity designed set: r  (stacked, 3 seeds, 30k)")
     ax.set_title(
         "Within-family spread vs between-family",
         loc="left",
@@ -516,7 +522,7 @@ def fig4(out: Path) -> None:
             color=GREY,
         )
     ax.set_xlabel("fraction of planted sites annotated inactive in K562 (incl. decoys)")
-    ax.set_ylabel("designed-set r")
+    ax.set_ylabel("high-activity designed: r")
     ax.set_title(
         "Cost of tiering the motif vocabulary",
         loc="left",
@@ -569,7 +575,11 @@ SHORT = {
 }
 A_SIZES = [30_000, 60_000, 100_000, 300_000, 1_000_000]
 # One line per eval set in panel (a); these are the headline endpoints.
-A_SETS = [("ood", "designed", VERM), ("genomic", "genomic", BLUE), ("random_32k", "random", GREEN)]
+A_SETS = [
+    ("ood", "high-activity designed", VERM),
+    ("genomic", "genomic", BLUE),
+    ("random_32k", "random", GREEN),
+]
 
 
 def _a52(name: str) -> dict[str, float] | None:
@@ -650,7 +660,7 @@ def fig5(out: Path) -> None:
             ax.text(best1, len(rows) - 0.3, " best single reservoir", fontsize=8, va="top")
         lo = min(r[2] for r in rows)
         ax.set_xlim(lo - 0.02, max(r[2] for r in rows) + 0.01)
-        ax.set_xlabel("designed-set r  (D = 30,000, pool = 300,000)")
+        ax.set_xlabel("high-activity designed: r  (D = 30,000, pool = 300,000)")
         handles = [
             plt.Line2D(
                 [],
@@ -706,7 +716,7 @@ def _mean_sec(runs: list[dict], sec: str) -> tuple[float, float]:
 def fig6(out: Path) -> None:
     secs = [
         ("genomic_test", "genomic\nactivity"),
-        ("designed_test" if (CT / "x").exists() else "designed", "designed\nactivity"),
+        ("designed_test" if (CT / "x").exists() else "designed", "high-activity\ndesigned"),
         ("genomic_test_differences", "genomic\nCELL DIFFERENCE"),
         ("designed_differences", "designed\nCELL DIFFERENCE"),
     ]
@@ -1028,7 +1038,6 @@ def fig11(out: Path) -> None:
         ax.set_xticks(xs, [lab for _, lab in present], rotation=35, ha="right", fontsize=7.5)
         ax.set_ylabel(ylab)
         ax.set_title(title, fontsize=9.5)
-    axes[0].legend(fontsize=7, ncols=2)
 
     # (c) the decomposition: matched bank minus common bank, on the activity shift. A
     # non-zero value means the rule behaves differently because the MODEL changed, not
@@ -1060,6 +1069,9 @@ def fig11(out: Path) -> None:
     if not any_pair:
         note(ax, "no reservoir has both banks yet")
 
+    h, lb = axes[0].get_legend_handles_labels()
+    # Below the axes, not inside: at this aspect ratio an in-axes legend sat on the lines.
+    fig.legend(h, lb, loc="lower center", ncols=4, fontsize=9, bbox_to_anchor=(0.5, -0.08))
     fig.suptitle(
         "Acquisition rule x reservoir",
         y=1.0,

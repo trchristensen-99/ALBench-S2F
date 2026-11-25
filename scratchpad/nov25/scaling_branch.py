@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
+import os
 import re
 import sys
 from collections import defaultdict
@@ -40,18 +42,31 @@ from scaling_mse import RESERVOIRS, TUNED, cell_dir, endpoint_mse  # noqa: E402
 MR = REPO / "outputs/menu_retrain_v0"
 HEADLINE = [
     ("genomic", "genomic"),
-    ("ood", "designed"),
+    ("ood", "high-activity designed"),
     ("random_32k", "random"),
     ("D:inversion", "Δinversion"),
 ]
-# Acquisition arm families: tag prefix -> (label, pilot reservoir, colour, style)
+# Acquisition arm families: tag -> (label, colour). The PILOT is NOT hardcoded -- it is read
+# from each trace's own `seed_pool`, because the tags do not say what they branch from and
+# guessing was wrong: the bare `it3_epi`/`os_epi`/`os_random` arms at 105k seed from
+# motif_shared_core_d30000, not genomic, while `os_badge`/`os_kmeanspp` seed from
+# genomic_d30000, and every 200k arm seeds from motif_shared_core_d100000 rather than from
+# 30k at all. Anchoring a branch at the wrong from-scratch point makes selection look better
+# or worse than it is.
 BRANCHES = {
-    "it3_epi": ("uncertainty, 3 rounds", "genomic", "#0072B2", "-"),
-    "os_epi": ("uncertainty, 1 round", "genomic", "#56B4E9", "-"),
-    "os_random": ("random, 1 round", "genomic", "#999999", "-"),
-    "os_badge": ("badge, 1 round", "genomic", "#CC79A7", "-"),
-    "a54_it3_epi": ("uncertainty, 3 rounds (motif pilot)", "motif_shared_core", "#D55E00", "-"),
-    "a54_os_random": ("random, 1 round (motif pilot)", "motif_shared_core", "#E69F00", "-"),
+    "it3_epi": ("uncertainty, 3 rounds", "#0072B2"),
+    "os_epi": ("uncertainty, 1 round", "#56B4E9"),
+    "os_random": ("random, 1 round", "#999999"),
+    "os_badge": ("badge, 1 round", "#CC79A7"),
+    "os_kmeanspp": ("diversity (k-means++), 1 round", "#009E73"),
+    "a54_it3_epi": ("uncertainty, 3 rounds (a54)", "#D55E00"),
+    "a54_os_random": ("random, 1 round (a54)", "#E69F00"),
+}
+# Which from-scratch curve a seed_pool corresponds to, and at what size.
+SEED_POOL = {
+    "motif_shared_core_d30000.npz": ("motif_shared_core", 30_000),
+    "genomic_d30000.npz": ("genomic", 30_000),
+    "motif_shared_core_d100000.npz": ("motif_shared_core", 100_000),
 }
 # Recipes that ARE the tuned choice at that size; anything else is drawn open.
 TUNED_AT = {60_000: "e500", 105_000: "e500", 200_000: "e500"}
@@ -79,9 +94,15 @@ plt.rcParams.update(
 CELL = re.compile(r"^bench38_ln_(?P<cfg>.+?)_(?P<size>\d+)k_c20_(?P<tag>.+?)(?:_s\d+)?$")
 
 
-def branch_points(max_members: int) -> dict[str, dict[int, list[dict[str, float]]]]:
-    """tag -> size -> list of per-replicate MSE dicts."""
-    out: dict[str, dict[int, list[dict[str, float]]]] = defaultdict(lambda: defaultdict(list))
+def branch_points(max_members: int):
+    """(tag, seed_pool) -> size -> list of per-replicate MSE dicts.
+
+    Keyed by seed_pool as well as tag, because one tag spans several pilots across sizes and
+    averaging those together would silently merge two different experiments.
+    """
+    out: dict[tuple[str, str], dict[int, list[dict[str, float]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for t in sorted(MR.glob("*/acq_trace.json")):
         d = t.parent
         m = CELL.match(d.name)
@@ -92,9 +113,16 @@ def branch_points(max_members: int) -> dict[str, dict[int, list[dict[str, float]
             continue
         if not glob.glob(str(d / "*_meta.json")):
             continue
+        try:
+            tr = json.loads(t.read_text())
+            sp = os.path.basename(tr.get("seed_pool", ""))
+        except Exception:
+            sp = ""
+        if sp not in SEED_POOL:
+            continue
         r = endpoint_mse(d, max_members)
         if r:
-            out[tag][size].append(r)
+            out[(tag, sp)][size].append(r)
     return out
 
 
@@ -136,16 +164,28 @@ def main() -> int:
                     alpha=0.55,
                     label=f"from scratch: {res}",
                 )
-        for tag, (blab, pilot, colour, style) in BRANCHES.items():
-            sizes = sorted(br.get(tag, {}))
-            ys = [float(np.mean([r[ep] for r in br[tag][s] if ep in r])) for s in sizes]
+        for (tag, sp), per_size in sorted(br.items()):
+            blab, colour = BRANCHES[tag]
+            pilot_res, pilot_D = SEED_POOL[sp]
+            sizes = sorted(per_size)
+            ys = [float(np.mean([r[ep] for r in per_size[s] if ep in r])) for s in sizes]
             keep = [(s, y) for s, y in zip(sizes, ys, strict=True) if np.isfinite(y) and y > 0]
             if not keep:
                 continue
-            anchor = scratch.get(pilot, {}).get(30_000, {}).get(ep)
-            xs = [30_000] + [k[0] for k in keep] if anchor else [k[0] for k in keep]
-            yv = [anchor] + [k[1] for k in keep] if anchor else [k[1] for k in keep]
-            ax.plot(xs, yv, style, color=colour, lw=2.2, marker="D", ms=5, label=blab)
+            anchor = scratch.get(pilot_res, {}).get(pilot_D, {}).get(ep)
+            xs = ([pilot_D] if anchor else []) + [k[0] for k in keep]
+            yv = ([anchor] if anchor else []) + [k[1] for k in keep]
+            ls = "-" if pilot_res == "motif_shared_core" else "--"
+            ax.plot(
+                xs,
+                yv,
+                ls,
+                color=colour,
+                lw=2.2,
+                marker="D",
+                ms=5,
+                label=f"{blab} | pilot {pilot_res} {pilot_D // 1000}k",
+            )
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_title(lab)
@@ -168,40 +208,48 @@ def main() -> int:
     plt.close(fig)
     print("fig15 written")
 
-    # ---------------- fig16: compact headline heatmap ----------------------------
-    sizes = [10_000, 30_000, 100_000, 300_000]
-    cols = [(res, D) for res, _ in RESERVOIRS for D in sizes if D in scratch.get(res, {})]
-    M = np.full((len(HEADLINE), len(cols)), np.nan)
-    for j, (res, D) in enumerate(cols):
-        for i, (ep, _) in enumerate(HEADLINE):
-            M[i, j] = scratch[res][D].get(ep, np.nan)
-    # Normalised per endpoint ROW by the best cell in the row, so one colour scale works
-    # across endpoints whose MSE differs by two orders of magnitude.
-    R = M / np.nanmin(M, axis=1, keepdims=True)
-    fig, ax = plt.subplots(figsize=(1.0 + 0.42 * len(cols), 3.3))
-    im = ax.imshow(R, aspect="auto", cmap="RdYlGn_r", vmin=1.0, vmax=np.nanpercentile(R, 92))
-    ax.set_yticks(range(len(HEADLINE)), [h[1] for h in HEADLINE])
-    ax.set_xticks(
-        range(len(cols)),
-        [f"{res}\n{D // 1000}k" for res, D in cols],
-        rotation=90,
-        fontsize=6.5,
+    # ---------------- fig16: one panel per dataset size --------------------------
+    # Split by size, because a single wide strip invited comparisons across sizes that are
+    # not the comparison anyone wants: within a size the strategies are directly comparable,
+    # across sizes the data amount differs and the colour says nothing useful. Each panel is
+    # normalised by the best STRATEGY at that size for that endpoint, so 1.00 always means
+    # "the best corpus at this size" and the number is a straightforward MSE ratio.
+    sizes = [s for s in (10_000, 30_000, 100_000, 300_000) if any(s in v for v in scratch.values())]
+    res_present = [r for r, _ in RESERVOIRS if r in scratch]
+    fig, axes = plt.subplots(
+        1, len(sizes), figsize=(3.05 * len(sizes), 3.4), squeeze=False, sharey=True
     )
-    for i in range(R.shape[0]):
-        for j in range(R.shape[1]):
-            if np.isfinite(R[i, j]):
-                ax.text(
-                    j,
-                    i,
-                    f"{R[i, j]:.2f}",
-                    ha="center",
-                    va="center",
-                    fontsize=5.5,
-                    color="white" if R[i, j] > np.nanpercentile(R, 75) else "black",
-                )
-    ax.set_title("Headline endpoints: MSE relative to the best cell in each row", fontsize=10)
-    ax.grid(False)
-    fig.colorbar(im, ax=ax, fraction=0.025, pad=0.02, label="x best")
+    for ax, D in zip(axes[0], sizes, strict=True):
+        M = np.full((len(HEADLINE), len(res_present)), np.nan)
+        for j, r in enumerate(res_present):
+            for i, (ep, _) in enumerate(HEADLINE):
+                M[i, j] = scratch[r].get(D, {}).get(ep, np.nan)
+        R = M / np.nanmin(M, axis=1, keepdims=True)
+        im = ax.imshow(R, aspect="auto", cmap="RdYlGn_r", vmin=1.0, vmax=1.6)
+        ax.set_xticks(range(len(res_present)), res_present, rotation=90, fontsize=7)
+        ax.set_title(f"D = {D // 1000}k", fontsize=10)
+        ax.grid(False)
+        for i in range(R.shape[0]):
+            for j in range(R.shape[1]):
+                if np.isfinite(R[i, j]):
+                    ax.text(
+                        j,
+                        i,
+                        f"{R[i, j]:.2f}",
+                        ha="center",
+                        va="center",
+                        fontsize=6.5,
+                        color="white" if R[i, j] > 1.4 else "black",
+                    )
+    axes[0][0].set_yticks(range(len(HEADLINE)), [h[1] for h in HEADLINE], fontsize=8)
+    fig.colorbar(im, ax=axes[0], fraction=0.02, pad=0.02, label="MSE / best at this size")
+    fig.suptitle(
+        "Headline endpoints: MSE relative to the best corpus AT EACH SIZE",
+        y=1.02,
+        fontsize=12,
+        x=0.02,
+        ha="left",
+    )
     fig.savefig(out / "fig16_headline_heatmap.png")
     plt.close(fig)
     print("fig16 written")

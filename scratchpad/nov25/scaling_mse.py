@@ -61,6 +61,8 @@ RESERVOIRS = [
     ("evoaug_paper2023", "_evoaug_paper2023"),
     ("mutagenesis", "_mutagenesis"),
 ]
+# "ood" is the stored key for the high-activity DESIGNED set.
+PRETTY_EP = {"ood": "high-activity designed", "random_32k": "random"}
 PERTURB = (
     "dinuc_shuffle",
     "sub_low",
