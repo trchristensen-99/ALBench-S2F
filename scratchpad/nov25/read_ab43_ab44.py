@@ -27,6 +27,10 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+# read_acq52 expects `ens_util` on sys.path under REPO/scratchpad, where it used to live; the
+# repo consolidation moved it to orchestration/ and left the import to be satisfied by the
+# caller's path. Put the real directory on first so this works from a clean checkout.
+sys.path.insert(0, str(REPO / "orchestration"))
 sys.path.insert(0, str(REPO / "scripts/analysis"))
 from read_acq52 import SETS, read_run  # noqa: E402
 
