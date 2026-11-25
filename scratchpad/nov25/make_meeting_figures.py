@@ -548,8 +548,61 @@ def _one(root: Path, name: str) -> dict[str, float] | None:
 
 
 A52 = REPO / "outputs/acq52"
-# Panel B's bars, in the order the sbatch array builds them, so a bar is identified by its
-# task index rather than by re-deriving the combination from a directory name.
+A_SIZES = [30_000, 60_000, 100_000, 300_000, 1_000_000]
+# One line per eval set in panel (a); these are the headline endpoints.
+A_SETS = [
+    ("ood", "high-activity designed", VERM),
+    ("genomic", "genomic", BLUE),
+    ("random_32k", "random", GREEN),
+]
+
+
+def _a52(name: str) -> dict[str, float] | None:
+    d = A52 / name
+    if not d.is_dir():
+        return None
+    kids = [k for k in sorted(d.iterdir()) if k.is_dir()]
+    return stacked(kids[0] if len(kids) == 1 else d)
+
+
+def fig5(out: Path) -> None:
+    """Panel A only, as its own figure: candidate-pool size at a fixed training size."""
+    fig, ax = plt.subplots(figsize=(6.6, 4.4))
+    drew = False
+    for key, lab, colour in A_SETS:
+        xs, ys = [], []
+        for sz in A_SIZES:
+            st = _a52(f"poolA_{sz}")
+            if st and key in st:
+                xs.append(sz)
+                ys.append(st[key])
+        if len(xs) >= 2:
+            ax.plot(xs, ys, "o-", color=colour, label=lab)
+            if xs[0] == 30_000:
+                ax.plot([xs[0]], [ys[0]], "o", mfc="white", mec=colour, mew=1.8, zorder=5)
+            drew = True
+    if not drew:
+        note(ax, "ab52 panel A still training")
+    else:
+        ax.set_xscale("log")
+        ax.set_xlabel("candidate sequences available to the rule")
+        ax.set_ylabel("stacked r   (D = 30,000)")
+        ax.legend(title="eval set", title_fontsize=9, loc="center left", fontsize=8.5)
+        ax.annotate(
+            "open marker = no-op selection\n(pool = D, so a plain random draw)",
+            xy=(0.03, 0.03),
+            xycoords="axes fraction",
+            fontsize=8,
+            color=GREY,
+        )
+    ax.set_title("More to choose from: uncertainty, D = 30,000")
+    fig.savefig(out / "fig5a_pool_size.png")
+    plt.close(fig)
+    print("fig5a written")
+
+
+# Candidate-pool composition. Index order matches the ab52/ab53 sbatch arrays, so a bar is
+# identified by task index rather than by re-deriving the combination from a path.
 B_SETS = [
     ("random",),
     ("motif_shared_core",),
@@ -573,112 +626,93 @@ SHORT = {
     "evoaug": "evoaug",
     "genomic": "genomic",
 }
-A_SIZES = [30_000, 60_000, 100_000, 300_000, 1_000_000]
-# One line per eval set in panel (a); these are the headline endpoints.
-A_SETS = [
-    ("ood", "high-activity designed", VERM),
-    ("genomic", "genomic", BLUE),
-    ("random_32k", "random", GREEN),
-]
+# prefix -> rule label. poolA/poolB are ab52 (uncertainty); poolR/poolE are ab53.
+B_RULES = [("poolB", "uncertainty"), ("poolR", "random"), ("poolE", "expected activity")]
 
 
-def _a52(name: str) -> dict[str, float] | None:
-    d = A52 / name
-    if not d.is_dir():
-        return None
-    kids = [k for k in sorted(d.iterdir()) if k.is_dir()]
-    return stacked(kids[0] if len(kids) == 1 else d)
+def fig5b(out: Path) -> None:
+    """Composition at a constant 300k candidate pool: every eval set x every rule.
 
-
-def fig5(out: Path) -> None:
-    """Candidate-pool size and candidate-pool composition, at a FIXED training size.
-
-    Both panels train the tuned 30k LegNet on exactly 30,000 sequences. Only what the
-    uncertainty rule had to choose from differs, so neither panel confounds "more to choose
-    from" with "more to train on" -- which every earlier acquisition arm did.
+    One row per eval set and one column per rule, so the question "does composition matter
+    for more than uncertainty" is answered by whether the bar ORDER repeats across columns.
     """
+    have = {}
+    for pfx, rule in B_RULES:
+        for j, combo in enumerate(B_SETS):
+            st = _a52(f"{pfx}_{j:02d}")
+            if st:
+                have[(rule, j)] = st
+    if not have:
+        print("fig5b: no composition arms finished")
+        return
+    rules = [r for _, r in B_RULES if any(k[0] == r for k in have)]
+    sets = [(k, lab, c) for k, lab, c in A_SETS]
+    shades = {1: BLUE, 2: GREEN, 3: ORANGE, 4: VERM}
+
     fig, axes = plt.subplots(
-        1, 2, figsize=(13.0, 4.4), gridspec_kw={"width_ratios": [1, 1.45], "wspace": 0.24}
+        len(sets),
+        len(rules),
+        figsize=(4.6 * len(rules), 3.5 * len(sets)),
+        squeeze=False,
+        sharey="row",
     )
-
-    # (a) pool-size sweep. At 30k the selection is a no-op, so that point is the random-draw
-    # baseline and is drawn as an open marker rather than as part of the line.
-    ax = axes[0]
-    drew = False
-    for key, lab, colour in A_SETS:
-        xs, ys = [], []
-        for sz in A_SIZES:
-            s = _a52(f"poolA_{sz}")
-            if s and key in s:
-                xs.append(sz)
-                ys.append(s[key])
-        if len(xs) >= 2:
-            ax.plot(xs, ys, "o-", color=colour, label=lab)
-            if xs[0] == 30_000:
-                ax.plot([xs[0]], [ys[0]], "o", mfc="white", mec=colour, mew=1.8, zorder=5)
-            drew = True
-    if drew:
-        ax.set_xscale("log")
-        ax.set_xlabel("candidate sequences available to the rule")
-        ax.set_ylabel("stacked r  (D = 30,000)")
-        ax.legend(title="eval set", title_fontsize=9, loc="center left", fontsize=8.5)
-        ax.annotate(
-            "open marker = no-op selection\n(pool = D, so a plain random draw)",
-            xy=(0.03, 0.03),
-            xycoords="axes fraction",
-            fontsize=8,
-            color=GREY,
-        )
-    else:
-        note(ax, "ab52 panel A still training")
-    ax.set_title("(a) more to choose from")
-
-    # (b) composition at a CONSTANT 300k candidate pool, so mixture is not confounded with
-    # pool size the way the earlier 1.97M union was against a 970k single pool.
-    ax = axes[1]
-    rows = []
-    for j, combo in enumerate(B_SETS):
-        s = _a52(f"poolB_{j:02d}")
-        if s and "ood" in s:
-            rows.append((len(combo), " + ".join(SHORT[c] for c in combo), s["ood"]))
-    if rows:
-        rows.sort(key=lambda t: t[2])
-        shades = {1: BLUE, 2: GREEN, 3: ORANGE, 4: VERM}
-        ax.barh(
-            range(len(rows)),
-            [r[2] for r in rows],
-            color=[shades[r[0]] for r in rows],
-            height=0.72,
-            edgecolor="black",
-            linewidth=0.3,
-        )
-        ax.set_yticks(range(len(rows)), [r[1] for r in rows], fontsize=8)
-        best1 = max((r[2] for r in rows if r[0] == 1), default=None)
-        if best1 is not None:
-            ax.axvline(best1, color="black", lw=1.1, ls="--")
-            ax.text(best1, len(rows) - 0.3, " best single reservoir", fontsize=8, va="top")
-        lo = min(r[2] for r in rows)
-        ax.set_xlim(lo - 0.02, max(r[2] for r in rows) + 0.01)
-        ax.set_xlabel("high-activity designed: r  (D = 30,000, pool = 300,000)")
-        handles = [
-            plt.Line2D(
-                [],
-                [],
-                marker="s",
-                ls="",
-                color=shades[k],
-                label=f"{k} reservoir" + ("s" if k > 1 else ""),
+    for r_i, (key, set_lab, _c) in enumerate(sets):
+        for c_i, rule in enumerate(rules):
+            ax = axes[r_i][c_i]
+            rows = [
+                (len(B_SETS[j]), " + ".join(SHORT[c] for c in B_SETS[j]), st[key])
+                for (rl, j), st in have.items()
+                if rl == rule and key in st
+            ]
+            if not rows:
+                note(ax, "still training")
+                continue
+            rows.sort(key=lambda t: t[2])
+            ax.barh(
+                range(len(rows)),
+                [t[2] for t in rows],
+                color=[shades[t[0]] for t in rows],
+                height=0.72,
+                edgecolor="black",
+                linewidth=0.3,
             )
-            for k in sorted(shades)
-        ]
-        ax.legend(handles=handles, loc="lower right", fontsize=8, bbox_to_anchor=(1.0, -0.02))
-    else:
-        note(ax, "ab52 panel B still training")
-    ax.set_title("(b) what it chooses from")
-
-    fig.savefig(out / "fig5_acquisition.png")
+            ax.set_yticks(range(len(rows)), [t[1] for t in rows], fontsize=7.5)
+            best1 = max((t[2] for t in rows if t[0] == 1), default=None)
+            if best1 is not None:
+                ax.axvline(best1, color="black", lw=1.0, ls="--")
+            lo, hi = min(t[2] for t in rows), max(t[2] for t in rows)
+            ax.set_xlim(lo - 0.03 * (hi - lo + 0.02), hi + 0.01)
+            if r_i == 0:
+                ax.set_title(rule)
+            if c_i == 0:
+                ax.set_ylabel(set_lab, fontsize=9)
+            if r_i == len(sets) - 1:
+                ax.set_xlabel("stacked r")
+    handles = [
+        plt.Line2D(
+            [],
+            [],
+            marker="s",
+            ls="",
+            color=shades[k],
+            label=f"{k} reservoir" + ("s" if k > 1 else ""),
+        )
+        for k in sorted(shades)
+    ]
+    fig.legend(
+        handles=handles, loc="lower center", ncols=4, fontsize=9, bbox_to_anchor=(0.5, -0.02)
+    )
+    fig.suptitle(
+        "Candidate-pool composition at a constant 300k pool (dashed = best single reservoir)",
+        y=1.0,
+        fontsize=12,
+        x=0.02,
+        ha="left",
+    )
+    fig.tight_layout(rect=(0, 0.02, 1, 0.97))
+    fig.savefig(out / "fig5b_pool_composition.png")
     plt.close(fig)
-    print("fig5 written")
+    print(f"fig5b written ({len(have)} arms)")
 
 
 # --------------------------------------------------------------------------- fig 6 / 7
@@ -1097,6 +1131,7 @@ def main() -> int:
         "7": fig7,
         "8": fig8,
         "9": fig9,
+        "5b": fig5b,
         "11": fig11,
     }
     want = a.only.split(",") if a.only else list(todo)

@@ -226,6 +226,8 @@ def main() -> int:
                 M[i, j] = scratch[r].get(D, {}).get(ep, np.nan)
         R = M / np.nanmin(M, axis=1, keepdims=True)
         im = ax.imshow(R, aspect="auto", cmap="RdYlGn_r", vmin=1.0, vmax=1.6)
+        # Colour is the ratio (comparable across rows whose MSE differs by 100x); the
+        # printed number is the MSE itself, which is what anyone will want to quote.
         ax.set_xticks(range(len(res_present)), res_present, rotation=90, fontsize=7)
         ax.set_title(f"D = {D // 1000}k", fontsize=10)
         ax.grid(False)
@@ -244,7 +246,7 @@ def main() -> int:
     axes[0][0].set_yticks(range(len(HEADLINE)), [h[1] for h in HEADLINE], fontsize=8)
     fig.colorbar(im, ax=axes[0], fraction=0.02, pad=0.02, label="MSE / best at this size")
     fig.suptitle(
-        "Headline endpoints: MSE relative to the best corpus AT EACH SIZE",
+        "Headline endpoints: MSE (colour = ratio to the best corpus at that size)",
         y=1.02,
         fontsize=12,
         x=0.02,
@@ -303,9 +305,9 @@ def main() -> int:
     for ax in axes[:, 0]:
         ax.set_ylabel("MSE (stacked ensemble)")
     h, lb = axes[0][0].get_legend_handles_labels()
-    fig.legend(h, lb, loc="lower center", ncols=4, fontsize=9, bbox_to_anchor=(0.5, -0.05))
+    fig.legend(h, lb, loc="lower center", ncols=3, fontsize=8.5, bbox_to_anchor=(0.5, -0.12))
     fig.suptitle(
-        "Selection vs drawing, from one 30k motif_shared_core pilot",
+        "Selection vs drawing (branches: 30k motif_shared_core pilot, 7-reservoir candidate pool)",
         y=0.98,
         fontsize=12,
         x=0.02,
