@@ -44,8 +44,15 @@ GP = f"{R}/outputs/grid_pools"
 REPS = f"{GP}/k562_reps"
 MENU = f"{R}/outputs/menu_retrain_v0/menu_v0.json"
 
-# The three that already exist are genomic, random, motif_ct_enriched.
+# All ten, including the three the Oct-26 run already covered. Those three were trained
+# with the then-current copy of menu_retrain.py, which has moved and changed since
+# (cluster_live/ -> orchestration/), so mixing their rows with rows produced today would
+# put a script version under one half of the table. Re-running them costs nine cell-triples
+# and makes the whole thing one experiment; the old hg30k_* directories are left untouched.
 NEW = [
+    "genomic",
+    "random",
+    "motif_ct_enriched",
     "motif_shared_core",
     "motif_syntax_core",
     "evoaug_paper2023",
@@ -73,7 +80,7 @@ def cells() -> list[dict]:
                 else f"{GP}/k562_hepg2/{tgt}/{st}_r1_d{D}.npz"
             )
             vc = f"outputs/val_variants/val_V0{'' if tgt == 'k562' else '_' + tgt}.npz"
-            out_dir = f"outputs/menu_retrain_v0/hg30k_{tgt}_{st}_r1"
+            out_dir = f"outputs/menu_retrain_v0/ct50_{tgt}_{st}_r1"
             for k in range(N_SHARDS):
                 out.append(
                     {
@@ -84,7 +91,7 @@ def cells() -> list[dict]:
                         "env": {"HP_ALLOW_UNSTAMPED": "1"},
                         "needs": sorted({rel(pool), vc}),
                         "cmd": (
-                            f"uv run --no-sync python scratchpad/menu_retrain.py "
+                            f"uv run --no-sync python orchestration/menu_retrain.py "
                             f"--menu {MENU} --reservoir_cache {pool} --D {D} "
                             f"--out_dir {R}/{out_dir} --shard {k}/{N_SHARDS} "
                             f"--base_cap_min {BASE_CAP_MIN} --val_cache {R}/{vc}"
