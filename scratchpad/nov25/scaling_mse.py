@@ -82,8 +82,15 @@ def cell_dir(res_suffix: str, D: int) -> Path | None:
     return None
 
 
-def endpoint_mse(d: Path) -> dict[str, float] | None:
-    """Stacked-ensemble MSE on every level and effect endpoint for one trained cell."""
+def endpoint_mse(d: Path, max_members: int = 3) -> dict[str, float] | None:
+    """Stacked-ensemble MSE on every level and effect endpoint for one trained cell.
+
+    `max_members` is load-bearing, not tidiness. The cells hold 3 to 20 seeds depending on
+    when they were run, and a bigger stack has lower MSE for reasons that have nothing to do
+    with corpus size -- genomic has 20 members at 100k and 3 at 300k, which alone would bend
+    the curve upward at the top. Every point is therefore built from the same number of
+    members, the smallest any rung has.
+    """
     lab_p = d / "labels.npz"
     metas = sorted(glob.glob(str(d / "*_meta.json")))
     if not metas or not lab_p.exists():
@@ -94,7 +101,7 @@ def endpoint_mse(d: Path) -> dict[str, float] | None:
     yv = np.asarray(lab["val_labels"], float).ravel()
 
     V, T = [], {s: [] for s in sets}
-    for m in metas:
+    for m in metas[:max_members]:
         z = np.load(m.replace("_meta.json", ".npz"), allow_pickle=True)
         if "test_pred_genomic" not in z.files:
             continue
@@ -129,6 +136,7 @@ def endpoint_mse(d: Path) -> dict[str, float] | None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="outputs/figures/nov25")
+    ap.add_argument("--max-members", type=int, default=3)
     ap.add_argument(
         "--sets",
         default="genomic,ood,random_32k,sub_high,D:inversion,D:snv",
@@ -144,7 +152,7 @@ def main() -> int:
             d = cell_dir(suffix, D)
             if d is None:
                 continue
-            m = endpoint_mse(d)
+            m = endpoint_mse(d, a.max_members)
             if m:
                 table.setdefault(res, {})[D] = m
                 print(
