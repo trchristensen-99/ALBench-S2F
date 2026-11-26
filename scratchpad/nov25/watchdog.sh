@@ -33,6 +33,11 @@ END=$(( $(date +%s) + ${HOURS:-14} * 3600 ))
 mkdir -p "$KOO"
 : > "$FAIL"
 seen_fail=""
+# Only failures from THIS watchdog's lifetime. The first version looked back fourteen
+# hours and dutifully re-reported the afternoon's already-fixed bugs, so the morning's
+# failure file opened with eight entries that were all stale -- which is worse than an
+# empty one, because it buries anything genuinely new.
+SINCE=$(date '+%Y-%m-%dT%H:%M')
 echo "# watchdog started $(date '+%F %T'), target=$TARGET ceiling=$CEILING until $(date -d @$END '+%F %T' 2>/dev/null || echo '+14h')" >> "$LOG"
 
 while [ "$(date +%s)" -lt "$END" ]; do
@@ -70,7 +75,7 @@ while [ "$(date +%s)" -lt "$END" ]; do
     f=$(ls -t "$KOO"/logs/*"${id%%_*}"*.log 2>/dev/null | head -1)
     err=$(grep -m1 -E 'Error|error:|AssertionError|refus|No such file|duplicate' "$f" 2>/dev/null | cut -c1-160)
     echo "$(date '+%F %T') $id $name $st $code :: ${err:-no error line found}" >> "$FAIL"
-  done < <(sacct -u christen -S "$(date -d '14 hours ago' '+%Y-%m-%dT%H:%M' 2>/dev/null || echo 2026-11-25T18:00)" \
+  done < <(sacct -u christen -S "$SINCE" \
                  -X -n -P -o JobID,JobName,State,ExitCode 2>/dev/null | tr '|' ' ')
 
   sleep "$SLEEP"
