@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -103,6 +104,25 @@ def main() -> int:
             ys.append(yv)
             src_tag += [name] * len(sq)
     y = np.concatenate(ys)
+    # DEDUPE before anything else. A reservoir can offer the same sequence twice
+    # (zoonomia_orthologs pools are 15.4% exact duplicates) and two reservoirs can offer
+    # the same one, and a selection containing a duplicate is rejected downstream with
+    # "the acquired pool contains duplicate sequences" -- which killed every union arm
+    # earlier today. Keeping the first occurrence also stops a reservoir being credited
+    # for capacity it does not have.
+    _, first = np.unique(np.asarray(seqs, dtype=object).astype(str), return_index=True)
+    if len(first) < len(seqs):
+        keep0 = np.sort(first)
+        dropped = Counter(src_tag[i] for i in set(range(len(seqs))) - set(keep0.tolist()))
+        print(
+            f"deduped {len(seqs) - len(keep0):,} of {len(seqs):,} candidates: "
+            + ", ".join(f"{k} -{v:,}" for k, v in dropped.most_common()),
+            flush=True,
+        )
+        seqs = [seqs[i] for i in keep0]
+        y = y[keep0]
+        src_tag = [src_tag[i] for i in keep0]
+
     # Subsampled exactly as run_al does, so these arms are comparable with the al52/al54
     # ones rather than quietly scoring five times as many candidates.
     if len(seqs) > a.cap:
