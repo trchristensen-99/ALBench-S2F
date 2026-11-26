@@ -1,0 +1,78 @@
+#!/bin/bash
+# Overnight watchdog: keep the queue full, catch failures, and leave a readable morning log.
+#
+# It runs as a batch job rather than on the login node, and it does three things every
+# cycle. None of them submit new science -- a watchdog that invents work is a watchdog
+# nobody can audit in the morning.
+#
+#   1. RECORD. One line per cycle with my running/pending counts and the cluster's free
+#      GPUs by type, so the morning question "were we idle at 3am and why" has an answer
+#      instead of a guess.
+#   2. OPEN THE THROTTLE. If I am running fewer tasks than the target and the queue has
+#      pending array tasks, raise their ArrayTaskThrottle. Arrays were submitted with
+#      conservative throttles to be a good neighbour while the cluster was busy; overnight
+#      the H100s free up and a %4 throttle just leaves them idle.
+#   3. REPORT FAILURES. Any task that enters a terminal non-COMPLETED state gets its name,
+#      exit code and first error line appended to a failures file. It does NOT resubmit:
+#      every failure tonight has been a real bug, and a watchdog that quietly retries them
+#      would have hidden four of them.
+#
+# The throttle ceiling stays under the slow_nice caps (20 h100, 20 v100, 40 jobs) so this
+# cannot wedge the account against its own QOS limit.
+
+set -uo pipefail
+export PATH=/cm/shared/apps/slurm/current/bin:$PATH
+KOO=/grid/koo/home/christen/nov25_extra
+LOG="$KOO/watchdog.log"
+FAIL="$KOO/watchdog_failures.log"
+TARGET=${TARGET:-24}      # tasks I want running; slow_nice allows 40 jobs
+CEILING=${CEILING:-12}    # highest per-array throttle to set
+SLEEP=${SLEEP:-600}
+END=$(( $(date +%s) + ${HOURS:-14} * 3600 ))
+
+mkdir -p "$KOO"
+: > "$FAIL"
+seen_fail=""
+echo "# watchdog started $(date '+%F %T'), target=$TARGET ceiling=$CEILING until $(date -d @$END '+%F %T' 2>/dev/null || echo '+14h')" >> "$LOG"
+
+while [ "$(date +%s)" -lt "$END" ]; do
+  run=$(squeue -u christen -h -t RUNNING 2>/dev/null | wc -l)
+  pend=$(squeue -u christen -h -t PENDING 2>/dev/null | wc -l)
+  # Free GPUs by type: total configured minus what every running job has allocated.
+  freeh=$(( $(sinfo -p gpuq -h -N -o '%G' 2>/dev/null | grep -oE 'h100:[0-9]+' | cut -d: -f2 | paste -sd+ | bc 2>/dev/null || echo 0) \
+          - $(squeue -p gpuq -h -t RUNNING -o '%b' 2>/dev/null | grep -oE 'h100:[0-9]+' | cut -d: -f2 | paste -sd+ | bc 2>/dev/null || echo 0) ))
+  freev=$(( $(sinfo -p gpuq -h -N -o '%G' 2>/dev/null | grep -oE 'v100:[0-9]+' | cut -d: -f2 | paste -sd+ | bc 2>/dev/null || echo 0) \
+          - $(squeue -p gpuq -h -t RUNNING -o '%b' 2>/dev/null | grep -oE 'v100:[0-9]+' | cut -d: -f2 | paste -sd+ | bc 2>/dev/null || echo 0) ))
+  printf '%s running=%-3s pending=%-4s free_h100=%-4s free_v100=%-4s %s\n' \
+    "$(date '+%F %T')" "$run" "$pend" "$freeh" "$freev" \
+    "$(squeue -u christen -h -t RUNNING -o '%j' 2>/dev/null | sort | uniq -c | tr '\n' ' ')" >> "$LOG"
+
+  # 2. Open throttles when we are under target and something is waiting.
+  if [ "$run" -lt "$TARGET" ] && [ "$pend" -gt 0 ]; then
+    for jid in $(squeue -u christen -h -t PENDING -o '%i' 2>/dev/null | grep '_\[' | cut -d_ -f1 | sort -u); do
+      cur=$(squeue -j "$jid" -h -o '%i' 2>/dev/null | grep -oE '%[0-9]+' | tr -d '%' | head -1)
+      [ -z "${cur:-}" ] && continue
+      [ "$cur" -ge "$CEILING" ] && continue
+      new=$(( cur * 2 )); [ "$new" -gt "$CEILING" ] && new=$CEILING
+      if scontrol update JobId="$jid" ArrayTaskThrottle="$new" 2>/dev/null; then
+        echo "$(date '+%F %T')   throttle $jid: $cur -> $new" >> "$LOG"
+      fi
+    done
+  fi
+
+  # 3. Report terminal failures once each, with the first error line from the log.
+  while read -r id name st code; do
+    case "$st" in
+      COMPLETED|RUNNING|PENDING|COMPLETING|REQUEUED|RESIZING|SUSPENDED) continue ;;
+    esac
+    case "$seen_fail" in *"|$id|"*) continue ;; esac
+    seen_fail="$seen_fail|$id|"
+    f=$(ls -t "$KOO"/logs/*"${id%%_*}"*.log 2>/dev/null | head -1)
+    err=$(grep -m1 -E 'Error|error:|AssertionError|refus|No such file|duplicate' "$f" 2>/dev/null | cut -c1-160)
+    echo "$(date '+%F %T') $id $name $st $code :: ${err:-no error line found}" >> "$FAIL"
+  done < <(sacct -u christen -S "$(date -d '14 hours ago' '+%Y-%m-%dT%H:%M' 2>/dev/null || echo 2026-11-25T18:00)" \
+                 -X -n -P -o JobID,JobName,State,ExitCode 2>/dev/null | tr '|' ' ')
+
+  sleep "$SLEEP"
+done
+echo "# watchdog finished $(date '+%F %T')" >> "$LOG"
