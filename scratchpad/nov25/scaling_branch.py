@@ -226,6 +226,11 @@ def main() -> int:
         help="seed pools to draw branches from; empty means every start",
     )
     ap.add_argument("--show-badge", action="store_true", help="put the dominated BADGE arm back")
+    ap.add_argument(
+        "--legacy-fig15",
+        action="store_true",
+        help="also write the old split fig15; the merged figure supersedes it",
+    )
     a = ap.parse_args()
     out = REPO / a.out
     out.mkdir(parents=True, exist_ok=True)
@@ -309,9 +314,10 @@ def main() -> int:
         ha="left",
     )
     fig.tight_layout(rect=(0, 0.14, 1, 0.96))
-    fig.savefig(out / "fig15_scaling_with_branches.png")
+    if a.legacy_fig15:
+        fig.savefig(out / "fig15_scaling_with_branches.png")
+        print("fig15 (legacy, multi-size) written")
     plt.close(fig)
-    print("fig15 written")
 
     # ---------------- fig16: one panel per dataset size --------------------------
     # Split by size, because a single wide strip invited comparisons across sizes that are
@@ -398,6 +404,31 @@ def main() -> int:
             xs = ([30_000] if anchor else []) + [size]
             yv = ([anchor] if anchor else []) + [r[ep]]
             ax.plot(xs, yv, "--", color=colour, lw=2.4, marker="s", ms=6, label=blab)
+        # The diversity arm, previously drawn in a figure of its own. It starts from the
+        # same 30k of real CREs and selects from the same union, so there was never a
+        # reason to read it on a separate pair of axes.
+        for tag, (blab, colour) in BRANCHES.items():
+            per_size = br.get((tag, "genomic_d30000.npz"))
+            if not per_size or tag in ("os_epi", "os_random", "it3_epi"):
+                continue
+            sizes_b = sorted(per_size)
+            ys = [float(np.mean([q[ep] for q in per_size[s] if ep in q])) for s in sizes_b]
+            keep = [(s, y) for s, y in zip(sizes_b, ys, strict=True) if np.isfinite(y) and y > 0]
+            if not keep:
+                continue
+            anchor = scratch.get("genomic", {}).get(30_000, {}).get(ep)
+            xs = ([30_000] if anchor else []) + [q[0] for q in keep]
+            yv = ([anchor] if anchor else []) + [q[1] for q in keep]
+            ax.plot(
+                xs,
+                yv,
+                "--",
+                color=colour,
+                lw=2.4,
+                marker="^",
+                ms=7,
+                label=f"{blab} | pilot genomic 30k",
+            )
         # The motif-pilot branches are drawn only when motif starts are asked for. With the
         # default (genomic only) this panel is the genomic-pilot arms against every
         # from-scratch curve, which is the comparison without a second starting corpus
@@ -427,10 +458,12 @@ def main() -> int:
     h, lb = axes[0][0].get_legend_handles_labels()
     fig.legend(h, lb, loc="lower center", ncols=3, fontsize=8.5, bbox_to_anchor=(0.5, 0.0))
     fig.suptitle(
-        "Selection vs drawing: branches start from 30k of real CREs (genomic)\n"
-        "(every branch selects from the same equal 7-reservoir pool of 1M -- "
+        "Selection vs drawing: every branch starts from the same 30,000 real CREs "
+        "and selects 75,000 more\n"
+        "Candidate pool: an equal 7-reservoir union built at 999,999 rows, of which "
+        "200,000 were actually scored (~28,600 per reservoir) --\n"
         "random, motif_shared_core, motif_ct_enriched, evoaug_paper2023, mutagenesis, "
-        "genomic, zoonomia_orthologs -- with 200k of it scored)"
+        "genomic, zoonomia_orthologs.  'random' here IS the naive even mixture."
         if PILOT not in a.starts
         else "Selection vs drawing: solid branches from a 30k motif pilot, dashed from a 30k "
         "genomic pilot\n(every branch selects from the same equal 7-reservoir pool of 1M, "
@@ -441,9 +474,9 @@ def main() -> int:
         ha="left",
     )
     fig.tight_layout(rect=(0, 0.13, 1, 0.93))
-    fig.savefig(out / "fig15b_selection_vs_drawing.png")
+    fig.savefig(out / "fig15_selection_from_genomic.png")
     plt.close(fig)
-    print("fig15b written")
+    print("fig15 (merged: uncertainty, random, diversity from the genomic 30k pilot) written")
     print(f"\n-> {out}")
     return 0
 
