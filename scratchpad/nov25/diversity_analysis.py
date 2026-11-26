@@ -60,14 +60,17 @@ IDX = {c: i for i, c in enumerate("ACGT")}
 
 
 def onehot(seqs: list[str], length: int) -> np.ndarray:
-    """(N, 4, L) float32. Anything that is not ACGT becomes all-zero, which scores 0."""
-    n = len(seqs)
-    out = np.zeros((n, 4, length), dtype=np.float32)
-    for i, s in enumerate(seqs):
-        for j, c in enumerate(s[:length]):
-            k = IDX.get(c)
-            if k is not None:
-                out[i, k, j] = 1.0
+    """(N, 4, L) float32. Anything that is not ACGT becomes all-zero, which scores 0.
+
+    Vectorised over the whole block. The per-character Python loop this replaces was the
+    scan's real cost -- it ran once per motif WIDTH as well as once per chunk, so a
+    vocabulary spanning fifteen widths encoded every sequence fifteen times.
+    """
+    buf = "".join(s[:length].ljust(length, "N") for s in seqs).encode("ascii", "replace")
+    arr = np.frombuffer(buf, dtype=np.uint8).reshape(len(seqs), length)
+    out = np.zeros((len(seqs), 4, length), dtype=np.float32)
+    for i, c in enumerate(b"ACGT"):
+        out[:, i, :] = arr == c
     return out
 
 
@@ -122,11 +125,13 @@ def scan_counts(seqs: list[str], motifs, device: str, p_target: float = 3e-6, ch
     for mi, m in enumerate(motifs):
         by_width.setdefault(m.pwm.shape[0], []).append(mi)
 
-    counts = np.zeros((len(seqs), len(motifs)), dtype=np.int16)
+    # Build every width's weight matrix and threshold ONCE, before touching a sequence.
+    # The p-value DP is per motif and does not depend on the data, so recomputing it inside
+    # the chunk loop was pure waste.
+    prepared = {}
     for w, idxs in sorted(by_width.items()):
         if w > L:
             continue
-        # log-odds against a uniform background; the pseudocount keeps zeros finite.
         mats, thresh = [], []
         for mi in idxs:
             p = np.asarray(motifs[mi].pwm, dtype=np.float32)  # (w, 4)
@@ -137,11 +142,19 @@ def scan_counts(seqs: list[str], motifs, device: str, p_target: float = 3e-6, ch
             # and its score distribution under a uniform background is identical.
             t = pval_threshold(lo, p_target)
             thresh += [t, t]
-        W = torch.tensor(np.stack(mats, axis=1), device=device)  # (4w, 2M_w)
-        T = torch.tensor(np.asarray(thresh, dtype=np.float32), device=device)
-        for lo_i in range(0, len(seqs), chunk):
-            block = seqs[lo_i : lo_i + chunk]
-            x = torch.tensor(onehot(block, L), device=device)  # (B, 4, L)
+        prepared[w] = (
+            idxs,
+            torch.tensor(np.stack(mats, axis=1), device=device),  # (4w, 2M_w)
+            torch.tensor(np.asarray(thresh, dtype=np.float32), device=device),
+        )
+
+    counts = np.zeros((len(seqs), len(motifs)), dtype=np.int16)
+    # Chunks outside, widths inside: one encoding of each block now serves every width,
+    # where the previous nesting re-encoded the whole group once per width.
+    for lo_i in range(0, len(seqs), chunk):
+        block = seqs[lo_i : lo_i + chunk]
+        x = torch.tensor(onehot(block, L), device=device)  # (B, 4, L)
+        for w, (idxs, W, T) in prepared.items():
             # unfold gives every window; reshape so one GEMM scores every motif at every
             # position of every sequence in the block.
             win = x.unfold(2, w, 1)  # (B, 4, L-w+1, w)
@@ -259,6 +272,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--sample", type=int, default=12_000, help="sequences scanned per group")
+    ap.add_argument("--shard", type=int, default=0, help="this task's index, for array runs")
+    ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--cluster-at", type=float, default=0.90)
     ap.add_argument("--min-ic", type=float, default=6.0)
     a = ap.parse_args()
@@ -290,6 +305,13 @@ def main() -> int:
         srcs = json.loads(p.read_text()).get("sources", [])
         if srcs:
             jobs.append(("arms", arm, POOLS / f"{arm}_d30000.npz", srcs))
+
+    if a.nshards > 1:
+        # Round-robin rather than contiguous blocks: the pool-size arms get steadily more
+        # expensive, so a contiguous split would hand one task the 1M pool and leave
+        # another idle.
+        jobs = [j for i, j in enumerate(jobs) if i % a.nshards == a.shard]
+        print(f"shard {a.shard}/{a.nshards}: {len(jobs)} arms")
 
     for bucket, key, sel_p, srcs in jobs:
         if not sel_p.exists():
