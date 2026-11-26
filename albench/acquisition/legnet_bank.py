@@ -153,20 +153,54 @@ class LegNetBank(SequenceModel):
         return np.ones(len(list(sequences)), dtype=float)
 
     def embed(self, sequences) -> np.ndarray:
-        """Penultimate features of the FIRST member, for BADGE's k-means++ half."""
+        """Features of the FIRST member, for the diversity and k-means++ rules.
+
+        The default is the penultimate layer -- the input to the final Linear -- and that
+        default is a poor place to measure diversity, which is why `embed_layer` exists.
+        Probed on a trained 30k bank over 3,000 candidates, the penultimate layer recovers
+        the model's own prediction with R^2 = 1.000, its first principal component
+        correlates 0.998 with that prediction, and it carries 1.13 effective dimensions.
+        A distance-based rule in that space is ranking by predicted activity with extra
+        steps. The convolutional blocks keep real geometry (main.0: R^2 0.36, 25.4
+        effective dimensions), and selections made there overlap the penultimate ones by
+        0.16 against a chance level of 0.10 -- so the layer is a real choice, not a detail.
+
+        Set ``bank.embed_layer = "main.1"`` (any name from ``named_modules``) to use it.
+        Spatial activations are mean-pooled over position, which does discard the
+        positional structure a motif-syntax rule would want; that is a known cost of
+        putting every layer on the same footing.
+        """
         import torch
 
         m = self.models[0]
-        last = None
-        for mod_ in m.modules():
-            if isinstance(mod_, torch.nn.Linear):
-                last = mod_
-        if last is None:
-            raise RuntimeError("no Linear layer found; cannot take a penultimate embedding")
+        target, pre = None, True
+        if getattr(self, "embed_layer", ""):
+            mods = dict(m.named_modules())
+            if self.embed_layer not in mods:
+                raise RuntimeError(
+                    f"no layer {self.embed_layer!r} in this model; have "
+                    f"{[k for k in mods if k and k.count('.') <= 1][:12]}"
+                )
+            target, pre = mods[self.embed_layer], False
+        else:
+            for mod_ in m.modules():
+                if isinstance(mod_, torch.nn.Linear):
+                    target = mod_
+            if target is None:
+                raise RuntimeError("no Linear layer found; cannot take a penultimate embedding")
 
         feats: list[np.ndarray] = []
-        hook = last.register_forward_pre_hook(
-            lambda _m, inp: feats.append(inp[0].detach().float().cpu().numpy())
+
+        def _grab(t):
+            o = t[0] if isinstance(t, (tuple, list)) else t
+            if o.dim() == 3:  # (B, C, L) -> mean over position
+                o = o.mean(dim=2)
+            feats.append(o.detach().float().cpu().numpy())
+
+        hook = (
+            target.register_forward_pre_hook(lambda _m, inp: _grab(inp))
+            if pre
+            else target.register_forward_hook(lambda _m, _i, out: _grab(out))
         )
         try:
             seqs = list(sequences)

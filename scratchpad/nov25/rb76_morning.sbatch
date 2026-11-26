@@ -26,11 +26,11 @@ cd "$REPO"
 export PYTHONPATH="$PWD:$PWD/experiments" ALBENCH_REPO="$REPO"
 export MPLCONFIGDIR=/tmp/$USER/mpl TMPDIR=/tmp/$USER/tmp HP_ALLOW_UNSTAMPED=1
 export ALBENCH_EXTRA_BATTERY="$KOO" ALBENCH_SIDECAR_ROOT="$KOO/sidecars"
-export ALBENCH_EXTRA_ROOTS="$KOO/outputs/mg60:$KOO/outputs/pm74"
+export ALBENCH_EXTRA_ROOTS="$KOO/outputs/mg60:$KOO/outputs/pm74:$KOO/outputs/sc77"
 mkdir -p "$KOO/sidecars" /tmp/$USER/mpl /tmp/$USER/tmp
 
 echo "=== 1. rescore new cells on the eval sets built after them ==="
-for root in mg60 pm74 ps68 rp71 rp72 ac60 ac63; do
+for root in mg60 pm74 ps68 rp71 rp72 ac60 ac63 cm78 ly81 sc77; do
   d="$KOO/outputs/$root"
   [ -d "$d" ] || continue
   n=$(ls "$d" 2>/dev/null | wc -l)
@@ -42,6 +42,7 @@ done
 
 echo "=== 2. the diversity analysis, over everything that now exists ==="
 .venv/bin/python "$KOO/bin/diversity_analysis.py" --out "$KOO/diversity_morning.json" \
+    --selections "$KOO/pools/sel_*.npz" \
     2>&1 | grep -E 'no-op|->|shard' | tail -3 || true
 
 echo "=== 3. figures ==="

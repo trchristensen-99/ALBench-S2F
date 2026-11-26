@@ -264,6 +264,18 @@ def _rebuild_pool(srcs: list[str]) -> tuple[list[str], np.ndarray, bool]:
     reassembled from the sidecar. Pools are prefix-nested, so "random=75000" is the first
     75,000 rows of random's nested pool -- the same rows the arm was offered.
     """
+    # "@/path/to/pool.npz" means the candidate pool is a file rather than a recipe, which
+    # is how every run_al arm records it. Its seed prefix is dropped here because the
+    # comparison is about what was CHOSEN from the candidates, and the prefix was never on
+    # offer -- it was already labelled and trained on.
+    if len(srcs) == 1 and str(srcs[0]).startswith("@"):
+        z = np.load(str(srcs[0])[1:], allow_pickle=True)
+        nb = int(z["n_base"]) if "n_base" in z.files else 0
+        return (
+            [str(x) for x in z["sequences"][nb:]],
+            np.asarray(z["oracle_labels"][nb:], dtype=float),
+            True,
+        )
     seqs: list[str] = []
     labs: list[np.ndarray] = []
     for s in srcs:
@@ -284,6 +296,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--sample", type=int, default=12_000, help="sequences scanned per group")
+    ap.add_argument(
+        "--selections",
+        default="",
+        help="glob of run_al selection files to analyse as well, e.g. '<pools>/sel_*.npz'",
+    )
     ap.add_argument("--shard", type=int, default=0, help="this task's index, for array runs")
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--cluster-at", type=float, default=0.90)
@@ -304,7 +321,7 @@ def main() -> int:
     print(f"vocabulary: {len(motifs)} motifs after clustering at {a.cluster_at}", flush=True)
 
     rng = np.random.default_rng(0)
-    rec: dict = {"source": SOURCE, "sizes": {}, "arms": {}, "motif_names": names}
+    rec: dict = {"source": SOURCE, "sizes": {}, "arms": {}, "selected": {}, "motif_names": names}
     jobs: list[tuple[str, str, Path, list[str]]] = [
         ("sizes", str(sz), POOLS / f"poolA_{sz}_d30000.npz", [f"{SOURCE}={sz}"]) for sz in SIZES
     ]
@@ -317,6 +334,22 @@ def main() -> int:
         srcs = json.loads(p.read_text()).get("sources", [])
         if srcs:
             jobs.append(("arms", arm, POOLS / f"{arm}_d30000.npz", srcs))
+
+    # Every arm run through run_al: the pool-size sweep, the rule replicates, the layer
+    # sweep, the 300k start. run_al stamps `acq_from` into the selection, so the candidate
+    # pool is read from the file rather than guessed from the tag -- which matters because
+    # the tags spell the same pool three different ways (540000, 540k, u6_540k).
+    if a.selections:
+        for sp in sorted(Path(a.selections).parent.glob(Path(a.selections).name)):
+            try:
+                zz = np.load(sp, allow_pickle=True)
+                src = str(zz["acq_from"]) if "acq_from" in zz.files else ""
+            except Exception:
+                continue
+            cand = sp.parent / src
+            if not src or not cand.exists():
+                continue
+            jobs.append(("selected", sp.name.replace(".npz", ""), sp, ["@" + str(cand)]))
 
     if a.nshards > 1:
         # Round-robin rather than contiguous blocks: the pool-size arms get steadily more
@@ -335,8 +368,17 @@ def main() -> int:
             continue
         print(f"\n{bucket[:-1]} {key}  ({', '.join(srcs)})")
         zs = np.load(sel_p, allow_pickle=True)
-        sel = [str(s) for s in zs["sequences"]]
-        sel_y = np.asarray(zs["oracle_labels"], dtype=float)
+        # A run_al selection is seed prefix + acquired rows; only the acquired part was
+        # chosen, so the prefix is dropped or every arm would look like its own seed set.
+        # Exactly, from the stamp: run_al records how many rows it acquired, so the prefix
+        # is len - acquired. A fixed 30,000 would be right for the 30k-start arms and
+        # silently wrong for the 300k ones, where it would treat 270,000 seed rows as
+        # selections.
+        nb = 0
+        if bucket == "selected":
+            nb = len(zs["sequences"]) - int(zs["acq_selected"]) if "acq_selected" in zs.files else 0
+        sel = [str(s) for s in zs["sequences"][nb:]]
+        sel_y = np.asarray(zs["oracle_labels"][nb:], dtype=float)
         pool_y = np.asarray(pool_y, dtype=float)
         chosen = set(sel)
         # The reconstruction is a guess about which rows select_corpus offered, so it is

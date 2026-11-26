@@ -117,6 +117,13 @@ def main() -> None:
     ap.add_argument("--select", type=int, required=True)
     ap.add_argument("--cap", type=int, default=200_000, help="candidates scored per round")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--embed-layer",
+        default="",
+        help="layer the diversity/k-means rules measure distance in (e.g. main.1). The "
+        "default penultimate layer is ~1-D along predicted activity, so a distance rule "
+        "there re-ranks by activity; see scratchpad/nov25/layer_probe.py",
+    )
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
@@ -157,7 +164,13 @@ def main() -> None:
         from albench.acquisition.legnet_bank import LegNetBank
 
         bank = LegNetBank(a.bank)
-        print(f"bank: {len(bank)} members from {a.bank}", flush=True)
+        if a.embed_layer:
+            bank.embed_layer = a.embed_layer
+        print(
+            f"bank: {len(bank)} members from {a.bank}"
+            + (f" | embedding at {a.embed_layer}" if a.embed_layer else ""),
+            flush=True,
+        )
         if not bank.separates_uncertainty:
             raise SystemExit(
                 "the bank has one member, so epistemic uncertainty is identically zero "
@@ -213,6 +226,7 @@ def main() -> None:
         "seconds": round(time.time() - t0, 1),
         "label_mean_selected": round(float(np.mean(y[pick])), 4),
         "label_mean_pool": round(float(np.mean(y)), 4),
+        "embed_layer": a.embed_layer or "penultimate",
         **extra,
     }
     with open(a.out.replace(".npz", "_meta.json"), "w") as fh:
