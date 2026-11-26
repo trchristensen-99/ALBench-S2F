@@ -39,6 +39,7 @@ import glob
 import json
 import os
 import re
+from collections import Counter
 
 import numpy as np
 
@@ -58,6 +59,10 @@ UNCERTAINTY_MIX = {
     "zoonomia_orthologs": 0.095,
 }
 UNION7 = tuple(UNCERTAINTY_MIX)
+# Distinct sequences a reservoir can ever supply. Only the real-CRE pool is capped; the
+# synthetic reservoirs reseed, and zoonomia_orthologs' nominal capacity is not usable
+# because 15.4% of its rows are exact duplicates.
+CAPACITY = {"genomic": 315_000}
 
 
 def largest_pool(res: str) -> str:
@@ -90,8 +95,15 @@ def main() -> None:
     ap.add_argument(
         "--weights",
         default="",
-        choices=["", "even", "uncertainty"],
-        help="shorthand for the 7-way union: even shares, or fig18's realised uncertainty mix",
+        choices=["", "even", "uncertainty", "capacity"],
+        help="shorthand for the 7-way union: even, fig18's uncertainty mix, or capped by "
+        "how much of a real order each reservoir could actually fill",
+    )
+    ap.add_argument(
+        "--order-size",
+        type=int,
+        default=3_200_000,
+        help="library size that --weights capacity prices each reservoir's share against",
     )
     ap.add_argument("--cand-n", type=int, default=700_000)
     ap.add_argument(
@@ -102,7 +114,17 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
-    if a.weights:
+    if a.weights == "capacity":
+        # An even union offers genomic 14.3% of the candidates, but there are only ~315,000
+        # distinct real CREs in existence -- under 10% of a 3.2M order, and less once the
+        # seed has spent some. Offering a rule more real sequence than the order could ever
+        # contain lets it build a mixture nobody can buy. Capped reservoirs are weighted by
+        # what they could actually fill; the rest divide what is left.
+        caps = {r: CAPACITY[r] / a.order_size for r in UNION7 if r in CAPACITY}
+        rest = [r for r in UNION7 if r not in caps]
+        spare = max(0.0, 1.0 - sum(caps.values()))
+        members = {**caps, **{r: spare / max(1, len(rest)) for r in rest}}
+    elif a.weights:
         members = {r: (1.0 if a.weights == "even" else UNCERTAINTY_MIX[r]) for r in UNION7}
     elif a.members:
         members = {}
@@ -188,6 +210,28 @@ def main() -> None:
         lab = np.concatenate(labs)
         src = np.concatenate(srcs)
     assert len(seq) == len(lab) == len(src)
+
+    # DEDUPE, keeping the first occurrence. Two reservoirs can offer the same sequence, and
+    # zoonomia_orthologs offers the same sequence to itself: its pools are 15.4% exact
+    # duplicates at every size. Left in, run_al refuses the arm outright ("the acquired pool
+    # contains duplicate sequences"), and a duplicate that survived would be worse than the
+    # refusal -- it would credit a reservoir for capacity it does not have and let the same
+    # sequence be "acquired" twice. The seed prefix is first, so keeping first occurrences
+    # preserves it exactly.
+    _, first = np.unique(seq.astype(str), return_index=True)
+    keep = np.sort(first)
+    if len(keep) < len(seq):
+        dropped = Counter(str(r) for r in src[np.setdiff1d(np.arange(len(seq)), keep)])
+        print(f"  deduped {len(seq) - len(keep):,} of {len(seq):,} rows:")
+        for r, n in dropped.most_common():
+            share = n / max(1, int((src == r).sum()))
+            print(f"    {r:22s} -{n:>8,}  ({share:.1%} of what it offered)")
+        for r in dropped:
+            if r in report:
+                report[r]["dropped_duplicate"] = int(dropped[r])
+                report[r]["taken"] -= int(dropped[r])
+        seq, lab, src = seq[keep], lab[keep], src[keep]
+
     if not a.flat:
         assert np.array_equal(seq[: a.seed_n], seed_seq), "seed prefix is not the seed reservoir's"
     else:

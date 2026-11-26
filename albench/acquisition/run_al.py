@@ -167,10 +167,16 @@ def main() -> None:
         raise SystemExit("the acquired pool contains duplicate sequences")
 
     os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
+    # A mixed candidate pool records which reservoir each row came from; carry that column onto
+    # the selection. Without it the realised mixture -- the whole point of handing a rule
+    # several reservoirs at once -- has to be reconstructed afterwards by matching sequence
+    # strings back to the pool, which only works while that pool still exists.
+    src = {"source": np.asarray(z["source"])[new_idx]} if "source" in z.files else {}
     np.savez(
         a.out,
         sequences=out_seqs,
         oracle_labels=out_y,
+        **src,
         strategy=str(z.get("strategy", "")),
         params=str(z.get("params", "")),
         seed=int(z["seed"]) if "seed" in z.files else a.seed,

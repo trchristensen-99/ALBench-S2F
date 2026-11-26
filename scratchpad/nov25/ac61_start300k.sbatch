@@ -45,7 +45,7 @@ case $i in
   0) TAG=m300_own_expected_activity; POOL="$NEST/motif_shared_core_d1000000.npz"; M=expected_activity ;;
   1) TAG=m300_u7_epistemic;          POOL="$KOO/pools/m300_u7.npz";               M=epistemic ;;
   2) TAG=m300_u7_random;             POOL="$KOO/pools/m300_u7.npz";               M=random ;;
-  3) TAG=m450_scratch;               POOL="$NEST/motif_shared_core_d500000.npz";  M="" ;;
+  3) TAG=m450_scratch;               POOL="$KOO/pools/motif_shared_core_d450000.npz";  M="" ;;
 esac
 
 if [ -z "$M" ]; then

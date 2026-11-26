@@ -72,6 +72,15 @@ BRANCHES = {
     "a54_it3_epi": ("uncertainty, 3 rounds (a54)", "#D55E00"),
     "a54_os_random": ("random, 1 round (a54)", "#E69F00"),
 }
+# Dropped from the figures by default. BADGE is settled rather than untested: it scores
+# below `badge_epistemic_only` on every arm that ran both, so its diversity term subtracts,
+# and a line that is already known to be dominated spends attention the pool axis needs.
+# Pass --show-badge to put it back.
+DROP_BY_DEFAULT = ("os_badge",)
+# A branch is labelled by its PILOT, and mixing pilots in one panel was what made the old
+# figure unreadable: "uncertainty, 1 round" appeared twice meaning two different starting
+# corpora. Default to the real-CRE start, which is the one a collaborator would begin from.
+DEFAULT_STARTS = ("genomic_d30000.npz",)
 # Which from-scratch curve a seed_pool corresponds to, and at what size.
 SEED_POOL = {
     "motif_shared_core_d30000.npz": ("motif_shared_core", 30_000),
@@ -174,7 +183,7 @@ def _heatmap(scratch: dict, endpoints: list[tuple[str, str]], path: Path, title:
     print(f"{path.name} written")
 
 
-def branch_points(max_members: int):
+def branch_points(max_members: int, starts: tuple[str, ...] = (), drop: tuple[str, ...] = ()):
     """(tag, seed_pool) -> size -> list of per-replicate MSE dicts.
 
     Keyed by seed_pool as well as tag, because one tag spans several pilots across sizes and
@@ -189,7 +198,7 @@ def branch_points(max_members: int):
         if not m:
             continue
         tag, size, cfg = m.group("tag"), int(m.group("size")) * 1000, m.group("cfg")
-        if tag not in BRANCHES or TUNED_AT.get(size) != cfg:
+        if tag not in BRANCHES or tag in drop or TUNED_AT.get(size) != cfg:
             continue
         if not glob.glob(str(d / "*_meta.json")):
             continue
@@ -198,7 +207,7 @@ def branch_points(max_members: int):
             sp = os.path.basename(tr.get("seed_pool", ""))
         except Exception:
             sp = ""
-        if sp not in SEED_POOL:
+        if sp not in SEED_POOL or (starts and sp not in starts):
             continue
         r = endpoint_mse(d, max_members)
         if r:
@@ -210,6 +219,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="outputs/figures/nov25")
     ap.add_argument("--max-members", type=int, default=3)
+    ap.add_argument(
+        "--starts",
+        nargs="*",
+        default=list(DEFAULT_STARTS),
+        help="seed pools to draw branches from; empty means every start",
+    )
+    ap.add_argument("--show-badge", action="store_true", help="put the dominated BADGE arm back")
     a = ap.parse_args()
     out = REPO / a.out
     out.mkdir(parents=True, exist_ok=True)
@@ -223,8 +239,13 @@ def main() -> int:
             r = endpoint_mse(d, a.max_members)
             if r:
                 scratch.setdefault(res, {})[D] = r
-    br = branch_points(a.max_members)
-    print(f"from-scratch: {len(scratch)} reservoirs | branches: {sorted(br)}")
+    drop = () if a.show_badge else DROP_BY_DEFAULT
+    br = branch_points(a.max_members, tuple(a.starts), drop)
+    starts_txt = ", ".join(SEED_POOL[s][0] for s in a.starts if s in SEED_POOL) or "every start"
+    print(
+        f"from-scratch: {len(scratch)} reservoirs | starts: {starts_txt} "
+        f"| dropped: {drop or 'nothing'} | branches: {sorted(br)}"
+    )
 
     # ---------------- fig15: curves with branches -------------------------------
     fig, axes = plt.subplots(2, 2, figsize=(11.6, 10.2))
@@ -279,7 +300,9 @@ def main() -> int:
     # tight_layout rect, or it lands on the bottom row's tick labels.
     fig.legend(h, lbl, loc="lower center", ncols=3, fontsize=8, bbox_to_anchor=(0.5, 0.0))
     fig.suptitle(
-        "From-scratch curves, with acquisition branching off the 30k pilot",
+        f"From-scratch curves, with acquisition branching off the 30k {starts_txt} pilot\n"
+        "(branch legends name the rule and the pilot it starts from; BADGE is omitted -- "
+        "it scores below badge_epistemic_only, so its diversity term subtracts)",
         y=0.995,
         fontsize=12,
         x=0.02,
@@ -375,7 +398,11 @@ def main() -> int:
             xs = ([30_000] if anchor else []) + [size]
             yv = ([anchor] if anchor else []) + [r[ep]]
             ax.plot(xs, yv, "--", color=colour, lw=2.4, marker="s", ms=6, label=blab)
-        for tag in WANT:
+        # The motif-pilot branches are drawn only when motif starts are asked for. With the
+        # default (genomic only) this panel is the genomic-pilot arms against every
+        # from-scratch curve, which is the comparison without a second starting corpus
+        # mixed into it.
+        for tag in WANT if PILOT in a.starts else []:
             per_size = br.get((tag, PILOT))
             if not per_size:
                 continue
@@ -400,7 +427,12 @@ def main() -> int:
     h, lb = axes[0][0].get_legend_handles_labels()
     fig.legend(h, lb, loc="lower center", ncols=3, fontsize=8.5, bbox_to_anchor=(0.5, 0.0))
     fig.suptitle(
-        "Selection vs drawing: solid branches from a 30k motif pilot, dashed from a 30k "
+        "Selection vs drawing: branches start from 30k of real CREs (genomic)\n"
+        "(every branch selects from the same equal 7-reservoir pool of 1M -- "
+        "random, motif_shared_core, motif_ct_enriched, evoaug_paper2023, mutagenesis, "
+        "genomic, zoonomia_orthologs -- with 200k of it scored)"
+        if PILOT not in a.starts
+        else "Selection vs drawing: solid branches from a 30k motif pilot, dashed from a 30k "
         "genomic pilot\n(every branch selects from the same equal 7-reservoir pool of 1M, "
         "200k of it scored)",
         y=0.995,

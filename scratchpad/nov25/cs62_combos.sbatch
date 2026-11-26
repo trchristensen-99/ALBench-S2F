@@ -43,7 +43,7 @@ i=$SLURM_ARRAY_TASK_ID
 c=${COMBOS[$(( i % 2 ))]}
 k=$(( i / 2 ))
 D=${SIZES[$k]}; CFG=${CFGS[$k]}
-POOL="$KOO/pools/${c}.npz"
+POOL="$KOO/pools/${c}_d${D}.npz"
 
 [ -f "$POOL" ] || { echo "cs62: pool missing $POOL"; exit 1; }
 echo "cs62: $c D=$D cfg=$CFG"
