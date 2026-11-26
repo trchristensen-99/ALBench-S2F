@@ -46,6 +46,12 @@ METHODS = (
     "activity_normalized",
     "diversity_kmeans",
     "expected_activity",
+    # Added 2026-11-25. Coverage as a CONSTRAINT rather than a side effect of a ranking:
+    # `coverage_random` is a pure prior over the predicted-activity range with no model
+    # uncertainty in it, and is the control that says whether uncertainty adds anything
+    # once the activity profile is matched.
+    "coverage_random",
+    "coverage_epistemic",
 )
 
 
@@ -94,6 +100,10 @@ def build_acq(method: str, seed: int):
         from albench.acquisition.ensemble_acq import ExpectedActivityAcquisition
 
         return ExpectedActivityAcquisition(seed=seed)
+    if method in ("coverage_random", "coverage_epistemic"):
+        from albench.acquisition.coverage import ActivityCoverageAcquisition
+
+        return ActivityCoverageAcquisition(seed=seed, within=method.split("_", 1)[1])
     raise ValueError(f"unknown method {method!r}; have {METHODS}")
 
 
@@ -157,6 +167,12 @@ def main() -> None:
         cands = [str(s) for s in seqs[cand_idx]]
         pick_local = np.asarray(acq.select(bank, cands, a.select))
         extra = {"n_informative_": getattr(acq, "n_informative_", None)}
+        # Coverage rules record what they actually achieved per stratum. Without it the
+        # claim "this corpus covers the activity range" rests on the rule's intent rather
+        # than on what the candidate pool allowed it to do.
+        for k in ("realised_per_stratum_", "n_short_strata_"):
+            if getattr(acq, k, None) is not None:
+                extra[k] = getattr(acq, k)
     pick = cand_idx[pick_local]
     print(f"selected {len(pick):,} in {time.time() - t0:.0f}s", flush=True)
 
