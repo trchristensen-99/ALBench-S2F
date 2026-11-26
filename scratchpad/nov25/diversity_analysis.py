@@ -231,6 +231,18 @@ def describe(seqs, labels, motifs, names, device, tag: str) -> dict:
         "gc": round(float(gc.mean()), 4),
         "cpg_obs_exp": round(float(np.mean(cg / np.maximum(exp_cg, 1e-6))), 4),
         "activity_mean": round(float(np.mean(labels)), 4) if labels is not None else None,
+        # Dynamic RANGE, not just level. A rule that shifts the mean up by taking only the
+        # top of the pool teaches a model about one end of the activity axis; a rule that
+        # widens the spread covers the axis. These are different corpora and the mean
+        # cannot tell them apart, so the spread and the decile coverage are recorded too.
+        "activity_sd": round(float(np.std(labels)), 4) if labels is not None else None,
+        "activity_p10": round(float(np.quantile(labels, 0.10)), 4) if labels is not None else None,
+        "activity_p90": round(float(np.quantile(labels, 0.90)), 4) if labels is not None else None,
+        "activity_iqr": (
+            round(float(np.quantile(labels, 0.75) - np.quantile(labels, 0.25)), 4)
+            if labels is not None
+            else None
+        ),
         "top_motifs": [[names[i], round(float(p[i]), 5)] for i in np.argsort(-p)[:25] if p[i] > 0],
         "_motif_share": p.tolist(),
     }
@@ -358,6 +370,17 @@ def main() -> int:
         groups = {"sources": srcs}
         s_x, s_y = take(sel, sel_y, a.sample)
         groups["selected"] = describe(s_x, s_y, motifs, names, device, "selected")
+        # How much of the POOL's activity axis the selection actually covers, in the pool's
+        # own decile bins. 1.0 means the selection reaches every tenth of the range the
+        # pool offered; a rule that creams off the top scores low here while still
+        # reporting a high mean.
+        try:
+            edges = np.quantile(pool_y, np.linspace(0, 1, 11))
+            groups["selected"]["pool_decile_coverage"] = round(
+                float(len(set(np.clip(np.digitize(s_y, edges[1:-1]), 0, 9))) / 10), 3
+            )
+        except Exception:
+            pass
         if rest:
             r_x, r_y = take([pool[i] for i in rest], pool_y[rest], a.sample)
             groups["not_selected"] = describe(r_x, r_y, motifs, names, device, "not selected")
