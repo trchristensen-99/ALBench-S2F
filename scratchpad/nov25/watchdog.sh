@@ -43,11 +43,20 @@ echo "# watchdog started $(date '+%F %T'), target=$TARGET ceiling=$CEILING until
 while [ "$(date +%s)" -lt "$END" ]; do
   run=$(squeue -u christen -h -t RUNNING 2>/dev/null | wc -l)
   pend=$(squeue -u christen -h -t PENDING 2>/dev/null | wc -l)
-  # Free GPUs by type: total configured minus what every running job has allocated.
-  freeh=$(( $(sinfo -p gpuq -h -N -o '%G' 2>/dev/null | grep -oE 'h100:[0-9]+' | cut -d: -f2 | paste -sd+ | bc 2>/dev/null || echo 0) \
-          - $(squeue -p gpuq -h -t RUNNING -o '%b' 2>/dev/null | grep -oE 'h100:[0-9]+' | cut -d: -f2 | paste -sd+ | bc 2>/dev/null || echo 0) ))
-  freev=$(( $(sinfo -p gpuq -h -N -o '%G' 2>/dev/null | grep -oE 'v100:[0-9]+' | cut -d: -f2 | paste -sd+ | bc 2>/dev/null || echo 0) \
-          - $(squeue -p gpuq -h -t RUNNING -o '%b' 2>/dev/null | grep -oE 'v100:[0-9]+' | cut -d: -f2 | paste -sd+ | bc 2>/dev/null || echo 0) ))
+  # Free GPUs by type, from sinfo's own Gres/GresUsed per node.
+  #
+  # The previous version subtracted what `squeue -o '%b'` reported from the configured
+  # total, and that undercounts: %b does not report every running job's GRES, so this log
+  # claimed 4 free H100 for hours while sinfo's GresUsed showed 76 of 76 allocated. Jobs
+  # were queued against capacity that did not exist. GresUsed is what the scheduler
+  # actually holds, so it is what gets logged.
+  read -r freeh freev < <(sinfo -p gpuq -h -N -O 'Gres:24,GresUsed:28' 2>/dev/null | awk '
+    { tot=0; used=0; type="";
+      if (match($0, /gpu:(h100|v100):[0-9]+/)) { s=substr($0,RSTART,RLENGTH); split(s,a,":"); type=a[2]; tot=a[3]; }
+      if (match($0, /gpu:(h100|v100):[0-9]+\(IDX/)) { s=substr($0,RSTART,RLENGTH); split(s,b,":"); sub(/\(IDX/,"",b[3]); used=b[3]; }
+      if (type != "") { T[type]+=tot; U[type]+=used }
+    } END { printf "%d %d\n", T["h100"]-U["h100"], T["v100"]-U["v100"] }')
+  freeh=${freeh:-0}; freev=${freev:-0}
   printf '%s running=%-3s pending=%-4s free_h100=%-4s free_v100=%-4s %s\n' \
     "$(date '+%F %T')" "$run" "$pend" "$freeh" "$freev" \
     "$(squeue -u christen -h -t RUNNING -o '%j' 2>/dev/null | sort | uniq -c | tr '\n' ' ')" >> "$LOG"
